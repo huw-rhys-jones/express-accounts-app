@@ -9,12 +9,16 @@
     "web": "expo start --web"
   },
   "dependencies": {
+    "@react-native-community/datetimepicker": "^8.3.0",
     "@react-navigation/native": "^7.0.14",
     "@react-navigation/stack": "^7.1.1",
     "expo": "~52.0.27",
     "expo-status-bar": "~2.0.1",
     "react": "18.3.1",
     "react-native": "0.76.6",
+    "react-native-image-picker": "^8.0.0",
+    "react-native-paper": "^5.13.1",
+    "react-native-safe-area-context": "^5.2.0",
     "react-navigation": "^5.0.0"
   },
   "devDependencies": {
