@@ -84,7 +84,7 @@ const styles = StyleSheet.create({
   header: {
     fontSize: 22,
     fontWeight: "bold",
-    color: "#600",
+    color: "#a60d49",
     marginBottom: 20,
     textAlign: "center",
   },
@@ -97,6 +97,7 @@ const styles = StyleSheet.create({
   inputRow: {
     flexDirection: "row",
     alignItems: "center",
+
   },
   currency: {
     fontSize: 18,
@@ -107,7 +108,7 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: "#ccc",
     borderRadius: 5,
-    padding: 8,
+    padding: 10,
     flex: 1,
     fontSize: 16,
   },
@@ -117,15 +118,19 @@ const styles = StyleSheet.create({
     borderRadius: 5,
     padding: 10,
     marginTop: 5,
+    margin:16
   },
   dateText: {
     fontSize: 16,
   },
   categoryButton: {
-    backgroundColor: "#000",
-    padding: 10,
-    borderRadius: 5,
-    marginTop: 5,
+    backgroundColor: "#312e74",
+    padding: 13.5,
+    borderRadius: 20,
+    marginTop: 7,
+    width: 290,
+    margin: 15
+
   },
   categoryText: {
     color: "#fff",
