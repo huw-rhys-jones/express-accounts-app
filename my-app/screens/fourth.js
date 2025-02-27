@@ -65,7 +65,7 @@ const SignUpScreen = () => {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: "#2E2763", // Dark purple background
+    backgroundColor: "#151337", // Dark purple background
     alignItems: "center",
     justifyContent: "center",
   },
