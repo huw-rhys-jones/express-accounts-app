@@ -6,7 +6,7 @@ import * as ImagePicker from "react-native-image-picker";
 
 const ReceiptScreen = () => {
   const [amount, setAmount] = useState("13.35");
-  const [date, setDate] = useState(new Date(2006, 4, 24)); // Month is 0-based
+  const [date, setDate] = useState(new Date(2024, 3, 6)); // Month is 0-based
   const [showDatePicker, setShowDatePicker] = useState(false);
   const [receiptImage, setReceiptImage] = useState(null);
 
@@ -102,7 +102,9 @@ const styles = StyleSheet.create({
   currency: {
     fontSize: 18,
     fontWeight: "bold",
-    marginRight: 5,
+    marginRight: 0,
+    marginLeft: 25,
+    
   },
   input: {
     borderWidth: 1,
@@ -111,25 +113,30 @@ const styles = StyleSheet.create({
     padding: 10,
     flex: 1,
     fontSize: 16,
+    margin: 8,
+    marginRight: 35,
   },
   dateButton: {
     borderWidth: 1,
     borderColor: "#ccc",
     borderRadius: 5,
     padding: 10,
-    marginTop: 5,
-    margin:16
+    marginTop: 4,
+    margin: 25,
+    marginRight: 36,
+    marginLeft: 44,
   },
   dateText: {
     fontSize: 16,
+  
   },
   categoryButton: {
     backgroundColor: "#312e74",
     padding: 13.5,
-    borderRadius: 20,
+    borderRadius: 25,
     marginTop: 7,
-    width: 290,
-    margin: 15
+    width: 275,
+    margin: 20
 
   },
   categoryText: {
