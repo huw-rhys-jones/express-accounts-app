@@ -83,11 +83,13 @@ const styles = StyleSheet.create({
     fontWeight: "bold",
     textAlign: "center",
     color: "#1C1A4D",
+    marginBottom: 15,
   },
   subtitle: {
     fontSize: 14,
     color: "#555",
     textAlign: "center",
+    marginBottom:-10,
   },
   link: {
     color: "#B00040",
@@ -111,14 +113,15 @@ const styles = StyleSheet.create({
     padding: 12,
     borderRadius: 10,
     backgroundColor: "#C4C3CC", // Grayish input background
-    marginBottom: 10,
+    marginBottom: 1,
   },
   button: {
     backgroundColor: "#B00040", // Red button
     paddingVertical: 12,
-    borderRadius: 10,
+    borderRadius: 25,
     alignItems: "center",
-    marginTop: 10,
+    marginTop: 40,
+    marginBottom: 12,
   },
   buttonText: {
     color: "#fff",
@@ -129,3 +132,5 @@ const styles = StyleSheet.create({
 
 export default SignUpScreen;
 
+// #RE: Huw- There are a load of errors showing in the terminal not sure if I'm going to mess something up - so haven't saved 
+// the last changes I've made. Also I tried to add the logo again but failed miserably! 
