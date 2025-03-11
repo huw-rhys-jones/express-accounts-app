@@ -120,7 +120,7 @@ const styles = StyleSheet.create({
     paddingVertical: 12,
     borderRadius: 25,
     alignItems: "center",
-    marginTop: 40,
+    marginTop: 45,
     marginBottom: 12,
   },
   buttonText: {
@@ -132,5 +132,4 @@ const styles = StyleSheet.create({
 
 export default SignUpScreen;
 
-// #RE: Huw- There are a load of errors showing in the terminal not sure if I'm going to mess something up - so haven't saved 
-// the last changes I've made. Also I tried to add the logo again but failed miserably! 
+// #RE: Huw-  I tried to add the logo again but failed miserably! 
