@@ -60,16 +60,17 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
   header: {
-    backgroundColor: "#EAEAF2",
-    paddingVertical: 15,
+    backgroundColor: "#A81D46",
+    paddingVertical: 13,
     paddingHorizontal: 30,
-    borderRadius: 20,
-    marginBottom: 20,
+    borderRadius: 35,
+    marginTop: -30, 
+    marginBottom: 55,
   },
   headerText: {
     fontSize: 18,
     fontWeight: "bold",
-    color: "#262261",
+    color: "#FFF",
   },
   formContainer: {
     backgroundColor: "#EAEAF2",
@@ -81,7 +82,7 @@ const styles = StyleSheet.create({
     fontSize: 12,
     color: "#262261",
     fontWeight: "bold",
-    marginBottom: 5,
+    marginBottom: 6,
   },
   input: {
     backgroundColor: "#C4C4C4",
@@ -94,9 +95,9 @@ const styles = StyleSheet.create({
   loginButton: {
     backgroundColor: "#A81D46",
     paddingVertical: 12,
-    borderRadius: 10,
+    borderRadius: 25,
     alignItems: "center",
-    marginTop: 10,
+    marginTop: 35,
   },
   loginButtonText: {
     color: "#FFF",
