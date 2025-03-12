@@ -60,17 +60,17 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
   header: {
-    backgroundColor: "#A81D46",
-    paddingVertical: 13,
-    paddingHorizontal: 30,
+    backgroundColor: "#FFF",
+    paddingVertical: 15,
+    paddingHorizontal: 35,
     borderRadius: 35,
     marginTop: -30, 
     marginBottom: 55,
   },
   headerText: {
-    fontSize: 18,
+    fontSize: 21,
     fontWeight: "bold",
-    color: "#FFF",
+    color: "#29275b",
   },
   formContainer: {
     backgroundColor: "#EAEAF2",
