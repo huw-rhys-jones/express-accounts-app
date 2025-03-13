@@ -5,6 +5,7 @@ import SecondScreen from './screens/second'
 import ReceiptScreen from './screens/third'
 import SignUpScreen from './screens/fourth'
 import SignInScreen from './screens/logIn'
+import IncomeScreen from './screens/income'
 
 import { NavigationContainer } from '@react-navigation/native';
 import { createStackNavigator } from '@react-navigation/stack';
@@ -14,12 +15,13 @@ const Stack = createStackNavigator();
 export default function App() {
   return (
     <NavigationContainer>
-      <Stack.Navigator initialRouteName="SignIn">
+      <Stack.Navigator initialRouteName="Income">
         <Stack.Screen name="Home" component={HomeScreen} />
         <Stack.Screen name="Details" component={SecondScreen} />
         <Stack.Screen name="Receipts" component={ReceiptScreen} />
         <Stack.Screen name="SignUp" component={SignUpScreen} />
         <Stack.Screen name="SignIn" component={SignInScreen} />
+        <Stack.Screen name="Income" component={IncomeScreen} />
       </Stack.Navigator>
     </NavigationContainer>
   );
