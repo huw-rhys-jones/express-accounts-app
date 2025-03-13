@@ -99,8 +99,8 @@ const styles = StyleSheet.create({
   },
   addButton: {
     backgroundColor: "#a60d49",
-    paddingVertical: 20,
-    paddingHorizontal: 50,
+    paddingVertical: 16,
+    paddingHorizontal: 46,
     borderRadius: 35,
     marginTop: 50,
     shadowColor: "#a60d49",
