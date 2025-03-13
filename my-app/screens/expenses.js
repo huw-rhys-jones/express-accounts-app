@@ -8,7 +8,7 @@ import {
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 
-const IncomeScreen = () => {
+const ExpensesScreen = () => {
   return (
     <SafeAreaView style={styles.container}>
       {/* Header */}
@@ -34,9 +34,9 @@ const IncomeScreen = () => {
         </Text>
       </View>
 
-      {/* Add Income Button */}
+      {/* Add Expenses Button */}
       <TouchableOpacity style={styles.addButton}>
-        <Text style={styles.buttonText}>Add Income</Text>
+        <Text style={styles.buttonText}>Add Expenses</Text>
       </TouchableOpacity>
 
       {/* Bottom Navigation */}
@@ -55,7 +55,7 @@ const IncomeScreen = () => {
   );
 };
 
-export default IncomeScreen;
+export default ExpensesScreen;
 
 /* 📌 Styles */
 const styles = StyleSheet.create({
@@ -88,7 +88,7 @@ const styles = StyleSheet.create({
   subtitle: {
     fontSize: 17,
     color: "#1C1C4E",
-    marginTop: 15,
+    marginTop: 14,
     textAlign: "center",
   },
   description: {
@@ -112,7 +112,6 @@ const styles = StyleSheet.create({
     fontSize: 25,
     fontWeight: "bold",
     color: "white",
-    textAlign: "center",
   },
   bottomNav: {
     position: "absolute",
