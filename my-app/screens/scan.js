@@ -128,7 +128,7 @@ const styles = StyleSheet.create({
     borderColor: "white",
   },
   scanButton: {
-    backgroundColor: "#C51F63",
+    backgroundColor: "#a60d49",
     paddingVertical: 15,
     paddingHorizontal: 50,
     borderRadius: 10,
