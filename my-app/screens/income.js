@@ -70,6 +70,7 @@ const styles = StyleSheet.create({
     height: 60,
     backgroundColor: "#B5B3C6",
     justifyContent: "center",
+    
     paddingLeft: 20,
   },
   card: {
