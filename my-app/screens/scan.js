@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import {
   View,
   Text,
@@ -7,21 +7,52 @@ import {
   SafeAreaView,
   Image,
   Alert,
+  PermissionsAndroid,
+  Platform,
 } from "react-native";
 import { launchCamera, launchImageLibrary } from "react-native-image-picker";
 
 const ScannerScreen = () => {
   const [receiptImage, setReceiptImage] = useState(null);
 
-  // Function to open the camera
-  const openCamera = () => {
+  // Function to request camera permissions
+  const requestCameraPermission = async () => {
+    if (Platform.OS === "android") {
+      try {
+        const granted = await PermissionsAndroid.request(
+          PermissionsAndroid.PERMISSIONS.CAMERA,
+          {
+            title: "Camera Permission",
+            message: "App needs access to your camera to scan receipts.",
+            buttonNeutral: "Ask Me Later",
+            buttonNegative: "Cancel",
+            buttonPositive: "OK",
+          }
+        );
+        return granted === PermissionsAndroid.RESULTS.GRANTED;
+      } catch (err) {
+        console.warn(err);
+        return false;
+      }
+    }
+    return true; // iOS does not require explicit permission handling in code
+  };
+
+  // Open Camera with Permissions
+  const openCamera = async () => {
+    const hasPermission = await requestCameraPermission();
+    if (!hasPermission) {
+      Alert.alert("Permission Denied", "Camera access is required to scan receipts.");
+      return;
+    }
+
     launchCamera(
-      { mediaType: "photo", cameraType: "back", quality: 1 },
+      { mediaType: "photo", cameraType: "back", quality: 1, saveToPhotos: true },
       (response) => {
         if (response.didCancel) {
-          Alert.alert("Camera closed", "You did not take a photo.");
+          Alert.alert("Cancelled", "You did not take a photo.");
         } else if (response.errorMessage) {
-          Alert.alert("Camera error", response.errorMessage);
+          Alert.alert("Error", response.errorMessage);
         } else if (response.assets && response.assets.length > 0) {
           setReceiptImage(response.assets[0].uri);
         }
@@ -29,7 +60,7 @@ const ScannerScreen = () => {
     );
   };
 
-  // Function to open the gallery
+  // Open Gallery
   const openGallery = () => {
     launchImageLibrary({ mediaType: "photo", quality: 1 }, (response) => {
       if (response.didCancel) {
@@ -44,29 +75,24 @@ const ScannerScreen = () => {
 
   return (
     <SafeAreaView style={styles.container}>
-      {/* Instruction Text */}
       <Text style={styles.instructionText}>
         Place your receipt on a flat surface, center in the view and press scan
       </Text>
 
-      {/* Display the selected/scanned image */}
       {receiptImage && (
         <Image source={{ uri: receiptImage }} style={styles.receiptImage} />
       )}
 
-      {/* Scan Button */}
       <TouchableOpacity style={styles.scanButton} onPress={openCamera}>
         <Text style={styles.scanButtonText}>Scan</Text>
       </TouchableOpacity>
 
-      {/* Upload from Gallery */}
       <TouchableOpacity style={styles.uploadButton} onPress={openGallery}>
         <Text style={styles.uploadText}>
           Already taken a photo of your receipt? Click here to upload
         </Text>
       </TouchableOpacity>
 
-      {/* Cancel Button */}
       <TouchableOpacity style={styles.cancelButton} onPress={() => Alert.alert("Cancelled", "Going back to previous screen")}>
         <Text style={styles.cancelText}>Cancel</Text>
       </TouchableOpacity>
@@ -90,8 +116,8 @@ const styles = StyleSheet.create({
     fontWeight: "bold",
     color: "white",
     textAlign: "center",
-    marginBottom:300,
-    marginTop: -360,
+    marginBottom: 300,
+    marginTop: -300,
   },
   receiptImage: {
     width: 300,
@@ -102,18 +128,18 @@ const styles = StyleSheet.create({
     borderColor: "white",
   },
   scanButton: {
-    backgroundColor: "#a60d49",
+    backgroundColor: "#C51F63",
     paddingVertical: 15,
     paddingHorizontal: 50,
-    borderRadius: 30,
-    marginTop: 20,
+    borderRadius: 10,
+    marginTop: 50,
     shadowColor: "#C51F63",
     shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.3,
     shadowRadius: 5,
   },
   scanButtonText: {
-    fontSize: 20,
+    fontSize: 16,
     fontWeight: "bold",
     color: "white",
   },
@@ -122,8 +148,8 @@ const styles = StyleSheet.create({
     paddingVertical: 10,
     paddingHorizontal: 20,
     borderRadius: 10,
-    marginTop: 30,
-    marginBottom: -320,
+    marginTop: 20,
+    marginBottom: -220,
     alignItems: "center",
   },
   uploadText: {
