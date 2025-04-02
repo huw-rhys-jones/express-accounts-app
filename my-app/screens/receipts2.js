@@ -84,10 +84,10 @@ const ReceiptScreen = () => {
         </View>
 
         <View style={styles.buttonContainer}>
-          <Button mode="contained" buttonColor="#880E4F" style={styles.button}>
+          <Button mode="contained" buttonColor="#a60d49" style={styles.button}>
             Cancel
           </Button>
-          <Button mode="contained" buttonColor="#880E4F" style={styles.button}>
+          <Button mode="contained" buttonColor="#a60d49" style={styles.button}>
             Save
           </Button>
         </View>
