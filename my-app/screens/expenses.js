@@ -13,7 +13,7 @@ const ExpensesScreen = () => {
     <SafeAreaView style={styles.container}>
       {/* Header */}
       <View style={styles.header}>
-        <Ionicons name="menu" size={24} color="black" />
+        <Ionicons name="menu" size={44} color="black" />
       </View>
 
       {/* Welcome Section */}

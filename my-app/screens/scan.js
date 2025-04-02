@@ -129,8 +129,8 @@ const styles = StyleSheet.create({
   },
   scanButton: {
     backgroundColor: "#a60d49",
-    paddingVertical: 13,
-    paddingHorizontal: 55,
+    paddingVertical: 12,
+    paddingHorizontal: 50,
     borderRadius: 35,
     marginTop: 50,
     shadowColor: "#C51F63",
@@ -145,7 +145,7 @@ const styles = StyleSheet.create({
   },
   uploadButton: {
     backgroundColor: "#E5E5EA",
-    paddingVertical: 13,
+    paddingVertical: 12,
     paddingHorizontal: 22,
     borderRadius: 33,
     marginTop: 26,
