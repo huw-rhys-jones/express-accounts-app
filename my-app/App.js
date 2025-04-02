@@ -9,6 +9,7 @@ import IncomeScreen from './screens/income'
 import ExpensesScreen from './screens/expenses'
 import ScanScreen from './screens/scan'
 import Receipts2Screen from './screens/receipts2'
+import ReceiptConfirmationScreen from './screens/receiptConfirmation'
 
 
 import { NavigationContainer } from '@react-navigation/native';
@@ -19,7 +20,7 @@ const Stack = createStackNavigator();
 export default function App() {
   return (
     <NavigationContainer>
-      <Stack.Navigator initialRouteName="Expenses">
+      <Stack.Navigator initialRouteName="ReceiptConfirmation">
         <Stack.Screen name="Home" component={HomeScreen} />
         <Stack.Screen name="Details" component={SecondScreen} />
         <Stack.Screen name="Receipts" component={ReceiptScreen} />
@@ -29,6 +30,8 @@ export default function App() {
         <Stack.Screen name="Expenses" component={ExpensesScreen} />
         <Stack.Screen name="Scan" component={ScanScreen} />
         <Stack.Screen name="Receipts2" component={Receipts2Screen} />
+        <Stack.Screen name="Receipt" component={Receipts2Screen} />
+        <Stack.Screen name="ReceiptConfirmation" component={ReceiptConfirmationScreen} />
       </Stack.Navigator>
     </NavigationContainer>
   );
