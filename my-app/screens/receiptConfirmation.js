@@ -78,7 +78,7 @@ const ReceiptConfirmationScreen = () => {
       <View style={styles.buttonRow}>
         <Button
           mode="contained"
-          buttonColor="#C51F63"
+          buttonColor="#a60d49"
           style={styles.button}
           onPress={() => console.log("Retry")}
         >
@@ -86,7 +86,7 @@ const ReceiptConfirmationScreen = () => {
         </Button>
         <Button
           mode="contained"
-          buttonColor="#312E74"
+          buttonColor="#a60d49"
           style={styles.button}
           onPress={() => console.log("Accept")}
         >
@@ -170,7 +170,6 @@ const styles = StyleSheet.create({
     justifyContent: "space-between",
     marginTop: 20,
     width: "90%",
-    color: "#a60d49",
   },
   button: {
     flex: 1,
