@@ -173,8 +173,8 @@ const styles = StyleSheet.create({
   },
   button: {
     flex: 1,
-    marginHorizontal: 5,
-    paddingVertical: 3,
+    marginHorizontal: 14,
+    paddingVertical: 4,
     borderRadius: 25,
   
 
