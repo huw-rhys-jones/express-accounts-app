@@ -131,7 +131,7 @@ const styles = StyleSheet.create({
     fontSize: 18,
   },
   detailsContainer: {
-    marginTop: 10,
+    marginTop: 15,
     width: "90%",
     backgroundColor: "#E5E5EA",
     borderRadius: 30,
@@ -159,7 +159,7 @@ const styles = StyleSheet.create({
     borderColor: "#ccc",
   },
   value: {
-    fontSize: 16,
+    fontSize: 14,
     color: "#302C66",
   },
   checkIcon: {
@@ -168,14 +168,14 @@ const styles = StyleSheet.create({
   buttonRow: {
     flexDirection: "row",
     justifyContent: "space-between",
-    marginTop: 20,
+    marginTop: 22,
     width: "90%",
   },
   button: {
     flex: 1,
     marginHorizontal: 5,
-    paddingVertical: 6,
-    borderRadius: 8,
+    paddingVertical: 3,
+    borderRadius: 25,
   
 
   },
