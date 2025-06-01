@@ -8,12 +8,27 @@ import {
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 
-const ExpensesScreen = () => {
+import { signOut } from 'firebase/auth';
+import { auth } from '../firebaseConfig';
+
+const ExpensesScreen = ({ navigation }) => {
+
+  const handleLogout = () => {
+    signOut(auth)
+      .then(() => {
+        // Navigate to SignIn screen after logout
+        navigation.replace('SignIn');
+      })
+      .catch((error) => {
+        console.error('Logout error:', error);
+      });
+  };
+
   return (
     <SafeAreaView style={styles.container}>
       {/* Header */}
       <View style={styles.header}>
-        <Ionicons name="menu" size={44} color="black" />
+        <Ionicons name="menu" size={44} color="black" onPress={handleLogout}/>
       </View>
 
       {/* Welcome Section */}

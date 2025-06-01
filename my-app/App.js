@@ -1,28 +1,42 @@
-import { StatusBar } from 'expo-status-bar';
-import { StyleSheet, Text, View } from 'react-native';
-import HomeScreen from './screens/first'
-import SecondScreen from './screens/second'
-import ReceiptScreen from './screens/third'
-import SignUpScreen from './screens/register'
-import SignInScreen from './screens/logIn'
-import IncomeScreen from './screens/income'
-import ExpensesScreen from './screens/expenses'
-import ScanScreen from './screens/scan'
-import Receipts2Screen from './screens/receipts2'
-import ReceiptConfirmationScreen from './screens/receiptConfirmation'
-
-
+import React, { useEffect, useState } from 'react';
 import { NavigationContainer } from '@react-navigation/native';
 import { createStackNavigator } from '@react-navigation/stack';
+
+import { onAuthStateChanged } from 'firebase/auth';
+import { auth } from './firebaseConfig';
+
+import ReceiptScreen from './screens/third';
+import SignUpScreen from './screens/register';
+import SignInScreen from './screens/logIn';
+import IncomeScreen from './screens/income';
+import ExpensesScreen from './screens/expenses';
+import ScanScreen from './screens/scan';
+import Receipts2Screen from './screens/receipts2';
+import ReceiptConfirmationScreen from './screens/receiptConfirmation';
 
 const Stack = createStackNavigator();
 
 export default function App() {
+  const [user, setUser] = useState(null);
+  const [checkingAuth, setCheckingAuth] = useState(true);
+
+  useEffect(() => {
+    const unsubscribe = onAuthStateChanged(auth, (user) => {
+      setUser(user);
+      setCheckingAuth(false);
+    });
+
+    return unsubscribe;
+  }, []);
+
+  if (checkingAuth) return null; // Or a splash screen/spinner if you like
+
   return (
     <NavigationContainer>
-      <Stack.Navigator initialRouteName="SignIn">
-        <Stack.Screen name="Home" component={HomeScreen} />
-        <Stack.Screen name="Details" component={SecondScreen} />
+      <Stack.Navigator
+        initialRouteName={user ? 'Expenses' : 'SignIn'}
+        screenOptions={{ headerShown: false }} // optional: hide headers globally
+      >
         <Stack.Screen name="Receipts" component={ReceiptScreen} />
         <Stack.Screen name="SignUp" component={SignUpScreen} />
         <Stack.Screen name="SignIn" component={SignInScreen} />
@@ -37,11 +51,4 @@ export default function App() {
   );
 }
 
-const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: '#fff',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-});
+
