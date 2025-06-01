@@ -8,7 +8,7 @@ import {
 import ReactNativeAsyncStorage from '@react-native-async-storage/async-storage';
 
 const firebaseConfig = {
-  apiKey: "API_KEY",
+  apiKey: "AIzaSyD05bdrS9O17SDFHBnJ23k6GyXZYDR_LZ8",
   authDomain: "express-accounts-73d38.firebaseapp.com",
   projectId: "express-accounts-73d38",
   storageBucket: "express-accounts-73d38.appspot.com", // <- fixed typo from ".firebasestorage.app"
