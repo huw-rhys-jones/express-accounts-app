@@ -18,11 +18,11 @@ const SignUpScreen = () => {
   const [password, setPassword] = useState("");
 
   const register = (
-    //email, password
+    // email, password
     ) => {
     
     // const auth = getAuth();
-    createUserWithEmailAndPassword(auth, "janus.antithesis@gmail.com", "password123")
+    createUserWithEmailAndPassword(auth, email, password)
       .then((userCredential) => {
       // Signed up 
       const user = userCredential.user;
