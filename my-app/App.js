@@ -3,7 +3,7 @@ import { StyleSheet, Text, View } from 'react-native';
 import HomeScreen from './screens/first'
 import SecondScreen from './screens/second'
 import ReceiptScreen from './screens/third'
-import SignUpScreen from './screens/fourth'
+import SignUpScreen from './screens/register'
 import SignInScreen from './screens/logIn'
 import IncomeScreen from './screens/income'
 import ExpensesScreen from './screens/expenses'

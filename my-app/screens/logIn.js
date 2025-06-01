@@ -5,13 +5,14 @@ import { View, Text, TextInput, TouchableOpacity, StyleSheet } from "react-nativ
 import { signInWithEmailAndPassword } from 'firebase/auth';
 import { auth } from '../firebaseConfig';
 
-const LoginScreen = () => {
+const LoginScreen = ({ navigation }) => {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
 
   const login = () => {
     signInWithEmailAndPassword(auth, email, password)
       .then((userCredential) => {
+        navigation.navigate('Expenses')
         const user = userCredential.user;
         console.log("Login successful:", user.email);
       })
@@ -60,9 +61,13 @@ const LoginScreen = () => {
           <Text style={styles.forgotPassword}>Forgot Password?</Text>
         </TouchableOpacity>
 
-        <TouchableOpacity>
+        {/* TODO There might need to be some context here
+            Something like: "Not yet a user?" */}
+
+        <TouchableOpacity onPress={() => navigation.navigate('SignUp')}>
           <Text style={styles.signup}>Signup</Text>
         </TouchableOpacity>
+
       </View>
     </View>
   );
