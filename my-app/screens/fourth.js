@@ -9,7 +9,7 @@ import {
 
 
 import { auth } from '../firebaseConfig'
-import { createUserWithEmailAndPassword, signInWithEmailAndPassword } from 'firebase/auth';
+import { createUserWithEmailAndPassword } from 'firebase/auth';
 
 
 const SignUpScreen = () => {
