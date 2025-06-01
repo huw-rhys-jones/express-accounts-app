@@ -25,7 +25,12 @@ const SignUpScreen = ({ navigation }) => {
     createUserWithEmailAndPassword(auth, email, password)
       .then((userCredential) => {
       // Signed up 
-      navigation.navigate('Expenses')
+
+      navigation.reset({
+        index: 0,
+        routes: [{ name: 'Expenses' }],
+      });
+      
       const user = userCredential.user;
       console.log("success")
     } )

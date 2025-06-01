@@ -12,7 +12,10 @@ const LoginScreen = ({ navigation }) => {
   const login = () => {
     signInWithEmailAndPassword(auth, email, password)
       .then((userCredential) => {
-        navigation.navigate('Expenses')
+        navigation.reset({
+          index: 0,
+          routes: [{ name: 'Expenses' }],
+        })
         const user = userCredential.user;
         console.log("Login successful:", user.email);
       })
