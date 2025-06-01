@@ -7,10 +7,37 @@ import {
   StyleSheet 
 } from "react-native";
 
+
+import { auth } from '../firebaseConfig'
+import { createUserWithEmailAndPassword, signInWithEmailAndPassword } from 'firebase/auth';
+
+
 const SignUpScreen = () => {
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+
+  const register = (
+    //email, password
+    ) => {
+    
+    // const auth = getAuth();
+    createUserWithEmailAndPassword(auth, "janus.antithesis@gmail.com", "password123")
+      .then((userCredential) => {
+      // Signed up 
+      const user = userCredential.user;
+      console.log("success")
+    } )
+    .catch((error) => {
+      const errorCode = error.code;
+      const errorMessage = error.message;
+      console.log(errorCode)
+      console.log(errorMessage)
+    });
+
+
+  };
+  
 
   return (
     <View style={styles.container}>
@@ -54,7 +81,7 @@ const SignUpScreen = () => {
         />
 
         {/* Sign Up Button */}
-        <TouchableOpacity style={styles.button}>
+        <TouchableOpacity style={styles.button} onPress={() => register()}>
           <Text style={styles.buttonText}>Sign up</Text>
         </TouchableOpacity>
       </View>
