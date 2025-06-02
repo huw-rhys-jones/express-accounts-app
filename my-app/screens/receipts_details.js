@@ -12,7 +12,7 @@ import DateTimePicker from "@react-native-community/datetimepicker";
 import * as ImagePicker from "react-native-image-picker";
 
 const ReceiptScreen = () => {
-  const [amount, setAmount] = useState("13.35");
+  const [amount, setAmount] = useState("");
   const [date, setDate] = useState(new Date(2024, 3, 6)); // Month is 0-based
   const [showDatePicker, setShowDatePicker] = useState(false);
   const [receiptImage, setReceiptImage] = useState(null);
