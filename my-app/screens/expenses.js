@@ -1,4 +1,4 @@
-import React from "react";
+import React, { useState, useEffect } from "react";
 import {
   View,
   Text,
@@ -7,16 +7,29 @@ import {
   SafeAreaView,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
-
-import { signOut } from 'firebase/auth';
-import { auth } from '../firebaseConfig';
+import { signOut, getAuth, onAuthStateChanged } from 'firebase/auth';
 
 const ExpensesScreen = ({ navigation }) => {
+  const [displayName, setDisplayName] = useState('');
+
+  useEffect(() => {
+    const auth = getAuth();
+    const unsubscribe = onAuthStateChanged(auth, (user) => {
+      if (user) {
+        setDisplayName(user.displayName || 'User');
+      } else {
+        setDisplayName('');
+      }
+    });
+
+    // Clean up the subscription
+    return () => unsubscribe();
+  }, []);
 
   const handleLogout = () => {
+    const auth = getAuth();
     signOut(auth)
       .then(() => {
-        // Navigate to SignIn screen after logout
         navigation.replace('SignIn');
       })
       .catch((error) => {
@@ -33,7 +46,7 @@ const ExpensesScreen = ({ navigation }) => {
 
       {/* Welcome Section */}
       <View style={styles.card}>
-        <Text style={styles.title}>Welcome, Bob!</Text>
+        <Text style={styles.title}>Welcome, {displayName}!</Text>
         <Text style={styles.subtitle}>
           You haven't added any income yet!
         </Text>

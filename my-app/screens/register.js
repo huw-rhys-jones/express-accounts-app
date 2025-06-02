@@ -9,7 +9,7 @@ import {
 
 
 import { auth } from '../firebaseConfig'
-import { createUserWithEmailAndPassword } from 'firebase/auth';
+import { createUserWithEmailAndPassword, updateProfile } from "firebase/auth";
 
 
 const SignUpScreen = ({ navigation }) => {
@@ -17,31 +17,35 @@ const SignUpScreen = ({ navigation }) => {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
 
-  const register = (
-    // email, password
-    ) => {
-    
-    // const auth = getAuth();
+
+  const register = (email, password, name) => {
     createUserWithEmailAndPassword(auth, email, password)
       .then((userCredential) => {
-      // Signed up 
-
-      navigation.reset({
-        index: 0,
-        routes: [{ name: 'Expenses' }],
+        const user = userCredential.user;
+  
+        // Update the user's display name
+        updateProfile(user, {
+          displayName: name,
+        })
+          .then(() => {
+            // Profile updated successfully
+            console.log("User registered and profile updated successfully");
+  
+            // Navigate to the 'Expenses' screen
+            navigation.reset({
+              index: 0,
+              routes: [{ name: 'Expenses' }],
+            });
+          })
+          .catch((error) => {
+            // An error occurred while updating the profile
+            console.error("Profile update error:", error);
+          });
+      })
+      .catch((error) => {
+        // Handle errors during account creation
+        console.error("Registration error:", error);
       });
-      
-      const user = userCredential.user;
-      console.log("success")
-    } )
-    .catch((error) => {
-      const errorCode = error.code;
-      const errorMessage = error.message;
-      console.log(errorCode)
-      console.log(errorMessage)
-    });
-
-
   };
   
 
@@ -88,7 +92,7 @@ const SignUpScreen = ({ navigation }) => {
         />
 
         {/* Sign Up Button */}
-        <TouchableOpacity style={styles.button} onPress={() => register()}>
+        <TouchableOpacity style={styles.button} onPress={() => register(email, password, name)}>
           <Text style={styles.buttonText}>Sign up</Text>
         </TouchableOpacity>
       </View>
