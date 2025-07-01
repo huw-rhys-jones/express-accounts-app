@@ -6,23 +6,62 @@ import {
   TouchableOpacity,
   Image,
   StyleSheet,
+  TouchableWithoutFeedback,
+  Keyboard,
+  KeyboardAvoidingView,
+  Platform
 } from "react-native";
 import { Button } from "react-native-paper";
-import DateTimePicker from "@react-native-community/datetimepicker";
+import DateTimePickerModal from 'react-native-modal-datetime-picker';
 import * as ImagePicker from "react-native-image-picker";
+import DropDownPicker from 'react-native-dropdown-picker';
+import { db, auth } from '../firebaseConfig';
+import { addDoc, collection } from "firebase/firestore";
+import { categories } from "../constants/arrays"
 
 const ReceiptScreen = () => {
   const [amount, setAmount] = useState("");
-  const [date, setDate] = useState(new Date(2024, 3, 6)); // Month is 0-based
-  const [showDatePicker, setShowDatePicker] = useState(false);
+  const [selectedDate, setSelectedDate] = useState(new Date());
+  const [isDatePickerVisible, setDatePickerVisibility] = useState(false);
   const [receiptImage, setReceiptImage] = useState(null);
+  const [open, setOpen] = useState(false);
+  const [selectedCategory, setSelectedCategory] = useState(null);
+  const [items, setItems] = useState(
+    categories.map((cat) => ({
+      label: cat.name,
+      value: cat.name,
+    }))
+  );
 
-  const handleDateChange = (event, selectedDate) => {
-    setShowDatePicker(false);
-    if (selectedDate) {
-      setDate(selectedDate);
+  const uploadReceipt = async ({ amount, date, category }) => {
+    try {
+      const user = auth.currentUser;
+      const docRef = await addDoc(collection(db, 'receipts'), {
+        amount: parseFloat(amount),
+        date: date.toISOString(),
+        category,
+        userId: user.uid, 
+        createdAt: new Date().toISOString()  // optional, for sorting
+      });
+      console.log('Receipt added with ID:', docRef.id);
+    } catch (error) {
+      console.error('Error adding receipt:', error);
     }
   };
+
+  const showDatePicker = () => {
+    setDatePickerVisibility(true);
+  };
+
+  const hideDatePicker = () => {
+    setDatePickerVisibility(false);
+  };
+
+  const handleConfirm = (date) => {
+    setSelectedDate(date);
+    hideDatePicker();
+  };
+
 
   const pickImage = () => {
     ImagePicker.launchImageLibrary({ mediaType: "photo" }, (response) => {
@@ -33,6 +72,11 @@ const ReceiptScreen = () => {
   };
 
   return (
+    <KeyboardAvoidingView
+  style={{ flex: 1 }}
+  behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+>
+    <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
     <View style={styles.container}>
       {/* Purple Border Container */}
       <View style={styles.borderContainer}>
@@ -50,25 +94,30 @@ const ReceiptScreen = () => {
         </View>
 
         <Text style={styles.label}>Date:</Text>
-        <TouchableOpacity
-          style={styles.dateButton}
-          onPress={() => setShowDatePicker(true)}
-        >
-          <Text style={styles.dateText}>{date.toLocaleDateString()}</Text>
-        </TouchableOpacity>
-        {showDatePicker && (
-          <DateTimePicker
-            value={date}
-            mode="date"
-            display="default"
-            onChange={handleDateChange}
-          />
-        )}
+      <TouchableOpacity style={styles.dateButton} onPress={showDatePicker}>
+        <Text style={styles.dateText}>{selectedDate.toLocaleDateString()}</Text>
+      </TouchableOpacity>
+      <DateTimePickerModal
+        isVisible={isDatePickerVisible}
+        mode="date"
+        date={selectedDate}
+        onConfirm={handleConfirm}
+        onCancel={hideDatePicker}
+      />
 
-        <Text style={styles.label}>Category:</Text>
-        <TouchableOpacity style={styles.categoryButton}>
-          <Text style={styles.categoryText}>SUBSISTENCE</Text>
-        </TouchableOpacity>
+    <Text style={styles.label}>Category:</Text>
+          <DropDownPicker
+            open={open}
+            value={selectedCategory}
+            items={items}
+            setOpen={setOpen}
+            setValue={setSelectedCategory}
+            setItems={setItems}
+            placeholder="Select a category"
+            style={styles.dropdown}
+            dropDownContainerStyle={styles.dropdownContainer}
+            zIndex={1000}
+      />
 
         <View style={styles.receiptContainer}>
           {receiptImage ? (
@@ -87,12 +136,18 @@ const ReceiptScreen = () => {
           <Button mode="contained" buttonColor="#a60d49" style={styles.button}>
             Cancel
           </Button>
-          <Button mode="contained" buttonColor="#a60d49" style={styles.button}>
+          <Button mode="contained" onPress={() => uploadReceipt({
+              amount,
+              date: selectedDate,
+              category: selectedCategory
+              })} buttonColor="#a60d49" style={styles.button}>
             Save
           </Button>
         </View>
       </View>
     </View>
+    </TouchableWithoutFeedback>
+    </KeyboardAvoidingView>
   );
 };
 
@@ -203,6 +258,14 @@ const styles = StyleSheet.create({
   button: {
     flex: 1,
     marginHorizontal: 5,
+  },
+  dropdown: {
+    backgroundColor: '#fafafa',
+    borderColor: '#ccc',
+  },
+  dropdownContainer: {
+    backgroundColor: '#fafafa',
+    borderColor: '#ccc',
   },
 });
 
