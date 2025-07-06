@@ -1,28 +1,27 @@
 import React, { useState } from "react";
-import { 
-  View, 
-  Text, 
-  TextInput, 
-  TouchableOpacity, 
-  StyleSheet 
+import {
+  View,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  StyleSheet,
+  KeyboardAvoidingView,
+  Platform
 } from "react-native";
 
-
-import { auth } from '../firebaseConfig'
+import { auth } from "../firebaseConfig";
 import { createUserWithEmailAndPassword, updateProfile } from "firebase/auth";
-
 
 const SignUpScreen = ({ navigation }) => {
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
 
-
   const register = (email, password, name) => {
     createUserWithEmailAndPassword(auth, email, password)
       .then((userCredential) => {
         const user = userCredential.user;
-  
+
         // Update the user's display name
         updateProfile(user, {
           displayName: name,
@@ -30,11 +29,11 @@ const SignUpScreen = ({ navigation }) => {
           .then(() => {
             // Profile updated successfully
             console.log("User registered and profile updated successfully");
-  
+
             // Navigate to the 'Expenses' screen
             navigation.reset({
               index: 0,
-              routes: [{ name: 'Expenses' }],
+              routes: [{ name: "Expenses" }],
             });
           })
           .catch((error) => {
@@ -47,56 +46,68 @@ const SignUpScreen = ({ navigation }) => {
         console.error("Registration error:", error);
       });
   };
-  
 
   return (
-    <View style={styles.container}>
-      {/* Header Section */}
-      <View style={styles.header}>
-        <Text style={styles.title}>Create new{"\n"}Account</Text>
-        <Text style={styles.subtitle}>
-          Already Registered? 
-          <Text onPress={() => navigation.navigate('SignIn')} style={styles.link}>Log in here.</Text>
-        </Text>
+    <KeyboardAvoidingView
+      style={{ flex: 1 }}
+      behavior={Platform.OS === "ios" ? "padding" : "height"}
+    >
+      <View style={styles.container}>
+        {/* Header Section */}
+        <View style={styles.header}>
+          <Text style={styles.title}>Create new{"\n"}Account</Text>
+          <Text style={styles.subtitle}>
+            Already Registered?
+            <Text
+              onPress={() => navigation.navigate("SignIn")}
+              style={styles.link}
+            >
+              Log in here.
+            </Text>
+          </Text>
+        </View>
+
+        {/* Form Section */}
+        <View style={styles.form}>
+          <Text style={styles.label}>NAME (COMPANY OR PERSONAL)</Text>
+          <TextInput
+            style={styles.input}
+            placeholder="Bob Builder"
+            placeholderTextColor="#555"
+            value={name}
+            onChangeText={setName}
+          />
+
+          <Text style={styles.label}>EMAIL</Text>
+          <TextInput
+            style={styles.input}
+            placeholder="you@example.com"
+            placeholderTextColor="#555"
+            keyboardType="email-address"
+            value={email}
+            onChangeText={setEmail}
+          />
+
+          <Text style={styles.label}>PASSWORD</Text>
+          <TextInput
+            style={styles.input}
+            placeholder="******"
+            placeholderTextColor="#555"
+            secureTextEntry
+            value={password}
+            onChangeText={setPassword}
+          />
+
+          {/* Sign Up Button */}
+          <TouchableOpacity
+            style={styles.button}
+            onPress={() => register(email, password, name)}
+          >
+            <Text style={styles.buttonText}>Sign up</Text>
+          </TouchableOpacity>
+        </View>
       </View>
-
-      {/* Form Section */}
-      <View style={styles.form}>
-        <Text style={styles.label}>NAME (COMPANY OR PERSONAL)</Text>
-        <TextInput
-          style={styles.input}
-          placeholder="Bob Builder"
-          placeholderTextColor="#555"
-          value={name}
-          onChangeText={setName}
-        />
-
-        <Text style={styles.label}>EMAIL</Text>
-        <TextInput
-          style={styles.input}
-          placeholder="you@example.com"
-          placeholderTextColor="#555"
-          keyboardType="email-address"
-          value={email}
-          onChangeText={setEmail}
-        />
-
-        <Text style={styles.label}>PASSWORD</Text>
-        <TextInput
-          style={styles.input}
-          placeholder="******"
-          placeholderTextColor="#555"
-          secureTextEntry
-          value={password}
-          onChangeText={setPassword}
-        />
-
-        {/* Sign Up Button */}
-        <TouchableOpacity style={styles.button} onPress={() => register(email, password, name)}>
-          <Text style={styles.buttonText}>Sign up</Text>
-        </TouchableOpacity>
-      </View>
-    </View>
+    </KeyboardAvoidingView>
   );
 };
 
@@ -127,7 +138,7 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: "#555",
     textAlign: "center",
-    marginBottom:-10,
+    marginBottom: -10,
   },
   link: {
     color: "#B00040",
@@ -170,4 +181,4 @@ const styles = StyleSheet.create({
 
 export default SignUpScreen;
 
-// #RE: Huw-  I tried to add the logo again but failed miserably! 
+// #RE: Huw-  I tried to add the logo again but failed miserably!

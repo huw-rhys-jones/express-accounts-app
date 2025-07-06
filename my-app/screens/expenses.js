@@ -63,7 +63,7 @@ const ExpensesScreen = ({ navigation }) => {
       </View>
 
       {/* Add Expenses Button */}
-      <TouchableOpacity style={styles.addButton}>
+      <TouchableOpacity style={styles.addButton} onPress={() => navigation.navigate('Receipt')} >
         <Text style={styles.buttonText}>Add Expenses</Text>
       </TouchableOpacity>
 

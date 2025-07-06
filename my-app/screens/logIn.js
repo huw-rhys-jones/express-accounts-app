@@ -1,9 +1,16 @@
 import React, { useState } from "react";
-import { View, Text, TextInput, TouchableOpacity, StyleSheet } from "react-native";
+import {
+  View,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  StyleSheet,
+  KeyboardAvoidingView,
+  Platform,
+} from "react-native";
 
-
-import { signInWithEmailAndPassword } from 'firebase/auth';
-import { auth } from '../firebaseConfig';
+import { signInWithEmailAndPassword } from "firebase/auth";
+import { auth } from "../firebaseConfig";
 
 const LoginScreen = ({ navigation }) => {
   const [email, setEmail] = useState("");
@@ -14,8 +21,8 @@ const LoginScreen = ({ navigation }) => {
       .then((userCredential) => {
         navigation.reset({
           index: 0,
-          routes: [{ name: 'Expenses' }],
-        })
+          routes: [{ name: "Expenses" }],
+        });
         const user = userCredential.user;
         console.log("Login successful:", user.email);
       })
@@ -26,53 +33,57 @@ const LoginScreen = ({ navigation }) => {
   };
 
   return (
-    <View style={styles.container}>
-      {/* Sign in Header */}
-      <View style={styles.header}>
-        <Text style={styles.headerText}>Sign in to continue</Text>
-      </View>
+    <KeyboardAvoidingView
+      style={{ flex: 1 }}
+      behavior={Platform.OS === "ios" ? "padding" : "height"}
+    >
+      <View style={styles.container}>
+        {/* Sign in Header */}
+        <View style={styles.header}>
+          <Text style={styles.headerText}>Sign in to continue</Text>
+        </View>
 
-      {/* Login Form */}
-      <View style={styles.formContainer}>
-        <Text style={styles.label}>EMAIL</Text>
-        <TextInput
-          style={styles.input}
-          placeholder="example@email.com"
-          placeholderTextColor="#AAA"
-          keyboardType="email-address"
-          value={email}
-          onChangeText={setEmail}
-        />
+        {/* Login Form */}
+        <View style={styles.formContainer}>
+          <Text style={styles.label}>EMAIL</Text>
+          <TextInput
+            style={styles.input}
+            placeholder="example@email.com"
+            placeholderTextColor="#AAA"
+            keyboardType="email-address"
+            value={email}
+            onChangeText={setEmail}
+          />
 
-        <Text style={styles.label}>PASSWORD</Text>
-        <TextInput
-          style={styles.input}
-          placeholder="******"
-          placeholderTextColor="#AAA"
-          secureTextEntry
-          value={password}
-          onChangeText={setPassword}
-        />
+          <Text style={styles.label}>PASSWORD</Text>
+          <TextInput
+            style={styles.input}
+            placeholder="******"
+            placeholderTextColor="#AAA"
+            secureTextEntry
+            value={password}
+            onChangeText={setPassword}
+          />
 
-        {/* Login Button */}
-        <TouchableOpacity style={styles.loginButton} onPress={() => login()}>
-          <Text style={styles.loginButtonText}>Log in</Text>
-        </TouchableOpacity>
+          {/* Login Button */}
+          <TouchableOpacity style={styles.loginButton} onPress={() => login()}>
+            <Text style={styles.loginButtonText}>Log in</Text>
+          </TouchableOpacity>
 
-        {/* Forgot Password & Signup */}
-        <TouchableOpacity>
-          <Text style={styles.forgotPassword}>Forgot Password?</Text>
-        </TouchableOpacity>
+          {/* Forgot Password & Signup */}
+          <TouchableOpacity>
+            <Text style={styles.forgotPassword}>Forgot Password?</Text>
+          </TouchableOpacity>
 
-        {/* TODO There might need to be some context here
+          {/* TODO There might need to be some context here
             Something like: "Not yet a user?" */}
 
-        <TouchableOpacity onPress={() => navigation.navigate('SignUp')}>
-          <Text style={styles.signup}>Signup</Text>
-        </TouchableOpacity>
-
+          <TouchableOpacity onPress={() => navigation.navigate("SignUp")}>
+            <Text style={styles.signup}>Signup</Text>
+          </TouchableOpacity>
+        </View>
       </View>
-    </View>
+    </KeyboardAvoidingView>
   );
 };
 
@@ -88,7 +99,7 @@ const styles = StyleSheet.create({
     paddingVertical: 15,
     paddingHorizontal: 35,
     borderRadius: 35,
-    marginTop: -30, 
+    marginTop: -30,
     marginBottom: 55,
   },
   headerText: {

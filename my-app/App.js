@@ -35,8 +35,8 @@ export default function App() {
       <Stack.Navigator
 
         // initialRouteName={user ? 'Expenses' : 'SignIn'}
-        // initialRouteName={user ? 'Expenses' : 'SignIn'}
-        initialRouteName={"Receipt"}
+        initialRouteName={user ? 'Expenses' : 'SignIn'}
+        // initialRouteName={"Receipt"}
         screenOptions={{ headerShown: false }} // optional: hide headers globally
       >
 

@@ -9,43 +9,116 @@ import {
   TouchableWithoutFeedback,
   Keyboard,
   KeyboardAvoidingView,
-  Platform
+  Platform,
+  Modal,
+  Button as RNButton,
 } from "react-native";
 import { Button } from "react-native-paper";
-import DateTimePickerModal from 'react-native-modal-datetime-picker';
+import DateTimePickerModal from "react-native-modal-datetime-picker";
 import * as ImagePicker from "react-native-image-picker";
-import DropDownPicker from 'react-native-dropdown-picker';
-import { db, auth } from '../firebaseConfig';
+import DropDownPicker from "react-native-dropdown-picker";
+import { db, auth } from "../firebaseConfig";
 import { addDoc, collection } from "firebase/firestore";
-import { categories } from "../constants/arrays"
+import { categories } from "../constants/arrays";
+import { Snackbar } from "react-native-paper";
 
-const ReceiptScreen = () => {
+const ReceiptScreen = ({ navigation }) => {
   const [amount, setAmount] = useState("");
   const [selectedDate, setSelectedDate] = useState(new Date());
   const [isDatePickerVisible, setDatePickerVisibility] = useState(false);
   const [receiptImage, setReceiptImage] = useState(null);
   const [open, setOpen] = useState(false);
   const [selectedCategory, setSelectedCategory] = useState(null);
+  const [showSuccess, setShowSuccess] = useState(false);
+  const [showConfirmReset, setConfirmReset] = useState(false);
+  const [showConfirmLeaveModal, setShowConfirmLeaveModal] = useState(false);
   const [items, setItems] = useState(
     categories.map((cat) => ({
       label: cat.name,
       value: cat.name,
     }))
   );
+  // State to manage confirmation modal
+  const [showConfirmModal, setShowConfirmModal] = useState(false);
+
+  // Handler to open modal
+  const handleSavePress = () => {
+    setShowConfirmModal(true);
+  };
+
+  const handleResetPress = () => {
+    setConfirmReset(true);
+  };
+
+  const handleLeavePress = () => {
+    setShowConfirmLeaveModal(true);
+  };
+
+  // Handler to confirm and upload receipt
+  const handleConfirmReceipt = async () => {
+    try {
+      await uploadReceipt({
+        amount,
+        date: selectedDate,
+        category: selectedCategory,
+      });
+
+      resetForm(); // only reset if upload succeeded
+      setShowSuccess(true);
+    } catch (err) {
+      console.error("Upload failed:", err);
+      // Optional: show error to user
+    }
+  };
+
+  // Handler to cancel
+  const handleCancel = () => {
+    setShowConfirmModal(false);
+  };
+
+  // Handler to cancel
+  const handleCancelReset = () => {
+    setConfirmReset(false);
+  };
+
+  // Handler to cancel
+  const handleCancelLeave = () => {
+    setShowConfirmLeaveModal(false);
+  };
+
+  const handleConfirmReset = () => {
+    resetForm();
+    setConfirmReset(false);
+  };
+
+  const handleLeave = () => {
+
+    navigation.navigate('Expenses')
+
+  }
+
+  // Rest the page
+  const resetForm = () => {
+    setAmount("");
+    setSelectedDate(new Date());
+    setSelectedCategory(null);
+    setReceiptImage(null);
+    setShowConfirmModal(false);
+  };
 
   const uploadReceipt = async ({ amount, date, category }) => {
     try {
       const user = auth.currentUser;
-      const docRef = await addDoc(collection(db, 'receipts'), {
+      const docRef = await addDoc(collection(db, "receipts"), {
         amount: parseFloat(amount),
         date: date.toISOString(),
         category,
-        userId: user.uid, 
-        createdAt: new Date().toISOString()  // optional, for sorting
+        userId: user.uid,
+        createdAt: new Date().toISOString(), // optional, for sorting
       });
-      console.log('Receipt added with ID:', docRef.id);
+      console.log("Receipt added with ID:", docRef.id);
     } catch (error) {
-      console.error('Error adding receipt:', error);
+      console.error("Error adding receipt:", error);
     }
   };
 
@@ -62,7 +135,6 @@ const ReceiptScreen = () => {
     hideDatePicker();
   };
 
-
   const pickImage = () => {
     ImagePicker.launchImageLibrary({ mediaType: "photo" }, (response) => {
       if (!response.didCancel && response.assets) {
@@ -73,80 +145,199 @@ const ReceiptScreen = () => {
 
   return (
     <KeyboardAvoidingView
-  style={{ flex: 1 }}
-  behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
->
-    <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
-    <View style={styles.container}>
-      {/* Purple Border Container */}
-      <View style={styles.borderContainer}>
-        <Text style={styles.header}>Your Receipt</Text>
+      style={{ flex: 1 }}
+      behavior={Platform.OS === "ios" ? "padding" : "height"}
+    >
+      <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
+        <View style={styles.container}>
+          {/* Purple Border Container */}
+          <View style={styles.borderContainer}>
+            <Text style={styles.header}>Your Receipt</Text>
 
-        <Text style={styles.label}>Amount:</Text>
-        <View style={styles.inputRow}>
-          <Text style={styles.currency}>£</Text>
-          <TextInput
-            style={styles.input}
-            keyboardType="numeric"
-            value={amount}
-            onChangeText={setAmount}
-          />
-        </View>
+            <Text style={styles.label}>Amount:</Text>
+            <View style={styles.inputRow}>
+              <Text style={styles.currency}>£</Text>
+              <TextInput
+                style={styles.input}
+                keyboardType="numeric"
+                value={amount}
+                onChangeText={setAmount}
+              />
+            </View>
 
-        <Text style={styles.label}>Date:</Text>
-      <TouchableOpacity style={styles.dateButton} onPress={showDatePicker}>
-        <Text style={styles.dateText}>{selectedDate.toLocaleDateString()}</Text>
-      </TouchableOpacity>
-      <DateTimePickerModal
-        isVisible={isDatePickerVisible}
-        mode="date"
-        date={selectedDate}
-        onConfirm={handleConfirm}
-        onCancel={hideDatePicker}
-      />
-
-    <Text style={styles.label}>Category:</Text>
-          <DropDownPicker
-            open={open}
-            value={selectedCategory}
-            items={items}
-            setOpen={setOpen}
-            setValue={setSelectedCategory}
-            setItems={setItems}
-            placeholder="Select a category"
-            style={styles.dropdown}
-            dropDownContainerStyle={styles.dropdownContainer}
-            zIndex={1000}
-      />
-
-        <View style={styles.receiptContainer}>
-          {receiptImage ? (
-            <Image source={{ uri: receiptImage }} style={styles.receiptImage} />
-          ) : (
+            <Text style={styles.label}>Date:</Text>
             <TouchableOpacity
-              style={styles.uploadPlaceholder}
-              onPress={pickImage}
+              style={styles.dateButton}
+              onPress={showDatePicker}
             >
-              <Text style={styles.plus}>+</Text>
+              <Text style={styles.dateText}>
+                {selectedDate.toLocaleDateString()}
+              </Text>
             </TouchableOpacity>
-          )}
-        </View>
+            <DateTimePickerModal
+              isVisible={isDatePickerVisible}
+              mode="date"
+              date={selectedDate}
+              onConfirm={handleConfirm}
+              onCancel={hideDatePicker}
+            />
 
-        <View style={styles.buttonContainer}>
-          <Button mode="contained" buttonColor="#a60d49" style={styles.button}>
-            Cancel
-          </Button>
-          <Button mode="contained" onPress={() => uploadReceipt({
-              amount,
-              date: selectedDate,
-              category: selectedCategory
-              })} buttonColor="#a60d49" style={styles.button}>
-            Save
-          </Button>
+            <Text style={styles.label}>Category:</Text>
+            <DropDownPicker
+              open={open}
+              value={selectedCategory}
+              items={items}
+              setOpen={setOpen}
+              setValue={setSelectedCategory}
+              setItems={setItems}
+              placeholder="Select a category"
+              style={styles.dropdown}
+              dropDownContainerStyle={styles.dropdownContainer}
+              zIndex={1000}
+            />
+
+            <View style={styles.receiptContainer}>
+              {receiptImage ? (
+                <Image
+                  source={{ uri: receiptImage }}
+                  style={styles.receiptImage}
+                />
+              ) : (
+                <TouchableOpacity
+                  style={styles.uploadPlaceholder}
+                  onPress={pickImage}
+                >
+                  <Text style={styles.plus}>+</Text>
+                </TouchableOpacity>
+              )}
+            </View>
+
+            <View style={styles.buttonContainer}>
+              <Button
+                mode="contained"
+                buttonColor="#a60d49"
+                style={styles.button}
+                onPress={handleLeavePress}
+              >
+                Cancel
+              </Button>
+
+              <Button
+                mode="contained"
+                onPress={handleSavePress}
+                buttonColor="#a60d49"
+                style={styles.button}
+                disabled={!selectedCategory || amount.trim() === ""}
+              >
+                Save
+              </Button>
+            </View>
+
+            {/* Reset Button Below */}
+            <Button
+              mode="outlined"
+              onPress={handleResetPress}
+              style={styles.resetButton}
+              textColor="#a60d49"
+              icon="autorenew" // Optional: needs react-native-vector-icons setup if using custom icons
+            >
+              Reset Form
+            </Button>
+          </View>
         </View>
-      </View>
-    </View>
-    </TouchableWithoutFeedback>
+      </TouchableWithoutFeedback>
+
+      <Modal
+        visible={showConfirmModal}
+        transparent={true}
+        animationType="slide"
+        onRequestClose={() => setShowConfirmModal(false)}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalContent}>
+            <Text style={styles.modalTitle}>Confirm Receipt Details</Text>
+            <Text>Amount: £{amount}</Text>
+            <Text>Date: {selectedDate.toDateString()}</Text>
+            <Text>Category: {selectedCategory}</Text>
+
+            <View style={styles.modalButtons}>
+              <RNButton title="Cancel" onPress={handleCancel} color="#aaa" />
+              <RNButton
+                title="Confirm"
+                onPress={handleConfirmReceipt}
+                color="#a60d49"
+              />
+            </View>
+          </View>
+        </View>
+      </Modal>
+
+      <Modal
+        visible={showConfirmReset}
+        transparent={true}
+        animationType="slide"
+        onRequestClose={() => setConfirmReset(false)}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalContent}>
+            <Text style={styles.modalTitle}>Confirm Reset</Text>
+
+            <View style={styles.modalButtons}>
+              <RNButton
+                title="Cancel"
+                onPress={handleCancelReset}
+                color="#aaa"
+              />
+              <RNButton
+                title="Confirm"
+                onPress={handleConfirmReset}
+                color="#a60d49"
+              />
+            </View>
+          </View>
+        </View>
+      </Modal>
+
+      <Modal
+        visible={showConfirmLeaveModal}
+        transparent={true}
+        animationType="slide"
+        onRequestClose={() => setShowConfirmLeaveModal(false)}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalContent}>
+            <Text style={styles.modalTitle}>
+              Are you sure you want to go back?
+            </Text>
+
+            <View style={styles.modalButtons}>
+              <RNButton
+                title="Cancel"
+                onPress={handleCancelLeave}
+                color="#aaa"
+              />
+              <RNButton
+                title="Confirm"
+                onPress={handleLeave}
+                color="#a60d49"
+              />
+            </View>
+          </View>
+        </View>
+      </Modal>
+
+      <Snackbar
+        visible={showSuccess}
+        onDismiss={() => setShowSuccess(false)}
+        duration={3000}
+        action={{
+          label: "OK",
+          onPress: () => setShowSuccess(false),
+        }}
+        style={{ backgroundColor: "#4CAF50" }} // Optional: green background
+      >
+        Receipt saved successfully!
+      </Snackbar>
     </KeyboardAvoidingView>
   );
 };
@@ -260,12 +451,37 @@ const styles = StyleSheet.create({
     marginHorizontal: 5,
   },
   dropdown: {
-    backgroundColor: '#fafafa',
-    borderColor: '#ccc',
+    backgroundColor: "#fafafa",
+    borderColor: "#ccc",
   },
   dropdownContainer: {
-    backgroundColor: '#fafafa',
-    borderColor: '#ccc',
+    backgroundColor: "#fafafa",
+    borderColor: "#ccc",
+  },
+  modalOverlay: {
+    flex: 1,
+    justifyContent: "center",
+    backgroundColor: "rgba(0,0,0,0.5)",
+    padding: 20,
+  },
+  modalContent: {
+    backgroundColor: "white",
+    borderRadius: 10,
+    padding: 20,
+  },
+  modalTitle: {
+    fontSize: 18,
+    fontWeight: "bold",
+    marginBottom: 10,
+  },
+  modalButtons: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    marginTop: 20,
+  },
+  resetButton: {
+    marginTop: 10,
+    borderColor: "#a60d49",
   },
 });
 
