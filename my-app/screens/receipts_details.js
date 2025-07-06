@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import {
   View,
   Text,
@@ -12,6 +12,8 @@ import {
   Platform,
   Modal,
   Button as RNButton,
+  BackHandler,
+  Alert,
 } from "react-native";
 import { Button } from "react-native-paper";
 import DateTimePickerModal from "react-native-modal-datetime-picker";
@@ -40,6 +42,18 @@ const ReceiptScreen = ({ navigation }) => {
   );
   // State to manage confirmation modal
   const [showConfirmModal, setShowConfirmModal] = useState(false);
+
+  useEffect(() => {
+    const backHandler = BackHandler.addEventListener(
+      "hardwareBackPress",
+      () => {
+        setShowConfirmLeaveModal(true); // show your confirmation modal
+        return true; // prevent default back behavior
+      }
+    );
+
+    return () => backHandler.remove(); // clean up
+  }, []);
 
   // Handler to open modal
   const handleSavePress = () => {
@@ -92,10 +106,8 @@ const ReceiptScreen = ({ navigation }) => {
   };
 
   const handleLeave = () => {
-
-    navigation.navigate('Expenses')
-
-  }
+    navigation.navigate("Expenses");
+  };
 
   // Rest the page
   const resetForm = () => {
@@ -261,7 +273,7 @@ const ReceiptScreen = ({ navigation }) => {
             <Text>Category: {selectedCategory}</Text>
 
             <View style={styles.modalButtons}>
-              <RNButton title="Cancel" onPress={handleCancel} color="#aaa" />
+              <RNButton title="Cancel" onPress={handleCancel} color="#aaa60d49a" />
               <RNButton
                 title="Confirm"
                 onPress={handleConfirmReceipt}
@@ -286,7 +298,7 @@ const ReceiptScreen = ({ navigation }) => {
               <RNButton
                 title="Cancel"
                 onPress={handleCancelReset}
-                color="#aaa"
+                color="#a60d49"
               />
               <RNButton
                 title="Confirm"
@@ -314,19 +326,39 @@ const ReceiptScreen = ({ navigation }) => {
               <RNButton
                 title="Cancel"
                 onPress={handleCancelLeave}
-                color="#aaa"
-              />
-              <RNButton
-                title="Confirm"
-                onPress={handleLeave}
                 color="#a60d49"
               />
+              <RNButton title="Confirm" onPress={handleLeave} color="#a60d49" />
             </View>
           </View>
         </View>
       </Modal>
 
-      <Snackbar
+      <Modal
+        visible={showSuccess}
+        transparent={true}
+        animationType="slide"
+        onRequestClose={() => setShowSuccess(false)}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalContent}>
+            <Text style={styles.modalTitle}>
+              Receipt saved successfully! Add another?
+            </Text>
+
+            <View style={styles.modalButtons}>
+              <RNButton
+                title="Yes"
+                onPress={() => setShowSuccess(false)}
+                color="#a60d49"
+              />
+              <RNButton title="No" onPress={() => navigation.navigate("Expenses")} color="#a60d49" />
+            </View>
+          </View>
+        </View>
+      </Modal>
+
+      {/* <Snackbar
         visible={showSuccess}
         onDismiss={() => setShowSuccess(false)}
         duration={3000}
@@ -337,7 +369,8 @@ const ReceiptScreen = ({ navigation }) => {
         style={{ backgroundColor: "#4CAF50" }} // Optional: green background
       >
         Receipt saved successfully!
-      </Snackbar>
+      </Snackbar> */}
+
     </KeyboardAvoidingView>
   );
 };
