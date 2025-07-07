@@ -5,9 +5,7 @@ import {
   TouchableOpacity,
   StyleSheet,
   SafeAreaView,
-  KeyboardAvoidingView,
-  Platform,
-  FlatList
+  FlatList,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { signOut, getAuth, onAuthStateChanged } from "firebase/auth";
@@ -62,64 +60,82 @@ const ExpensesScreen = ({ navigation }) => {
       });
   };
 
-  const renderReceiptItem = ({ item }) => (
-    <View style={styles.receiptItem}>
-      <Text style={styles.receiptDate}>
-        {new Date(item.date).toLocaleDateString()}
-      </Text>
-      <Text style={styles.receiptCategory}>{item.category}</Text>
-      <Text style={styles.receiptAmount}>£{item.amount.toFixed(2)}</Text>
-    </View>
-  );
+  const renderReceiptItem = ({ item }) => {
+    return (
+      <View style={styles.receiptItem}>
+        <Text style={styles.receiptDate}>
+          {new Date(item.date).toLocaleDateString()}
+        </Text>
+
+        <View style={{ flex: 1, alignItems: "left", marginLeft: 25 }}>
+          <Text style={styles.receiptCategory}>
+            {item.category.split(" ").join("\n")}
+          </Text>
+        </View>
+
+        <Text style={styles.receiptAmount}>£{item.amount.toFixed(2)}</Text>
+      </View>
+    );
+  };
 
   return (
     <SafeAreaView style={styles.container}>
-      {/* Header */}
-      {/* <View style={styles.header}>
-        <Ionicons name="menu" size={44} color="black" onPress={handleLogout}/>
-      </View> */}
+      <View style={styles.content}>
+        <View style={styles.card}>
+          <Text style={styles.title}>Welcome, {displayName}!</Text>
 
-      {/* Welcome Section */}
-      <View style={styles.card}>
-        <Text style={styles.title}>Welcome, {displayName}!</Text>
+          {receipts.length === 0 ? (
+            <>
+              <Text style={styles.subtitle}>
+                You haven't added any expenses yet!
+              </Text>
+              <Text style={styles.description}>
+                Tap the Add button below to enter your first receipt.
+              </Text>
+            </>
+          ) : (
+            <Text style={styles.subtitle}>Your receipts are shown below:</Text>
+          )}
+        </View>
 
         {receipts.length === 0 ? (
           <>
-            <Text style={styles.subtitle}>
-              You haven't added any expenses yet!
-            </Text>
-            <Text style={styles.description}>
-              Tap the Add button below to enter your first receipt.
-            </Text>
+            <View style={styles.card}>
+              <Text style={styles.description}>
+                Click here to view a short video on how this app works
+              </Text>
+            </View>
+
+            <View>
+              <TouchableOpacity
+                style={styles.addButton}
+                onPress={() => navigation.navigate("Receipt")}
+              >
+                <Text style={styles.buttonText}>Add Expenses</Text>
+              </TouchableOpacity>
+            </View>
           </>
         ) : (
-          <Text style={styles.subtitle}>Your receipts are shown below:</Text>
+          <FlatList
+            data={receipts}
+            keyExtractor={(item) => item.id}
+            renderItem={renderReceiptItem}
+            contentContainerStyle={styles.listContainer}
+          />
         )}
       </View>
 
-      {/* Video Instruction Section */}
-      {receipts.length === 0 ? (<View style={styles.card}>
-        <Text style={styles.description}>
-          Click here to view a short video on how this app works
-        </Text>
-      </View>): <FlatList
-    data={receipts}
-    keyExtractor={(item) => item.id}
-    renderItem={renderReceiptItem}
-    contentContainerStyle={styles.listContainer}
-  />}
-
       {/* Add Expenses Button */}
       <TouchableOpacity
-        style={styles.addButton}
+        style={styles.floatingButton}
         onPress={() => navigation.navigate("Receipt")}
       >
-        <Text style={styles.buttonText}>Add Expenses</Text>
+        <Text style={styles.floatingButtonText}>+</Text>
       </TouchableOpacity>
 
       {/* Bottom Navigation */}
       <View style={styles.bottomNav}>
-        <TouchableOpacity style={styles.navItem}>
+        <TouchableOpacity onPress={handleLogout} style={styles.navItem}>
           <Text style={[styles.navText]}>Income</Text>
         </TouchableOpacity>
         <TouchableOpacity style={styles.navItem}>
@@ -135,20 +151,15 @@ const ExpensesScreen = ({ navigation }) => {
 
 export default ExpensesScreen;
 
-/* 📌 Styles */
 const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: "#302C66",
-    alignItems: "center",
-    paddingTop: 0,
   },
-  header: {
-    width: "100%",
-    height: 60,
-    backgroundColor: "#B5B3C6",
-    justifyContent: "center",
-    paddingLeft: 20,
+  content: {
+    flex: 1,
+    alignItems: "center",
+    paddingBottom: 20, // Space for button + nav
   },
   card: {
     backgroundColor: "#E5E5EA",
@@ -180,7 +191,8 @@ const styles = StyleSheet.create({
     paddingVertical: 17,
     paddingHorizontal: 43,
     borderRadius: 35,
-    marginTop: 50,
+    alignSelf: "center",
+    marginVertical: 20,
     shadowColor: "#a60d49",
     shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.3,
@@ -192,15 +204,15 @@ const styles = StyleSheet.create({
     color: "white",
   },
   bottomNav: {
-    position: "absolute",
+    // position: "absolute",
     bottom: 0,
     width: "100%",
-    height: 50,
+    // height: 50,
+    paddingBottom: 50,
     backgroundColor: "#B5B3C6",
     flexDirection: "row",
     justifyContent: "space-around",
     alignItems: "center",
-    marginVertical: 45,
   },
   navItem: {
     padding: 10,
@@ -214,28 +226,58 @@ const styles = StyleSheet.create({
     color: "#1C1C4E",
   },
   listContainer: {
-    padding: 16,
+    marginTop: 10,
+    borderRadius: 10,
+    padding: 8,
+    backgroundColor: "#1C1C4E",
+    width: "100%",
+    alignItems: "center",
   },
   receiptItem: {
-    backgroundColor: '#f0f0f0',
+    backgroundColor: "#f0f0f0",
     borderRadius: 8,
     padding: 12,
     marginBottom: 12,
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
+    width: "85%",
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    minHeight: 60,
   },
   receiptDate: {
     fontSize: 14,
-    color: '#555',
+    color: "#555",
   },
   receiptCategory: {
     fontSize: 16,
-    fontWeight: '500',
+    fontWeight: "500",
+    // textAlign: "center",
   },
   receiptAmount: {
     fontSize: 16,
-    fontWeight: 'bold',
-    color: '#a60d49',
+    fontWeight: "bold",
+    color: "#a60d49",
+  },
+  floatingButton: {
+    position: "absolute",
+    bottom: 100, // Adjust as needed (e.g., above bottom navigation)
+    right: 30,
+    backgroundColor: "#a60d49",
+    width: 60,
+    height: 60,
+    borderRadius: 30,
+    justifyContent: "center",
+    alignItems: "center",
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 5,
+    elevation: 5, // For Android shadow
+    zIndex: 10,
+  },
+  floatingButtonText: {
+    fontSize: 32,
+    color: "#fff",
+    marginBottom: 2,
   },
 });

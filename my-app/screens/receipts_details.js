@@ -273,7 +273,11 @@ const ReceiptScreen = ({ navigation }) => {
             <Text>Category: {selectedCategory}</Text>
 
             <View style={styles.modalButtons}>
-              <RNButton title="Cancel" onPress={handleCancel} color="#aaa60d49a" />
+              <RNButton
+                title="Cancel"
+                onPress={handleCancel}
+                color="#aaa60d49a"
+              />
               <RNButton
                 title="Confirm"
                 onPress={handleConfirmReceipt}
@@ -348,11 +352,15 @@ const ReceiptScreen = ({ navigation }) => {
 
             <View style={styles.modalButtons}>
               <RNButton
+                title="No"
+                onPress={() => navigation.navigate("Expenses")}
+                color="#a60d49"
+              />
+              <RNButton
                 title="Yes"
                 onPress={() => setShowSuccess(false)}
                 color="#a60d49"
               />
-              <RNButton title="No" onPress={() => navigation.navigate("Expenses")} color="#a60d49" />
             </View>
           </View>
         </View>
@@ -370,7 +378,6 @@ const ReceiptScreen = ({ navigation }) => {
       >
         Receipt saved successfully!
       </Snackbar> */}
-
     </KeyboardAvoidingView>
   );
 };
