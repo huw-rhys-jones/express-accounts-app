@@ -25,11 +25,6 @@ export default ({ config }) => ({
       backgroundColor: "#ffffff"
     }
   },
-  plugins: [
-    'react-native-screens',
-    'react-native-safe-area-context',
-    'react-native-gesture-handler'
-  ],
   web: {
     favicon: "./assets/favicon.png"
   },
