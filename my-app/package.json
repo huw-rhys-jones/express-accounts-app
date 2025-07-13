@@ -17,6 +17,7 @@
     "expo": "53.0.19",
     "expo-dev-client": "^5.2.4",
     "expo-status-bar": "~2.2.3",
+    "expo-web-browser": "^14.2.0",
     "firebase": "^11.8.1",
     "react": "19.0.0",
     "react-native": "0.79.5",
@@ -27,7 +28,8 @@
     "react-native-paper": "^5.13.1",
     "react-native-safe-area-context": "5.4.0",
     "react-native-screens": "~4.11.1",
-    "react-navigation": "^5.0.0"
+    "react-navigation": "^5.0.0",
+    "expo-auth-session": "~6.2.1"
   },
   "devDependencies": {
     "@babel/core": "^7.20.0"
