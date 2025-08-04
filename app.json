@@ -1,5 +1,14 @@
 {
   "plugins": [
     "expo-web-browser"
-  ]
+  ],
+  "expo": {
+    "slug": "express-accounts",
+    "scheme": "expressaccounts",
+    "extra": {
+      "GOOGLE_WEB_CLIENT_ID": "1061817175814-lfqi19ksrp0a3t230069855s7060f39v.apps.googleusercontent.com",
+      "GOOGLE_EXPO_CLIENT_ID": "1061817175814-lfqi19ksrp0a3t230069855s7060f39v.apps.googleusercontent.com",
+      "GOOGLE_ANDROID_CLIENT_ID": "1061817175814-e4dj2mkf883vrpu55qvh27v51il7kau4.apps.googleusercontent.com"
+    }
+  }
 }

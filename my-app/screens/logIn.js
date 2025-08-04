@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState } from "react";
 import {
   View,
   Text,
@@ -8,46 +8,21 @@ import {
   KeyboardAvoidingView,
   Platform,
 } from "react-native";
-import * as WebBrowser from "expo-web-browser";
-import * as Google from "expo-auth-session/providers/google";
-import { useAuthRequest, makeRedirectUri } from "expo-auth-session";
-import Constants from "expo-constants";
-import { signInWithCredential, GoogleAuthProvider, signInWithEmailAndPassword } from "firebase/auth";
+import { signInWithEmailAndPassword } from "firebase/auth";
 import { auth } from "../firebaseConfig";
-
-// Required to handle web authentication
-WebBrowser.maybeCompleteAuthSession();
+import { useGoogleSignIn } from "../auth/useGoogleSignIn"; // adjust path as needed
 
 const LoginScreen = ({ navigation }) => {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
 
-  const [request, response, promptAsync] = Google.useAuthRequest({
-    expoClientId: Constants.expoConfig.extra.GOOGLE_WEB_CLIENT_ID,
-    iosClientId: Constants.expoConfig.extra.GOOGLE_WEB_CLIENT_ID,
-    androidClientId: Constants.expoConfig.extra.GOOGLE_WEB_CLIENT_ID,
-    webClientId: Constants.expoConfig.extra.GOOGLE_WEB_CLIENT_ID,
-    redirectUri: makeRedirectUri({
-      native: "your.app://redirect", // change this to match your app scheme if needed
-    }),
+  // Use your Google sign-in hook, pass a callback for successful login
+  const [request, promptAsync] = useGoogleSignIn(() => {
+    navigation.reset({
+      index: 0,
+      routes: [{ name: "Expenses" }],
+    });
   });
-
-  useEffect(() => {
-    if (response?.type === "success") {
-      const { id_token } = response.authentication;
-      const credential = GoogleAuthProvider.credential(id_token);
-      signInWithCredential(auth, credential)
-        .then((userCredential) => {
-          navigation.reset({
-            index: 0,
-            routes: [{ name: "Expenses" }],
-          });
-        })
-        .catch((error) => {
-          console.log("Google Sign-In error:", error.message);
-        });
-    }
-  }, [response]);
 
   const login = () => {
     signInWithEmailAndPassword(auth, email, password)
@@ -70,12 +45,10 @@ const LoginScreen = ({ navigation }) => {
       behavior={Platform.OS === "ios" ? "padding" : "height"}
     >
       <View style={styles.container}>
-        {/* Sign in Header */}
         <View style={styles.header}>
           <Text style={styles.headerText}>Sign in to continue</Text>
         </View>
 
-        {/* Login Form */}
         <View style={styles.formContainer}>
           <Text style={styles.label}>EMAIL</Text>
           <TextInput
@@ -97,12 +70,10 @@ const LoginScreen = ({ navigation }) => {
             onChangeText={setPassword}
           />
 
-          {/* Email Login Button */}
           <TouchableOpacity style={styles.loginButton} onPress={login}>
             <Text style={styles.loginButtonText}>Log in</Text>
           </TouchableOpacity>
 
-          {/* Google Sign-In Button */}
           <TouchableOpacity
             style={styles.googleButton}
             onPress={() => promptAsync()}
@@ -111,7 +82,6 @@ const LoginScreen = ({ navigation }) => {
             <Text style={styles.googleButtonText}>Sign in with Google</Text>
           </TouchableOpacity>
 
-          {/* Forgot Password & Signup */}
           <TouchableOpacity>
             <Text style={styles.forgotPassword}>Forgot Password?</Text>
           </TouchableOpacity>
@@ -126,6 +96,7 @@ const LoginScreen = ({ navigation }) => {
 };
 
 const styles = StyleSheet.create({
+  // your styles unchanged
   container: {
     flex: 1,
     backgroundColor: "#262261",
@@ -140,11 +111,7 @@ const styles = StyleSheet.create({
     marginTop: -30,
     marginBottom: 55,
   },
-  headerText: {
-    fontSize: 21,
-    fontWeight: "bold",
-    color: "#29275b",
-  },
+  headerText: { fontSize: 21, fontWeight: "bold", color: "#29275b" },
   formContainer: {
     backgroundColor: "#EAEAF2",
     padding: 20,
@@ -172,11 +139,7 @@ const styles = StyleSheet.create({
     alignItems: "center",
     marginTop: 20,
   },
-  loginButtonText: {
-    color: "#FFF",
-    fontWeight: "bold",
-    fontSize: 16,
-  },
+  loginButtonText: { color: "#FFF", fontWeight: "bold", fontSize: 16 },
   googleButton: {
     backgroundColor: "#4285F4",
     paddingVertical: 12,
@@ -184,11 +147,7 @@ const styles = StyleSheet.create({
     alignItems: "center",
     marginTop: 10,
   },
-  googleButtonText: {
-    color: "#FFF",
-    fontWeight: "bold",
-    fontSize: 16,
-  },
+  googleButtonText: { color: "#FFF", fontWeight: "bold", fontSize: 16 },
   forgotPassword: {
     color: "#A81D46",
     textAlign: "center",
