@@ -4,6 +4,7 @@ export default ({ config }) => ({
   ...config,
   name: "Express Accounts",
   slug: "express-accounts",
+  scheme: "com.caistec.expressaccounts", // 👈 ADD THIS
   version: "1.0.0",
   orientation: "portrait",
   icon: "./assets/icon.png",
@@ -16,7 +17,7 @@ export default ({ config }) => ({
   },
   ios: {
     supportsTablet: true,
-    bundleIdentifier: "com.caistec.expressaccounts" // ✅ REQUIRED for iOS builds
+    bundleIdentifier: "com.caistec.expressaccounts"
   },
   android: {
     package: "com.caistec.expressaccounts",
@@ -40,7 +41,7 @@ export default ({ config }) => ({
     FIREBASE_APP_ID: process.env.FIREBASE_APP_ID,
     FIREBASE_MEASUREMENT_ID: process.env.FIREBASE_MEASUREMENT_ID,
     GOOGLE_WEB_CLIENT_ID: process.env.GOOGLE_WEB_CLIENT_ID,
-    GOOGLE_ANDROID_CLIENT_ID: "1061817175814-e4dj2mkf883vrpu55qvh27v51il7kau4.apps.googleusercontent.com"
+    GOOGLE_ANDROID_CLIENT_ID: process.env.GOOGLE_ANDROID_CLIENT_ID
+
   }
-  
 });

@@ -12,7 +12,9 @@ import ExpensesScreen from './screens/expenses';
 import ScanScreen from './screens/scan';
 import ReceiptDetails from './screens/receipts_details';
 import ReceiptConfirmationScreen from './screens/receiptConfirmation';
+import * as WebBrowser from 'expo-web-browser';
 
+WebBrowser.maybeCompleteAuthSession();
 const Stack = createStackNavigator();
 
 export default function App() {

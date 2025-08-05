@@ -12,7 +12,7 @@ WebBrowser.maybeCompleteAuthSession();
 
 export function useGoogleSignIn(onSuccess) {
   const redirectUri = makeRedirectUri({
-    useProxy: true, // needed for Expo Go
+    // useProxy: true, // needed for Expo Go
   });
 
   const expoClientId = Constants.expoConfig.extra.GOOGLE_EXPO_CLIENT_ID;
@@ -20,12 +20,9 @@ export function useGoogleSignIn(onSuccess) {
   const webClientId = Constants.expoConfig.extra.GOOGLE_WEB_CLIENT_ID;
 
   const [request, response, promptAsync] = Google.useAuthRequest({
-    expoClientId, // Expo Go
-    androidClientId, // Standalone Android
-    
-    webClientId, // Web (optional)
-    redirectUri,
-    scopes: ['openid', 'profile', 'email'],
+    androidClientId,
+    webClientId,
+    redirectUri: makeRedirectUri({ scheme: "com.caistec.expressaccounts" }), // or just makeRedirectUri()
   });
 
   console.log('Redirect URI:', redirectUri);
