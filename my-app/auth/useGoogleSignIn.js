@@ -1,4 +1,3 @@
-// useGoogleSignIn.js
 import * as WebBrowser from 'expo-web-browser';
 import * as Google from 'expo-auth-session/providers/google';
 import { useEffect } from 'react';
@@ -6,13 +5,12 @@ import { auth } from '../firebaseConfig';
 import { GoogleAuthProvider, signInWithCredential } from 'firebase/auth';
 import { makeRedirectUri } from 'expo-auth-session';
 import Constants from 'expo-constants';
-import { Platform } from 'react-native';
 
 WebBrowser.maybeCompleteAuthSession();
 
 export function useGoogleSignIn(onSuccess) {
   const redirectUri = makeRedirectUri({
-    // useProxy: true, // needed for Expo Go
+    scheme: "com.caistec.expressaccounts", // same as in your Android manifest/app.json
   });
 
   const expoClientId = Constants.expoConfig.extra.GOOGLE_EXPO_CLIENT_ID;
@@ -22,15 +20,23 @@ export function useGoogleSignIn(onSuccess) {
   const [request, response, promptAsync] = Google.useAuthRequest({
     androidClientId,
     webClientId,
-    redirectUri: makeRedirectUri({ scheme: "com.caistec.expressaccounts" }), // or just makeRedirectUri()
+    redirectUri,
+    scopes: ['openid', 'profile', 'email'],
   });
 
   console.log('Redirect URI:', redirectUri);
 
   useEffect(() => {
     if (response?.type === 'success') {
-      const { id_token } = response.authentication;
-      const credential = GoogleAuthProvider.credential(id_token);
+      const { id_token, access_token } = response.authentication ?? {};
+
+      if (!id_token) {
+        console.warn("No id_token received from Google");
+        return;
+      }
+
+      const credential = GoogleAuthProvider.credential(id_token, access_token);
+
       signInWithCredential(auth, credential)
         .then(onSuccess)
         .catch((error) => console.error('Google Sign-In error', error));
