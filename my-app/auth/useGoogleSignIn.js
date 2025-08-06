@@ -28,20 +28,22 @@ export function useGoogleSignIn(onSuccess) {
 
   useEffect(() => {
     if (response?.type === 'success') {
-      const { id_token, access_token } = response.authentication ?? {};
-
+      const id_token = response.authentication?.idToken;
+      const access_token = response.authentication?.accessToken;
+  
       if (!id_token) {
         console.warn("No id_token received from Google");
         return;
       }
-
+  
       const credential = GoogleAuthProvider.credential(id_token, access_token);
-
+  
       signInWithCredential(auth, credential)
         .then(onSuccess)
         .catch((error) => console.error('Google Sign-In error', error));
     }
   }, [response]);
+  
 
   return [request, promptAsync];
 }
