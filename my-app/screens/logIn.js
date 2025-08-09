@@ -11,7 +11,9 @@ import {
 import { signInWithEmailAndPassword } from "firebase/auth";
 import { auth } from "../firebaseConfig";
 import { useGoogleSignIn } from "../auth/useGoogleSignIn"; // adjust path as needed
-import * as WebBrowser from 'expo-web-browser';
+import * as WebBrowser from "expo-web-browser";
+import { FontAwesome5 } from "@expo/vector-icons";
+import { GoogleLogo } from "../utils";
 
 WebBrowser.maybeCompleteAuthSession();
 
@@ -82,7 +84,10 @@ const LoginScreen = ({ navigation }) => {
             onPress={() => promptAsync()}
             disabled={!request}
           >
-            <Text style={styles.googleButtonText}>Sign in with Google</Text>
+            <View style={styles.googleButtonContent}>
+              <Text style={styles.googleButtonText}>Sign in with Google</Text>
+              <GoogleLogo />
+            </View>
           </TouchableOpacity>
 
           <TouchableOpacity>
@@ -144,18 +149,22 @@ const styles = StyleSheet.create({
   },
   loginButtonText: { color: "#FFF", fontWeight: "bold", fontSize: 16 },
   googleButton: {
-    backgroundColor: "#4285F4",
+    backgroundColor: "#FFF",
     paddingVertical: 12,
     borderRadius: 25,
     alignItems: "center",
     marginTop: 10,
   },
-  googleButtonText: { color: "#FFF", fontWeight: "bold", fontSize: 16 },
-  forgotPassword: {
-    color: "#A81D46",
-    textAlign: "center",
-    marginTop: 15,
+  googleButtonContent: {
+    flexDirection: "row",
+    alignItems: "center",
+  },
+
+  googleButtonText: {
+    // color: "#4285F4",
     fontWeight: "bold",
+    fontSize: 16,
+    marginRight: 8,
   },
   signup: {
     color: "#262261",

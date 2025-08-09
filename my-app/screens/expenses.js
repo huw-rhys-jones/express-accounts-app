@@ -11,6 +11,7 @@ import { Ionicons } from "@expo/vector-icons";
 import { signOut, getAuth, onAuthStateChanged } from "firebase/auth";
 import { collection, query, where, getDocs } from "firebase/firestore";
 import { db, auth } from "../firebaseConfig";
+import { formatDate } from "../utils";
 
 const ExpensesScreen = ({ navigation }) => {
   const [displayName, setDisplayName] = useState("");
@@ -64,7 +65,7 @@ const ExpensesScreen = ({ navigation }) => {
     return (
       <View style={styles.receiptItem}>
         <Text style={styles.receiptDate}>
-          {new Date(item.date).toLocaleDateString()}
+          {formatDate(new Date(item.date))}
         </Text>
 
         <View style={{ flex: 1, alignItems: "left", marginLeft: 25 }}>
@@ -208,7 +209,7 @@ const styles = StyleSheet.create({
     bottom: 0,
     width: "100%",
     // height: 50,
-    paddingBottom: 50,
+    paddingBottom: 5,
     backgroundColor: "#B5B3C6",
     flexDirection: "row",
     justifyContent: "space-around",
@@ -231,19 +232,22 @@ const styles = StyleSheet.create({
     padding: 8,
     backgroundColor: "#1C1C4E",
     width: "100%",
-    alignItems: "center",
+    alignItems: "center", // ❌ remove this so items stretch
   },
+  
   receiptItem: {
     backgroundColor: "#f0f0f0",
     borderRadius: 8,
     padding: 12,
     marginBottom: 12,
-    width: "85%",
+    width: "95%", // change from 85% to near full
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "center",
     minHeight: 60,
   },
+  
+
   receiptDate: {
     fontSize: 14,
     color: "#555",
