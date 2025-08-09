@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useRef, useState, useEffect } from "react";
 import {
   View,
   Text,
@@ -24,7 +24,7 @@ import { db, auth } from "../firebaseConfig";
 import { addDoc, collection } from "firebase/firestore";
 import { getStorage, ref, uploadBytes, getDownloadURL } from "firebase/storage";
 import { categories } from "../constants/arrays";
-import { formatDate } from "../utils"
+import { formatDate } from "../utils";
 
 const ReceiptScreen = ({ navigation }) => {
   const [amount, setAmount] = useState("");
@@ -44,7 +44,12 @@ const ReceiptScreen = ({ navigation }) => {
   );
   const [showConfirmModal, setShowConfirmModal] = useState(false);
 
+  const flatListRef = useRef(null);
+
   useEffect(() => {
+    if (flatListRef.current) {
+      flatListRef.current.scrollToEnd({ animated: false });
+    }
     const backHandler = BackHandler.addEventListener(
       "hardwareBackPress",
       () => {
@@ -196,9 +201,7 @@ const ReceiptScreen = ({ navigation }) => {
               style={styles.dateButton}
               onPress={showDatePicker}
             >
-              <Text style={styles.dateText}>
-                {formatDate(selectedDate)}
-              </Text>
+              <Text style={styles.dateText}>{formatDate(selectedDate)}</Text>
             </TouchableOpacity>
             <DateTimePickerModal
               isVisible={isDatePickerVisible}
@@ -223,6 +226,7 @@ const ReceiptScreen = ({ navigation }) => {
             />
 
             <FlatList
+              ref={flatListRef} // <-- add ref here
               data={[...images, { addButton: true }]}
               horizontal
               keyExtractor={(item, index) => index.toString()}
@@ -239,6 +243,7 @@ const ReceiptScreen = ({ navigation }) => {
                 )
               }
               contentContainerStyle={{ marginVertical: 20 }}
+              showsHorizontalScrollIndicator={true} // optional, useful for debugging scroll
             />
 
             <View style={styles.buttonContainer}>
