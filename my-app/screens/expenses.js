@@ -63,7 +63,10 @@ const ExpensesScreen = ({ navigation }) => {
 
   const renderReceiptItem = ({ item }) => {
     return (
-      <View style={styles.receiptItem}>
+      <TouchableOpacity
+        onPress={() => navigation.navigate("ReceiptDetails", { receipt: item })}
+        style={styles.receiptItem}
+      >
         <Text style={styles.receiptDate}>
           {formatDate(new Date(item.date))}
         </Text>
@@ -75,7 +78,7 @@ const ExpensesScreen = ({ navigation }) => {
         </View>
 
         <Text style={styles.receiptAmount}>£{item.amount.toFixed(2)}</Text>
-      </View>
+      </TouchableOpacity>
     );
   };
 
@@ -234,7 +237,7 @@ const styles = StyleSheet.create({
     width: "100%",
     alignItems: "center", // ❌ remove this so items stretch
   },
-  
+
   receiptItem: {
     backgroundColor: "#f0f0f0",
     borderRadius: 8,
@@ -246,7 +249,6 @@ const styles = StyleSheet.create({
     alignItems: "center",
     minHeight: 60,
   },
-  
 
   receiptDate: {
     fontSize: 14,

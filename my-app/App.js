@@ -12,6 +12,7 @@ import ExpensesScreen from './screens/expenses';
 import ScanScreen from './screens/scan';
 import ReceiptDetails from './screens/receipts_details';
 import ReceiptConfirmationScreen from './screens/receiptConfirmation';
+import ReceiptDetailsScreen from './screens/ReceiptDetailsScreen'
 import * as WebBrowser from 'expo-web-browser';
 
 WebBrowser.maybeCompleteAuthSession();
@@ -49,6 +50,7 @@ export default function App() {
         <Stack.Screen name="Scan" component={ScanScreen} />
         <Stack.Screen name="Receipt" component={ReceiptDetails} />
         <Stack.Screen name="ReceiptConfirmation" component={ReceiptConfirmationScreen} />
+        <Stack.Screen name="ReceiptDetails" component={ReceiptDetailsScreen} />
       </Stack.Navigator>
     </NavigationContainer>
   );
