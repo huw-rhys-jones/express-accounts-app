@@ -16,7 +16,7 @@ export default ({ config }) => ({
     backgroundColor: "#ffffff"
   },
   ios: {
-    supportsTablet: true,
+    supportsTablet: false,
     bundleIdentifier: "com.caistec.expressaccounts",
     buildNumber: "1"
   },
