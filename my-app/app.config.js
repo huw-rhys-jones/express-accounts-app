@@ -18,7 +18,7 @@ export default ({ config }) => ({
   ios: {
     supportsTablet: false,
     bundleIdentifier: "com.caistec.expressaccounts",
-    buildNumber: "1"
+    buildNumber: "10"
   },
   android: {
     package: "com.caistec.expressaccounts",
