@@ -30,7 +30,7 @@
     "react-native-paper": "^5.13.1",
     "react-native-safe-area-context": "5.4.0",
     "react-native-screens": "~4.11.1",
-    "react-native-svg": "^15.12.1",
+    "react-native-svg": "15.11.2",
     "react-navigation": "^5.0.0"
   },
   "devDependencies": {
