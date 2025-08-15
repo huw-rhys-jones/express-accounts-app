@@ -10,6 +10,7 @@ import { getFirestore } from "firebase/firestore";
 
 import Constants from 'expo-constants';
 
+// Firebase keys
 const {
   FIREBASE_API_KEY,
   FIREBASE_AUTH_DOMAIN,
