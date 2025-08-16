@@ -130,5 +130,5 @@ dist
 .pnp.*
 
 
-my-app/firebaseConfig.js
+# my-app/firebaseConfig.js
 package-lock.json
