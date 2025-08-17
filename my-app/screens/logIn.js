@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import {
   View,
   Text,
@@ -10,24 +10,41 @@ import {
 } from "react-native";
 import { signInWithEmailAndPassword } from "firebase/auth";
 import { auth } from "../firebaseConfig";
-import { useGoogleSignIn } from "../auth/useGoogleSignIn"; // adjust path as needed
 import * as WebBrowser from "expo-web-browser";
 import { FontAwesome5 } from "@expo/vector-icons";
 import { GoogleLogo } from "../utils";
+import * as AppleAuthentication from "expo-apple-authentication";
 
 WebBrowser.maybeCompleteAuthSession();
+
+// Conditionally require Google sign-in only on Android
+let useGoogleSignIn;
+if (Platform.OS === "android") {
+  useGoogleSignIn = require("../auth/useGoogleSignIn").useGoogleSignIn;
+}
 
 const LoginScreen = ({ navigation }) => {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [appleAvailable, setAppleAvailable] = useState(false);
 
-  // Use your Google sign-in hook, pass a callback for successful login
-  const [request, promptAsync] = useGoogleSignIn(() => {
-    navigation.reset({
-      index: 0,
-      routes: [{ name: "Expenses" }],
+  let request, promptAsync;
+  if (Platform.OS === "android" && useGoogleSignIn) {
+    [request, promptAsync] = useGoogleSignIn(() => {
+      navigation.reset({
+        index: 0,
+        routes: [{ name: "Expenses" }],
+      });
     });
-  });
+  }
+
+  useEffect(() => {
+    // Check if Apple Sign In is supported
+    (async () => {
+      const available = await AppleAuthentication.isAvailableAsync();
+      setAppleAvailable(available);
+    })();
+  }, []);
 
   const login = () => {
     signInWithEmailAndPassword(auth, email, password)
@@ -39,9 +56,40 @@ const LoginScreen = ({ navigation }) => {
         console.log("Login successful:", userCredential.user.email);
       })
       .catch((error) => {
-        console.log("Login failed:", error.code);
-        console.log(error.message);
+        console.log("Login failed:", error.code, error.message);
       });
+  };
+
+  const onAppleButtonPress = async () => {
+    try {
+      const credential = await AppleAuthentication.signInAsync({
+        requestedScopes: [
+          AppleAuthentication.AppleAuthenticationScope.FULL_NAME,
+          AppleAuthentication.AppleAuthenticationScope.EMAIL,
+        ],
+      });
+
+      console.log("Apple credential:", credential);
+
+      // If you're integrating with Firebase:
+      // const provider = new OAuthProvider("apple.com");
+      // const authCredential = provider.credential({
+      //   idToken: credential.identityToken,
+      //   rawNonce: undefined, // handle nonce if you generate one
+      // });
+      // await signInWithCredential(auth, authCredential);
+
+      navigation.reset({
+        index: 0,
+        routes: [{ name: "Expenses" }],
+      });
+    } catch (e) {
+      if (e.code === "ERR_CANCELED") {
+        console.log("Apple Sign-In canceled");
+      } else {
+        console.error("Apple Sign-In error:", e);
+      }
+    }
   };
 
   return (
@@ -79,16 +127,34 @@ const LoginScreen = ({ navigation }) => {
             <Text style={styles.loginButtonText}>Log in</Text>
           </TouchableOpacity>
 
-          <TouchableOpacity
-            style={styles.googleButton}
-            onPress={() => promptAsync()}
-            disabled={!request}
-          >
-            <View style={styles.googleButtonContent}>
-              <Text style={styles.googleButtonText}>Sign in with Google</Text>
-              <GoogleLogo />
-            </View>
-          </TouchableOpacity>
+          {/* ANDROID: Google Sign In */}
+          {Platform.OS === "android" && (
+            <TouchableOpacity
+              style={styles.googleButton}
+              onPress={() => promptAsync()}
+              disabled={!request}
+            >
+              <View style={styles.googleButtonContent}>
+                <Text style={styles.googleButtonText}>Sign in with Google</Text>
+                <GoogleLogo />
+              </View>
+            </TouchableOpacity>
+          )}
+
+          {/* iOS: Apple Sign In */}
+          {Platform.OS === "ios" && appleAvailable && (
+            <AppleAuthentication.AppleAuthenticationButton
+              buttonType={
+                AppleAuthentication.AppleAuthenticationButtonType.SIGN_IN
+              }
+              buttonStyle={
+                AppleAuthentication.AppleAuthenticationButtonStyle.BLACK
+              }
+              cornerRadius={8}
+              style={{ width: 200, height: 44, marginTop: 10 }}
+              onPress={onAppleButtonPress}
+            />
+          )}
 
           <TouchableOpacity>
             <Text style={styles.forgotPassword}>Forgot Password?</Text>
@@ -104,7 +170,6 @@ const LoginScreen = ({ navigation }) => {
 };
 
 const styles = StyleSheet.create({
-  // your styles unchanged
   container: {
     flex: 1,
     backgroundColor: "#262261",
@@ -159,9 +224,7 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
   },
-
   googleButtonText: {
-    // color: "#4285F4",
     fontWeight: "bold",
     fontSize: 16,
     marginRight: 8,
@@ -171,6 +234,11 @@ const styles = StyleSheet.create({
     textAlign: "center",
     marginTop: 5,
     fontWeight: "bold",
+  },
+  forgotPassword: {
+    color: "#262261",
+    textAlign: "center",
+    marginTop: 15,
   },
 });
 
