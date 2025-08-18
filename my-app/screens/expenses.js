@@ -21,7 +21,7 @@ const ExpensesScreen = ({ navigation }) => {
   useEffect(() => {
     const user = auth.currentUser;
 
-    setDisplayName(user.displayName || "User");
+    // setDisplayName(user.displayName || "User");
 
     const fetchReceipts = async () => {
       try {

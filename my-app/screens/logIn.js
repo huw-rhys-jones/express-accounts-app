@@ -8,12 +8,14 @@ import {
   KeyboardAvoidingView,
   Platform,
 } from "react-native";
-import { signInWithEmailAndPassword } from "firebase/auth";
-import { auth } from "../firebaseConfig";
+import { signInWithEmailAndPassword, OAuthProvider, signInWithCredential, updateProfile } from "firebase/auth";
+import { auth, db } from "../firebaseConfig";
+import { doc, setDoc, serverTimestamp } from "firebase/firestore";
 import * as WebBrowser from "expo-web-browser";
 import { FontAwesome5 } from "@expo/vector-icons";
 import { GoogleLogo } from "../utils";
 import * as AppleAuthentication from "expo-apple-authentication";
+import * as Crypto from "expo-crypto";
 
 WebBrowser.maybeCompleteAuthSession();
 
@@ -62,23 +64,59 @@ const LoginScreen = ({ navigation }) => {
 
   const onAppleButtonPress = async () => {
     try {
+      // 🔐 Generate a random nonce
+      const rawNonce = Math.random().toString(36).substring(2, 10);
+      const hashedNonce = await Crypto.digestStringAsync(
+        Crypto.CryptoDigestAlgorithm.SHA256,
+        rawNonce
+      );
+
+      // 🍏 Start Apple Sign-In
       const credential = await AppleAuthentication.signInAsync({
         requestedScopes: [
           AppleAuthentication.AppleAuthenticationScope.FULL_NAME,
           AppleAuthentication.AppleAuthenticationScope.EMAIL,
         ],
+        nonce: hashedNonce,
       });
 
       console.log("Apple credential:", credential);
 
-      // If you're integrating with Firebase:
-      // const provider = new OAuthProvider("apple.com");
-      // const authCredential = provider.credential({
-      //   idToken: credential.identityToken,
-      //   rawNonce: undefined, // handle nonce if you generate one
-      // });
-      // await signInWithCredential(auth, authCredential);
+      if (!credential.identityToken) {
+        throw new Error("Apple Sign-In failed - no identity token returned");
+      }
 
+      // 🔑 Sign in with Firebase
+      const provider = new OAuthProvider("apple.com");
+      const authCredential = provider.credential({
+        idToken: credential.identityToken,
+        rawNonce,
+      });
+
+      const result = await signInWithCredential(auth, authCredential);
+      const user = result.user;
+
+      // 📝 Extract name/email (only available first login)
+      const fullName = credential.fullName?.givenName || user.displayName || "User";
+      const email = credential.email || user.email;
+
+      // Update Firebase Auth profile if missing
+      if (!user.displayName && fullName) {
+        await updateProfile(user, { displayName: fullName });
+      }
+
+      // Save to Firestore
+      await setDoc(
+        doc(db, "users", user.uid),
+        {
+          name: fullName,
+          email: email,
+          createdAt: serverTimestamp(),
+        },
+        { merge: true } // don’t overwrite existing
+      );
+
+      // ✅ Navigate to Expenses page
       navigation.reset({
         index: 0,
         routes: [{ name: "Expenses" }],
@@ -144,14 +182,14 @@ const LoginScreen = ({ navigation }) => {
           {/* iOS: Apple Sign In */}
           {Platform.OS === "ios" && appleAvailable && (
             <AppleAuthentication.AppleAuthenticationButton
-              buttonType={
-                AppleAuthentication.AppleAuthenticationButtonType.SIGN_IN
-              }
-              buttonStyle={
-                AppleAuthentication.AppleAuthenticationButtonStyle.BLACK
-              }
+              buttonType={AppleAuthentication.AppleAuthenticationButtonType.SIGN_IN}
+              buttonStyle={AppleAuthentication.AppleAuthenticationButtonStyle.BLACK}
               cornerRadius={8}
-              style={{ width: 200, height: 44, marginTop: 10 }}
+              style={{
+                width: '100%',
+                height: 50,
+                marginTop: 16,
+              }}
               onPress={onAppleButtonPress}
             />
           )}
