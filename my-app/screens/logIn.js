@@ -16,6 +16,7 @@ import { FontAwesome5 } from "@expo/vector-icons";
 import { GoogleLogo } from "../utils";
 import * as AppleAuthentication from "expo-apple-authentication";
 import * as Crypto from "expo-crypto";
+import { Alert } from "react-native";
 
 WebBrowser.maybeCompleteAuthSession();
 
@@ -125,7 +126,9 @@ const LoginScreen = ({ navigation }) => {
       if (e.code === "ERR_CANCELED") {
         console.log("Apple Sign-In canceled");
       } else {
-        console.error("Apple Sign-In error:", e);
+        // console.error("Apple Sign-In error:", e);
+
++        Alert.alert("Apple Sign-In error", e.message || JSON.stringify(e))
       }
     }
   };
