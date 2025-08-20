@@ -19,7 +19,10 @@ export default ({ config }) => ({
     supportsTablet: false,
     bundleIdentifier: "com.caistec.expressaccounts",
     buildNumber: "15",
-    "usesAppleSignIn": true
+    usesAppleSignIn: true, // ✅ allow Expo config plugin
+    entitlements: {
+      "com.apple.developer.applesignin": ["Default"] // ✅ required for Apple Sign-In
+    }
   },
   android: {
     package: "com.caistec.expressaccounts",
