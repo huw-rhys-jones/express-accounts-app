@@ -6,7 +6,8 @@ import {
   TouchableOpacity,
   StyleSheet,
   KeyboardAvoidingView,
-  Platform
+  Platform,
+  Image,
 } from "react-native";
 
 import { auth } from "../firebaseConfig";
@@ -22,27 +23,16 @@ const SignUpScreen = ({ navigation }) => {
       .then((userCredential) => {
         const user = userCredential.user;
 
-        // Update the user's display name
-        updateProfile(user, {
-          displayName: name,
-        })
+        updateProfile(user, { displayName: name })
           .then(() => {
-            // Profile updated successfully
             console.log("User registered and profile updated successfully");
-
-            // Navigate to the 'Expenses' screen
-            navigation.reset({
-              index: 0,
-              routes: [{ name: "Expenses" }],
-            });
+            navigation.reset({ index: 0, routes: [{ name: "Expenses" }] });
           })
           .catch((error) => {
-            // An error occurred while updating the profile
             console.error("Profile update error:", error);
           });
       })
       .catch((error) => {
-        // Handle errors during account creation
         console.error("Registration error:", error);
       });
   };
@@ -53,11 +43,19 @@ const SignUpScreen = ({ navigation }) => {
       behavior={Platform.OS === "ios" ? "padding" : "height"}
     >
       <View style={styles.container}>
-        {/* Header Section */}
+        {/* Logo */}
+        <View style={styles.logoContainer}>
+          <Image
+            source={require("../assets/images/logo.png")}
+            style={styles.logo}
+          />
+        </View>
+
+        {/* Header */}
         <View style={styles.header}>
           <Text style={styles.title}>Create new{"\n"}Account</Text>
           <Text style={styles.subtitle}>
-            Already Registered?
+            Already Registered?{" "}
             <Text
               onPress={() => navigation.navigate("SignIn")}
               style={styles.link}
@@ -67,7 +65,7 @@ const SignUpScreen = ({ navigation }) => {
           </Text>
         </View>
 
-        {/* Form Section */}
+        {/* Form */}
         <View style={styles.form}>
           <Text style={styles.label}>NAME (COMPANY OR PERSONAL)</Text>
           <TextInput
@@ -98,7 +96,6 @@ const SignUpScreen = ({ navigation }) => {
             onChangeText={setPassword}
           />
 
-          {/* Sign Up Button */}
           <TouchableOpacity
             style={styles.button}
             onPress={() => register(email, password, name)}
@@ -116,37 +113,60 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: "#151337", // Dark purple background
     alignItems: "center",
-    justifyContent: "center",
+    paddingTop: 40,
   },
+
+  // ✅ Floating logo card (no grey background around it)
+  logoContainer: {
+    backgroundColor: "#fff",
+    paddingVertical: 16,
+    paddingHorizontal: 32,
+    borderRadius: 16,
+    alignItems: "center",
+    justifyContent: "center",
+    marginBottom: 20,
+
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.2,
+    shadowRadius: 6,
+    elevation: 6,
+  },
+  logo: {
+    width: 240,
+    height: 80,
+    resizeMode: "contain",
+  },
+
   header: {
-    backgroundColor: "#E5E4F2", // Light purple/grayish background
     width: "85%",
+    backgroundColor: "#E5E4F2",
     padding: 20,
     borderTopLeftRadius: 20,
     borderTopRightRadius: 20,
     alignItems: "center",
-    marginBottom: -10, // Overlapping effect
   },
   title: {
-    fontSize: 24,
+    fontSize: 26,
     fontWeight: "bold",
     textAlign: "center",
     color: "#1C1A4D",
-    marginBottom: 15,
+    marginBottom: 8,
   },
   subtitle: {
     fontSize: 14,
     color: "#555",
     textAlign: "center",
-    marginBottom: -10,
+    marginBottom: 15,
   },
   link: {
     color: "#B00040",
     fontWeight: "bold",
   },
+
   form: {
-    backgroundColor: "#E5E4F2", // Light purple form background
     width: "85%",
+    backgroundColor: "#E5E4F2",
     padding: 20,
     borderBottomLeftRadius: 20,
     borderBottomRightRadius: 20,
@@ -161,16 +181,15 @@ const styles = StyleSheet.create({
     width: "100%",
     padding: 12,
     borderRadius: 10,
-    backgroundColor: "#C4C3CC", // Grayish input background
-    marginBottom: 1,
+    backgroundColor: "#C4C3CC",
+    marginTop: 6,
   },
   button: {
-    backgroundColor: "#a60d49", // Red button
+    backgroundColor: "#a60d49",
     paddingVertical: 12,
     borderRadius: 25,
     alignItems: "center",
-    marginTop: 45,
-    marginBottom: 12,
+    marginTop: 30,
   },
   buttonText: {
     color: "#fff",
@@ -180,5 +199,3 @@ const styles = StyleSheet.create({
 });
 
 export default SignUpScreen;
-
-// #RE: Huw-  I tried to add the logo again but failed miserably!

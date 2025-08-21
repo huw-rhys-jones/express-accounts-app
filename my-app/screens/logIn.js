@@ -7,20 +7,24 @@ import {
   StyleSheet,
   KeyboardAvoidingView,
   Platform,
+  Image,
+  Alert,
 } from "react-native";
-import { signInWithEmailAndPassword, OAuthProvider, signInWithCredential, updateProfile } from "firebase/auth";
+import {
+  signInWithEmailAndPassword,
+  OAuthProvider,
+  signInWithCredential,
+  updateProfile,
+} from "firebase/auth";
 import { auth, db } from "../firebaseConfig";
 import { doc, setDoc, serverTimestamp } from "firebase/firestore";
 import * as WebBrowser from "expo-web-browser";
-import { FontAwesome5 } from "@expo/vector-icons";
-import { GoogleLogo } from "../utils";
 import * as AppleAuthentication from "expo-apple-authentication";
 import * as Crypto from "expo-crypto";
-import { Alert } from "react-native";
+import { GoogleLogo } from "../utils";
 
 WebBrowser.maybeCompleteAuthSession();
 
-// Conditionally require Google sign-in only on Android
 let useGoogleSignIn;
 if (Platform.OS === "android") {
   useGoogleSignIn = require("../auth/useGoogleSignIn").useGoogleSignIn;
@@ -33,46 +37,46 @@ const LoginScreen = ({ navigation }) => {
 
   let request, promptAsync;
   if (Platform.OS === "android" && useGoogleSignIn) {
-    [request, promptAsync] = useGoogleSignIn(() => {
+    [request, promptAsync] = useGoogleSignIn(() =>
       navigation.reset({
         index: 0,
         routes: [{ name: "Expenses" }],
-      });
-    });
+      })
+    );
   }
 
   useEffect(() => {
-    // Check if Apple Sign In is supported
     (async () => {
       const available = await AppleAuthentication.isAvailableAsync();
       setAppleAvailable(available);
     })();
   }, []);
 
-  const login = () => {
-    signInWithEmailAndPassword(auth, email, password)
-      .then((userCredential) => {
-        navigation.reset({
-          index: 0,
-          routes: [{ name: "Expenses" }],
-        });
-        console.log("Login successful:", userCredential.user.email);
-      })
-      .catch((error) => {
-        console.log("Login failed:", error.code, error.message);
-      });
+  const login = async () => {
+    try {
+      const userCredential = await signInWithEmailAndPassword(
+        auth,
+        email,
+        password
+      );
+      console.log("Login successful:", userCredential.user.email);
+      navigation.reset({ index: 0, routes: [{ name: "Expenses" }] });
+    } catch (error) {
+      console.log("Login failed:", error.code, error.message);
+      Alert.alert("Login failed", error.message);
+    }
   };
 
   const onAppleButtonPress = async () => {
     try {
-      // 🔐 Generate a random nonce
+      // 🔐 Generate nonce
       const rawNonce = Math.random().toString(36).substring(2, 10);
       const hashedNonce = await Crypto.digestStringAsync(
         Crypto.CryptoDigestAlgorithm.SHA256,
         rawNonce
       );
 
-      // 🍏 Start Apple Sign-In
+      // 🍏 Apple Sign-In
       const credential = await AppleAuthentication.signInAsync({
         requestedScopes: [
           AppleAuthentication.AppleAuthenticationScope.FULL_NAME,
@@ -81,13 +85,11 @@ const LoginScreen = ({ navigation }) => {
         nonce: hashedNonce,
       });
 
-      console.log("Apple credential:", credential);
-
       if (!credential.identityToken) {
-        throw new Error("Apple Sign-In failed - no identity token returned");
+        throw new Error("Apple Sign-In failed: No identity token returned");
       }
 
-      // 🔑 Sign in with Firebase
+      // 🔑 Firebase
       const provider = new OAuthProvider("apple.com");
       const authCredential = provider.credential({
         idToken: credential.identityToken,
@@ -97,47 +99,50 @@ const LoginScreen = ({ navigation }) => {
       const result = await signInWithCredential(auth, authCredential);
       const user = result.user;
 
-      // 📝 Extract name/email (only available first login)
-      const fullName = credential.fullName?.givenName || user.displayName || "User";
-      const email = credential.email || user.email;
+      // 📝 User details
+      const fullName =
+        credential.fullName?.givenName || user.displayName || "User";
+      const userEmail = credential.email || user.email;
 
-      // Update Firebase Auth profile if missing
       if (!user.displayName && fullName) {
         await updateProfile(user, { displayName: fullName });
       }
 
-      // Save to Firestore
       await setDoc(
         doc(db, "users", user.uid),
         {
           name: fullName,
-          email: email,
+          email: userEmail,
           createdAt: serverTimestamp(),
         },
-        { merge: true } // don’t overwrite existing
+        { merge: true }
       );
 
-      // ✅ Navigate to Expenses page
-      navigation.reset({
-        index: 0,
-        routes: [{ name: "Expenses" }],
-      });
+      navigation.reset({ index: 0, routes: [{ name: "Expenses" }] });
     } catch (e) {
       if (e.code === "ERR_CANCELED") {
         console.log("Apple Sign-In canceled");
       } else {
-        // console.error("Apple Sign-In error:", e);
-
-+        Alert.alert("Apple Sign-In error", e.message || JSON.stringify(e))
+        console.error("Apple Sign-In error:", e);
+        Alert.alert("Apple Sign-In error", e.message || JSON.stringify(e));
       }
     }
   };
 
   return (
     <KeyboardAvoidingView
-      style={{ flex: 1 }}
+      style={styles.flex}
       behavior={Platform.OS === "ios" ? "padding" : "height"}
     >
+      {/* Logo */}
+      <View style={styles.logoContainer}>
+        <Image
+          source={require("../assets/images/logo.png")}
+          style={styles.logo}
+        />
+      </View>
+
+      {/* Form */}
       <View style={styles.container}>
         <View style={styles.header}>
           <Text style={styles.headerText}>Sign in to continue</Text>
@@ -168,7 +173,7 @@ const LoginScreen = ({ navigation }) => {
             <Text style={styles.loginButtonText}>Log in</Text>
           </TouchableOpacity>
 
-          {/* ANDROID: Google Sign In */}
+          {/* Google Sign-In */}
           {Platform.OS === "android" && (
             <TouchableOpacity
               style={styles.googleButton}
@@ -182,17 +187,13 @@ const LoginScreen = ({ navigation }) => {
             </TouchableOpacity>
           )}
 
-          {/* iOS: Apple Sign In */}
+          {/* Apple Sign-In */}
           {Platform.OS === "ios" && appleAvailable && (
             <AppleAuthentication.AppleAuthenticationButton
               buttonType={AppleAuthentication.AppleAuthenticationButtonType.SIGN_IN}
               buttonStyle={AppleAuthentication.AppleAuthenticationButtonStyle.BLACK}
               cornerRadius={8}
-              style={{
-                width: '100%',
-                height: 50,
-                marginTop: 16,
-              }}
+              style={styles.appleButton}
               onPress={onAppleButtonPress}
             />
           )}
@@ -211,6 +212,8 @@ const LoginScreen = ({ navigation }) => {
 };
 
 const styles = StyleSheet.create({
+  flex: { flex: 1, 
+    backgroundColor: "#262261" },
   container: {
     flex: 1,
     backgroundColor: "#262261",
@@ -219,13 +222,48 @@ const styles = StyleSheet.create({
   },
   header: {
     backgroundColor: "#FFF",
-    paddingVertical: 15,
-    paddingHorizontal: 35,
-    borderRadius: 35,
-    marginTop: -30,
-    marginBottom: 55,
+    paddingVertical: 12,
+    paddingHorizontal: 32,
+    borderRadius: 20,
+    alignSelf: "center",
+    marginTop: -10,   // pulls it up closer to the logo
+    marginBottom: 20,
+    minWidth: 220,    // ensures it’s at least as wide as the logo
+    alignItems: "center",
   },
-  headerText: { fontSize: 21, fontWeight: "bold", color: "#29275b" },
+  
+  headerText: {
+    fontSize: 18,
+    fontWeight: "bold",
+    color: "#262261",
+    textAlign: "center",
+  },
+  logo: {
+    width: 260,        // Scales logo proportionally
+    height: 80,
+    resizeMode: "contain",
+  },
+  
+  logoContainer: {
+    backgroundColor: "#fff",
+    width: "85%",
+    paddingVertical: 16,
+    borderRadius: 20,
+    alignItems: "center",
+    justifyContent: "center",
+    marginTop: 50,
+    marginBottom: 15,
+    alignSelf: "center",      // ✅ centers it horizontally
+
+    // subtle shadow for floating look
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.2,
+    shadowRadius: 6,
+    elevation: 6,
+  },
+  
+
   formContainer: {
     backgroundColor: "#EAEAF2",
     padding: 20,
@@ -254,6 +292,7 @@ const styles = StyleSheet.create({
     marginTop: 20,
   },
   loginButtonText: { color: "#FFF", fontWeight: "bold", fontSize: 16 },
+
   googleButton: {
     backgroundColor: "#FFF",
     paddingVertical: 12,
@@ -269,6 +308,11 @@ const styles = StyleSheet.create({
     fontWeight: "bold",
     fontSize: 16,
     marginRight: 8,
+  },
+  appleButton: {
+    width: "100%",
+    height: 50,
+    marginTop: 16,
   },
   signup: {
     color: "#262261",

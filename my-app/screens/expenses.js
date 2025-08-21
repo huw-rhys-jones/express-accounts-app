@@ -212,7 +212,7 @@ const styles = StyleSheet.create({
     bottom: 0,
     width: "100%",
     // height: 50,
-    paddingBottom: 5,
+    paddingBottom: 35,
     backgroundColor: "#B5B3C6",
     flexDirection: "row",
     justifyContent: "space-around",
