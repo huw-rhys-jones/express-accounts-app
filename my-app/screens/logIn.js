@@ -8,7 +8,6 @@ import {
   KeyboardAvoidingView,
   Platform,
   Image,
-  Alert,
 } from "react-native";
 import {
   signInWithEmailAndPassword,
@@ -25,16 +24,23 @@ import { GoogleLogo } from "../utils";
 
 WebBrowser.maybeCompleteAuthSession();
 
-// ✅ Global error catchers
+// 🔴 GLOBAL ERROR HANDLERS
 if (typeof ErrorUtils !== "undefined" && ErrorUtils.setGlobalHandler) {
   ErrorUtils.setGlobalHandler((error, isFatal) => {
-    Alert.alert("Global Error", `${error.message}\n\n${error.stack}`);
+    console.error("🔥 Global Error:", {
+      message: error.message,
+      stack: error.stack,
+      isFatal,
+    });
   });
 }
 
 if (typeof process !== "undefined" && process.on) {
   process.on("unhandledRejection", (reason, promise) => {
-    Alert.alert("Unhandled Promise Rejection", JSON.stringify(reason, null, 2));
+    console.error("🔥 Unhandled Promise Rejection:", {
+      reason,
+      promise,
+    });
   });
 }
 
@@ -61,35 +67,49 @@ const LoginScreen = ({ navigation }) => {
   useEffect(() => {
     (async () => {
       const available = await AppleAuthentication.isAvailableAsync();
+      console.log("🍏 Apple Sign-In available:", available);
       setAppleAvailable(available);
     })();
   }, []);
 
+  // 📧 EMAIL/PASSWORD LOGIN
   const login = async () => {
+    console.log("📧 Attempting email login with:", email);
     try {
       const userCredential = await signInWithEmailAndPassword(
         auth,
         email,
         password
       );
-      Alert.alert("Login successful", userCredential.user.email);
+      console.log("✅ Email Login successful:", {
+        uid: userCredential.user.uid,
+        email: userCredential.user.email,
+      });
       navigation.reset({ index: 0, routes: [{ name: "Expenses" }] });
     } catch (error) {
-      Alert.alert("Login failed", `${error.code}\n${error.message}`);
+      console.error("❌ Email login failed:", {
+        code: error.code,
+        message: error.message,
+        stack: error.stack,
+        full: error,
+      });
     }
   };
 
+  // 🍏 APPLE LOGIN
   const onAppleButtonPress = async () => {
-    Alert.alert("Entered function", "Before try block"); // ✅ breadcrumb
+    console.log("🍏 Entered Apple login function");
+
     try {
-      Alert.alert("Step 1", "Generating nonce…");
+      console.log("Step 1️⃣ Generating nonce…");
       const rawNonce = Math.random().toString(36).substring(2, 10);
       const hashedNonce = await Crypto.digestStringAsync(
         Crypto.CryptoDigestAlgorithm.SHA256,
         rawNonce
       );
+      console.log("🔑 Nonce generated:", { rawNonce, hashedNonce });
 
-      Alert.alert("Step 2", "Starting AppleAuthentication.signInAsync…");
+      console.log("Step 2️⃣ Calling AppleAuthentication.signInAsync…");
       const credential = await AppleAuthentication.signInAsync({
         requestedScopes: [
           AppleAuthentication.AppleAuthenticationScope.FULL_NAME,
@@ -97,60 +117,68 @@ const LoginScreen = ({ navigation }) => {
         ],
         nonce: hashedNonce,
       });
-
-      Alert.alert("Step 3", "Apple sign-in completed");
+      console.log("🍏 Apple Sign-In returned credential:", credential);
 
       if (!credential.identityToken) {
         throw new Error("Apple Sign-In failed: No identity token returned");
       }
 
-      Alert.alert("Step 4", "Building Firebase credential…");
+      console.log("Step 3️⃣ Building Firebase OAuthProvider credential…");
       const provider = new OAuthProvider("apple.com");
       const authCredential = provider.credential({
         idToken: credential.identityToken,
         rawNonce,
       });
+      console.log("🔑 Firebase authCredential created:", authCredential);
 
-      Alert.alert("Step 5", "Signing into Firebase…");
+      console.log("Step 4️⃣ Signing into Firebase…");
       const result = await signInWithCredential(auth, authCredential);
       const user = result.user;
-
-      Alert.alert("Step 6", "Firebase sign-in successful");
+      console.log("✅ Firebase sign-in result:", {
+        uid: user.uid,
+        email: user.email,
+        displayName: user.displayName,
+        providerData: user.providerData,
+      });
 
       const fullName =
         credential.fullName?.givenName || user.displayName || "User";
       const userEmail = credential.email || user.email;
 
       if (!user.displayName && fullName) {
-        Alert.alert("Step 7", "Updating profile…");
+        console.log("Step 5️⃣ Updating Firebase profile with:", fullName);
         await updateProfile(user, { displayName: fullName });
       }
 
-      Alert.alert("Step 8", "Saving user in Firestore…");
-      await setDoc(
-        doc(db, "users", user.uid),
-        {
-          name: fullName,
-          email: userEmail,
-          createdAt: serverTimestamp(),
-        },
-        { merge: true }
-      );
+      console.log("Step 6️⃣ Writing Firestore user doc…", {
+        uid: user.uid,
+        name: fullName,
+        email: userEmail,
+      });
+      // await setDoc(
+      //   doc(db, "users", user.uid),
+      //   {
+      //     name: fullName,
+      //     email: userEmail,
+      //     createdAt: serverTimestamp(),
+      //   },
+      //   { merge: true }
+      // );
 
-      Alert.alert("Step 9", "Navigation reset → Expenses");
+      console.log("🎉 Apple login flow complete → navigating to Expenses");
       navigation.reset({ index: 0, routes: [{ name: "Expenses" }] });
     } catch (e) {
       if (e.code === "ERR_CANCELED") {
-        Alert.alert("Apple Sign-In", "User canceled sign-in");
+        console.warn("🚪 Apple Sign-In canceled by user");
       } else {
-        const errorDetails = `
-Name: ${e?.name || "N/A"}
-Message: ${e?.message || "N/A"}
-Code: ${e?.code || "N/A"}
-Stack: ${e?.stack || "N/A"}
-JSON: ${JSON.stringify(e, null, 2)}
-        `;
-        Alert.alert("Apple Sign-In Error", errorDetails);
+        console.error("❌ Apple Sign-In Error:", {
+          name: e?.name,
+          message: e?.message,
+          code: e?.code,
+          stack: e?.stack,
+          json: JSON.stringify(e, null, 2),
+          full: e,
+        });
       }
     }
   };
@@ -223,14 +251,6 @@ JSON: ${JSON.stringify(e, null, 2)}
               onPress={onAppleButtonPress}
             />
           )}
-
-          <TouchableOpacity>
-            <Text style={styles.forgotPassword}>Forgot Password?</Text>
-          </TouchableOpacity>
-
-          <TouchableOpacity onPress={() => navigation.navigate("SignUp")}>
-            <Text style={styles.signup}>Signup</Text>
-          </TouchableOpacity>
         </View>
       </View>
     </KeyboardAvoidingView>
@@ -324,17 +344,6 @@ const styles = StyleSheet.create({
     marginRight: 8,
   },
   appleButton: { width: "100%", height: 50, marginTop: 16 },
-  signup: {
-    color: "#262261",
-    textAlign: "center",
-    marginTop: 5,
-    fontWeight: "bold",
-  },
-  forgotPassword: {
-    color: "#262261",
-    textAlign: "center",
-    marginTop: 15,
-  },
 });
 
 export default LoginScreen;

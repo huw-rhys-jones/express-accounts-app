@@ -19,11 +19,12 @@ export default ({ config }) => ({
     supportsTablet: false,
     bundleIdentifier: "com.caistec.expressaccounts",
     buildNumber: "15",
-    usesAppleSignIn: true, // ✅ allow Expo config plugin
-    entitlements: {
-      "com.apple.developer.applesignin": ["Default"] // ✅ required for Apple Sign-In
-    },
-    "googleServicesFile": "./GoogleService-Info.plist"
+    googleServicesFile: "./GoogleService-Info.plist"
+    // usesAppleSignIn: true, // ✅ allow Expo config plugin
+    // entitlements: {
+    //   "com.apple.developer.applesignin": ["Default"] // ✅ required for Apple Sign-In
+    // },
+    // "googleServicesFile": "./GoogleService-Info.plist"
   },
   android: {
     package: "com.caistec.expressaccounts",
