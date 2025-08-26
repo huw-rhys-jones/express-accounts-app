@@ -21,7 +21,7 @@ import DateTimePickerModal from "react-native-modal-datetime-picker";
 import * as ImagePicker from "react-native-image-picker";
 import DropDownPicker from "react-native-dropdown-picker";
 import { db, auth } from "../firebaseConfig";
-import { addDoc, collection } from "firebase/firestore";
+import { addDoc, collection, serverTimestamp } from "firebase/firestore";
 import { getStorage, ref, uploadBytes, getDownloadURL } from "firebase/storage";
 import { categories } from "../constants/arrays";
 import { formatDate } from "../utils";
@@ -37,35 +37,62 @@ const ReceiptScreen = ({ navigation }) => {
   const [showConfirmReset, setConfirmReset] = useState(false);
   const [showConfirmLeaveModal, setShowConfirmLeaveModal] = useState(false);
   const [items, setItems] = useState(
-    categories.map((cat) => ({
-      label: cat.name,
-      value: cat.name,
-    }))
+    categories.map((cat) => ({ label: cat.name, value: cat.name }))
   );
   const [showConfirmModal, setShowConfirmModal] = useState(false);
 
   const flatListRef = useRef(null);
 
+  // Auto-scroll image list on mount/updates
   useEffect(() => {
     if (flatListRef.current) {
       flatListRef.current.scrollToEnd({ animated: false });
     }
-    const backHandler = BackHandler.addEventListener(
-      "hardwareBackPress",
-      () => {
-        if (!amount && !selectedCategory && images.length === 0) {
-          navigation.goBack();
-          return true;
-        }
-        setShowConfirmLeaveModal(true);
+  }, [images]);
+
+  // Close modals when screen loses focus (prevents iOS lingering overlays)
+  useEffect(() => {
+    const sub = navigation.addListener("blur", () => {
+      setShowSuccess(false);
+      setShowConfirmModal(false);
+      setConfirmReset(false);
+      setShowConfirmLeaveModal(false);
+    });
+    return sub;
+  }, [navigation]);
+
+  // Android back button handling + modal-first dismissal
+  useEffect(() => {
+    const backHandler = BackHandler.addEventListener("hardwareBackPress", () => {
+      if (showSuccess) {
+        setShowSuccess(false);
         return true;
       }
-    );
+      if (showConfirmModal) {
+        setShowConfirmModal(false);
+        return true;
+      }
+      if (showConfirmReset) {
+        setConfirmReset(false);
+        return true;
+      }
+      if (showConfirmLeaveModal) {
+        setShowConfirmLeaveModal(false);
+        return true;
+      }
+
+      if (!amount && !selectedCategory && images.length === 0) {
+        navigation.goBack();
+        return true;
+      }
+      setShowConfirmLeaveModal(true);
+      return true;
+    });
     return () => backHandler.remove();
-  }, [amount, selectedCategory, images]);
+  }, [amount, selectedCategory, images, showSuccess, showConfirmModal, showConfirmReset, showConfirmLeaveModal, navigation]);
 
   const handleSavePress = () => {
-    if (!amount || parseFloat(amount) <= 0 || !selectedCategory) {
+    if (!amount || isNaN(parseFloat(amount)) || parseFloat(amount) <= 0 || !selectedCategory) {
       Alert.alert("Invalid Input", "Please fill in all fields correctly.");
       return;
     }
@@ -87,6 +114,7 @@ const ReceiptScreen = ({ navigation }) => {
       setShowSuccess(true);
     } catch (err) {
       console.error("Upload failed:", err);
+      Alert.alert("Upload failed", "Please try again.");
     }
   };
 
@@ -96,6 +124,7 @@ const ReceiptScreen = ({ navigation }) => {
     setSelectedCategory(null);
     setImages([]);
     setConfirmReset(false);
+    setShowConfirmModal(false);
   };
 
   const uploadReceipt = async ({ amount, date, category, images }) => {
@@ -104,13 +133,10 @@ const ReceiptScreen = ({ navigation }) => {
       const storage = getStorage();
       const imageUrls = [];
 
-      for (let img of images) {
-        const storageRef = ref(
-          storage,
-          `receipts/${user.uid}/${Date.now()}-${Math.random()
-            .toString(36)
-            .substring(7)}.jpg`
-        );
+      for (let i = 0; i < images.length; i++) {
+        const img = images[i];
+        const filename = `${Date.now()}-${i}-${Math.random().toString(36).slice(2, 8)}.jpg`;
+        const storageRef = ref(storage, `receipts/${user.uid}/${filename}`);
         const response = await fetch(img.uri);
         const blob = await response.blob();
         await uploadBytes(storageRef, blob);
@@ -124,10 +150,11 @@ const ReceiptScreen = ({ navigation }) => {
         category,
         images: imageUrls,
         userId: user.uid,
-        createdAt: new Date().toISOString(),
+        createdAt: serverTimestamp(),
       });
     } catch (error) {
       console.error("Error adding receipt:", error);
+      throw error;
     }
   };
 
@@ -145,16 +172,11 @@ const ReceiptScreen = ({ navigation }) => {
       [
         {
           text: "Camera",
-          onPress: () =>
-            ImagePicker.launchCamera({ mediaType: "photo" }, handleImagePicked),
+          onPress: () => ImagePicker.launchCamera({ mediaType: "photo" }, handleImagePicked),
         },
         {
           text: "Gallery",
-          onPress: () =>
-            ImagePicker.launchImageLibrary(
-              { mediaType: "photo" },
-              handleImagePicked
-            ),
+          onPress: () => ImagePicker.launchImageLibrary({ mediaType: "photo" }, handleImagePicked),
         },
         { text: "Cancel", style: "cancel" },
       ],
@@ -164,9 +186,7 @@ const ReceiptScreen = ({ navigation }) => {
 
   const handleImagePicked = (response) => {
     if (!response.didCancel && response.assets) {
-      const newImages = response.assets.map((asset) => ({
-        uri: asset.uri,
-      }));
+      const newImages = response.assets.map((asset) => ({ uri: asset.uri }));
       setImages((prev) => [...prev, ...newImages]);
     }
   };
@@ -176,10 +196,7 @@ const ReceiptScreen = ({ navigation }) => {
   );
 
   return (
-    <KeyboardAvoidingView
-      style={{ flex: 1 }}
-      behavior={Platform.OS === "ios" ? "padding" : "height"}
-    >
+    <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === "ios" ? "padding" : "height"}>
       <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
         <View style={styles.container}>
           <View style={styles.borderContainer}>
@@ -190,17 +207,14 @@ const ReceiptScreen = ({ navigation }) => {
               <Text style={styles.currency}>£</Text>
               <TextInput
                 style={styles.input}
-                keyboardType="numeric"
+                keyboardType="decimal-pad"
                 value={amount}
                 onChangeText={setAmount}
               />
             </View>
 
             <Text style={styles.label}>Date:</Text>
-            <TouchableOpacity
-              style={styles.dateButton}
-              onPress={showDatePicker}
-            >
+            <TouchableOpacity style={styles.dateButton} onPress={showDatePicker}>
               <Text style={styles.dateText}>{formatDate(selectedDate)}</Text>
             </TouchableOpacity>
             <DateTimePickerModal
@@ -217,25 +231,25 @@ const ReceiptScreen = ({ navigation }) => {
               value={selectedCategory}
               items={items}
               setOpen={setOpen}
-              setValue={(cb) => setSelectedCategory(cb(selectedCategory))}
               setItems={setItems}
+              // Use library's controlled API: let the picker drive the state via setValue
+              setValue={(cb) => setSelectedCategory(cb(selectedCategory))}
               placeholder="Select a category"
               style={styles.dropdown}
               dropDownContainerStyle={styles.dropdownContainer}
               zIndex={1000}
+              zIndexInverse={1000}
+              dropDownDirection="AUTO"
             />
 
             <FlatList
-              ref={flatListRef} // <-- add ref here
+              ref={flatListRef}
               data={[...images, { addButton: true }]}
               horizontal
               keyExtractor={(item, index) => index.toString()}
               renderItem={({ item }) =>
                 item.addButton ? (
-                  <TouchableOpacity
-                    style={styles.uploadPlaceholder}
-                    onPress={pickImageOption}
-                  >
+                  <TouchableOpacity style={styles.uploadPlaceholder} onPress={pickImageOption}>
                     <Text style={styles.plus}>+</Text>
                   </TouchableOpacity>
                 ) : (
@@ -243,16 +257,11 @@ const ReceiptScreen = ({ navigation }) => {
                 )
               }
               contentContainerStyle={{ marginVertical: 20 }}
-              showsHorizontalScrollIndicator={true} // optional, useful for debugging scroll
+              showsHorizontalScrollIndicator={true}
             />
 
             <View style={styles.buttonContainer}>
-              <Button
-                mode="contained"
-                buttonColor="#a60d49"
-                style={styles.button}
-                onPress={handleLeavePress}
-              >
+              <Button mode="contained" buttonColor="#a60d49" style={styles.button} onPress={handleLeavePress}>
                 Cancel
               </Button>
 
@@ -267,21 +276,20 @@ const ReceiptScreen = ({ navigation }) => {
               </Button>
             </View>
 
-            <Button
-              mode="outlined"
-              onPress={handleResetPress}
-              style={styles.resetButton}
-              textColor="#a60d49"
-              icon="autorenew"
-            >
+            <Button mode="outlined" onPress={handleResetPress} style={styles.resetButton} textColor="#a60d49" icon="autorenew">
               Reset Form
             </Button>
           </View>
         </View>
       </TouchableWithoutFeedback>
 
-      {/* Confirmation, Reset, Leave & Success Modals */}
-      <Modal visible={showConfirmModal} transparent animationType="slide">
+      {/* Confirmation Modal */}
+      <Modal
+        visible={showConfirmModal}
+        transparent
+        animationType="slide"
+        onRequestClose={() => setShowConfirmModal(false)}
+      >
         <View style={styles.modalOverlay}>
           <View style={styles.modalContent}>
             <Text style={styles.modalTitle}>Confirm Receipt Details</Text>
@@ -289,52 +297,49 @@ const ReceiptScreen = ({ navigation }) => {
             <Text>Date: {selectedDate.toDateString()}</Text>
             <Text>Category: {selectedCategory}</Text>
             <View style={styles.modalButtons}>
-              <RNButton
-                title="Cancel"
-                onPress={() => setShowConfirmModal(false)}
-                color="#aaa"
-              />
-              <RNButton
-                title="Confirm"
-                onPress={handleConfirmReceipt}
-                color="#a60d49"
-              />
+              <RNButton title="Cancel" onPress={() => setShowConfirmModal(false)} color="black" />
+              <RNButton title="Confirm" onPress={handleConfirmReceipt} color="#a60d49" />
             </View>
           </View>
         </View>
       </Modal>
 
-      <Modal visible={showConfirmReset} transparent animationType="slide">
+      {/* Reset Modal */}
+      <Modal
+        visible={showConfirmReset}
+        transparent
+        animationType="slide"
+        onRequestClose={() => setConfirmReset(false)}
+      >
         <View style={styles.modalOverlay}>
           <View style={styles.modalContent}>
             <Text style={styles.modalTitle}>Confirm Reset</Text>
             <View style={styles.modalButtons}>
-              <RNButton
-                title="Cancel"
-                onPress={() => setConfirmReset(false)}
-                color="#aaa"
-              />
+              <RNButton title="Cancel" onPress={() => setConfirmReset(false)} color="#aaa" />
               <RNButton title="Confirm" onPress={resetForm} color="#a60d49" />
             </View>
           </View>
         </View>
       </Modal>
 
-      <Modal visible={showConfirmLeaveModal} transparent animationType="slide">
+      {/* Leave Modal */}
+      <Modal
+        visible={showConfirmLeaveModal}
+        transparent
+        animationType="slide"
+        onRequestClose={() => setShowConfirmLeaveModal(false)}
+      >
         <View style={styles.modalOverlay}>
           <View style={styles.modalContent}>
-            <Text style={styles.modalTitle}>
-              Are you sure you want to go back?
-            </Text>
+            <Text style={styles.modalTitle}>Are you sure you want to go back?</Text>
             <View style={styles.modalButtons}>
-              <RNButton
-                title="Cancel"
-                onPress={() => setShowConfirmLeaveModal(false)}
-                color="#aaa"
-              />
+              <RNButton title="Cancel" onPress={() => setShowConfirmLeaveModal(false)} color="#aaa" />
               <RNButton
                 title="Confirm"
-                onPress={() => navigation.navigate("Expenses")}
+                onPress={() => {
+                  setShowConfirmLeaveModal(false);
+                  navigation.navigate("Expenses");
+                }}
                 color="#a60d49"
               />
             </View>
@@ -342,16 +347,24 @@ const ReceiptScreen = ({ navigation }) => {
         </View>
       </Modal>
 
-      <Modal visible={showSuccess} transparent animationType="slide">
+      {/* Success Modal */}
+      <Modal
+        visible={showSuccess}
+        transparent
+        animationType="slide"
+        onRequestClose={() => setShowSuccess(false)}
+      >
         <View style={styles.modalOverlay}>
           <View style={styles.modalContent}>
-            <Text style={styles.modalTitle}>
-              Receipt saved successfully! Add another?
-            </Text>
+            <Text style={styles.modalTitle}>Receipt saved successfully! Add another?</Text>
             <View style={styles.modalButtons}>
               <RNButton
                 title="No"
-                onPress={() => navigation.navigate("Expenses")}
+                onPress={() => {
+                  setShowSuccess(false);
+                  setShowConfirmModal(false);
+                  navigation.reset({ index: 0, routes: [{ name: "Expenses" }] });
+                }}
                 color="#a60d49"
               />
               <RNButton

@@ -155,15 +155,15 @@ const LoginScreen = ({ navigation }) => {
         name: fullName,
         email: userEmail,
       });
-      // await setDoc(
-      //   doc(db, "users", user.uid),
-      //   {
-      //     name: fullName,
-      //     email: userEmail,
-      //     createdAt: serverTimestamp(),
-      //   },
-      //   { merge: true }
-      // );
+      await setDoc(
+        doc(db, "users", user.uid),
+        {
+          name: fullName,
+          email: userEmail,
+          createdAt: serverTimestamp(),
+        },
+        { merge: true }
+      );
 
       console.log("🎉 Apple login flow complete → navigating to Expenses");
       navigation.reset({ index: 0, routes: [{ name: "Expenses" }] });
