@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useCallback } from "react";
 import {
   View,
   Text,
@@ -6,134 +6,135 @@ import {
   StyleSheet,
   SafeAreaView,
   FlatList,
+  ActivityIndicator,
+  Modal,
+  RefreshControl,
 } from "react-native";
-import { Ionicons } from "@expo/vector-icons";
-import { signOut, getAuth, onAuthStateChanged } from "firebase/auth";
+import { signOut } from "firebase/auth";
 import { collection, query, where, getDocs } from "firebase/firestore";
 import { db, auth } from "../firebaseConfig";
 import { formatDate } from "../utils";
 
 const ExpensesScreen = ({ navigation }) => {
-  const [displayName, setDisplayName] = useState("");
+  const [displayName, setDisplayName] = useState("User");
   const [receipts, setReceipts] = useState([]);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(true); // start true to avoid empty-state flash
+  const [loadingText, setLoadingText] = useState(null);
+  const [refreshing, setRefreshing] = useState(false);
 
-  useEffect(() => {
-    const user = auth.currentUser;
+  // Shared loader wrapper
+  const runWithLoading = async (text, fn) => {
+    setLoadingText(text);
+    setLoading(true);
+    try {
+      await fn();
+    } finally {
+      setLoading(false);
+      setLoadingText(null);
+    }
+  };
 
-    setDisplayName(user.displayName || "User");
-
-    const fetchReceipts = async () => {
-      try {
-        if (!user) return;
-
-        const q = query(
-          collection(db, "receipts"),
-          where("userId", "==", user.uid)
-        );
-
-        const querySnapshot = await getDocs(q);
-        const userReceipts = querySnapshot.docs.map((doc) => ({
-          id: doc.id,
-          ...doc.data(),
-        }));
-
-        setReceipts(userReceipts);
-        console.log(userReceipts);
-      } catch (error) {
-        console.error("Error fetching receipts:", error);
-      } finally {
-        setLoading(false);
+  const fetchReceipts = useCallback(async () => {
+    try {
+      const user = auth.currentUser;
+      if (!user) {
+        setReceipts([]);
+        setDisplayName("User");
+        return;
       }
-    };
+      setDisplayName(user.displayName || "User");
 
-    fetchReceipts();
+      const q = query(collection(db, "receipts"), where("userId", "==", user.uid));
+      const querySnapshot = await getDocs(q);
+      const userReceipts = querySnapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() }));
+      setReceipts(userReceipts);
+    } catch (err) {
+      console.error("Error fetching receipts:", err);
+    }
   }, []);
 
-  const handleLogout = () => {
-    const auth = getAuth();
-    signOut(auth)
-      .then(() => {
-        navigation.replace("SignIn");
-      })
-      .catch((error) => {
-        console.error("Logout error:", error);
-      });
+  useEffect(() => {
+    // initial load with overlay
+    runWithLoading("Loading receipts…", fetchReceipts);
+
+    // refresh when returning to this screen
+    const unsubscribeFocus = navigation.addListener("focus", () => {
+      fetchReceipts().catch((e) => console.error("Refresh on focus failed", e));
+    });
+    return unsubscribeFocus;
+  }, [navigation, fetchReceipts]);
+
+  const onRefresh = useCallback(async () => {
+    setRefreshing(true);
+    try {
+      await fetchReceipts();
+    } finally {
+      setRefreshing(false);
+    }
+  }, [fetchReceipts]);
+
+  const handleLogout = async () => {
+    await runWithLoading("Signing out…", async () => {
+      await signOut(auth);
+      navigation.replace("SignIn");
+    });
   };
 
-  const renderReceiptItem = ({ item }) => {
-    return (
-      <TouchableOpacity
-        onPress={() => navigation.navigate("ReceiptDetails", { receipt: item })}
-        style={styles.receiptItem}
-      >
-        <Text style={styles.receiptDate}>
-          {formatDate(new Date(item.date))}
-        </Text>
+  const renderReceiptItem = ({ item }) => (
+    <TouchableOpacity
+      onPress={() => navigation.navigate("ReceiptDetails", { receipt: item })}
+      style={styles.receiptItem}
+    >
+      <Text style={styles.receiptDate}>{formatDate(new Date(item.date))}</Text>
 
-        <View style={{ flex: 1, alignItems: "left", marginLeft: 25 }}>
-          <Text style={styles.receiptCategory}>
-            {item.category.split(" ").join("\n")}
-          </Text>
-        </View>
+      <View style={{ flex: 1, alignItems: "flex-start", marginLeft: 25 }}>
+        <Text style={styles.receiptCategory}>{String(item.category).split(" ").join("\n")}</Text>
+      </View>
 
-        <Text style={styles.receiptAmount}>£{item.amount.toFixed(2)}</Text>
-      </TouchableOpacity>
-    );
-  };
+      <Text style={styles.receiptAmount}>£{Number(item.amount).toFixed(2)}</Text>
+    </TouchableOpacity>
+  );
 
   return (
     <SafeAreaView style={styles.container}>
       <View style={styles.content}>
         <View style={styles.card}>
           <Text style={styles.title}>Welcome, {displayName}!</Text>
-
-          {receipts.length === 0 ? (
+          {loading ? null : receipts.length === 0 ? (
             <>
-              <Text style={styles.subtitle}>
-                You haven't added any expenses yet!
-              </Text>
-              <Text style={styles.description}>
-                Tap the Add button below to enter your first receipt.
-              </Text>
+              <Text style={styles.subtitle}>You haven't added any expenses yet!</Text>
+              <Text style={styles.description}>Tap the Add button below to enter your first receipt.</Text>
             </>
           ) : (
             <Text style={styles.subtitle}>Your receipts are shown below:</Text>
           )}
         </View>
 
-        {receipts.length === 0 ? (
-          <>
-            <View style={styles.card}>
-              <Text style={styles.description}>
-                Click here to view a short video on how this app works
-              </Text>
-            </View>
-
-            <View>
-              <TouchableOpacity
-                style={styles.addButton}
-                onPress={() => navigation.navigate("Receipt")}
-              >
-                <Text style={styles.buttonText}>Add Expenses</Text>
-              </TouchableOpacity>
-            </View>
-          </>
-        ) : (
-          <FlatList
-            data={receipts}
-            keyExtractor={(item) => item.id}
-            renderItem={renderReceiptItem}
-            contentContainerStyle={styles.listContainer}
-          />
-        )}
+        <FlatList
+          data={loading ? [] : receipts}
+          keyExtractor={(item) => item.id}
+          renderItem={renderReceiptItem}
+          contentContainerStyle={styles.listContainer}
+          refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
+          ListEmptyComponent={() =>
+            loading ? null : (
+              <View>
+                <View style={styles.card}>
+                  <Text style={styles.description}>Click here to view a short video on how this app works</Text>
+                </View>
+                <View>
+                  <TouchableOpacity style={styles.addButton} onPress={() => navigation.navigate("Receipt")}>
+                    <Text style={styles.buttonText}>Add Expenses</Text>
+                  </TouchableOpacity>
+                </View>
+              </View>
+            )
+          }
+        />
       </View>
 
       {/* Add Expenses Button */}
-      <TouchableOpacity
-        style={styles.floatingButton}
-        onPress={() => navigation.navigate("Receipt")}
-      >
+      <TouchableOpacity style={styles.floatingButton} onPress={() => navigation.navigate("Receipt")}>
         <Text style={styles.floatingButtonText}>+</Text>
       </TouchableOpacity>
 
@@ -149,6 +150,16 @@ const ExpensesScreen = ({ navigation }) => {
           <Text style={styles.navText}>Summary</Text>
         </TouchableOpacity>
       </View>
+
+      {/* 🔒 Full-screen loading overlay */}
+      <Modal visible={loading} transparent animationType="fade" onRequestClose={() => {}}>
+        <View style={styles.loadingOverlay}>
+          <View style={styles.loadingCard}>
+            <ActivityIndicator size="large" />
+            <Text style={styles.loadingText}>{loadingText || "Please wait…"}</Text>
+          </View>
+        </View>
+      </Modal>
     </SafeAreaView>
   );
 };
@@ -208,10 +219,8 @@ const styles = StyleSheet.create({
     color: "white",
   },
   bottomNav: {
-    // position: "absolute",
     bottom: 0,
     width: "100%",
-    // height: 50,
     paddingBottom: 35,
     backgroundColor: "#B5B3C6",
     flexDirection: "row",
@@ -235,21 +244,19 @@ const styles = StyleSheet.create({
     padding: 8,
     backgroundColor: "#1C1C4E",
     width: "100%",
-    alignItems: "center", // ❌ remove this so items stretch
   },
-
   receiptItem: {
     backgroundColor: "#f0f0f0",
     borderRadius: 8,
     padding: 12,
     marginBottom: 12,
-    width: "95%", // change from 85% to near full
+    width: "95%",
+    alignSelf: "center",
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "center",
     minHeight: 60,
   },
-
   receiptDate: {
     fontSize: 14,
     color: "#555",
@@ -257,7 +264,6 @@ const styles = StyleSheet.create({
   receiptCategory: {
     fontSize: 16,
     fontWeight: "500",
-    // textAlign: "center",
   },
   receiptAmount: {
     fontSize: 16,
@@ -266,7 +272,7 @@ const styles = StyleSheet.create({
   },
   floatingButton: {
     position: "absolute",
-    bottom: 100, // Adjust as needed (e.g., above bottom navigation)
+    bottom: 100, // above bottom navigation
     right: 30,
     backgroundColor: "#a60d49",
     width: 60,
@@ -278,7 +284,7 @@ const styles = StyleSheet.create({
     shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.3,
     shadowRadius: 5,
-    elevation: 5, // For Android shadow
+    elevation: 5,
     zIndex: 10,
   },
   floatingButtonText: {
@@ -286,4 +292,20 @@ const styles = StyleSheet.create({
     color: "#fff",
     marginBottom: 2,
   },
+  // Loader styles
+  loadingOverlay: {
+    flex: 1,
+    backgroundColor: "rgba(0,0,0,0.3)",
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  loadingCard: {
+    backgroundColor: "white",
+    paddingVertical: 20,
+    paddingHorizontal: 24,
+    borderRadius: 12,
+    alignItems: "center",
+    minWidth: 200,
+  },
+  loadingText: { marginTop: 10, fontSize: 16, fontWeight: "600" },
 });

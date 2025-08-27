@@ -106,8 +106,10 @@ export default function ReceiptDetailsScreen({ route, navigation }) {
         images: uploadedImageUrls,
       });
 
-      Alert.alert("Success", "Receipt updated successfully");
-      navigation.navigate("Expenses");
+      navigation.navigate("Expenses", {
+        toast: { type: "success", message: "Receipt updated successfully" },
+      });
+      
     } catch (err) {
       console.error("Update failed:", err);
       Alert.alert("Error", "Could not update receipt");

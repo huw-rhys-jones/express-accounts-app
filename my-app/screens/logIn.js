@@ -8,6 +8,8 @@ import {
   KeyboardAvoidingView,
   Platform,
   Image,
+  ActivityIndicator,
+  Modal,
 } from "react-native";
 import {
   signInWithEmailAndPassword,
@@ -37,10 +39,7 @@ if (typeof ErrorUtils !== "undefined" && ErrorUtils.setGlobalHandler) {
 
 if (typeof process !== "undefined" && process.on) {
   process.on("unhandledRejection", (reason, promise) => {
-    console.error("🔥 Unhandled Promise Rejection:", {
-      reason,
-      promise,
-    });
+    console.error("🔥 Unhandled Promise Rejection:", { reason, promise });
   });
 }
 
@@ -53,14 +52,25 @@ const LoginScreen = ({ navigation }) => {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [appleAvailable, setAppleAvailable] = useState(false);
+  const [loading, setLoading] = useState(false);
+  const [loadingText, setLoadingText] = useState(null);
+
+  // Helper to show/hide the loader around any async flow
+  const runWithLoading = async (text, fn) => {
+    setLoadingText(text);
+    setLoading(true);
+    try {
+      await fn();
+    } finally {
+      setLoading(false);
+      setLoadingText(null);
+    }
+  };
 
   let request, promptAsync;
   if (Platform.OS === "android" && useGoogleSignIn) {
     [request, promptAsync] = useGoogleSignIn(() =>
-      navigation.reset({
-        index: 0,
-        routes: [{ name: "Expenses" }],
-      })
+      navigation.reset({ index: 0, routes: [{ name: "Expenses" }] })
     );
   }
 
@@ -74,18 +84,20 @@ const LoginScreen = ({ navigation }) => {
 
   // 📧 EMAIL/PASSWORD LOGIN
   const login = async () => {
-    console.log("📧 Attempting email login with:", email);
     try {
-      const userCredential = await signInWithEmailAndPassword(
-        auth,
-        email,
-        password
-      );
-      console.log("✅ Email Login successful:", {
-        uid: userCredential.user.uid,
-        email: userCredential.user.email,
+      await runWithLoading("Signing you in…", async () => {
+        console.log("📧 Attempting email login with:", email);
+        const userCredential = await signInWithEmailAndPassword(
+          auth,
+          email,
+          password
+        );
+        console.log("✅ Email Login successful:", {
+          uid: userCredential.user.uid,
+          email: userCredential.user.email,
+        });
+        navigation.reset({ index: 0, routes: [{ name: "Expenses" }] });
       });
-      navigation.reset({ index: 0, routes: [{ name: "Expenses" }] });
     } catch (error) {
       console.error("❌ Email login failed:", {
         code: error.code,
@@ -98,88 +110,111 @@ const LoginScreen = ({ navigation }) => {
 
   // 🍏 APPLE LOGIN
   const onAppleButtonPress = async () => {
-    console.log("🍏 Entered Apple login function");
-
     try {
-      console.log("Step 1️⃣ Generating nonce…");
-      const rawNonce = Math.random().toString(36).substring(2, 10);
-      const hashedNonce = await Crypto.digestStringAsync(
-        Crypto.CryptoDigestAlgorithm.SHA256,
-        rawNonce
-      );
-      console.log("🔑 Nonce generated:", { rawNonce, hashedNonce });
+      await runWithLoading("Signing in with Apple…", async () => {
+        console.log("🍏 Entered Apple login function");
 
-      console.log("Step 2️⃣ Calling AppleAuthentication.signInAsync…");
-      const credential = await AppleAuthentication.signInAsync({
-        requestedScopes: [
-          AppleAuthentication.AppleAuthenticationScope.FULL_NAME,
-          AppleAuthentication.AppleAuthenticationScope.EMAIL,
-        ],
-        nonce: hashedNonce,
-      });
-      console.log("🍏 Apple Sign-In returned credential:", credential);
+        console.log("Step 1️⃣ Generating nonce…");
+        const rawNonce = Math.random().toString(36).substring(2, 10);
+        const hashedNonce = await Crypto.digestStringAsync(
+          Crypto.CryptoDigestAlgorithm.SHA256,
+          rawNonce
+        );
+        console.log("🔑 Nonce generated:", { rawNonce, hashedNonce });
 
-      if (!credential.identityToken) {
-        throw new Error("Apple Sign-In failed: No identity token returned");
-      }
+        console.log("Step 2️⃣ Calling AppleAuthentication.signInAsync…");
+        const credential = await AppleAuthentication.signInAsync({
+          requestedScopes: [
+            AppleAuthentication.AppleAuthenticationScope.FULL_NAME,
+            AppleAuthentication.AppleAuthenticationScope.EMAIL,
+          ],
+          nonce: hashedNonce,
+        });
+        console.log("🍏 Apple Sign-In returned credential:", credential);
 
-      console.log("Step 3️⃣ Building Firebase OAuthProvider credential…");
-      const provider = new OAuthProvider("apple.com");
-      const authCredential = provider.credential({
-        idToken: credential.identityToken,
-        rawNonce,
-      });
-      console.log("🔑 Firebase authCredential created:", authCredential);
+        if (!credential.identityToken) {
+          throw new Error("Apple Sign-In failed: No identity token returned");
+        }
 
-      console.log("Step 4️⃣ Signing into Firebase…");
-      const result = await signInWithCredential(auth, authCredential);
-      const user = result.user;
-      console.log("✅ Firebase sign-in result:", {
-        uid: user.uid,
-        email: user.email,
-        displayName: user.displayName,
-        providerData: user.providerData,
-      });
+        console.log("Step 3️⃣ Building Firebase OAuthProvider credential…");
+        const provider = new OAuthProvider("apple.com");
+        const authCredential = provider.credential({
+          idToken: credential.identityToken,
+          rawNonce,
+        });
+        console.log("🔑 Firebase authCredential created:", authCredential);
 
-      const fullName =
-        credential.fullName?.givenName || user.displayName || "User";
-      const userEmail = credential.email || user.email;
+        console.log("Step 4️⃣ Signing into Firebase…");
+        const result = await signInWithCredential(auth, authCredential);
+        const user = result.user;
+        console.log("✅ Firebase sign-in result:", {
+          uid: user.uid,
+          email: user.email,
+          displayName: user.displayName,
+          providerData: user.providerData,
+        });
 
-      if (!user.displayName && fullName) {
-        console.log("Step 5️⃣ Updating Firebase profile with:", fullName);
-        await updateProfile(user, { displayName: fullName });
-      }
+        const fullName =
+          (credential.fullName?.givenName &&
+            [credential.fullName?.givenName, credential.fullName?.familyName]
+              .filter(Boolean)
+              .join(" ")) ||
+          user.displayName ||
+          undefined;
 
-      console.log("Step 6️⃣ Writing Firestore user doc…", {
-        uid: user.uid,
-        name: fullName,
-        email: userEmail,
-      });
-      await setDoc(
-        doc(db, "users", user.uid),
-        {
+        const userEmail = credential.email || user.email || undefined;
+
+        if (!user.displayName && fullName) {
+          console.log("Step 5️⃣ Updating Firebase profile with:", fullName);
+          await updateProfile(user, { displayName: fullName });
+        }
+
+        console.log("Step 6️⃣ Writing Firestore user doc…", {
+          uid: user.uid,
           name: fullName,
           email: userEmail,
-          createdAt: serverTimestamp(),
-        },
-        { merge: true }
-      );
+        });
+        await setDoc(
+          doc(db, "users", user.uid),
+          {
+            ...(fullName ? { name: fullName } : {}),
+            ...(userEmail ? { email: userEmail } : {}),
+            createdAt: serverTimestamp(),
+            updatedAt: serverTimestamp(),
+          },
+          { merge: true }
+        );
 
-      console.log("🎉 Apple login flow complete → navigating to Expenses");
-      navigation.reset({ index: 0, routes: [{ name: "Expenses" }] });
+        console.log("🎉 Apple login flow complete → navigating to Expenses");
+        navigation.reset({ index: 0, routes: [{ name: "Expenses" }] });
+      });
     } catch (e) {
-      if (e.code === "ERR_CANCELED") {
+      if (e && e.code === "ERR_CANCELED") {
         console.warn("🚪 Apple Sign-In canceled by user");
       } else {
         console.error("❌ Apple Sign-In Error:", {
-          name: e?.name,
-          message: e?.message,
-          code: e?.code,
-          stack: e?.stack,
+          name: e && e.name,
+          message: e && e.message,
+          code: e && e.code,
+          stack: e && e.stack,
           json: JSON.stringify(e, null, 2),
           full: e,
         });
       }
+    }
+  };
+
+  // 🌈 GOOGLE (Android) — show loader during prompt
+  const onGooglePress = async () => {
+    try {
+      await runWithLoading("Signing in with Google…", async () => {
+        if (!request) return;
+        const res = await promptAsync();
+        // Your hook's callback should navigate on success
+        // Optionally inspect res.type / res.error
+      });
+    } catch (e) {
+      console.error("❌ Google Sign-In Error:", e);
     }
   };
 
@@ -189,10 +224,7 @@ const LoginScreen = ({ navigation }) => {
       behavior={Platform.OS === "ios" ? "padding" : "height"}
     >
       <View style={styles.logoContainer}>
-        <Image
-          source={require("../assets/images/logo.png")}
-          style={styles.logo}
-        />
+        <Image source={require("../assets/images/logo.png")} style={styles.logo} />
       </View>
 
       <View style={styles.container}>
@@ -203,16 +235,19 @@ const LoginScreen = ({ navigation }) => {
         <View style={styles.formContainer}>
           <Text style={styles.label}>EMAIL</Text>
           <TextInput
+            editable={!loading}
             style={styles.input}
             placeholder="example@email.com"
             placeholderTextColor="#AAA"
             keyboardType="email-address"
             value={email}
             onChangeText={setEmail}
+            autoCapitalize="none"
           />
 
           <Text style={styles.label}>PASSWORD</Text>
           <TextInput
+            editable={!loading}
             style={styles.input}
             placeholder="******"
             placeholderTextColor="#AAA"
@@ -221,15 +256,19 @@ const LoginScreen = ({ navigation }) => {
             onChangeText={setPassword}
           />
 
-          <TouchableOpacity style={styles.loginButton} onPress={login}>
+          <TouchableOpacity
+            style={[styles.loginButton, loading && { opacity: 0.7 }]}
+            onPress={login}
+            disabled={loading}
+          >
             <Text style={styles.loginButtonText}>Log in</Text>
           </TouchableOpacity>
 
           {Platform.OS === "android" && (
             <TouchableOpacity
-              style={styles.googleButton}
-              onPress={() => promptAsync()}
-              disabled={!request}
+              style={[styles.googleButton, loading && { opacity: 0.7 }]}
+              onPress={onGooglePress}
+              disabled={!request || loading}
             >
               <View style={styles.googleButtonContent}>
                 <Text style={styles.googleButtonText}>Sign in with Google</Text>
@@ -240,12 +279,8 @@ const LoginScreen = ({ navigation }) => {
 
           {Platform.OS === "ios" && appleAvailable && (
             <AppleAuthentication.AppleAuthenticationButton
-              buttonType={
-                AppleAuthentication.AppleAuthenticationButtonType.SIGN_IN
-              }
-              buttonStyle={
-                AppleAuthentication.AppleAuthenticationButtonStyle.BLACK
-              }
+              buttonType={AppleAuthentication.AppleAuthenticationButtonType.SIGN_IN}
+              buttonStyle={AppleAuthentication.AppleAuthenticationButtonStyle.BLACK}
               cornerRadius={8}
               style={styles.appleButton}
               onPress={onAppleButtonPress}
@@ -253,6 +288,16 @@ const LoginScreen = ({ navigation }) => {
           )}
         </View>
       </View>
+
+      {/* 🔒 Full-screen loading overlay */}
+      <Modal visible={loading} transparent animationType="fade">
+        <View style={styles.loadingOverlay}>
+          <View style={styles.loadingCard}>
+            <ActivityIndicator size="large" />
+            <Text style={styles.loadingText}>{loadingText || "Please wait…"}</Text>
+          </View>
+        </View>
+      </Modal>
     </KeyboardAvoidingView>
   );
 };
@@ -344,6 +389,23 @@ const styles = StyleSheet.create({
     marginRight: 8,
   },
   appleButton: { width: "100%", height: 50, marginTop: 16 },
+
+  // Loader
+  loadingOverlay: {
+    flex: 1,
+    backgroundColor: "rgba(0,0,0,0.3)",
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  loadingCard: {
+    backgroundColor: "white",
+    paddingVertical: 20,
+    paddingHorizontal: 24,
+    borderRadius: 12,
+    alignItems: "center",
+    minWidth: 200,
+  },
+  loadingText: { marginTop: 10, fontSize: 16, fontWeight: "600" },
 });
 
 export default LoginScreen;
