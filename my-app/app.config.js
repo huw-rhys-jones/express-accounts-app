@@ -4,42 +4,59 @@ export default ({ config }) => ({
   ...config,
   name: "Express Accounts",
   slug: "express-accounts",
-  scheme: "com.caistec.expressaccounts", // 👈 ADD THIS
+  scheme: "com.caistec.expressaccounts",
   version: "1.0.0",
   orientation: "portrait",
   icon: "./assets/icon.png",
   userInterfaceStyle: "light",
-  newArchEnabled: true,
+  // Turn New Arch off while stabilizing native deps (optional but recommended)
+  newArchEnabled: false,
+
   splash: {
     image: "./assets/splash-icon.png",
     resizeMode: "contain",
     backgroundColor: "#ffffff"
   },
+
   ios: {
     supportsTablet: false,
     bundleIdentifier: "com.caistec.expressaccounts",
     buildNumber: "15",
-    googleServicesFile: "./GoogleService-Info.plist"
-    // usesAppleSignIn: true, // ✅ allow Expo config plugin
-    // entitlements: {
-    //   "com.apple.developer.applesignin": ["Default"] // ✅ required for Apple Sign-In
-    // },
-    // "googleServicesFile": "./GoogleService-Info.plist"
+    googleServicesFile: "./GoogleService-Info.plist",
+    usesAppleSignIn: true,
   },
+
   android: {
     package: "com.caistec.expressaccounts",
     adaptiveIcon: {
       foregroundImage: "./assets/adaptive-icon.png",
       backgroundColor: "#ffffff"
-    }
-  },
-  web: {
-    favicon: "./assets/favicon.png"
-  },
-  extra: {
-    eas: {
-      projectId: "5b149386-fb46-4d4d-8308-fde7bcff2f37"
     },
+    permissions: ["CAMERA", "READ_MEDIA_IMAGES", "READ_EXTERNAL_STORAGE"],
+  },
+
+  plugins: [
+    [
+      "expo-build-properties",
+      {
+        android: {
+          // ✅ This propagates to all subprojects like react-native-text-recognition
+          compileSdkVersion: 35,
+          targetSdkVersion: 35,
+          minSdkVersion: 24,
+          // kotlinVersion: "1.9.24"
+        },
+        ios: {
+          deploymentTarget: "15.1"
+        }
+      }
+    ]
+  ],
+
+  web: { favicon: "./assets/favicon.png" },
+
+  extra: {
+    eas: { projectId: "5b149386-fb46-4d4d-8308-fde7bcff2f37" },
     FIREBASE_API_KEY: process.env.FIREBASE_API_KEY,
     FIREBASE_AUTH_DOMAIN: process.env.FIREBASE_AUTH_DOMAIN,
     FIREBASE_PROJECT_ID: process.env.FIREBASE_PROJECT_ID,
@@ -50,6 +67,5 @@ export default ({ config }) => ({
     GOOGLE_WEB_CLIENT_ID: process.env.GOOGLE_WEB_CLIENT_ID,
     GOOGLE_ANDROID_CLIENT_ID: process.env.GOOGLE_ANDROID_CLIENT_ID,
     GOOGLE_IOS_CLIENT_ID: process.env.GOOGLE_IOS_CLIENT_ID
-
   }
 });

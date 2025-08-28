@@ -1,0 +1,63 @@
+// Top-level build file where you can add configuration options common to all sub-projects/modules.
+
+buildscript {
+  repositories {
+    google()
+    mavenCentral()
+  }
+  dependencies {
+    classpath("com.android.tools.build:gradle")
+    classpath("com.facebook.react:react-native-gradle-plugin")
+    classpath("org.jetbrains.kotlin:kotlin-gradle-plugin")
+  }
+}
+
+def reactNativeAndroidDir = new File(
+  providers.exec {
+    workingDir(rootDir)
+    commandLine("node", "--print", "require.resolve('react-native/package.json')")
+  }.standardOutput.asText.get().trim(),
+  "../android"
+)
+
+// 🔧 Shared SDK versions (no kotlinVersion here!)
+ext {
+  compileSdkVersion = 35
+  targetSdkVersion  = 35
+  minSdkVersion     = 24
+  // Optional: silence old warnings if some module still references buildToolsVersion
+  buildToolsVersion = "35.0.0"
+}
+
+allprojects {
+  repositories {
+    // All of React Native (JS, Obj-C sources, Android binaries) is installed from npm
+    maven { url(reactNativeAndroidDir) }
+
+    google()
+    mavenCentral()
+    maven { url "https://www.jitpack.io" }
+  }
+}
+
+// ✅ Force every Android subproject (libraries too) to use the same SDK levels
+subprojects { project ->
+  afterEvaluate {
+    if (project.plugins.hasPlugin("com.android.application") || project.plugins.hasPlugin("com.android.library")) {
+      project.android {
+        compileSdk rootProject.ext.compileSdkVersion
+        defaultConfig {
+          minSdk    rootProject.ext.minSdkVersion
+          targetSdk rootProject.ext.targetSdkVersion
+        }
+        // If some library still references buildToolsVersion, this keeps it modern
+        if (project.android.hasProperty("buildToolsVersion") && rootProject.ext.has("buildToolsVersion")) {
+          project.android.buildToolsVersion rootProject.ext.buildToolsVersion
+        }
+      }
+    }
+  }
+}
+
+apply plugin: "expo-root-project"
+apply plugin: "com.facebook.react.rootproject"

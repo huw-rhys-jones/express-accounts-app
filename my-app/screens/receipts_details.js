@@ -25,6 +25,8 @@ import { addDoc, collection, serverTimestamp } from "firebase/firestore";
 import { getStorage, ref, uploadBytes, getDownloadURL } from "firebase/storage";
 import { categories } from "../constants/arrays";
 import { formatDate } from "../utils";
+import TextRecognition from "react-native-text-recognition";
+import * as FileSystem from "expo-file-system";
 
 const ReceiptScreen = ({ navigation }) => {
   const [amount, setAmount] = useState("");
@@ -42,6 +44,42 @@ const ReceiptScreen = ({ navigation }) => {
   const [showConfirmModal, setShowConfirmModal] = useState(false);
 
   const flatListRef = useRef(null);
+
+  const ensureFileFromAsset = async (asset) => {
+  const { base64, fileName } = asset || {};
+  const ext =
+    (fileName && fileName.includes(".") && "." + fileName.split(".").pop()) ||
+    ".jpg";
+  const dest = FileSystem.cacheDirectory + `ocr-${Date.now()}${ext}`;
+
+  if (base64) {
+    await FileSystem.writeAsStringAsync(dest, base64, {
+      encoding: FileSystem.EncodingType.Base64,
+    });
+    return dest;
+  }
+
+  // Fallback if base64 missing: try copying from the picker URI
+  if (asset?.uri) {
+    try {
+      await FileSystem.copyAsync({ from: asset.uri, to: dest });
+      return dest;
+    } catch (e) {
+      // last resort: fetch → base64 → write
+      const res = await fetch(asset.uri);
+      const blob = await res.blob();
+      const buf = await blob.arrayBuffer();
+      const b64 = Buffer.from(buf).toString("base64");
+      await FileSystem.writeAsStringAsync(dest, b64, {
+        encoding: FileSystem.EncodingType.Base64,
+      });
+      return dest;
+    }
+  }
+
+  throw new Error("No uri/base64 on asset for OCR");
+};
+
 
   // Auto-scroll image list on mount/updates
   useEffect(() => {
@@ -166,30 +204,58 @@ const ReceiptScreen = ({ navigation }) => {
   };
 
   const pickImageOption = () => {
-    Alert.alert(
-      "Add Image",
-      "Choose an option",
-      [
-        {
-          text: "Camera",
-          onPress: () => ImagePicker.launchCamera({ mediaType: "photo" }, handleImagePicked),
-        },
-        {
-          text: "Gallery",
-          onPress: () => ImagePicker.launchImageLibrary({ mediaType: "photo" }, handleImagePicked),
-        },
-        { text: "Cancel", style: "cancel" },
-      ],
-      { cancelable: true }
-    );
-  };
+  Alert.alert(
+    "Add Image",
+    "Choose an option",
+    [
+      {
+        text: "Camera",
+        onPress: () =>
+          ImagePicker.launchCamera(
+            { mediaType: "photo", includeBase64: true, quality: 0.9 },
+            handleImagePicked
+          ),
+      },
+      {
+        text: "Gallery",
+        onPress: () =>
+          ImagePicker.launchImageLibrary(
+            {
+              mediaType: "photo",
+              includeBase64: true,
+              selectionLimit: 1, // change to 0 for multiple if you want
+              quality: 0.9,
+            },
+            handleImagePicked
+          ),
+      },
+      { text: "Cancel", style: "cancel" },
+    ],
+    { cancelable: true }
+  );
+};
 
-  const handleImagePicked = (response) => {
-    if (!response.didCancel && response.assets) {
-      const newImages = response.assets.map((asset) => ({ uri: asset.uri }));
-      setImages((prev) => [...prev, ...newImages]);
+const handleImagePicked = async (response) => {
+  try {
+    if (response?.didCancel || !response?.assets?.length) return;
+
+    // add image(s) to your UI as before
+    const newImages = response.assets.map((asset) => ({ uri: asset.uri }));
+    setImages((prev) => [...prev, ...newImages]);
+
+    // run OCR for each selected image and log the text
+    for (const asset of response.assets) {
+      const filePath = await ensureFileFromAsset(asset);
+      console.log("🔎 Running OCR on:", filePath);
+      const lines = await TextRecognition.recognize(filePath);
+      const text = Array.isArray(lines) ? lines.join("\n") : String(lines || "");
+      console.log("🧾 OCR result:\n" + text);
     }
-  };
+  } catch (e) {
+    console.error("❌ OCR error:", e);
+  }
+};
+
 
   const renderImage = ({ item }) => (
     <Image source={{ uri: item.uri }} style={styles.receiptImage} />
