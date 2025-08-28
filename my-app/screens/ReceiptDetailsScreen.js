@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from "react";
+import React, { useState } from "react";
 import {
   View,
   Text,
@@ -8,6 +8,8 @@ import {
   StyleSheet,
   FlatList,
   Alert,
+  Keyboard,
+  InteractionManager,
 } from "react-native";
 import { Button } from "react-native-paper";
 import DateTimePickerModal from "react-native-modal-datetime-picker";
@@ -30,12 +32,21 @@ export default function ReceiptDetailsScreen({ route, navigation }) {
 
   const [open, setOpen] = useState(false);
   const [items, setItems] = useState(
-    categories.map((cat) => ({
-      label: cat.name,
-      value: cat.name,
-    }))
+    categories.map((cat) => ({ label: cat.name, value: cat.name }))
   );
   const [isDatePickerVisible, setDatePickerVisibility] = useState(false);
+
+  // ✅ Make navigation safe on iOS: dismiss anything that could be presenting
+  const safeNavigateToExpenses = () => {
+    Keyboard.dismiss();
+    setOpen(false);                 // close DropDownPicker if open
+    setDatePickerVisibility(false); // close date picker if it was up
+    requestAnimationFrame(() => {
+      InteractionManager.runAfterInteractions(() => {
+        navigation.navigate("Expenses");
+      });
+    });
+  };
 
   const pickImageOption = () => {
     Alert.alert(
@@ -62,10 +73,8 @@ export default function ReceiptDetailsScreen({ route, navigation }) {
   };
 
   const handleImagePicked = (response) => {
-    if (!response.didCancel && response.assets) {
-      const newImages = response.assets.map((asset) => ({
-        uri: asset.uri,
-      }));
+    if (!response?.didCancel && response?.assets) {
+      const newImages = response.assets.map((asset) => ({ uri: asset.uri }));
       setImages((prev) => [...prev, ...newImages]);
     }
   };
@@ -106,10 +115,10 @@ export default function ReceiptDetailsScreen({ route, navigation }) {
         images: uploadedImageUrls,
       });
 
-      navigation.navigate("Expenses", {
-        toast: { type: "success", message: "Receipt updated successfully" },
-      });
-      
+      // Close transient UI first, then go back (prevents iOS stuck touches)
+      safeNavigateToExpenses();
+      // If you want a toast on Expenses, you can pass a param there.
+
     } catch (err) {
       console.error("Update failed:", err);
       Alert.alert("Error", "Could not update receipt");
@@ -124,7 +133,7 @@ export default function ReceiptDetailsScreen({ route, navigation }) {
         style: "destructive",
         onPress: async () => {
           await deleteDoc(doc(db, "receipts", receipt.id));
-          navigation.navigate("Expenses");
+          safeNavigateToExpenses();
         },
       },
     ]);
@@ -162,12 +171,15 @@ export default function ReceiptDetailsScreen({ route, navigation }) {
 
       <Text style={styles.label}>Category</Text>
       <DropDownPicker
+        // Use MODAL list on iOS to avoid z-index/touch conflicts
+        listMode="MODAL"
         open={open}
         value={selectedCategory}
         items={items}
         setOpen={setOpen}
-        setValue={setSelectedCategory}
         setItems={setItems}
+        // Keep your original pattern to avoid the earlier selection bug
+        setValue={setSelectedCategory}
         placeholder="Select a category"
         style={styles.dropdown}
         dropDownContainerStyle={styles.dropdownContainer}
@@ -190,6 +202,7 @@ export default function ReceiptDetailsScreen({ route, navigation }) {
           )
         }
         contentContainerStyle={{ marginVertical: 20 }}
+        showsHorizontalScrollIndicator
       />
 
       <Button mode="contained" onPress={saveChanges} buttonColor="#a60d49">
