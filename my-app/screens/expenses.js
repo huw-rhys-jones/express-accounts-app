@@ -12,7 +12,7 @@ import {
 import { signOut } from "firebase/auth";
 import { collection, query, where, getDocs } from "firebase/firestore";
 import { db, auth } from "../firebaseConfig";
-import { formatDate } from "../utils";
+import { formatDate } from "../utils/format_style";
 
 const ExpensesScreen = ({ navigation }) => {
   const [displayName, setDisplayName] = useState("User");

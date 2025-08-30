@@ -22,7 +22,7 @@ import { doc, setDoc, serverTimestamp } from "firebase/firestore";
 import * as WebBrowser from "expo-web-browser";
 import * as AppleAuthentication from "expo-apple-authentication";
 import * as Crypto from "expo-crypto";
-import { GoogleLogo } from "../utils";
+import { GoogleLogo } from "../utils/format_style";
 
 WebBrowser.maybeCompleteAuthSession();
 

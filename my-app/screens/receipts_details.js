@@ -24,9 +24,10 @@ import { db, auth } from "../firebaseConfig";
 import { addDoc, collection, serverTimestamp } from "firebase/firestore";
 import { getStorage, ref, uploadBytes, getDownloadURL } from "firebase/storage";
 import { categories } from "../constants/arrays";
-import { formatDate } from "../utils";
+import { formatDate } from "../utils/format_style";
 import TextRecognition from "react-native-text-recognition";
 import * as FileSystem from "expo-file-system";
+import { extractData } from "../utils/extractors"
 
 const ReceiptScreen = ({ navigation }) => {
   const [amount, setAmount] = useState("");
@@ -249,7 +250,7 @@ const handleImagePicked = async (response) => {
       console.log("🔎 Running OCR on:", filePath);
       const lines = await TextRecognition.recognize(filePath);
       const text = Array.isArray(lines) ? lines.join("\n") : String(lines || "");
-      console.log("🧾 OCR result:\n" + text);
+      console.log("🧾 OCR result:", extractData(text));
     }
   } catch (e) {
     console.error("❌ OCR error:", e);

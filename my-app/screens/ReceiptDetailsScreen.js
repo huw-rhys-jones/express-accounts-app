@@ -19,7 +19,7 @@ import { db } from "../firebaseConfig";
 import { doc, updateDoc, deleteDoc } from "firebase/firestore";
 import { getStorage, ref, uploadBytes, getDownloadURL } from "firebase/storage";
 import { categories } from "../constants/arrays";
-import { formatDate } from "../utils";
+import { formatDate } from "../utils/format_style";
 
 export default function ReceiptDetailsScreen({ route, navigation }) {
   const { receipt } = route.params; // passed from ExpensesScreen
