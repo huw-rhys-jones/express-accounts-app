@@ -576,7 +576,10 @@ const ReceiptScreen = ({ navigation }) => {
                 title="Confirm"
                 onPress={() => {
                   setShowConfirmLeaveModal(false);
-                  navigation.navigate("Expenses");
+                  navigation.reset({
+                  index: 0,
+                  routes: [{ name: "Expenses" }],
+                  });
                 }}
                 color="#a60d49"
               />

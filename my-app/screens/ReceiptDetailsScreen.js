@@ -74,7 +74,10 @@ export default function ReceiptDetailsScreen({ route, navigation }) {
     setDatePickerVisibility(false);
     requestAnimationFrame(() => {
       InteractionManager.runAfterInteractions(() => {
-        navigation.navigate("Expenses");
+        navigation.reset({
+          index: 0,
+          routes: [{ name: "Expenses" }],
+        });
       });
     });
   };
