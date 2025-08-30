@@ -49,14 +49,14 @@ export const expense_categories = [
 
 
 
-export const categories = [
+export const categories_meta = [
     {name: "Accomodation", 
       meta: ["rent", "house", "flat", "monthly", "hotel", "caravan", "bungalow"]},
 
 
     {name: "Subsistence", 
       meta: ["cafe", "restaurant", "bar", "olive", "hungry", "coffee", "americano", "latte", "cappacino",
-             "steak", "peppercorn", "sirloin", "pizza", "meat", "eat"]},
+             "steak", "peppercorn", "sirloin", "pizza", "meat", "eat", "takeaway", "food", "burger"]},
      
 
      {name: "Travel",

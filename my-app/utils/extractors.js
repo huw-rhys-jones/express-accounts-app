@@ -1,4 +1,4 @@
-import { months, expense_categories as categories, TOTAL_HINT, CURRENCY_SYMS } from '../constants/arrays';
+import { months, categories_meta, TOTAL_HINT, CURRENCY_SYMS } from '../constants/arrays';
 
 
 
@@ -163,27 +163,58 @@ function extractAmount(text) {
   return { amount: chosen.val, display: chosen.raw };
 }
 
-// ---------- category ----------
-function categoryFinder(text) {
-  // categories: [{ name, meta: ['tesco','grocery', ...] }, ...]
-  let best = { idx: -1, hits: 0 };
+// Normalize OCR quirks (smart quotes, extra whitespace, Unicode folding)
+function normalizeForMatch(s) {
+  return s
+    .replace(/\u2019/g, "'")    // curly apostrophe -> straight
+    .replace(/\s+/g, " ")
+    .trim()
+    .toLowerCase();
+}
 
-  const lower = text.toLowerCase();
+
+export function categoryFinder(text, categories) {
+  const hay = normalizeForMatch(text);
+
+  let bestIdx = -1;
+  let bestHits = 0;
+
+    if (!Array.isArray(categories) || categories.length === 0) {
+    console.warn("categoryFinder: categories array is empty/invalid:", categories);
+    return -1;
+  }
 
   categories.forEach((cat, idx) => {
-    const pats = (cat.meta || []).map(escapeForRegex);
-    if (!pats.length) return;
-    const re = new RegExp(`\\b(?:${pats.join('|')})\\b`, 'g');
-    const matches = lower.match(re);
+
+
+    const terms = (cat.meta || []).map(t => normalizeForMatch(String(t))).filter(Boolean);
+
+    if (!terms.length) return;
+
+    // Use word boundaries where possible, but allow terms with non-word chars (“B&Q”, “o2”) to match literally
+    const patterns = terms.map(t => {
+      const escaped = escapeForRegex(t);
+      // If term is purely word chars, wrap with \b; otherwise match as-is
+      return /^[a-z0-9]+$/i.test(t) ? `\\b${escaped}\\b` : escaped;
+    });
+
+    const re = new RegExp(`(?:${patterns.join("|")})`, "g");
+    const matches = hay.match(re);
     const hits = matches ? matches.length : 0;
-    if (hits > best.hits) best = { idx, hits };
+
+    if (hits > bestHits) {
+      bestHits = hits;
+      bestIdx = idx;
+    }
   });
 
-  return best.idx; // -1 if none
+  return bestIdx; // -1 if nothing hit
 }
+
 
 // ---------- main ----------
 export function extractData(text) {
+
   if (!text || typeof text !== 'string') {
     return {
       money: { value: null, currency: 0 },
@@ -197,7 +228,8 @@ export function extractData(text) {
 
   const amountInfo = extractAmount(cleaned);
   const dateIso = extractDate(cleaned);
-  const categoryIdx = categoryFinder(cleaned);
+
+  const categoryIdx = categoryFinder(cleaned, categories_meta);
 
   return {
     money: {
