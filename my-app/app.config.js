@@ -24,6 +24,16 @@ export default ({ config }) => ({
     buildNumber: "15",
     googleServicesFile: "./GoogleService-Info.plist",
     usesAppleSignIn: true,
+
+    // ✅ Add usage descriptions here so they end up in Info.plist
+    infoPlist: {
+      NSPhotoLibraryUsageDescription:
+        "Express Accounts needs access to your photo library so you can upload receipts and documents to your accounts.",
+      NSCameraUsageDescription:
+        "Express Accounts needs access to your camera so you can take photos of receipts and documents for your accounts.",
+      NSPhotoLibraryAddUsageDescription:
+        "Express Accounts needs permission to save receipts and documents back to your photo library for your records."
+    }
   },
 
   android: {
