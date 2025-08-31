@@ -10,6 +10,7 @@ import {
   Image,
   ActivityIndicator,
   Modal,
+  Alert
 } from "react-native";
 import {
   signInWithEmailAndPassword,
@@ -23,6 +24,7 @@ import * as WebBrowser from "expo-web-browser";
 import * as AppleAuthentication from "expo-apple-authentication";
 import * as Crypto from "expo-crypto";
 import { GoogleLogo } from "../utils/format_style";
+import { Ionicons } from "@expo/vector-icons"; // or react-native-vector-icons
 
 WebBrowser.maybeCompleteAuthSession();
 
@@ -54,6 +56,7 @@ const LoginScreen = ({ navigation }) => {
   const [appleAvailable, setAppleAvailable] = useState(false);
   const [loading, setLoading] = useState(false);
   const [loadingText, setLoadingText] = useState(null);
+  const [showPassword, setShowPassword] = useState(false);
 
   // Helper to show/hide the loader around any async flow
   const runWithLoading = async (text, fn) => {
@@ -83,30 +86,70 @@ const LoginScreen = ({ navigation }) => {
   }, []);
 
   // 📧 EMAIL/PASSWORD LOGIN
-  const login = async () => {
-    try {
-      await runWithLoading("Signing you in…", async () => {
-        console.log("📧 Attempting email login with:", email);
-        const userCredential = await signInWithEmailAndPassword(
-          auth,
-          email,
-          password
-        );
-        console.log("✅ Email Login successful:", {
-          uid: userCredential.user.uid,
-          email: userCredential.user.email,
-        });
-        navigation.reset({ index: 0, routes: [{ name: "Expenses" }] });
+const login = async () => {
+  try {
+    await runWithLoading("Signing you in…", async () => {
+      console.log("📧 Attempting email login with:", email);
+
+      const userCredential = await signInWithEmailAndPassword(
+        auth,
+        email,
+        password
+      );
+
+      console.log("✅ Email Login successful:", {
+        uid: userCredential.user.uid,
+        email: userCredential.user.email,
       });
-    } catch (error) {
-      console.error("❌ Email login failed:", {
-        code: error.code,
-        message: error.message,
-        stack: error.stack,
-        full: error,
-      });
-    }
-  };
+
+      navigation.reset({ index: 0, routes: [{ name: "Expenses" }] });
+    });
+  } catch (error) {
+    console.error("❌ Email login failed:", error);
+
+    let message = "Login failed. Please try again.";
+
+    switch (code) {
+    case "auth/missing-email":
+      message = "Please enter your email.";
+      break;
+    case "auth/missing-password":
+      message = "Please enter your password.";
+      break;
+    case "auth/invalid-email":
+      message = "The email address is not valid.";
+      break;
+    case "auth/user-not-found":
+      message = "No account was found with that email.";
+      break;
+    case "auth/wrong-password":
+      message = "Incorrect password. Please try again.";
+      break;
+    case "auth/invalid-credential":
+      // often surfaces like a wrong password/credential
+      message = "Email or password is incorrect. Please try again.";
+      break;
+    case "auth/user-disabled":
+      message = "This account has been disabled.";
+      break;
+    case "auth/too-many-requests":
+      message =
+        "Too many failed attempts. Please wait a bit and try again.";
+      break;
+    case "auth/network-request-failed":
+      message = "Network error. Check your connection and try again.";
+      break;
+    case "auth/operation-not-allowed":
+      message = "Password sign-in is not enabled for this project.";
+      break;
+    default:
+      message = fallbackMessage || message;
+  }
+
+    Alert.alert("Login Error", message, [{ text: "OK" }]);
+  }
+};
+
 
   // 🍏 APPLE LOGIN
   const onAppleButtonPress = async () => {
@@ -234,27 +277,37 @@ const LoginScreen = ({ navigation }) => {
 
         <View style={styles.formContainer}>
           <Text style={styles.label}>EMAIL</Text>
-          <TextInput
-            editable={!loading}
-            style={styles.input}
-            placeholder="example@email.com"
-            placeholderTextColor="#AAA"
-            keyboardType="email-address"
-            value={email}
-            onChangeText={setEmail}
-            autoCapitalize="none"
-          />
+  <TextInput
+    editable={!loading}
+    style={styles.input}   // unified style
+    placeholder="example@email.com"
+    placeholderTextColor="#AAA"
+    keyboardType="email-address"
+    value={email}
+    onChangeText={setEmail}
+    autoCapitalize="none"
+  />
 
-          <Text style={styles.label}>PASSWORD</Text>
-          <TextInput
-            editable={!loading}
-            style={styles.input}
-            placeholder="******"
-            placeholderTextColor="#AAA"
-            secureTextEntry
-            value={password}
-            onChangeText={setPassword}
-          />
+  <Text style={styles.label}>PASSWORD</Text>
+<View style={styles.passwordContainer}>
+  <TextInput
+    editable={!loading}
+    style={[styles.input, styles.inputWithIcon]}  // 👈 same look + room for icon
+    placeholder="******"
+    placeholderTextColor="#AAA"
+    secureTextEntry={!showPassword}
+    value={password}
+    onChangeText={setPassword}
+  />
+  <TouchableOpacity
+    style={styles.eyeIcon}
+    onPress={() => setShowPassword((prev) => !prev)}
+    // Optional: improve touch area
+    hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+  >
+    <Ionicons name={showPassword ? "eye-off" : "eye"} size={22} color="#555" />
+  </TouchableOpacity>
+</View>
 
           <TouchableOpacity
             style={[styles.loginButton, loading && { opacity: 0.7 }]}
@@ -350,20 +403,48 @@ const styles = StyleSheet.create({
     borderRadius: 20,
     width: "85%",
   },
+
   label: {
-    fontSize: 12,
-    color: "#262261",
+    fontSize: 16,
     fontWeight: "bold",
-    marginBottom: 6,
+    color: "#333",
+    marginTop: 10,
   },
+
+  // ---- Unified input style for both fields ----
   input: {
     backgroundColor: "#C4C4C4",
-    padding: 12,
-    borderRadius: 10,
-    fontSize: 16,
-    marginBottom: 15,
     color: "#000",
+    fontSize: 16,
+    paddingVertical: 12,
+    paddingHorizontal: 12,
+    borderRadius: 10,
+    marginTop: 5,
+    marginBottom: 15,
   },
+
+  // Password wrapper so we can place the eye icon inside
+  passwordContainer: {
+    position: "relative",
+    justifyContent: "center",
+  },
+
+  // Extra right padding so text doesn't overlap the eye icon
+  inputWithIcon: {
+    paddingRight: 44,
+  },
+
+  // Eye icon aligned inside the input, vertically centered
+  eyeIcon: {
+    position: "absolute",
+    right: 10,
+    top: 0,
+    bottom: 0,
+    justifyContent: "center",
+    alignItems: "center",
+    width: 32, // nice tap target
+  },
+
   loginButton: {
     backgroundColor: "#a60d49",
     paddingVertical: 12,
@@ -372,6 +453,7 @@ const styles = StyleSheet.create({
     marginTop: 20,
   },
   loginButtonText: { color: "#FFF", fontWeight: "bold", fontSize: 16 },
+
   googleButton: {
     backgroundColor: "#FFF",
     paddingVertical: 12,
@@ -407,5 +489,6 @@ const styles = StyleSheet.create({
   },
   loadingText: { marginTop: 10, fontSize: 16, fontWeight: "600" },
 });
+
 
 export default LoginScreen;
