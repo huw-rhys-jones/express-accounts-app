@@ -10,13 +10,14 @@ import {
   Image,
   ActivityIndicator,
   Modal,
-  Alert
+  Alert,
 } from "react-native";
 import {
   signInWithEmailAndPassword,
   OAuthProvider,
   signInWithCredential,
   updateProfile,
+  sendPasswordResetEmail,
 } from "firebase/auth";
 import { auth, db } from "../firebaseConfig";
 import { doc, setDoc, serverTimestamp } from "firebase/firestore";
@@ -24,7 +25,7 @@ import * as WebBrowser from "expo-web-browser";
 import * as AppleAuthentication from "expo-apple-authentication";
 import * as Crypto from "expo-crypto";
 import { GoogleLogo } from "../utils/format_style";
-import { Ionicons } from "@expo/vector-icons"; // or react-native-vector-icons
+import { Ionicons } from "@expo/vector-icons";
 
 WebBrowser.maybeCompleteAuthSession();
 
@@ -50,6 +51,8 @@ if (Platform.OS === "android") {
   useGoogleSignIn = require("../auth/useGoogleSignIn").useGoogleSignIn;
 }
 
+const looksLikeEmail = (s) => /\S+@\S+\.\S+/.test(String(s || "").trim());
+
 const LoginScreen = ({ navigation }) => {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -57,6 +60,11 @@ const LoginScreen = ({ navigation }) => {
   const [loading, setLoading] = useState(false);
   const [loadingText, setLoadingText] = useState(null);
   const [showPassword, setShowPassword] = useState(false);
+
+  // Forgot Password modal
+  const [forgotVisible, setForgotVisible] = useState(false);
+  const [resetEmail, setResetEmail] = useState("");
+  const [sendingReset, setSendingReset] = useState(false);
 
   // Helper to show/hide the loader around any async flow
   const runWithLoading = async (text, fn) => {
@@ -80,92 +88,93 @@ const LoginScreen = ({ navigation }) => {
   useEffect(() => {
     (async () => {
       const available = await AppleAuthentication.isAvailableAsync();
-      console.log("🍏 Apple Sign-In available:", available);
       setAppleAvailable(available);
     })();
   }, []);
 
-  // 📧 EMAIL/PASSWORD LOGIN
-const login = async () => {
-  try {
-    await runWithLoading("Signing you in…", async () => {
-      console.log("📧 Attempting email login with:", email);
-
-      const userCredential = await signInWithEmailAndPassword(
-        auth,
-        email,
-        password
-      );
-
-      console.log("✅ Email Login successful:", {
-        uid: userCredential.user.uid,
-        email: userCredential.user.email,
-      });
-
-      navigation.reset({ index: 0, routes: [{ name: "Expenses" }] });
-    });
-  } catch (error) {
-    console.error("❌ Email login failed:", error);
-
+  const showLoginError = (code, fallbackMessage) => {
     let message = "Login failed. Please try again.";
 
     switch (code) {
-    case "auth/missing-email":
-      message = "Please enter your email.";
-      break;
-    case "auth/missing-password":
-      message = "Please enter your password.";
-      break;
-    case "auth/invalid-email":
-      message = "The email address is not valid.";
-      break;
-    case "auth/user-not-found":
-      message = "No account was found with that email.";
-      break;
-    case "auth/wrong-password":
-      message = "Incorrect password. Please try again.";
-      break;
-    case "auth/invalid-credential":
-      // often surfaces like a wrong password/credential
-      message = "Email or password is incorrect. Please try again.";
-      break;
-    case "auth/user-disabled":
-      message = "This account has been disabled.";
-      break;
-    case "auth/too-many-requests":
-      message =
-        "Too many failed attempts. Please wait a bit and try again.";
-      break;
-    case "auth/network-request-failed":
-      message = "Network error. Check your connection and try again.";
-      break;
-    case "auth/operation-not-allowed":
-      message = "Password sign-in is not enabled for this project.";
-      break;
-    default:
-      message = fallbackMessage || message;
-  }
+      case "auth/missing-email":
+        message = "Please enter your email.";
+        break;
+      case "auth/missing-password":
+        message = "Please enter your password.";
+        break;
+      case "auth/invalid-email":
+        message = "The email address is not valid.";
+        break;
+      case "auth/user-not-found":
+        message = "No account was found with that email.";
+        break;
+      case "auth/wrong-password":
+        message = "Incorrect password. Please try again.";
+        break;
+      case "auth/invalid-credential":
+        message = "Email or password is incorrect. Please try again.";
+        break;
+      case "auth/user-disabled":
+        message = "This account has been disabled.";
+        break;
+      case "auth/too-many-requests":
+        message = "Too many failed attempts. Please wait and try again.";
+        break;
+      case "auth/network-request-failed":
+        message = "Network error. Check your connection and try again.";
+        break;
+      case "auth/operation-not-allowed":
+        message = "Password sign-in is not enabled for this project.";
+        break;
+      default:
+        message = fallbackMessage || message;
+    }
 
     Alert.alert("Login Error", message, [{ text: "OK" }]);
-  }
-};
+  };
 
+  // 📧 EMAIL/PASSWORD LOGIN
+  const login = async () => {
+    try {
+      // Quick client-side checks
+      const emailTrimmed = (email || "").trim().toLowerCase();
+      const passwordTrimmed = (password || "").trim();
+
+      if (!emailTrimmed) {
+        return Alert.alert("Login Error", "Please enter your email.");
+      }
+      if (!looksLikeEmail(emailTrimmed)) {
+        return Alert.alert("Login Error", "The email address is not valid.");
+      }
+      if (!passwordTrimmed) {
+        return Alert.alert("Login Error", "Please enter your password.");
+      }
+
+      await runWithLoading("Signing you in…", async () => {
+        const userCredential = await signInWithEmailAndPassword(
+          auth,
+          emailTrimmed,
+          passwordTrimmed
+        );
+
+        navigation.reset({ index: 0, routes: [{ name: "Expenses" }] });
+      });
+    } catch (error) {
+      console.error("❌ Email login failed:", error);
+      showLoginError(error?.code, error?.message);
+    }
+  };
 
   // 🍏 APPLE LOGIN
   const onAppleButtonPress = async () => {
     try {
       await runWithLoading("Signing in with Apple…", async () => {
-        console.log("🍏 Entered Apple login function");
-
-        console.log("Step 1️⃣ Generating nonce…");
         const rawNonce = Math.random().toString(36).substring(2, 10);
         const hashedNonce = await Crypto.digestStringAsync(
           Crypto.CryptoDigestAlgorithm.SHA256,
           rawNonce
         );
-        console.log("🔑 Nonce generated:", { rawNonce, hashedNonce });
 
-        console.log("Step 2️⃣ Calling AppleAuthentication.signInAsync…");
         const credential = await AppleAuthentication.signInAsync({
           requestedScopes: [
             AppleAuthentication.AppleAuthenticationScope.FULL_NAME,
@@ -173,29 +182,19 @@ const login = async () => {
           ],
           nonce: hashedNonce,
         });
-        console.log("🍏 Apple Sign-In returned credential:", credential);
 
         if (!credential.identityToken) {
           throw new Error("Apple Sign-In failed: No identity token returned");
         }
 
-        console.log("Step 3️⃣ Building Firebase OAuthProvider credential…");
         const provider = new OAuthProvider("apple.com");
         const authCredential = provider.credential({
           idToken: credential.identityToken,
           rawNonce,
         });
-        console.log("🔑 Firebase authCredential created:", authCredential);
 
-        console.log("Step 4️⃣ Signing into Firebase…");
         const result = await signInWithCredential(auth, authCredential);
         const user = result.user;
-        console.log("✅ Firebase sign-in result:", {
-          uid: user.uid,
-          email: user.email,
-          displayName: user.displayName,
-          providerData: user.providerData,
-        });
 
         const fullName =
           (credential.fullName?.givenName &&
@@ -208,15 +207,9 @@ const login = async () => {
         const userEmail = credential.email || user.email || undefined;
 
         if (!user.displayName && fullName) {
-          console.log("Step 5️⃣ Updating Firebase profile with:", fullName);
           await updateProfile(user, { displayName: fullName });
         }
 
-        console.log("Step 6️⃣ Writing Firestore user doc…", {
-          uid: user.uid,
-          name: fullName,
-          email: userEmail,
-        });
         await setDoc(
           doc(db, "users", user.uid),
           {
@@ -228,36 +221,71 @@ const login = async () => {
           { merge: true }
         );
 
-        console.log("🎉 Apple login flow complete → navigating to Expenses");
         navigation.reset({ index: 0, routes: [{ name: "Expenses" }] });
       });
     } catch (e) {
       if (e && e.code === "ERR_CANCELED") {
         console.warn("🚪 Apple Sign-In canceled by user");
       } else {
-        console.error("❌ Apple Sign-In Error:", {
-          name: e && e.name,
-          message: e && e.message,
-          code: e && e.code,
-          stack: e && e.stack,
-          json: JSON.stringify(e, null, 2),
-          full: e,
-        });
+        console.error("❌ Apple Sign-In Error:", e);
       }
     }
   };
 
-  // 🌈 GOOGLE (Android) — show loader during prompt
+  // 🌈 GOOGLE (Android)
   const onGooglePress = async () => {
     try {
       await runWithLoading("Signing in with Google…", async () => {
         if (!request) return;
-        const res = await promptAsync();
-        // Your hook's callback should navigate on success
-        // Optionally inspect res.type / res.error
+        await promptAsync();
       });
     } catch (e) {
       console.error("❌ Google Sign-In Error:", e);
+    }
+  };
+
+  // 🔁 Forgot Password
+  const openForgot = () => {
+    setResetEmail((email || "").trim());
+    setForgotVisible(true);
+  };
+
+  const sendReset = async () => {
+    const target = (resetEmail || "").trim().toLowerCase();
+    if (!target) {
+      return Alert.alert("Reset Password", "Please enter your email.");
+    }
+    if (!looksLikeEmail(target)) {
+      return Alert.alert("Reset Password", "That email address looks invalid.");
+    }
+
+    try {
+      setSendingReset(true);
+      await sendPasswordResetEmail(auth, target);
+      setSendingReset(false);
+      setForgotVisible(false);
+      Alert.alert(
+        "Reset Email Sent",
+        "If an account exists for that email, you'll receive a reset link shortly."
+      );
+    } catch (e) {
+      setSendingReset(false);
+      let msg = "Could not send reset email. Please try again.";
+      switch (e?.code) {
+        case "auth/user-not-found":
+          msg = "No account found with that email.";
+          break;
+        case "auth/invalid-email":
+          msg = "That email address is not valid.";
+          break;
+        case "auth/too-many-requests":
+          msg = "Too many attempts. Please wait and try again.";
+          break;
+        case "auth/network-request-failed":
+          msg = "Network error. Check your connection and try again.";
+          break;
+      }
+      Alert.alert("Reset Password", msg);
     }
   };
 
@@ -267,7 +295,10 @@ const login = async () => {
       behavior={Platform.OS === "ios" ? "padding" : "height"}
     >
       <View style={styles.logoContainer}>
-        <Image source={require("../assets/images/logo.png")} style={styles.logo} />
+        <Image
+          source={require("../assets/images/logo.png")}
+          style={styles.logo}
+        />
       </View>
 
       <View style={styles.container}>
@@ -277,37 +308,40 @@ const login = async () => {
 
         <View style={styles.formContainer}>
           <Text style={styles.label}>EMAIL</Text>
-  <TextInput
-    editable={!loading}
-    style={styles.input}   // unified style
-    placeholder="example@email.com"
-    placeholderTextColor="#AAA"
-    keyboardType="email-address"
-    value={email}
-    onChangeText={setEmail}
-    autoCapitalize="none"
-  />
+          <TextInput
+            editable={!loading}
+            style={styles.input}
+            placeholder="example@email.com"
+            placeholderTextColor="#AAA"
+            keyboardType="email-address"
+            value={email}
+            onChangeText={setEmail}
+            autoCapitalize="none"
+          />
 
-  <Text style={styles.label}>PASSWORD</Text>
-<View style={styles.passwordContainer}>
-  <TextInput
-    editable={!loading}
-    style={[styles.input, styles.inputWithIcon]}  // 👈 same look + room for icon
-    placeholder="******"
-    placeholderTextColor="#AAA"
-    secureTextEntry={!showPassword}
-    value={password}
-    onChangeText={setPassword}
-  />
-  <TouchableOpacity
-    style={styles.eyeIcon}
-    onPress={() => setShowPassword((prev) => !prev)}
-    // Optional: improve touch area
-    hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
-  >
-    <Ionicons name={showPassword ? "eye-off" : "eye"} size={22} color="#555" />
-  </TouchableOpacity>
-</View>
+          <Text style={styles.label}>PASSWORD</Text>
+          <View style={styles.passwordContainer}>
+            <TextInput
+              editable={!loading}
+              style={[styles.input, styles.inputWithIcon]}
+              placeholder="******"
+              placeholderTextColor="#AAA"
+              secureTextEntry={!showPassword}
+              value={password}
+              onChangeText={setPassword}
+            />
+            <TouchableOpacity
+              style={styles.eyeIcon}
+              onPress={() => setShowPassword((prev) => !prev)}
+              hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+            >
+              <Ionicons
+                name={showPassword ? "eye-off" : "eye"}
+                size={22}
+                color="#555"
+              />
+            </TouchableOpacity>
+          </View>
 
           <TouchableOpacity
             style={[styles.loginButton, loading && { opacity: 0.7 }]}
@@ -317,6 +351,16 @@ const login = async () => {
             <Text style={styles.loginButtonText}>Log in</Text>
           </TouchableOpacity>
 
+          {/* Secondary actions */}
+          <TouchableOpacity onPress={openForgot}>
+            <Text style={styles.forgotPassword}>Forgot Password?</Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity onPress={() => navigation.navigate("SignUp")}>
+            <Text style={styles.signup}>Signup</Text>
+          </TouchableOpacity>
+
+          {/* Social buttons */}
           {Platform.OS === "android" && (
             <TouchableOpacity
               style={[styles.googleButton, loading && { opacity: 0.7 }]}
@@ -332,9 +376,13 @@ const login = async () => {
 
           {Platform.OS === "ios" && appleAvailable && (
             <AppleAuthentication.AppleAuthenticationButton
-              buttonType={AppleAuthentication.AppleAuthenticationButtonType.SIGN_IN}
-              buttonStyle={AppleAuthentication.AppleAuthenticationButtonStyle.BLACK}
-              cornerRadius={8}
+              buttonType={
+                AppleAuthentication.AppleAuthenticationButtonType.SIGN_IN
+              }
+              buttonStyle={
+                AppleAuthentication.AppleAuthenticationButtonStyle.BLACK
+              }
+              cornerRadius = {8}
               style={styles.appleButton}
               onPress={onAppleButtonPress}
             />
@@ -347,7 +395,62 @@ const login = async () => {
         <View style={styles.loadingOverlay}>
           <View style={styles.loadingCard}>
             <ActivityIndicator size="large" />
-            <Text style={styles.loadingText}>{loadingText || "Please wait…"}</Text>
+            <Text style={styles.loadingText}>
+              {loadingText || "Please wait…"}
+            </Text>
+          </View>
+        </View>
+      </Modal>
+
+      {/* 🔑 Forgot Password Modal */}
+      <Modal
+        visible={forgotVisible}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setForgotVisible(false)}
+      >
+        <View style={styles.loadingOverlay}>
+          <View style={styles.loadingCard}>
+            <Text style={[styles.loadingText, { marginBottom: 10 }]}>
+              Reset your password
+            </Text>
+            <TextInput
+              style={styles.input}
+              placeholder="Your email address"
+              placeholderTextColor="#AAA"
+              autoCapitalize="none"
+              keyboardType="email-address"
+              value={resetEmail}
+              onChangeText={setResetEmail}
+            />
+            <View style={{ flexDirection: "row", gap: 10, marginTop: 6 }}>
+              <TouchableOpacity
+                style={[
+                  styles.loginButton,
+                  { flex: 1, backgroundColor: "#a60d49" },
+                  sendingReset && { opacity: 0.7 },
+                ]}
+                onPress={sendReset}
+                disabled={sendingReset}
+              >
+                {sendingReset ? (
+                  <ActivityIndicator color="#FFF" />
+                ) : (
+                  <Text style={styles.loginButtonText}>Send reset link</Text>
+                )}
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[
+                  styles.googleButton,
+                  { flex: 1, backgroundColor: "#EEE" },
+                ]}
+                onPress={() => setForgotVisible(false)}
+              >
+                <Text style={[styles.googleButtonText, { marginRight: 0 }]}>
+                  Cancel
+                </Text>
+              </TouchableOpacity>
+            </View>
           </View>
         </View>
       </Modal>
@@ -442,7 +545,7 @@ const styles = StyleSheet.create({
     bottom: 0,
     justifyContent: "center",
     alignItems: "center",
-    width: 32, // nice tap target
+    width: 32,
   },
 
   loginButton: {
@@ -450,7 +553,7 @@ const styles = StyleSheet.create({
     paddingVertical: 12,
     borderRadius: 25,
     alignItems: "center",
-    marginTop: 20,
+    marginTop: 4,
   },
   loginButtonText: { color: "#FFF", fontWeight: "bold", fontSize: 16 },
 
@@ -469,10 +572,27 @@ const styles = StyleSheet.create({
     fontWeight: "bold",
     fontSize: 16,
     marginRight: 8,
+    color: "#000",
   },
   appleButton: { width: "100%", height: 50, marginTop: 16 },
 
-  // Loader
+  // Links
+  forgotPassword: {
+    marginTop: 12,
+    textAlign: "center",
+    color: "#555",
+    fontSize: 14,
+    textDecorationLine: "underline",
+  },
+  signup: {
+    marginTop: 8,
+    textAlign: "center",
+    color: "#a60d49",
+    fontWeight: "bold",
+    fontSize: 15,
+  },
+
+  // Loader / modal cards
   loadingOverlay: {
     flex: 1,
     backgroundColor: "rgba(0,0,0,0.3)",
@@ -485,10 +605,11 @@ const styles = StyleSheet.create({
     paddingHorizontal: 24,
     borderRadius: 12,
     alignItems: "center",
-    minWidth: 200,
+    minWidth: 260,
+    width: "80%",
+    maxWidth: 400,
   },
-  loadingText: { marginTop: 10, fontSize: 16, fontWeight: "600" },
+  loadingText: { marginTop: 10, fontSize: 16, fontWeight: "600", color: "#000" },
 });
-
 
 export default LoginScreen;
