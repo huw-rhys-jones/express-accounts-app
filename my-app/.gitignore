@@ -1,0 +1,48 @@
+# --- OS / tooling ---
+.DS_Store
+*.orig.*
+*.pem
+
+# --- Node / Expo ---
+node_modules/
+.expo/
+.expo-shared/
+dist/
+web-build/
+expo-env.d.ts
+.metro-health-check*
+
+# --- Android (keep project, ignore build artifacts) ---
+android/.gradle/
+android/.idea/
+android/local.properties
+android/**/build/
+android/**/intermediates/
+# Do NOT ignore android/ itself
+
+# --- iOS (keep project, ignore build artifacts) ---
+ios/Pods/
+ios/build/
+ios/DerivedData/
+ios/**/xcuserdata/
+ios/**/project.xcworkspace/xcuserdata/
+# Do NOT ignore ios/ itself
+
+# --- Secrets / keys (never commit real signing keys) ---
+*.jks
+*.keystore
+*.p8
+*.p12
+*.key
+*.mobileprovision
+
+# --- Logs ---
+npm-debug.*
+yarn-debug.*
+yarn-error.*
+
+# --- Env files (keep your root .env, ignore local variants if you want) ---
+.env*.local
+
+# --- TypeScript cache ---
+*.tsbuildinfo
