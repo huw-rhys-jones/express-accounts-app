@@ -2,6 +2,7 @@ import 'dotenv/config';
 
 export default ({ config }) => ({
   ...config,
+
   name: "Express Accounts",
   slug: "express-accounts",
   scheme: "com.caistec.expressaccounts",
@@ -9,7 +10,6 @@ export default ({ config }) => ({
   orientation: "portrait",
   icon: "./assets/icon.png",
   userInterfaceStyle: "light",
-  // Turn New Arch off while stabilizing native deps (optional but recommended)
   newArchEnabled: false,
 
   splash: {
@@ -24,15 +24,13 @@ export default ({ config }) => ({
     buildNumber: "15",
     googleServicesFile: "./GoogleService-Info.plist",
     usesAppleSignIn: true,
-
-    // ✅ Add usage descriptions here so they end up in Info.plist
     infoPlist: {
       NSPhotoLibraryUsageDescription:
-        "Express Accounts needs access to your photo library so you can upload receipts and documents to your accounts.",
+        "Express Accounts needs access to your photo library so you can upload receipts and documents.",
       NSCameraUsageDescription:
-        "Express Accounts needs access to your camera so you can take photos of receipts and documents for your accounts.",
+        "Express Accounts needs access to your camera to take photos of receipts and documents.",
       NSPhotoLibraryAddUsageDescription:
-        "Express Accounts needs permission to save receipts and documents back to your photo library for your records."
+        "Express Accounts needs permission to save receipts and documents back to your photo library."
     }
   },
 
@@ -42,28 +40,31 @@ export default ({ config }) => ({
       foregroundImage: "./assets/adaptive-icon.png",
       backgroundColor: "#ffffff"
     },
-    permissions: ["CAMERA", "READ_MEDIA_IMAGES", "READ_EXTERNAL_STORAGE"],
+    permissions: ["CAMERA", "READ_MEDIA_IMAGES", "READ_EXTERNAL_STORAGE"]
   },
 
   plugins: [
+    "expo-apple-authentication",  // Enables Sign in with Apple capability
+    "expo-router",
     [
       "expo-build-properties",
       {
         android: {
-          // ✅ This propagates to all subprojects like react-native-text-recognition
           compileSdkVersion: 35,
           targetSdkVersion: 35,
-          minSdkVersion: 24,
-          // kotlinVersion: "1.9.24"
+          minSdkVersion: 24
         },
         ios: {
-          deploymentTarget: "15.1"
+          deploymentTarget: "15.1",
+          useFrameworks: "static"  // Needed for some native Firebase modules
         }
       }
-    ]
+    ],
   ],
 
-  web: { favicon: "./assets/favicon.png" },
+  web: {
+    favicon: "./assets/favicon.png"
+  },
 
   extra: {
     eas: { projectId: "5b149386-fb46-4d4d-8308-fde7bcff2f37" },
