@@ -17,11 +17,11 @@ import { formatDate } from "../utils/format_style";
 const ExpensesScreen = ({ navigation }) => {
   const [displayName, setDisplayName] = useState("User");
   const [receipts, setReceipts] = useState([]);
-  const [loading, setLoading] = useState(true); // start true to avoid empty-state flash
+  const [loading, setLoading] = useState(true); // start true to avoid empty flash
   const [loadingText, setLoadingText] = useState(null);
   const [refreshing, setRefreshing] = useState(false);
 
-  // Shared loader wrapper (used for initial load + logout)
+  // Shared loader wrapper (initial + logout)
   const runWithLoading = async (text, fn) => {
     setLoadingText(text);
     setLoading(true);
@@ -59,7 +59,7 @@ const ExpensesScreen = ({ navigation }) => {
     // Initial load with overlay
     runWithLoading("Loading receipts…", fetchReceipts);
 
-    // Refresh when returning to this screen (no overlay)
+    // Refresh when returning to this screen
     const unsubscribeFocus = navigation.addListener("focus", () => {
       fetchReceipts().catch((e) => console.error("Refresh on focus failed", e));
     });
@@ -99,20 +99,32 @@ const ExpensesScreen = ({ navigation }) => {
     </TouchableOpacity>
   );
 
+  const renderEmptyState = () =>
+    loading ? null : (
+      <View style={styles.emptyState}>
+        <View style={styles.card}>
+          <Text style={styles.description}>
+            Click here to view a short video on how this app works
+          </Text>
+        </View>
+        <TouchableOpacity
+          style={styles.addButton}
+          onPress={() => navigation.navigate("Receipt")}
+        >
+          <Text style={styles.buttonText}>Add Expenses</Text>
+        </TouchableOpacity>
+      </View>
+    );
+
   return (
     <SafeAreaView style={styles.container}>
       <View style={styles.content}>
         <View style={styles.card}>
           <Text style={styles.title}>Welcome, {displayName}!</Text>
           {loading ? null : receipts.length === 0 ? (
-            <>
-              <Text style={styles.subtitle}>
-                You haven't added any expenses yet!
-              </Text>
-              <Text style={styles.description}>
-                Tap the Add button below to enter your first receipt.
-              </Text>
-            </>
+            <Text style={styles.subtitle}>
+              You haven't added any expenses yet!
+            </Text>
           ) : (
             <Text style={styles.subtitle}>Your receipts are shown below:</Text>
           )}
@@ -122,33 +134,18 @@ const ExpensesScreen = ({ navigation }) => {
           data={loading ? [] : receipts}
           keyExtractor={(item) => item.id}
           renderItem={renderReceiptItem}
-          contentContainerStyle={styles.listContainer}
+          contentContainerStyle={[
+            styles.listContainer,
+            receipts.length === 0 && !loading ? { flex: 1 } : null,
+          ]}
           refreshControl={
             <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
           }
-          ListEmptyComponent={() =>
-            loading ? null : (
-              <View>
-                <View style={styles.card}>
-                  <Text style={styles.description}>
-                    Click here to view a short video on how this app works
-                  </Text>
-                </View>
-                <View>
-                  <TouchableOpacity
-                    style={styles.addButton}
-                    onPress={() => navigation.navigate("Receipt")}
-                  >
-                    <Text style={styles.buttonText}>Add Expenses</Text>
-                  </TouchableOpacity>
-                </View>
-              </View>
-            )
-          }
+          ListEmptyComponent={renderEmptyState}
         />
       </View>
 
-      {/* Add Expenses Button */}
+      {/* Floating Add Expenses Button */}
       <TouchableOpacity
         style={styles.floatingButton}
         onPress={() => navigation.navigate("Receipt")}
@@ -159,7 +156,7 @@ const ExpensesScreen = ({ navigation }) => {
       {/* Bottom Navigation */}
       <View style={styles.bottomNav}>
         <TouchableOpacity onPress={handleLogout} style={styles.navItem}>
-          <Text style={[styles.navText]}>Income</Text>
+          <Text style={styles.navText}>Income</Text>
         </TouchableOpacity>
         <TouchableOpacity style={styles.navItem}>
           <Text style={[styles.navText, styles.activeNav]}>Expenses</Text>
@@ -169,7 +166,7 @@ const ExpensesScreen = ({ navigation }) => {
         </TouchableOpacity>
       </View>
 
-      {/* 🔒 Full-screen loading overlay (NO Modal to avoid iOS touch issues) */}
+      {/* Full-screen loading overlay */}
       {loading && (
         <View style={styles.blockingOverlay} pointerEvents="auto">
           <View style={styles.loadingCard}>
@@ -199,20 +196,33 @@ const styles = StyleSheet.create({
   },
   title: { fontSize: 19, fontWeight: "bold", color: "#1C1C4E" },
   subtitle: { fontSize: 17, color: "#1C1C4E", marginTop: 14, textAlign: "center" },
-  description: { fontSize: 16, color: "#1C1C4E", textAlign: "center", marginTop: 10 },
+  description: {
+    fontSize: 16,
+    color: "#1C1C4E",
+    textAlign: "center",
+    marginTop: 10,
+  },
   addButton: {
     backgroundColor: "#a60d49",
     paddingVertical: 17,
     paddingHorizontal: 43,
     borderRadius: 35,
     alignSelf: "center",
-    marginVertical: 20,
+    marginTop: 20,
     shadowColor: "#a60d49",
     shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.3,
     shadowRadius: 5,
   },
   buttonText: { fontSize: 25, fontWeight: "bold", color: "white" },
+
+  emptyState: {
+    flex: 1,
+    justifyContent: "center",
+    alignItems: "center",
+    width: "100%",
+  },
+
   bottomNav: {
     bottom: 0,
     width: "100%",
@@ -268,7 +278,7 @@ const styles = StyleSheet.create({
   },
   floatingButtonText: { fontSize: 32, color: "#fff", marginBottom: 2 },
 
-  // Non-modal blocking overlay
+  // Blocking overlay
   blockingOverlay: {
     position: "absolute",
     top: 0, left: 0, right: 0, bottom: 0,

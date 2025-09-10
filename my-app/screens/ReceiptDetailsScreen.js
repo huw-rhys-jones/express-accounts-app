@@ -13,6 +13,7 @@ import {
   Modal,
   ActivityIndicator,
 } from "react-native";
+import { SafeAreaView } from "react-native-safe-area-context";
 import { Button, Checkbox } from "react-native-paper";
 import DateTimePickerModal from "react-native-modal-datetime-picker";
 import DropDownPicker from "react-native-dropdown-picker";
@@ -43,7 +44,6 @@ export default function ReceiptDetailsScreen({ route, navigation }) {
     (receipt.images || []).map((url) => ({ uri: url }))
   );
 
-  // Keep an immutable snapshot of the original URLs for diffing on Save
   const originalUrls = useMemo(() => new Set(receipt.images || []), [receipt.id]);
 
   const [open, setOpen] = useState(false);
@@ -57,17 +57,17 @@ export default function ReceiptDetailsScreen({ route, navigation }) {
 
   // ===== OCR preview modal state =====
   const [ocrModalVisible, setOcrModalVisible] = useState(false);
-  const [preview, setPreview] = useState(null); // { uri }
+  const [preview, setPreview] = useState(null);
   const [ocrLoading, setOcrLoading] = useState(false);
-  const [ocrResult, setOcrResult] = useState(null); // { amount, date, categoryIndex, categoryName, raw }
+  const [ocrResult, setOcrResult] = useState(null);
   const [acceptFlags, setAcceptFlags] = useState({
     amount: false,
     date: false,
     category: false,
   });
-  const [isNewImageSession, setIsNewImageSession] = useState(false); // drives Delete visibility + Cancel behavior
+  const [isNewImageSession, setIsNewImageSession] = useState(false);
 
-  // ✅ Safe navigate back (dismiss transient UI first)
+  // ✅ Safe navigate back
   const safeNavigateToExpenses = () => {
     Keyboard.dismiss();
     setOpen(false);
@@ -82,7 +82,7 @@ export default function ReceiptDetailsScreen({ route, navigation }) {
     });
   };
 
-  // ===== Ensure we have a local file path for OCR (supports base64 or picker URI) =====
+  // ===== Ensure local file for OCR =====
   const ensureFileFromAsset = async (asset) => {
     const { base64, fileName, uri } = asset || {};
     const ext =
@@ -122,7 +122,7 @@ export default function ReceiptDetailsScreen({ route, navigation }) {
     throw new Error("No usable uri/base64 on asset for OCR");
   };
 
-  // ===== OCR helpers & modal control =====
+  // ===== OCR helpers =====
   const openOcrModal = async (uri, { autoScan, newSession }) => {
     setPreview({ uri });
     setOcrResult(null);
@@ -138,7 +138,6 @@ export default function ReceiptDetailsScreen({ route, navigation }) {
   const runOcr = async (uriOrLocal) => {
     try {
       setOcrLoading(true);
-      // Normalise to a local path TextRecognition can read
       let localUri = uriOrLocal;
       if (!/^(file|content):\/\//i.test(uriOrLocal)) {
         const dest = FileSystem.cacheDirectory + `ocr-${Date.now()}.jpg`;
@@ -163,7 +162,7 @@ export default function ReceiptDetailsScreen({ route, navigation }) {
 
       setOcrResult({
         amount: res?.money?.value ?? null,
-        date: res?.date ?? null, // ISO string if returned by your extractor
+        date: res?.date ?? null,
         categoryIndex,
         categoryName,
         raw: text,
@@ -199,14 +198,12 @@ export default function ReceiptDetailsScreen({ route, navigation }) {
     setOcrModalVisible(false);
   };
 
-  // Delete current image (from state only). Cloud deletion happens on Save.
   const deleteCurrentImage = () => {
     if (!preview?.uri) return;
     setImages((prev) => prev.filter((img) => img.uri !== preview.uri));
     setOcrModalVisible(false);
   };
 
-  // Cancel: if this was a new-session modal right after picking, discard image; else just close.
   const handleCancelModal = () => {
     if (isNewImageSession && preview?.uri) {
       setImages((prev) => prev.filter((img) => img.uri !== preview.uri));
@@ -241,7 +238,6 @@ export default function ReceiptDetailsScreen({ route, navigation }) {
     );
   };
 
-  // Add → open modal, include the cached file path in images for the FIRST item so Cancel can remove it reliably
   const handleImagePicked = async (response) => {
     try {
       if (response?.didCancel || !response?.assets?.length) return;
@@ -254,7 +250,6 @@ export default function ReceiptDetailsScreen({ route, navigation }) {
       }));
       setImages((prev) => [...prev, ...newImages]);
 
-      // Open modal and auto-scan; mark as new session so Cancel discards; (no Delete button on first add)
       await openOcrModal(filePath, { autoScan: true, newSession: true });
     } catch (e) {
       console.error("❌ handleImagePicked error:", e);
@@ -262,7 +257,6 @@ export default function ReceiptDetailsScreen({ route, navigation }) {
   };
 
   // ===== SAVE CHANGES =====
-  // Upload new images, keep existing URLs, and delete removed URLs from Firebase Storage.
   const saveChanges = async () => {
     try {
       if (!amount || parseFloat(amount) <= 0 || !selectedCategory) {
@@ -274,36 +268,27 @@ export default function ReceiptDetailsScreen({ route, navigation }) {
 
       const storage = getStorage();
 
-      // Current set of http URLs in state
       const currentUrls = new Set(
         images.filter((i) => i.uri.startsWith("http")).map((i) => i.uri)
       );
 
-      // 1) Compute removed URLs: originally present but no longer in state
       const removedUrls = [...originalUrls].filter((u) => !currentUrls.has(u));
 
-      // 2) Delete removed URLs from Firebase Storage (skip if you don’t want cloud deletion)
       for (const url of removedUrls) {
         try {
-          const fileRef = ref(storage, url); // ref can accept download URLs
+          const fileRef = ref(storage, url);
           await deleteObject(fileRef);
         } catch (err) {
-          console.warn(
-            "Could not delete from storage (continuing):",
-            url,
-            err?.message
-          );
+          console.warn("Could not delete from storage:", url, err?.message);
         }
       }
 
-      // 3) Build final image URL list: keep existing URLs and upload any local files
       const uploadedImageUrls = [];
 
       for (let img of images) {
         if (img.uri.startsWith("http")) {
-          uploadedImageUrls.push(img.uri); // already uploaded
+          uploadedImageUrls.push(img.uri);
         } else {
-          // local file → upload
           const storageRef = ref(
             storage,
             `receipts/${receipt.userId}/${Date.now()}-${Math.random()
@@ -318,7 +303,6 @@ export default function ReceiptDetailsScreen({ route, navigation }) {
         }
       }
 
-      // 4) Update Firestore doc
       await updateDoc(doc(db, "receipts", receipt.id), {
         amount: parseFloat(amount),
         date: selectedDate.toISOString(),
@@ -350,109 +334,109 @@ export default function ReceiptDetailsScreen({ route, navigation }) {
   };
 
   return (
-    <View style={styles.container}>
-      <Text style={styles.header}>Edit Receipt</Text>
+    <SafeAreaView style={styles.safeArea}>
+      <View style={styles.container}>
+        <Text style={styles.header}>Edit Receipt</Text>
 
-      <Text style={styles.label}>Amount (£)</Text>
-      <TextInput
-        style={styles.input}
-        value={amount}
-        keyboardType="numeric"
-        onChangeText={setAmount}
-      />
+        <Text style={styles.label}>Amount (£)</Text>
+        <TextInput
+          style={styles.input}
+          value={amount}
+          keyboardType="numeric"
+          onChangeText={setAmount}
+        />
 
-      <Text style={styles.label}>Date</Text>
-      <TouchableOpacity
-        style={styles.dateButton}
-        onPress={() => setDatePickerVisibility(true)}
-      >
-        <Text>{formatDate(selectedDate)}</Text>
-      </TouchableOpacity>
-      <DateTimePickerModal
-        isVisible={isDatePickerVisible}
-        mode="date"
-        date={selectedDate}
-        onConfirm={(date) => {
-          setSelectedDate(date);
-          setDatePickerVisibility(false);
-        }}
-        onCancel={() => setDatePickerVisibility(false)}
-      />
+        <Text style={styles.label}>Date</Text>
+        <TouchableOpacity
+          style={styles.dateButton}
+          onPress={() => setDatePickerVisibility(true)}
+        >
+          <Text>{formatDate(selectedDate)}</Text>
+        </TouchableOpacity>
+        <DateTimePickerModal
+          isVisible={isDatePickerVisible}
+          mode="date"
+          date={selectedDate}
+          onConfirm={(date) => {
+            setSelectedDate(date);
+            setDatePickerVisibility(false);
+          }}
+          onCancel={() => setDatePickerVisibility(false)}
+        />
 
-      <Text style={styles.label}>Category</Text>
-      <DropDownPicker
-        listMode="MODAL"
-        open={open}
-        value={selectedCategory}
-        items={items}
-        setOpen={setOpen}
-        setItems={setItems}
-        setValue={setSelectedCategory}
-        placeholder="Select a category"
-        style={styles.dropdown}
-        dropDownContainerStyle={styles.dropdownContainer}
-      />
+        <Text style={styles.label}>Category</Text>
+        <DropDownPicker
+          listMode="MODAL"
+          open={open}
+          value={selectedCategory}
+          items={items}
+          setOpen={setOpen}
+          setItems={setItems}
+          setValue={setSelectedCategory}
+          placeholder="Select a category"
+          style={styles.dropdown}
+          dropDownContainerStyle={styles.dropdownContainer}
+        />
 
-      <FlatList
-        data={[...images, { addButton: true }]}
-        horizontal
-        keyExtractor={(_, index) => index.toString()}
-        renderItem={({ item }) =>
-          item.addButton ? (
-            <TouchableOpacity
-              style={styles.uploadPlaceholder}
-              onPress={pickImageOption}
+        <FlatList
+          data={[...images, { addButton: true }]}
+          horizontal
+          keyExtractor={(_, index) => index.toString()}
+          renderItem={({ item }) =>
+            item.addButton ? (
+              <TouchableOpacity
+                style={styles.uploadPlaceholder}
+                onPress={pickImageOption}
+              >
+                <Text style={styles.plus}>+</Text>
+              </TouchableOpacity>
+            ) : (
+              <TouchableOpacity
+                onPress={() =>
+                  openOcrModal(item.uri, { autoScan: true, newSession: false })
+                }
+              >
+                <Image source={{ uri: item.uri }} style={styles.receiptImage} />
+              </TouchableOpacity>
+            )
+          }
+          contentContainerStyle={{ marginVertical: 20 }}
+          showsHorizontalScrollIndicator
+        />
+
+        {/* Bottom actions */}
+        <View style={styles.bottomButtons}>
+          <View style={styles.primaryRow}>
+            <Button
+              mode="outlined"
+              onPress={safeNavigateToExpenses}
+              textColor="#555"
+              style={styles.actionBtn}
             >
-              <Text style={styles.plus}>+</Text>
-            </TouchableOpacity>
-          ) : (
-            // Tapping an existing image: open modal AND auto-scan (existing session)
-            <TouchableOpacity
-              onPress={() =>
-                openOcrModal(item.uri, { autoScan: true, newSession: false })
-              }
+              Cancel
+            </Button>
+            <Button
+              mode="contained"
+              onPress={saveChanges}
+              buttonColor="#a60d49"
+              style={styles.actionBtn}
             >
-              <Image source={{ uri: item.uri }} style={styles.receiptImage} />
-            </TouchableOpacity>
-          )
-        }
-        contentContainerStyle={{ marginVertical: 20 }}
-        showsHorizontalScrollIndicator
-      />
+              Save Changes
+            </Button>
+          </View>
 
-      {/* Bottom actions */}
-<View style={styles.bottomButtons}>
-  <View style={styles.primaryRow}>
-    <Button
-      mode="outlined"
-      onPress={safeNavigateToExpenses}
-      textColor="#555"
-      style={styles.actionBtn}
-    >
-      Cancel
-    </Button>
-    <Button
-      mode="contained"
-      onPress={saveChanges}
-      buttonColor="#a60d49"
-      style={styles.actionBtn}
-    >
-      Save Changes
-    </Button>
-  </View>
-
-  <View style={styles.deleteRow}>
-    <Button
-      mode="outlined"
-      onPress={deleteReceipt}
-      textColor="#a60d49"
-      style={styles.deleteBtn}
-    >
-      Delete Receipt
-    </Button>
-  </View>
-</View>
-
+          <View style={styles.deleteRow}>
+            <Button
+              mode="outlined"
+              onPress={deleteReceipt}
+              textColor="#a60d49"
+              style={styles.deleteBtn}
+            >
+              Delete Receipt
+            </Button>
+          </View>
+        </View>
+      </View>
 
       {/* OCR Preview + Accept Modal */}
       <Modal
@@ -528,7 +512,6 @@ export default function ReceiptDetailsScreen({ route, navigation }) {
                 </View>
 
                 <View style={styles.modalButtons}>
-                  {/* Delete should be hidden on first add (isNewImageSession === true) */}
                   {!isNewImageSession && (
                     <Button
                       mode="outlined"
@@ -538,12 +521,9 @@ export default function ReceiptDetailsScreen({ route, navigation }) {
                       Delete Image
                     </Button>
                   )}
-
-                  {/* Cancel: discard (if new) or just close (if existing) */}
                   <Button mode="text" onPress={handleCancelModal}>
                     Cancel
                   </Button>
-
                   <Button mode="contained" onPress={applyAcceptedValues}>
                     Accept
                   </Button>
@@ -568,12 +548,19 @@ export default function ReceiptDetailsScreen({ route, navigation }) {
           </View>
         </View>
       </Modal>
-    </View>
+    </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, padding: 16, backgroundColor: "#fff" },
+  safeArea: {
+    flex: 1,
+    backgroundColor: "#fff",
+  },
+  container: {
+    flex: 1,
+    padding: 16,
+  },
   header: { fontSize: 22, fontWeight: "bold", marginBottom: 16 },
   label: { fontSize: 16, marginTop: 10 },
   input: {
@@ -592,6 +579,7 @@ const styles = StyleSheet.create({
   },
   dropdown: { marginTop: 5 },
   dropdownContainer: {},
+
   receiptImage: {
     width: 100,
     height: 150,
@@ -610,26 +598,22 @@ const styles = StyleSheet.create({
   plus: { fontSize: 30, color: "#a60d49" },
 
   bottomButtons: {
-  marginTop: 6,
-},
-
-primaryRow: {
-  flexDirection: "row",
-  gap: 8,                // RN 0.71+; if older, remove and use margins on children
-},
-
-actionBtn: {
-  flex: 1,
-},
-
-deleteRow: {
-  marginTop: 10,
-},
-
-deleteBtn: {
-  width: "100%",
-},
-
+    marginTop: 6,
+    paddingBottom: 20, // 👈 ensures safe space above Android nav bar
+  },
+  primaryRow: {
+    flexDirection: "row",
+    gap: 8,
+  },
+  actionBtn: {
+    flex: 1,
+  },
+  deleteRow: {
+    marginTop: 10,
+  },
+  deleteBtn: {
+    width: "100%",
+  },
 
   // ===== Modal shared styles =====
   modalOverlay: {
