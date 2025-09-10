@@ -51,12 +51,12 @@ export const expense_categories = [
 
 export const categories_meta = [
     {name: "Accomodation", 
-      meta: ["rent", "house", "flat", "monthly", "hotel", "caravan", "bungalow"]},
+      meta: ["rent", "house", "flat", "monthly", "hotel", "caravan", "lodge", "inn", "guest", "guesthouse", "room", "night" "bungalow"]},
 
 
     {name: "Subsistence", 
       meta: ["cafe", "restaurant", "bar", "olive", "hungry", "coffee", "americano", "latte", "cappacino",
-             "steak", "peppercorn", "sirloin", "pizza", "meat", "eat", "takeaway", "food", "burger"]},
+             "steak", "peppercorn", "sirloin", "pizza", "meat", "eat", "takeaway", "food", "table", "burger"]},
      
 
      {name: "Travel",
@@ -69,26 +69,26 @@ export const categories_meta = [
       
       
      {name: "Fuel",
-      meta: ["fuel", "filling", "petrol", "deisel", "unleaded", "pump"]},
+      meta: ["fuel", "filling", "petrol", "deisel", "unleaded", "garage", "pump"]},
 
 
      {name: "Rent",
-      meta: ["monthly", "garage", "shop", "office", "premises"]},
+      meta: ["monthly", "shop", "office", "premises"]},
       
 
      {name: "Equipment and Tools",
-      meta: ["hammer", "saw", "driver"]},
+      meta: ["hammer", "saw", "driver", "skip"]},
       
 
      {name: "Telephone and Internet",
-      meta: ["phone", "contract", "handset", "wifi", "router", "internet", "o2",
+      meta: ["phone", "contract", "bt" "handset", "wifi", "router", "ee", "internet", "o2",
             "vodaphone"]},
       
       
      {name: "Materials",
       meta: ["nail", "screw", "consumable", "paint", "cement", "wood", "metal", 
              "plastic", "slate", "stone", "sand", "B&Q", "lamanate", "floor", 
-             "deck", "plaster", "glue", "adhesive", "nuts", "bolts", "washer", 
+             "deck", "plaster", "glue", "adhesive", "selco", "screwfix", "wickes", "nuts", "tiles" "bolts", "washer", 
              "carpet"]},
 
      {name: "Plant and Machinery",
@@ -99,11 +99,12 @@ export const categories_meta = [
 
 
      {name: "Training and Tuition",
-      meta: ["course", "exam"]},
+      meta: ["course", "exam" "training", "certificate"]},
       
 
-     {name: "Staff Welfare", 
-      meta: ["health", "safety"]},
+     {name: "Health and Safety",
+     meta: ["health", "boots", "gloves", "glasses", "plasters", "bandage", "paracetamol", "antiseptic", "drops", "eye",
+             "ibuprofen", "medical", "safety"]}, 
 
 
     //  {name: "Entertaining",
@@ -140,11 +141,11 @@ export const categories_meta = [
      
      
      {name: "Software and computer",
-      meta: ["virus", "microsoft", "email", "website", "domain", "hosting"]},
+      meta: ["virus", "microsoft", "email", "website", "domain", "vpn" "hosting"]},
      
       
      {name: "Repairs and Maintenance", 
-      meta: ["plumber", "electrician", "painter", "gardener", "carpender", 
+      meta: ["plumber", "electrician", "painter", "gardener", "carpenter", 
              "carpet", "glazer", "glazier", "glazing"]},
 
 
@@ -159,21 +160,21 @@ export const categories_meta = [
      
             
      {name: "Advertising and Promotion",
-      meta: ["radio", "billboard", "TV", "announcement", "sponsor",
+      meta: ["radio", "billboard", "TV", "announcement", "ad", "yell", "sponsor",
              "media", "social", "facebook", "twitter", "instagram"]},
         
 
-     {name: "Medical", 
-      meta: ["plasters", "bandage", "paracetamol", "antiseptic", "drops", "eye",
-             "ibuprofen"]},
-        
+    // {name: "Medical", 
+     // meta: ["plasters", "bandage", "paracetamol", "antiseptic", "drops", "eye",
+           //  "ibuprofen"]},
+        // #I would consider just combining this with health & safety
 
     //  {name: "Sundry",
     //   meta: []},
 
       
      {name: "Taxes",
-      meta: ["tax", "council", "rates"]},  
+      meta: ["tax", "council", "hmrc", "rates"]},  
 
 ]
 
