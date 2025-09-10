@@ -51,7 +51,7 @@ export const expense_categories = [
 
 export const categories_meta = [
     {name: "Accomodation", 
-      meta: ["rent", "house", "flat", "monthly", "hotel", "caravan", "lodge", "inn", "guest", "guesthouse", "room", "night" "bungalow"]},
+      meta: ["rent", "house", "flat", "monthly", "hotel", "caravan", "lodge", "inn", "guest", "guesthouse", "room", "night", "bungalow"]},
 
 
     {name: "Subsistence", 
@@ -81,14 +81,14 @@ export const categories_meta = [
       
 
      {name: "Telephone and Internet",
-      meta: ["phone", "contract", "bt" "handset", "wifi", "router", "ee", "internet", "o2",
+      meta: ["phone", "contract", "bt", "handset", "wifi", "router", "ee", "internet", "o2",
             "vodaphone"]},
       
       
      {name: "Materials",
       meta: ["nail", "screw", "consumable", "paint", "cement", "wood", "metal", 
              "plastic", "slate", "stone", "sand", "B&Q", "lamanate", "floor", 
-             "deck", "plaster", "glue", "adhesive", "selco", "screwfix", "wickes", "nuts", "tiles" "bolts", "washer", 
+             "deck", "plaster", "glue", "adhesive", "selco", "screwfix", "wickes", "nuts", "tiles", "bolts", "washer", 
              "carpet"]},
 
      {name: "Plant and Machinery",
@@ -99,7 +99,7 @@ export const categories_meta = [
 
 
      {name: "Training and Tuition",
-      meta: ["course", "exam" "training", "certificate"]},
+      meta: ["course", "exam", "training", "certificate"]},
       
 
      {name: "Health and Safety",
@@ -141,7 +141,7 @@ export const categories_meta = [
      
      
      {name: "Software and computer",
-      meta: ["virus", "microsoft", "email", "website", "domain", "vpn" "hosting"]},
+      meta: ["virus", "microsoft", "email", "website", "domain", "vpn", "hosting"]},
      
       
      {name: "Repairs and Maintenance", 
