@@ -29,6 +29,8 @@ import { formatDate } from "../utils/format_style";
 import TextRecognition from "react-native-text-recognition";
 import * as FileSystem from "expo-file-system";
 import { extractData } from "../utils/extractors";
+import ImageViewer from "react-native-image-zoom-viewer";
+
 
 const ReceiptAdd = ({ navigation }) => {
   const [amount, setAmount] = useState("");
@@ -58,6 +60,8 @@ const ReceiptAdd = ({ navigation }) => {
 
   // Uploading overlay while saving (after Confirm)
   const [isUploading, setIsUploading] = useState(false);
+  const [fullScreenImage, setFullScreenImage] = useState(null); // { uri }
+
 
   const [items, setItems] = useState(
     categories_meta.map((cat) => ({ label: cat.name, value: cat.name }))
@@ -601,12 +605,19 @@ const ReceiptAdd = ({ navigation }) => {
 
             {preview?.uri ? (
               <View style={{ alignItems: "center" }}>
-                <Image source={{ uri: preview.uri }} style={styles.modalImage} />
+                <TouchableOpacity style={{ alignSelf: "stretch" }} onPress={() => setFullScreenImage(preview)}>
+                  <Image source={{ uri: preview.uri }} style={styles.modalImage} />
+                </TouchableOpacity>
                 {ocrLoading && (
                   <Text style={styles.scanningText}>Scanning…</Text>
                 )}
               </View>
             ) : null}
+
+            <Text style={styles.fullscreenHint}>
+              Tap image to view full screen
+            </Text>
+
 
             {!ocrLoading && (
               <>
@@ -739,6 +750,35 @@ const ReceiptAdd = ({ navigation }) => {
           </View>
         </View>
       </Modal>
+
+      {/* Full-screen Image Modal */}
+      <Modal
+        visible={!!fullScreenImage}
+        transparent
+        animationType="fade"
+        statusBarTranslucent
+        onRequestClose={() => setFullScreenImage(null)}
+      >
+        <ImageViewer
+          imageUrls={[{ url: fullScreenImage?.uri }]}
+          enableSwipeDown
+          onSwipeDown={() => setFullScreenImage(null)}
+          backgroundColor="black"
+        />
+
+        <View style={styles.fullScreenCloseButtonWrapper}>
+          <TouchableOpacity
+            style={styles.fullScreenCloseButton}
+            onPress={() => setFullScreenImage(null)}
+          >
+            <Text style={styles.fullScreenCloseText}>Close</Text>
+          </TouchableOpacity>
+        </View>
+      </Modal>
+
+
+
+
     </KeyboardAvoidingView>
   );
 };
@@ -910,6 +950,52 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     minWidth: 180,
   },
+
+  fullScreenOverlay: {
+  flex: 1,
+  backgroundColor: "rgba(0,0,0,0.95)",
+  justifyContent: "center",
+  alignItems: "center",
+},
+fullScreenCloseArea: {
+  flex: 1,
+  width: "100%",
+  justifyContent: "center",
+  alignItems: "center",
+},
+fullScreenImage: {
+  width: "100%",
+  height: "100%",
+},
+fullscreenHint: {
+  fontSize: 12,
+  color: "#666",
+  marginTop: 4,
+  fontStyle: "italic",
+  textAlign: "center",   // ⬅️ this centres it
+  alignSelf: "center",   // ensures the text itself is centred in its parent
+},
+fullScreenCloseButtonWrapper: {
+  position: "absolute",
+  bottom: 30,
+  left: 0,
+  right: 0,
+  alignItems: "center",
+},
+fullScreenCloseButton: {
+  backgroundColor: "rgba(166, 13, 73, 0.9)", // your theme colour
+  paddingVertical: 8,
+  paddingHorizontal: 24,
+  borderRadius: 20,
+},
+fullScreenCloseText: {
+  color: "#fff",
+  fontWeight: "bold",
+  fontSize: 16,
+},
+
+
+
 });
 
 export default ReceiptAdd;
