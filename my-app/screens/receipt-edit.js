@@ -32,9 +32,10 @@ import { formatDate } from "../utils/format_style";
 import TextRecognition from "react-native-text-recognition";
 import * as FileSystem from "expo-file-system";
 import { extractData } from "../utils/extractors";
+import ImageViewer from "react-native-image-zoom-viewer";
 
 export default function ReceiptDetailsScreen({ route, navigation }) {
-  const { receipt } = route.params; // passed from ExpensesScreen
+  const { receipt } = route.params;
 
   // --- base form state
   const [amount, setAmount] = useState(receipt.amount.toString());
@@ -52,7 +53,6 @@ export default function ReceiptDetailsScreen({ route, navigation }) {
   );
   const [isDatePickerVisible, setDatePickerVisibility] = useState(false);
 
-  // ===== Upload holding overlay =====
   const [isUploading, setIsUploading] = useState(false);
 
   // ===== OCR preview modal state =====
@@ -66,6 +66,9 @@ export default function ReceiptDetailsScreen({ route, navigation }) {
     category: false,
   });
   const [isNewImageSession, setIsNewImageSession] = useState(false);
+
+  // ===== Fullscreen viewer =====
+  const [fullScreenImage, setFullScreenImage] = useState(null);
 
   // ✅ Safe navigate back
   const safeNavigateToExpenses = () => {
@@ -451,12 +454,19 @@ export default function ReceiptDetailsScreen({ route, navigation }) {
 
             {preview?.uri ? (
               <View style={{ alignItems: "center" }}>
-                <Image source={{ uri: preview.uri }} style={styles.modalImage} />
-                {ocrLoading && (
-                  <Text style={styles.scanningText}>Scanning…</Text>
-                )}
+                <TouchableOpacity
+                  style={{ alignSelf: "stretch" }}
+                  onPress={() => setFullScreenImage(preview)}
+                >
+                  <Image source={{ uri: preview.uri }} style={styles.modalImage} />
+                </TouchableOpacity>
+                {ocrLoading && <Text style={styles.scanningText}>Scanning…</Text>}
               </View>
             ) : null}
+
+            <Text style={styles.fullscreenHint}>
+              Tap image to view full screen
+            </Text>
 
             {!ocrLoading && (
               <>
@@ -548,6 +558,31 @@ export default function ReceiptDetailsScreen({ route, navigation }) {
           </View>
         </View>
       </Modal>
+
+      {/* Full-screen Image Modal */}
+      <Modal
+        visible={!!fullScreenImage}
+        transparent
+        animationType="fade"
+        statusBarTranslucent
+        onRequestClose={() => setFullScreenImage(null)}
+      >
+        <ImageViewer
+          imageUrls={[{ url: fullScreenImage?.uri }]}
+          enableSwipeDown
+          onSwipeDown={() => setFullScreenImage(null)}
+          backgroundColor="black"
+        />
+
+        <View style={styles.fullScreenCloseButtonWrapper}>
+          <TouchableOpacity
+            style={styles.fullScreenCloseButton}
+            onPress={() => setFullScreenImage(null)}
+          >
+            <Text style={styles.fullScreenCloseText}>Close</Text>
+          </TouchableOpacity>
+        </View>
+      </Modal>
     </SafeAreaView>
   );
 }
@@ -599,7 +634,7 @@ const styles = StyleSheet.create({
 
   bottomButtons: {
     marginTop: 6,
-    paddingBottom: 20, // 👈 ensures safe space above Android nav bar
+    paddingBottom: 20,
   },
   primaryRow: {
     flexDirection: "row",
@@ -650,6 +685,15 @@ const styles = StyleSheet.create({
     marginTop: 20,
   },
 
+  fullscreenHint: {
+    fontSize: 12,
+    color: "#666",
+    marginTop: 4,
+    fontStyle: "italic",
+    textAlign: "center",
+    alignSelf: "center",
+  },
+
   // ===== Upload overlay =====
   uploadOverlay: {
     flex: 1,
@@ -665,5 +709,25 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
     minWidth: 180,
+  },
+
+  // ===== Fullscreen viewer =====
+  fullScreenCloseButtonWrapper: {
+    position: "absolute",
+    bottom: 30,
+    left: 0,
+    right: 0,
+    alignItems: "center",
+  },
+  fullScreenCloseButton: {
+    backgroundColor: "rgba(166, 13, 73, 0.9)",
+    paddingVertical: 8,
+    paddingHorizontal: 24,
+    borderRadius: 20,
+  },
+  fullScreenCloseText: {
+    color: "#fff",
+    fontWeight: "bold",
+    fontSize: 16,
   },
 });
