@@ -5,7 +5,8 @@
     "@react-native-google-signin/google-signin": "^15.0.0",
     "expo-auth-session": "~6.2.1",
     "expo-constants": "^17.1.7",
+    "expo-dev-client": "~5.2.4",
     "expo-web-browser": "~14.2.0",
-    "expo-dev-client": "~5.2.4"
+    "react-native-keyboard-aware-scroll-view": "^0.9.5"
   }
 }

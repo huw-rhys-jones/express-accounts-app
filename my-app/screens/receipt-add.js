@@ -30,7 +30,7 @@ import TextRecognition from "react-native-text-recognition";
 import * as FileSystem from "expo-file-system";
 import { extractData } from "../utils/extractors";
 
-const ReceiptScreen = ({ navigation }) => {
+const ReceiptAdd = ({ navigation }) => {
   const [amount, setAmount] = useState("");
   const [selectedDate, setSelectedDate] = useState(new Date());
   const [isDatePickerVisible, setDatePickerVisibility] = useState(false);
@@ -912,4 +912,4 @@ const styles = StyleSheet.create({
   },
 });
 
-export default ReceiptScreen;
+export default ReceiptAdd;
