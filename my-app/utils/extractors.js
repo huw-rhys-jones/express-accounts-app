@@ -3,14 +3,14 @@ import { months, categories_meta, TOTAL_HINT, CURRENCY_SYMS } from '../constants
 
 
 // Money like: £1,234.56  1,234.56 GBP  (1,234.56)  -£12.00  £ 12.00
-const MONEY_RE = new RegExp(
-  String.raw`(?<![A-Za-z])(?:£|\$|€|GBP|USD|EUR)?\s*[-(]?\d{1,3}(?:[ ,]\d{3})*(?:\.\d{2})?\)?(?!\d)\s*(?:£|\$|€|GBP|USD|EUR)?`,
-  'ig'
-);
+// const MONEY_RE = new RegExp(
+//   String.raw`(?<![A-Za-z])(?:£|\$|€|GBP|USD|EUR)?\s*[-(]?\d{1,3}(?:[ ,]\d{3})*(?:\.\d{2})?\)?(?!\d)\s*(?:£|\$|€|GBP|USD|EUR)?`,
+//   'ig'
+// );
 
-function normalizeWhitespace(s) {
-  return s.replace(/\s+/g, ' ').trim();
-}
+// function normalizeWhitespace(s) {
+//   return s.replace(/\s+/g, ' ').trim();
+// }
 
 function parseAmount(raw) {
   if (!raw) return null;
@@ -130,47 +130,88 @@ function extractDate(text) {
 }
 
 // ---------- amount extraction ----------
+// ---------- amount extraction ----------
+// ---------- amount extraction ----------
+const MONEY_RE = /(?:£\s?|GBP\s?)?\d{1,6}\.\d{2}(?!\d)/g; // only amounts with decimals
+
 function extractAmount(text) {
-  const lines = normalizeWhitespace(text).split('\n').map(normalizeWhitespace);
+  const lines = normalizeWhitespace(text).split("\n").map(normalizeWhitespace);
   const allMatches = [...text.matchAll(MONEY_RE)];
 
   if (!allMatches.length) return null;
 
-  // Build candidates with simple heuristics
-  const cands = allMatches.map(m => {
-    const raw = m[0];
-    const val = parseAmount(raw);
-    if (val == null) return null;
-    // find containing line
-    const line = lines.find(ln => ln.includes(raw)) || '';
-    let score = 1;
-    if (TOTAL_HINT.test(line)) score += 2;
-    // slight preference for lines near the bottom (totals often live there)
-    score += 0.001 * text.indexOf(raw);
-    // de-prefer obvious “unit price” hints
-    if (/\b(qty|x\s?\d+|each|unit)\b/i.test(line)) score -= 0.6;
-    return { val, raw, line, score };
-  }).filter(Boolean);
+  const cands = allMatches
+    .map((m) => {
+      const raw = m[0];
+      const val = parseFloat(raw.replace(/[^\d.]/g, "")); // strip £, GBP, etc.
+      if (isNaN(val)) return null;
+
+      const line = lines.find((ln) => ln.includes(raw)) || "";
+      let score = 1;
+
+      if (/total|amount|balance|paid/i.test(line)) score += 3;
+      if (/change|vat|tax/i.test(line)) score -= 1;
+
+      if (/£|gbp/i.test(raw)) score += 2;
+      else score -= 0.5;
+
+      score += 0.001 * text.indexOf(raw);
+
+      if (val > 10000 && !/total|amount|balance|paid/i.test(line)) score -= 5;
+
+      return { val, raw, line, score };
+    })
+    .filter(Boolean);
 
   if (!cands.length) return null;
 
-  // If any total-hint candidates exist, pick the max among them; else best score overall.
-  const hintCands = cands.filter(c => TOTAL_HINT.test(c.line));
-  const chosen = (hintCands.length
-    ? hintCands.reduce((a, c) => (c.val > a.val ? c : a))
-    : cands.reduce((a, c) => (c.score > a.score ? c : a)));
+  const totalCands = cands.filter((c) => /total|amount|balance|paid/i.test(c.line));
+  const chosen = totalCands.length
+    ? totalCands.reduce((a, c) => (c.val > a.val ? c : a))
+    : cands.reduce((a, c) => (c.score > a.score ? c : a));
 
-  return { amount: chosen.val, display: chosen.raw };
+  // always return with 2 dp
+  return { 
+    amount: Number(chosen.val.toFixed(2)), 
+    display: `£${chosen.val.toFixed(2)}` 
+  };
 }
 
-// Normalize OCR quirks (smart quotes, extra whitespace, Unicode folding)
+function normalizeWhitespace(s) {
+  return s.replace(/\s+/g, " ").trim();
+}
+
 function normalizeForMatch(s) {
   return s
-    .replace(/\u2019/g, "'")    // curly apostrophe -> straight
+    .replace(/\u2019/g, "'")
     .replace(/\s+/g, " ")
     .trim()
     .toLowerCase();
 }
+
+
+// Normalise OCR quirks
+// function normalizeWhitespace(s) {
+//   return s.replace(/\s+/g, " ").trim();
+// }
+
+// function normalizeForMatch(s) {
+//   return s
+//     .replace(/\u2019/g, "'") // curly apostrophe -> straight
+//     .replace(/\s+/g, " ")
+//     .trim()
+//     .toLowerCase();
+// }
+
+
+// Normalize OCR quirks (smart quotes, extra whitespace, Unicode folding)
+// function normalizeForMatch(s) {
+//   return s
+//     .replace(/\u2019/g, "'")    // curly apostrophe -> straight
+//     .replace(/\s+/g, " ")
+//     .trim()
+//     .toLowerCase();
+// }
 
 
 export function categoryFinder(text, categories) {
