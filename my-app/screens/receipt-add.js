@@ -614,9 +614,11 @@ const ReceiptAdd = ({ navigation }) => {
               </View>
             ) : null}
 
-            <Text style={styles.fullscreenHint}>
-              Tap image to view full screen
-            </Text>
+            {!ocrLoading && (
+              <Text style={styles.fullscreenHint}>
+                Tap image to view full screen
+              </Text>
+            )}
 
 
             {!ocrLoading && (
