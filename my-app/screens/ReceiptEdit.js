@@ -79,7 +79,14 @@ export default function ReceiptDetailsScreen({ route, navigation }) {
       InteractionManager.runAfterInteractions(() => {
         navigation.reset({
           index: 0,
-          routes: [{ name: "Expenses" }],
+          routes: [
+            {
+              name: "MainTabs",
+              state: {
+                routes: [{ name: "Expenses" }],
+              },
+            },
+          ],
         });
       });
     });

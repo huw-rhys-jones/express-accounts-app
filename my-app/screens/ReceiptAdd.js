@@ -31,12 +31,11 @@ import * as FileSystem from "expo-file-system";
 import { extractData } from "../utils/extractors";
 import ImageViewer from "react-native-image-zoom-viewer";
 
-
 const ReceiptAdd = ({ navigation }) => {
   const [amount, setAmount] = useState("");
   const [selectedDate, setSelectedDate] = useState(new Date());
   const [isDatePickerVisible, setDatePickerVisibility] = useState(false);
-  const [images, setImages] = useState([]); // { uri }[]
+  const [images, setImages] = useState([]);
   const [open, setOpen] = useState(false);
   const [selectedCategory, setSelectedCategory] = useState(null);
 
@@ -48,20 +47,18 @@ const ReceiptAdd = ({ navigation }) => {
 
   // OCR modal state
   const [ocrModalVisible, setOcrModalVisible] = useState(false);
-  const [preview, setPreview] = useState(null); // { uri }
+  const [preview, setPreview] = useState(null);
   const [ocrLoading, setOcrLoading] = useState(false);
-  const [ocrResult, setOcrResult] = useState(null); // { amount, date, categoryIndex, categoryName, raw }
+  const [ocrResult, setOcrResult] = useState(null);
   const [acceptFlags, setAcceptFlags] = useState({
     amount: false,
     date: false,
     category: false,
   });
-  const [isNewImageSession, setIsNewImageSession] = useState(false); // first add vs reopen
+  const [isNewImageSession, setIsNewImageSession] = useState(false);
 
-  // Uploading overlay while saving (after Confirm)
   const [isUploading, setIsUploading] = useState(false);
-  const [fullScreenImage, setFullScreenImage] = useState(null); // { uri }
-
+  const [fullScreenImage, setFullScreenImage] = useState(null);
 
   const [items, setItems] = useState(
     categories_meta.map((cat) => ({ label: cat.name, value: cat.name }))
@@ -123,7 +120,6 @@ const ReceiptAdd = ({ navigation }) => {
   const runOcr = async (uriOrLocal) => {
     try {
       setOcrLoading(true);
-      // normalize to local file for TextRecognition
       let localUri = uriOrLocal;
       if (!/^(file|content):\/\//i.test(uriOrLocal)) {
         const dest = FileSystem.cacheDirectory + `ocr-${Date.now()}.jpg`;
@@ -169,7 +165,6 @@ const ReceiptAdd = ({ navigation }) => {
   const toggleAccept = (key) =>
     setAcceptFlags((prev) => ({ ...prev, [key]: !prev[key] }));
 
-  // Delete current image (from state only). Cloud deletion happens on Save.
   const deleteCurrentImage = () => {
     if (!preview?.uri) return;
     setImages((prev) => prev.filter((img) => img.uri !== preview.uri));
@@ -277,7 +272,7 @@ const ReceiptAdd = ({ navigation }) => {
 
   const handleConfirmReceipt = async () => {
     try {
-      setIsUploading(true); // HOLDING ANIMATION while uploading
+      setIsUploading(true);
       await uploadReceipt({
         amount,
         date: selectedDate,
@@ -375,7 +370,6 @@ const ReceiptAdd = ({ navigation }) => {
     try {
       if (response?.didCancel || !response?.assets?.length) return;
 
-      // First asset → write/copy into cache so preview.uri matches state (for reliable discard on Cancel)
       const first = response.assets[0];
       const filePath = await ensureFileFromAsset(first);
 
@@ -384,7 +378,6 @@ const ReceiptAdd = ({ navigation }) => {
       }));
       setImages((prev) => [...prev, ...newImages]);
 
-      // Open modal on the first image and auto-scan. Mark as new session so Cancel discards.
       await openOcrModal(filePath, { autoScan: true, newSession: true });
     } catch (e) {
       console.error("❌ OCR error:", e);
@@ -581,9 +574,16 @@ const ReceiptAdd = ({ navigation }) => {
                 onPress={() => {
                   setShowConfirmLeaveModal(false);
                   navigation.reset({
-                  index: 0,
-                  routes: [{ name: "Expenses" }],
-                  });
+          index: 0,
+          routes: [
+            {
+              name: "MainTabs",
+              state: {
+                routes: [{ name: "Expenses" }],
+              },
+            },
+          ],
+        });
                 }}
                 color="#a60d49"
               />
@@ -719,7 +719,17 @@ const ReceiptAdd = ({ navigation }) => {
                 onPress={() => {
                   setShowSuccess(false);
                   setShowConfirmModal(false);
-                  navigation.reset({ index: 0, routes: [{ name: "Expenses" }] });
+                  navigation.reset({
+          index: 0,
+          routes: [
+            {
+              name: "MainTabs",
+              state: {
+                routes: [{ name: "Expenses" }],
+              },
+            },
+          ],
+        });
                 }}
                 color="#a60d49"
               />
@@ -778,9 +788,7 @@ const ReceiptAdd = ({ navigation }) => {
         </View>
       </Modal>
 
-
-
-
+      {/* ...rest of your modals unchanged (Confirm, Reset, OCR, Upload, Fullscreen) */}
     </KeyboardAvoidingView>
   );
 };
@@ -877,6 +885,7 @@ const styles = StyleSheet.create({
   buttonContainer: {
     flexDirection: "row",
     justifyContent: "space-between",
+    paddingBottom: 10
   },
   button: {
     flex: 1,
@@ -995,7 +1004,6 @@ fullScreenCloseText: {
   fontWeight: "bold",
   fontSize: 16,
 },
-
 
 
 });

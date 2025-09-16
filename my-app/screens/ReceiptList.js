@@ -13,6 +13,7 @@ import { signOut } from "firebase/auth";
 import { collection, query, where, getDocs } from "firebase/firestore";
 import { db, auth } from "../firebaseConfig";
 import { formatDate } from "../utils/format_style";
+import BottomNav from "../components/BottomNav";
 
 const ExpensesScreen = ({ navigation }) => {
   const [displayName, setDisplayName] = useState("User");
@@ -153,18 +154,8 @@ const ExpensesScreen = ({ navigation }) => {
         <Text style={styles.floatingButtonText}>+</Text>
       </TouchableOpacity>
 
-      {/* Bottom Navigation */}
-      <View style={styles.bottomNav}>
-        <TouchableOpacity onPress={handleLogout} style={styles.navItem}>
-          <Text style={styles.navText}>Income</Text>
-        </TouchableOpacity>
-        <TouchableOpacity style={styles.navItem}>
-          <Text style={[styles.navText, styles.activeNav]}>Expenses</Text>
-        </TouchableOpacity>
-        <TouchableOpacity style={styles.navItem}>
-          <Text style={styles.navText}>Summary</Text>
-        </TouchableOpacity>
-      </View>
+      {/* Bottom Navigation
+      <BottomNav navigation={navigation} active="Expenses" /> */}
 
       {/* Full-screen loading overlay */}
       {loading && (
