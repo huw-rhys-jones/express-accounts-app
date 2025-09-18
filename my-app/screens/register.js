@@ -1,19 +1,21 @@
-import React, { useMemo, useState } from "react";
+import React, { useMemo, useState, useRef } from "react";
 import {
   View,
   Text,
   TextInput,
   TouchableOpacity,
   StyleSheet,
-  KeyboardAvoidingView,
-  Platform,
   Image,
   ActivityIndicator,
   Alert,
+  Keyboard,
+  TouchableWithoutFeedback,
 } from "react-native";
+import { SafeAreaView } from "react-native-safe-area-context";
 import { auth } from "../firebaseConfig";
 import { createUserWithEmailAndPassword, updateProfile } from "firebase/auth";
 import { Ionicons } from "@expo/vector-icons";
+import { KeyboardAwareScrollView } from "react-native-keyboard-aware-scroll-view";
 
 const looksLikeEmail = (s) => /\S+@\S+\.\S+/.test(String(s || "").trim());
 
@@ -25,6 +27,11 @@ const SignUpScreen = ({ navigation }) => {
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirm, setShowConfirm] = useState(false);
   const [loading, setLoading] = useState(false);
+
+  // refs for keyboard navigation
+  const emailRef = useRef(null);
+  const passwordRef = useRef(null);
+  const confirmRef = useRef(null);
 
   // Live password rules
   const rules = useMemo(() => {
@@ -122,141 +129,156 @@ const SignUpScreen = ({ navigation }) => {
   );
 
   return (
-    <KeyboardAvoidingView
-      style={{ flex: 1 }}
-      behavior={Platform.OS === "ios" ? "padding" : "height"}
-    >
-      <View style={styles.container}>
-        {/* Logo */}
-        <View style={styles.logoContainer}>
-          <Image
-            source={require("../assets/images/logo.png")}
-            style={styles.logo}
-          />
-        </View>
-
-        {/* Header */}
-        <View style={styles.header}>
-          <Text style={styles.title}>Create new{"\n"}Account</Text>
-          <Text style={styles.subtitle}>
-            Already Registered?{" "}
-            <Text
-              onPress={() => navigation.navigate("SignIn")}
-              style={styles.link}
-            >
-              Log in here.
-            </Text>
-          </Text>
-        </View>
-
-        {/* Form */}
-        <View style={styles.form}>
-          <Text style={styles.label}>NAME (COMPANY OR PERSONAL)</Text>
-          <TextInput
-            style={styles.input}
-            placeholder="Bob Builder"
-            placeholderTextColor="#555"
-            value={name}
-            onChangeText={setName}
-            editable={!loading}
-          />
-
-          <Text style={styles.label}>EMAIL</Text>
-          <TextInput
-            style={[
-              styles.input,
-              email.length > 0 && !emailOk && styles.inputError,
-            ]}
-            placeholder="you@example.com"
-            placeholderTextColor="#555"
-            keyboardType="email-address"
-            autoCapitalize="none"
-            value={email}
-            onChangeText={setEmail}
-            editable={!loading}
-          />
-
-          <Text style={styles.label}>PASSWORD</Text>
-          <View style={styles.passwordContainer}>
-            <TextInput
-              style={[styles.input, styles.inputWithIcon]}
-              placeholder="******"
-              placeholderTextColor="#555"
-              secureTextEntry={!showPassword}
-              value={password}
-              onChangeText={setPassword}
-              editable={!loading}
-            />
-            <TouchableOpacity
-              style={styles.eyeIcon}
-              onPress={() => setShowPassword((v) => !v)}
-              hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
-            >
-              <Ionicons
-                name={showPassword ? "eye-off" : "eye"}
-                size={22}
-                color="#555"
+    <SafeAreaView style={{ flex: 1, backgroundColor: "#151337" }}>
+      <TouchableWithoutFeedback onPress={Keyboard.dismiss} accessible={false}>
+        <KeyboardAwareScrollView
+          contentContainerStyle={{ flexGrow: 1, paddingBottom: 40 }} // 👈 padding for Android nav bar
+          enableOnAndroid={true}
+          extraScrollHeight={20}
+          keyboardShouldPersistTaps="handled"
+          showsVerticalScrollIndicator={false}
+        >
+          <View style={styles.container}>
+            {/* Logo */}
+            <View style={styles.logoContainer}>
+              <Image
+                source={require("../assets/images/logo.png")}
+                style={styles.logo}
               />
-            </TouchableOpacity>
-          </View>
+            </View>
 
-          <Text style={styles.label}>CONFIRM PASSWORD</Text>
-          <View style={styles.passwordContainer}>
-            <TextInput
-              style={[
-                styles.input,
-                styles.inputWithIcon,
-                confirm.length > 0 && !passwordsMatch && styles.inputError,
-              ]}
-              placeholder="******"
-              placeholderTextColor="#555"
-              secureTextEntry={!showConfirm}
-              value={confirm}
-              onChangeText={setConfirm}
-              editable={!loading}
-            />
-            <TouchableOpacity
-              style={styles.eyeIcon}
-              onPress={() => setShowConfirm((v) => !v)}
-              hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
-            >
-              <Ionicons
-                name={showConfirm ? "eye-off" : "eye"}
-                size={22}
-                color="#555"
+            {/* Header */}
+            <View style={styles.header}>
+              <Text style={styles.title}>Create new{"\n"}Account</Text>
+              <Text style={styles.subtitle}>
+                Already Registered?{" "}
+                <Text
+                  onPress={() => navigation.navigate("SignIn")}
+                  style={styles.link}
+                >
+                  Log in here.
+                </Text>
+              </Text>
+            </View>
+
+            {/* Form */}
+            <View style={styles.form}>
+              <Text style={styles.label}>NAME (COMPANY OR PERSONAL)</Text>
+              <TextInput
+                style={styles.input}
+                placeholder="Bob Builder"
+                placeholderTextColor="#555"
+                value={name}
+                onChangeText={setName}
+                editable={!loading}
+                returnKeyType="next"
+                onSubmitEditing={() => emailRef.current.focus()}
               />
-            </TouchableOpacity>
-          </View>
 
-          {/* Password requirements */}
-          <View style={styles.requirements}>
-            <Rule ok={rules.minLen} text="At least 8 characters" />
-            <Rule ok={rules.upper} text="At least 1 uppercase letter" />
-            <Rule ok={rules.lower} text="At least 1 lowercase letter" />
-            <Rule ok={rules.number} text="At least 1 number" />
-            <Rule
-              ok={passwordsMatch && confirm.length > 0}
-              text="Passwords match"
-            />
-          </View>
+              <Text style={styles.label}>EMAIL</Text>
+              <TextInput
+                ref={emailRef}
+                style={[
+                  styles.input,
+                  email.length > 0 && !emailOk && styles.inputError,
+                ]}
+                placeholder="you@example.com"
+                placeholderTextColor="#555"
+                keyboardType="email-address"
+                autoCapitalize="none"
+                value={email}
+                onChangeText={setEmail}
+                editable={!loading}
+                returnKeyType="next"
+                onSubmitEditing={() => passwordRef.current.focus()}
+              />
 
-          <TouchableOpacity
-            style={[
-              styles.button,
-              !canSubmit && { opacity: 0.6 },
-            ]}
-            onPress={register}
-            disabled={!canSubmit}
-          >
-            {loading ? (
-              <ActivityIndicator color="#fff" />
-            ) : (
-              <Text style={styles.buttonText}>Sign up</Text>
-            )}
-          </TouchableOpacity>
-        </View>
-      </View>
-    </KeyboardAvoidingView>
+              <Text style={styles.label}>PASSWORD</Text>
+              <View style={styles.passwordContainer}>
+                <TextInput
+                  ref={passwordRef}
+                  style={[styles.input, styles.inputWithIcon]}
+                  placeholder="******"
+                  placeholderTextColor="#555"
+                  secureTextEntry={!showPassword}
+                  value={password}
+                  onChangeText={setPassword}
+                  editable={!loading}
+                  returnKeyType="next"
+                  onSubmitEditing={() => confirmRef.current.focus()}
+                />
+                <TouchableOpacity
+                  style={styles.eyeIcon}
+                  onPress={() => setShowPassword((v) => !v)}
+                  hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+                >
+                  <Ionicons
+                    name={showPassword ? "eye-off" : "eye"}
+                    size={22}
+                    color="#555"
+                  />
+                </TouchableOpacity>
+              </View>
+
+              <Text style={styles.label}>CONFIRM PASSWORD</Text>
+              <View style={styles.passwordContainer}>
+                <TextInput
+                  ref={confirmRef}
+                  style={[
+                    styles.input,
+                    styles.inputWithIcon,
+                    confirm.length > 0 && !passwordsMatch && styles.inputError,
+                  ]}
+                  placeholder="******"
+                  placeholderTextColor="#555"
+                  secureTextEntry={!showConfirm}
+                  value={confirm}
+                  onChangeText={setConfirm}
+                  editable={!loading}
+                  returnKeyType="done"
+                  onSubmitEditing={register} // 👈 Done submits form
+                />
+                <TouchableOpacity
+                  style={styles.eyeIcon}
+                  onPress={() => setShowConfirm((v) => !v)}
+                  hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+                >
+                  <Ionicons
+                    name={showConfirm ? "eye-off" : "eye"}
+                    size={22}
+                    color="#555"
+                  />
+                </TouchableOpacity>
+              </View>
+
+              {/* Password requirements */}
+              <View style={styles.requirements}>
+                <Rule ok={rules.minLen} text="At least 8 characters" />
+                <Rule ok={rules.upper} text="At least 1 uppercase letter" />
+                <Rule ok={rules.lower} text="At least 1 lowercase letter" />
+                <Rule ok={rules.number} text="At least 1 number" />
+                <Rule
+                  ok={passwordsMatch && confirm.length > 0}
+                  text="Passwords match"
+                />
+              </View>
+
+              <TouchableOpacity
+                style={[styles.button, !canSubmit && { opacity: 0.6 }]}
+                onPress={register}
+                disabled={!canSubmit}
+              >
+                {loading ? (
+                  <ActivityIndicator color="#fff" />
+                ) : (
+                  <Text style={styles.buttonText}>Sign up</Text>
+                )}
+              </TouchableOpacity>
+            </View>
+          </View>
+        </KeyboardAwareScrollView>
+      </TouchableWithoutFeedback>
+    </SafeAreaView>
   );
 };
 
