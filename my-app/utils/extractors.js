@@ -190,28 +190,41 @@ function normalizeForMatch(s) {
 }
 
 
-// Normalise OCR quirks
-// function normalizeWhitespace(s) {
-//   return s.replace(/\s+/g, " ").trim();
-// }
+// ---------- VAT extraction ----------
+function extractVAT(text, amountInfo, categoryIdx) {
+  if (!text) return { value: null, rate: null };
 
-// function normalizeForMatch(s) {
-//   return s
-//     .replace(/\u2019/g, "'") // curly apostrophe -> straight
-//     .replace(/\s+/g, " ")
-//     .trim()
-//     .toLowerCase();
-// }
+  // Try to detect explicit VAT amounts
+  const vatAmountMatch = text.match(/\bVAT[^0-9]*(\d+\.\d{1,2})\b/i);
+  if (vatAmountMatch) {
+    return { value: parseFloat(vatAmountMatch[1]), rate: null };
+  }
 
+  // Try to detect VAT rate
+  const vatRateMatch = text.match(/(\d{1,2})\s?%[\s\S]{0,10}VAT/i);
+  if (vatRateMatch) {
+    const rate = parseFloat(vatRateMatch[1]);
+    if (amountInfo?.amount && !isNaN(rate)) {
+      const net = amountInfo.amount / (1 + rate / 100);
+      const vat = amountInfo.amount - net;
+      return { value: parseFloat(vat.toFixed(2)), rate };
+    }
+  }
 
-// Normalize OCR quirks (smart quotes, extra whitespace, Unicode folding)
-// function normalizeForMatch(s) {
-//   return s
-//     .replace(/\u2019/g, "'")    // curly apostrophe -> straight
-//     .replace(/\s+/g, " ")
-//     .trim()
-//     .toLowerCase();
-// }
+  // Fall back to category default
+  if (categoryIdx >= 0) {
+    const cat = categories_meta[categoryIdx];
+    if (cat?.vatRate && amountInfo?.amount) {
+      const rate = cat.vatRate;
+      const net = amountInfo.amount / (1 + rate / 100);
+      const vat = amountInfo.amount - net;
+      return { value: parseFloat(vat.toFixed(2)), rate };
+    }
+  }
+
+  return { value: null, rate: null };
+}
+
 
 
 export function categoryFinder(text, categories) {
@@ -255,30 +268,31 @@ export function categoryFinder(text, categories) {
 
 // ---------- main ----------
 export function extractData(text) {
-
   if (!text || typeof text !== 'string') {
     return {
       money: { value: null, currency: 0 },
       date: null,
       category: -1,
+      vat: { value: null, rate: null },
     };
   }
 
-  // Normalise \r\n just in case
   const cleaned = text.replace(/\r\n/g, '\n');
 
   const amountInfo = extractAmount(cleaned);
   const dateIso = extractDate(cleaned);
-
   const categoryIdx = categoryFinder(cleaned, categories_meta);
+  const vatInfo = extractVAT(cleaned, amountInfo, categoryIdx);
 
   return {
     money: {
       value: amountInfo ? amountInfo.amount : null,
-      currency: 0, // keep your existing mapping if 0==GBP
+      currency: 0,
       display: amountInfo ? amountInfo.display : null,
     },
-    date: dateIso, // ISO string 'YYYY-MM-DD' (or null)
+    date: dateIso,
     category: categoryIdx,
+    vat: vatInfo, // ✅ new field
   };
 }
+

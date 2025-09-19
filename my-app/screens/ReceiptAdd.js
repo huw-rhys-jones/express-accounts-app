@@ -33,9 +33,11 @@ import ImageViewer from "react-native-image-zoom-viewer";
 
 const ReceiptAdd = ({ navigation }) => {
   const [amount, setAmount] = useState("");
+  const [vatAmount, setVatAmount] = useState("");
+  const [vatRate, setVatRate] = useState(""); // % (string in UI)
   const [selectedDate, setSelectedDate] = useState(new Date());
   const [isDatePickerVisible, setDatePickerVisibility] = useState(false);
-  const [images, setImages] = useState([]);
+  const [images, setImages] = useState([]); // [{uri}]
   const [open, setOpen] = useState(false);
   const [selectedCategory, setSelectedCategory] = useState(null);
 
@@ -47,18 +49,20 @@ const ReceiptAdd = ({ navigation }) => {
 
   // OCR modal state
   const [ocrModalVisible, setOcrModalVisible] = useState(false);
-  const [preview, setPreview] = useState(null);
+  const [preview, setPreview] = useState(null); // { uri }
   const [ocrLoading, setOcrLoading] = useState(false);
-  const [ocrResult, setOcrResult] = useState(null);
+  const [ocrResult, setOcrResult] = useState(null); // { amount, date, categoryIndex, categoryName, vat:{value,rate}, raw }
   const [acceptFlags, setAcceptFlags] = useState({
     amount: false,
     date: false,
     category: false,
+    vat: false,
   });
-  const [isNewImageSession, setIsNewImageSession] = useState(false);
+  const [isNewImageSession, setIsNewImageSession] = useState(false); // first add vs reopen
 
+  // Uploading overlay while saving (after Confirm)
   const [isUploading, setIsUploading] = useState(false);
-  const [fullScreenImage, setFullScreenImage] = useState(null);
+  const [fullScreenImage, setFullScreenImage] = useState(null); // { uri }
 
   const [items, setItems] = useState(
     categories_meta.map((cat) => ({ label: cat.name, value: cat.name }))
@@ -109,7 +113,7 @@ const ReceiptAdd = ({ navigation }) => {
   const openOcrModal = async (uri, { autoScan = true, newSession = false } = {}) => {
     setPreview({ uri });
     setOcrResult(null);
-    setAcceptFlags({ amount: false, date: false, category: false });
+    setAcceptFlags({ amount: false, date: false, category: false, vat: false });
     setIsNewImageSession(!!newSession);
     setOcrModalVisible(true);
     if (autoScan) {
@@ -120,6 +124,7 @@ const ReceiptAdd = ({ navigation }) => {
   const runOcr = async (uriOrLocal) => {
     try {
       setOcrLoading(true);
+      // normalize to local file for TextRecognition
       let localUri = uriOrLocal;
       if (!/^(file|content):\/\//i.test(uriOrLocal)) {
         const dest = FileSystem.cacheDirectory + `ocr-${Date.now()}.jpg`;
@@ -145,6 +150,7 @@ const ReceiptAdd = ({ navigation }) => {
       setOcrResult({
         amount: res?.money?.value ?? null,
         date: res?.date ?? null,
+        vat: res?.vat ?? null, // {value, rate} if your extractor returns it
         categoryIndex,
         categoryName,
         raw: text,
@@ -153,6 +159,7 @@ const ReceiptAdd = ({ navigation }) => {
         amount: !!res?.money?.value,
         date: !!res?.date,
         category: categoryIndex >= 0,
+        vat: !!res?.vat?.value || !!res?.vat?.rate,
       });
     } catch (e) {
       console.error("❌ OCR error:", e);
@@ -182,10 +189,23 @@ const ReceiptAdd = ({ navigation }) => {
     }
     if (acceptFlags.category && ocrResult.categoryName) {
       setSelectedCategory(ocrResult.categoryName);
+      // If OCR didn’t give a rate, seed rate from category default
+      if (!(ocrResult.vat && ocrResult.vat.rate)) {
+        const catRate =
+          categories_meta[ocrResult.categoryIndex]?.vatRate ?? "";
+        if (catRate !== "") setVatRate(String(catRate));
+      }
+    }
+    if (acceptFlags.vat) {
+      if (ocrResult.vat?.value != null) setVatAmount(String(ocrResult.vat.value));
+      if (ocrResult.vat?.rate != null) setVatRate(String(ocrResult.vat.rate));
     }
     setOcrModalVisible(false);
   };
 
+  // Cancel in OCR modal:
+  // - If this was a new image session (user just added it), remove the image.
+  // - If it was an existing image, just close.
   const handleCancelModal = () => {
     if (isNewImageSession && preview?.uri) {
       setImages((prev) => prev.filter((img) => img.uri !== preview.uri));
@@ -213,7 +233,7 @@ const ReceiptAdd = ({ navigation }) => {
   useEffect(() => {
     const backHandler = BackHandler.addEventListener("hardwareBackPress", () => {
       if (ocrModalVisible) {
-        setOcrModalVisible(false);
+        handleCancelModal();
         return true;
       }
       if (showSuccess) {
@@ -253,6 +273,19 @@ const ReceiptAdd = ({ navigation }) => {
     navigation,
   ]);
 
+  // ------- VAT helpers -------
+  const calculateVatFromRate = () => {
+    // If amount is gross and rate is %, compute VAT = gross - net
+    // net = gross / (1 + r), VAT = gross - net
+    if (!amount || !vatRate) return "";
+    const gross = parseFloat(amount);
+    const rate = parseFloat(vatRate);
+    if (!isFinite(gross) || !isFinite(rate)) return "";
+    const net = gross / (1 + rate / 100);
+    const vat = gross - net;
+    return vat.toFixed(2);
+  };
+
   // ------- save flow -------
   const handleSavePress = () => {
     if (
@@ -272,11 +305,13 @@ const ReceiptAdd = ({ navigation }) => {
 
   const handleConfirmReceipt = async () => {
     try {
-      setIsUploading(true);
+      setIsUploading(true); // HOLDING ANIMATION while uploading
       await uploadReceipt({
         amount,
         date: selectedDate,
         category: selectedCategory,
+        vatAmount: vatAmount ? vatAmount : calculateVatFromRate(),
+        vatRate,
         images,
       });
       setIsUploading(false);
@@ -291,6 +326,8 @@ const ReceiptAdd = ({ navigation }) => {
 
   const resetForm = () => {
     setAmount("");
+    setVatAmount("");
+    setVatRate("");
     setSelectedDate(new Date());
     setSelectedCategory(null);
     setImages([]);
@@ -298,7 +335,7 @@ const ReceiptAdd = ({ navigation }) => {
     setShowConfirmModal(false);
   };
 
-  const uploadReceipt = async ({ amount, date, category, images }) => {
+  const uploadReceipt = async ({ amount, date, category, vatAmount, vatRate, images }) => {
     const user = auth.currentUser;
     const storage = getStorage();
     const imageUrls = [];
@@ -320,6 +357,8 @@ const ReceiptAdd = ({ navigation }) => {
       amount: parseFloat(amount),
       date: date.toISOString(),
       category,
+      vatAmount: vatAmount ? parseFloat(vatAmount) : null,
+      vatRate: vatRate ? parseFloat(vatRate) : null,
       images: imageUrls,
       userId: user.uid,
       createdAt: serverTimestamp(),
@@ -370,6 +409,7 @@ const ReceiptAdd = ({ navigation }) => {
     try {
       if (response?.didCancel || !response?.assets?.length) return;
 
+      // First asset → write/copy into cache so preview.uri matches state (for reliable discard on Cancel)
       const first = response.assets[0];
       const filePath = await ensureFileFromAsset(first);
 
@@ -378,6 +418,7 @@ const ReceiptAdd = ({ navigation }) => {
       }));
       setImages((prev) => [...prev, ...newImages]);
 
+      // Open modal on the first image and auto-scan. Mark as new session so Cancel discards.
       await openOcrModal(filePath, { autoScan: true, newSession: true });
     } catch (e) {
       console.error("❌ OCR error:", e);
@@ -386,7 +427,9 @@ const ReceiptAdd = ({ navigation }) => {
 
   const renderImage = ({ item }) => (
     <TouchableOpacity
-      onPress={() => openOcrModal(item.uri, { autoScan: true, newSession: false })}
+      onPress={() =>
+        openOcrModal(item.uri, { autoScan: true, newSession: false })
+      }
     >
       <Image source={{ uri: item.uri }} style={styles.receiptImage} />
     </TouchableOpacity>
@@ -403,6 +446,7 @@ const ReceiptAdd = ({ navigation }) => {
           <View style={styles.borderContainer}>
             <Text style={styles.header}>Your Receipt</Text>
 
+            {/* Amount */}
             <Text style={styles.label}>Amount:</Text>
             <View style={styles.inputRow}>
               <Text style={styles.currency}>£</Text>
@@ -414,6 +458,32 @@ const ReceiptAdd = ({ navigation }) => {
               />
             </View>
 
+            {/* VAT (Amount + Rate) */}
+            <View style={[styles.inputRow, { alignItems: "center" }]}>
+              <Text style={[styles.label, { marginRight: 8 }]}>VAT Amount:</Text>
+              <TextInput
+                style={[styles.input, { flex: 0.6, marginRight: 8 }]}
+                keyboardType="decimal-pad"
+                placeholder="£"
+                value={vatAmount}
+                onChangeText={setVatAmount}
+              />
+              <Text style={[styles.label, { marginRight: 8 }]}>Rate %:</Text>
+              <TextInput
+                style={[styles.input, { flex: 0.35 }]}
+                keyboardType="decimal-pad"
+                placeholder="%"
+                value={vatRate}
+                onChangeText={setVatRate}
+                onBlur={() => {
+                  if (!vatAmount && amount && vatRate) {
+                    setVatAmount(calculateVatFromRate());
+                  }
+                }}
+              />
+            </View>
+
+            {/* Date */}
             <Text style={styles.label}>Date:</Text>
             <TouchableOpacity
               style={styles.dateButton}
@@ -429,6 +499,7 @@ const ReceiptAdd = ({ navigation }) => {
               onCancel={hideDatePicker}
             />
 
+            {/* Category */}
             <Text style={styles.label}>Category:</Text>
             <DropDownPicker
               open={open}
@@ -445,6 +516,7 @@ const ReceiptAdd = ({ navigation }) => {
               dropDownDirection="AUTO"
             />
 
+            {/* Images */}
             <FlatList
               ref={flatListRef}
               data={[...images, { addButton: true }]}
@@ -466,6 +538,7 @@ const ReceiptAdd = ({ navigation }) => {
               showsHorizontalScrollIndicator={true}
             />
 
+            {/* Buttons */}
             <View style={styles.buttonContainer}>
               <Button
                 mode="contained"
@@ -513,6 +586,8 @@ const ReceiptAdd = ({ navigation }) => {
             <Text>Amount: £{amount}</Text>
             <Text>Date: {selectedDate.toDateString()}</Text>
             <Text>Category: {selectedCategory}</Text>
+            <Text>VAT Amount: £{vatAmount || calculateVatFromRate() || "0.00"}</Text>
+            <Text>VAT Rate: {vatRate || "—"}%</Text>
             <View style={styles.modalButtons}>
               <RNButton
                 title="Cancel"
@@ -574,16 +649,14 @@ const ReceiptAdd = ({ navigation }) => {
                 onPress={() => {
                   setShowConfirmLeaveModal(false);
                   navigation.reset({
-          index: 0,
-          routes: [
-            {
-              name: "MainTabs",
-              state: {
-                routes: [{ name: "Expenses" }],
-              },
-            },
-          ],
-        });
+                    index: 0,
+                    routes: [
+                      {
+                        name: "MainTabs",
+                        state: { routes: [{ name: "Expenses" }] },
+                      },
+                    ],
+                  });
                 }}
                 color="#a60d49"
               />
@@ -597,7 +670,7 @@ const ReceiptAdd = ({ navigation }) => {
         visible={ocrModalVisible}
         transparent
         animationType="slide"
-        onRequestClose={() => setOcrModalVisible(false)}
+        onRequestClose={handleCancelModal}
       >
         <View style={styles.modalOverlay}>
           <View style={[styles.modalContent, { maxHeight: "90%" }]}>
@@ -605,7 +678,10 @@ const ReceiptAdd = ({ navigation }) => {
 
             {preview?.uri ? (
               <View style={{ alignItems: "center" }}>
-                <TouchableOpacity style={{ alignSelf: "stretch" }} onPress={() => setFullScreenImage(preview)}>
+                <TouchableOpacity
+                  style={{ alignSelf: "stretch" }}
+                  onPress={() => setFullScreenImage(preview)}
+                >
                   <Image source={{ uri: preview.uri }} style={styles.modalImage} />
                 </TouchableOpacity>
                 {ocrLoading && (
@@ -620,81 +696,78 @@ const ReceiptAdd = ({ navigation }) => {
               </Text>
             )}
 
-
             {!ocrLoading && (
               <>
+                {/* Amount */}
                 <View style={styles.ocrRow}>
                   <Checkbox
                     status={acceptFlags.amount ? "checked" : "unchecked"}
                     onPress={() => toggleAccept("amount")}
                   />
-                  <Text
-                    style={[styles.ocrLabel, !acceptFlags.amount && styles.strike]}
-                  >
-                    Amount:
-                  </Text>
-                  <Text
-                    style={[styles.ocrValue, !acceptFlags.amount && styles.strike]}
-                  >
+                  <Text style={styles.ocrLabel}>Amount:</Text>
+                  <Text style={styles.ocrValue}>
                     {ocrResult?.amount != null ? `£${ocrResult.amount}` : "—"}
                   </Text>
                 </View>
 
+                {/* Date */}
                 <View style={styles.ocrRow}>
                   <Checkbox
                     status={acceptFlags.date ? "checked" : "unchecked"}
                     onPress={() => toggleAccept("date")}
                   />
-                  <Text
-                    style={[styles.ocrLabel, !acceptFlags.date && styles.strike]}
-                  >
-                    Date:
-                  </Text>
-                  <Text
-                    style={[styles.ocrValue, !acceptFlags.date && styles.strike]}
-                  >
+                  <Text style={styles.ocrLabel}>Date:</Text>
+                  <Text style={styles.ocrValue}>
                     {ocrResult?.date ? formatDate(new Date(ocrResult.date)) : "—"}
                   </Text>
                 </View>
 
+                {/* Category */}
                 <View style={styles.ocrRow}>
                   <Checkbox
                     status={acceptFlags.category ? "checked" : "unchecked"}
                     onPress={() => toggleAccept("category")}
                   />
-                  <Text
-                    style={[styles.ocrLabel, !acceptFlags.category && styles.strike]}
-                  >
-                    Category:
-                  </Text>
-                  <Text
-                    style={[styles.ocrValue, !acceptFlags.category && styles.strike]}
-                  >
+                  <Text style={styles.ocrLabel}>Category:</Text>
+                  <Text style={styles.ocrValue}>
                     {ocrResult?.categoryName ?? "—"}
                   </Text>
                 </View>
 
+                {/* VAT */}
+                <View style={styles.ocrRow}>
+                  <Checkbox
+                    status={acceptFlags.vat ? "checked" : "unchecked"}
+                    onPress={() => toggleAccept("vat")}
+                  />
+                  <Text style={styles.ocrLabel}>VAT:</Text>
+                  <Text style={styles.ocrValue}>
+                    {ocrResult?.vat?.value != null ? `£${ocrResult.vat.value}` : "—"}
+                    {`  (Rate ${ocrResult?.vat?.rate ?? "—"}%)`}
+                  </Text>
+                </View>
+
                 <View style={styles.modalButtons}>
-                                  {/* Delete should be hidden on first add (isNewImageSession === true) */}
-                                  {!isNewImageSession && (
-                                    <Button
-                                      mode="outlined"
-                                      onPress={deleteCurrentImage}
-                                      textColor="#a60d49"
-                                    >
-                                      Delete Image
-                                    </Button>
-                                  )}
-                
-                                  {/* Cancel: discard (if new) or just close (if existing) */}
-                                  <Button mode="text" onPress={handleCancelModal}>
-                                    Cancel
-                                  </Button>
-                
-                                  <Button mode="contained" onPress={applyAcceptedValues}>
-                                    Accept
-                                  </Button>
-                                </View>
+                  {/* Delete should be hidden on first add (isNewImageSession === true) */}
+                  {!isNewImageSession && (
+                    <Button
+                      mode="outlined"
+                      onPress={deleteCurrentImage}
+                      textColor="#a60d49"
+                    >
+                      Delete Image
+                    </Button>
+                  )}
+
+                  {/* Cancel: discard (if new) or just close (if existing) */}
+                  <Button mode="text" onPress={handleCancelModal}>
+                    Cancel
+                  </Button>
+
+                  <Button mode="contained" onPress={applyAcceptedValues}>
+                    Accept
+                  </Button>
+                </View>
               </>
             )}
           </View>
@@ -709,7 +782,7 @@ const ReceiptAdd = ({ navigation }) => {
         onRequestClose={() => setShowSuccess(false)}
       >
         <View style={styles.modalOverlay}>
-          <View className="modalContent" style={styles.modalContent}>
+          <View style={styles.modalContent}>
             <Text style={styles.modalTitle}>
               Receipt saved successfully! Add another?
             </Text>
@@ -720,16 +793,14 @@ const ReceiptAdd = ({ navigation }) => {
                   setShowSuccess(false);
                   setShowConfirmModal(false);
                   navigation.reset({
-          index: 0,
-          routes: [
-            {
-              name: "MainTabs",
-              state: {
-                routes: [{ name: "Expenses" }],
-              },
-            },
-          ],
-        });
+                    index: 0,
+                    routes: [
+                      {
+                        name: "MainTabs",
+                        state: { routes: [{ name: "Expenses" }] },
+                      },
+                    ],
+                  });
                 }}
                 color="#a60d49"
               />
@@ -787,8 +858,6 @@ const ReceiptAdd = ({ navigation }) => {
           </TouchableOpacity>
         </View>
       </Modal>
-
-      {/* ...rest of your modals unchanged (Confirm, Reset, OCR, Upload, Fullscreen) */}
     </KeyboardAvoidingView>
   );
 };
@@ -839,7 +908,6 @@ const styles = StyleSheet.create({
     flex: 1,
     fontSize: 16,
     margin: 8,
-    marginRight: 35,
   },
   dateButton: {
     borderWidth: 1,
@@ -885,7 +953,7 @@ const styles = StyleSheet.create({
   buttonContainer: {
     flexDirection: "row",
     justifyContent: "space-between",
-    paddingBottom: 10
+    paddingBottom: 10,
   },
   button: {
     flex: 1,
@@ -940,10 +1008,6 @@ const styles = StyleSheet.create({
   ocrValue: {
     flexShrink: 1,
   },
-  strike: {
-    textDecorationLine: "line-through",
-    color: "#888",
-  },
 
   // Upload overlay
   uploadOverlay: {
@@ -962,50 +1026,33 @@ const styles = StyleSheet.create({
     minWidth: 180,
   },
 
-  fullScreenOverlay: {
-  flex: 1,
-  backgroundColor: "rgba(0,0,0,0.95)",
-  justifyContent: "center",
-  alignItems: "center",
-},
-fullScreenCloseArea: {
-  flex: 1,
-  width: "100%",
-  justifyContent: "center",
-  alignItems: "center",
-},
-fullScreenImage: {
-  width: "100%",
-  height: "100%",
-},
-fullscreenHint: {
-  fontSize: 12,
-  color: "#666",
-  marginTop: 4,
-  fontStyle: "italic",
-  textAlign: "center",   // ⬅️ this centres it
-  alignSelf: "center",   // ensures the text itself is centred in its parent
-},
-fullScreenCloseButtonWrapper: {
-  position: "absolute",
-  bottom: 30,
-  left: 0,
-  right: 0,
-  alignItems: "center",
-},
-fullScreenCloseButton: {
-  backgroundColor: "rgba(166, 13, 73, 0.9)", // your theme colour
-  paddingVertical: 8,
-  paddingHorizontal: 24,
-  borderRadius: 20,
-},
-fullScreenCloseText: {
-  color: "#fff",
-  fontWeight: "bold",
-  fontSize: 16,
-},
-
-
+  // Fullscreen viewer
+  fullscreenHint: {
+    fontSize: 12,
+    color: "#666",
+    marginTop: 4,
+    fontStyle: "italic",
+    textAlign: "center",
+    alignSelf: "center",
+  },
+  fullScreenCloseButtonWrapper: {
+    position: "absolute",
+    bottom: 30,
+    left: 0,
+    right: 0,
+    alignItems: "center",
+  },
+  fullScreenCloseButton: {
+    backgroundColor: "rgba(166, 13, 73, 0.9)",
+    paddingVertical: 8,
+    paddingHorizontal: 24,
+    borderRadius: 20,
+  },
+  fullScreenCloseText: {
+    color: "#fff",
+    fontWeight: "bold",
+    fontSize: 16,
+  },
 });
 
 export default ReceiptAdd;
