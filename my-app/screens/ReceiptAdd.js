@@ -42,7 +42,6 @@ const ReceiptAdd = ({ navigation }) => {
   const [selectedCategory, setSelectedCategory] = useState(null);
   const [vatAmountEdited, setVatAmountEdited] = useState(false);
 
-
   // success + confirm modals
   const [showSuccess, setShowSuccess] = useState(false);
   const [showConfirmReset, setConfirmReset] = useState(false);
@@ -73,7 +72,7 @@ const ReceiptAdd = ({ navigation }) => {
     categories_meta.map((cat) => ({ label: cat.name, value: cat.name }))
   );
 
-  // VAT RATE DROPDOWN — options come from categories_meta unique vatRate values
+  // VAT rate options from categories_meta unique vatRate values
   const deriveVatRateItems = () => {
     const unique = Array.from(
       new Set(
@@ -130,14 +129,13 @@ const ReceiptAdd = ({ navigation }) => {
   };
 
   const computeVat = (grossStr, rateStr) => {
-  const gross = parseFloat(grossStr);
-  const rate = parseFloat(rateStr);
-  if (!isFinite(gross) || !isFinite(rate)) return "";
-  const net = gross / (1 + rate / 100);
-  const vat = gross - net;
-  return vat.toFixed(2);
-};
-
+    const gross = parseFloat(grossStr);
+    const rate = parseFloat(rateStr);
+    if (!isFinite(gross) || !isFinite(rate)) return "";
+    const net = gross / (1 + rate / 100);
+    const vat = gross - net;
+    return vat.toFixed(2);
+  };
 
   const openOcrModal = async (uri, { autoScan = true, newSession = false } = {}) => {
     setPreview({ uri });
@@ -225,10 +223,15 @@ const ReceiptAdd = ({ navigation }) => {
           setVatRate(rStr);
           setVatRateItems((prev) => {
             const has = prev.some((it) => it.value === rStr);
-            return has ? prev : [...prev, { label: `${catRate}%`, value: rStr }].sort(
-              (a, b) => Number(a.value) - Number(b.value)
-            );
+            return has
+              ? prev
+              : [...prev, { label: `${catRate}%`, value: rStr }].sort(
+                  (a, b) => Number(a.value) - Number(b.value)
+                );
           });
+          if (!vatAmountEdited && amount) {
+            setVatAmount(computeVat(amount, rStr));
+          }
         }
       }
     }
@@ -307,13 +310,12 @@ const ReceiptAdd = ({ navigation }) => {
     navigation,
   ]);
 
-  // Auto-calc VAT when amount/rate present but vatAmount blank
+  // Auto-calc VAT when amount/rate present but vatAmount blank (and not manually overridden)
   useEffect(() => {
-  if (!vatAmountEdited && amount && vatRate) {
-    setVatAmount(computeVat(amount, vatRate));
-  }
+    if (!vatAmountEdited && amount && vatRate) {
+      setVatAmount(computeVat(amount, vatRate));
+    }
   }, [amount, vatRate, vatAmountEdited]);
-
 
   // ------- save helpers -------
   const calculateVatFromRate = () => {
@@ -372,6 +374,7 @@ const ReceiptAdd = ({ navigation }) => {
     setImages([]);
     setConfirmReset(false);
     setShowConfirmModal(false);
+    setVatAmountEdited(false);
   };
 
   const uploadReceipt = async ({ amount, date, category, vatAmount, vatRate, images }) => {
@@ -491,7 +494,13 @@ const ReceiptAdd = ({ navigation }) => {
                 style={styles.input}
                 keyboardType="decimal-pad"
                 value={amount}
-                onChangeText={setAmount}
+                onChangeText={(v) => {
+                  setAmount(v);
+                  // live auto-calc while typing (unless user manually edited)
+                  if (!vatAmountEdited && v && vatRate) {
+                    setVatAmount(computeVat(v, vatRate));
+                  }
+                }}
               />
             </View>
 
@@ -509,10 +518,14 @@ const ReceiptAdd = ({ navigation }) => {
                     value={vatAmount}
                     onChangeText={(v) => {
                       setVatAmount(v);
-                      setVatAmountEdited(v.trim().length > 0); // user is taking control
+                      const edited = v.trim().length > 0;
+                      setVatAmountEdited(edited);
+                      // if cleared, return to auto mode immediately
+                      if (!edited && amount && vatRate) {
+                        setVatAmount(computeVat(amount, vatRate));
+                      }
                     }}
                     onBlur={() => {
-                      // if user cleared the field, go back to auto mode
                       if (!vatAmount.trim()) setVatAmountEdited(false);
                     }}
                   />
@@ -536,9 +549,12 @@ const ReceiptAdd = ({ navigation }) => {
                   zIndexInverse={2000}
                   listMode="SCROLLVIEW"
                   onChangeValue={(val) => {
-                    setVatRate(val ?? "");
-                    if (!vatAmountEdited && val && amount) {
-                      setVatAmount(computeVat(amount, val));
+                    const next = val ?? "";
+                    setVatRate(next);
+                    // changing rate => return to auto mode & recalc if possible
+                    setVatAmountEdited(false);
+                    if (next && amount) {
+                      setVatAmount(computeVat(amount, next));
                     }
                   }}
                 />
@@ -572,6 +588,7 @@ const ReceiptAdd = ({ navigation }) => {
               setValue={(cb) => {
                 const next = cb(selectedCategory);
                 setSelectedCategory(next);
+                // seed rate from category if rate is blank
                 if (!vatRate && next) {
                   const cat = categories_meta.find((c) => c.name === next);
                   const r = cat?.vatRate;
@@ -586,6 +603,10 @@ const ReceiptAdd = ({ navigation }) => {
                             (a, b) => Number(a.value) - Number(b.value)
                           );
                     });
+                    // if user hasn't manually overridden VAT amount, compute now
+                    if (!vatAmountEdited && amount) {
+                      setVatAmount(computeVat(amount, rStr));
+                    }
                   }
                 }
               }}
@@ -990,13 +1011,13 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   vatColRight: {
-    width: 100, // smaller dropdown
+    width: 100, // smaller dropdown column
   },
   vatCurrency: {
     fontSize: 18,
     fontWeight: "bold",
     marginLeft: 10,
-    paddingRight:5 // smaller so input gets more width
+    paddingRight: 5,
   },
   vatInput: {
     borderWidth: 1,

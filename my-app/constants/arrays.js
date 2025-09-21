@@ -116,7 +116,7 @@ export const categories_meta = [
   {
     name: "Lighting and Heating",
     meta: ["electric", "light", "lamp", "gas", "heat", "bulb", "led", "flourescent"],
-    vatRate: 20, // business use
+    vatRate: 5, // business use
   },
   {
     name: "Cleaning and Upkeep",
