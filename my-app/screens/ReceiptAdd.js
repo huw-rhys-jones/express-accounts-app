@@ -34,12 +34,14 @@ import ImageViewer from "react-native-image-zoom-viewer";
 const ReceiptAdd = ({ navigation }) => {
   const [amount, setAmount] = useState("");
   const [vatAmount, setVatAmount] = useState("");
-  const [vatRate, setVatRate] = useState(""); // % as string in UI
+  const [vatRate, setVatRate] = useState(""); // string
   const [selectedDate, setSelectedDate] = useState(new Date());
   const [isDatePickerVisible, setDatePickerVisibility] = useState(false);
   const [images, setImages] = useState([]); // [{ uri }]
   const [open, setOpen] = useState(false);
   const [selectedCategory, setSelectedCategory] = useState(null);
+  const [vatAmountEdited, setVatAmountEdited] = useState(false);
+
 
   // success + confirm modals
   const [showSuccess, setShowSuccess] = useState(false);
@@ -49,26 +51,41 @@ const ReceiptAdd = ({ navigation }) => {
 
   // OCR modal state
   const [ocrModalVisible, setOcrModalVisible] = useState(false);
-  const [preview, setPreview] = useState(null); // { uri }
+  const [preview, setPreview] = useState(null);
   const [ocrLoading, setOcrLoading] = useState(false);
-  const [ocrResult, setOcrResult] = useState(null); // { amount, date, categoryIndex, categoryName, vat:{value,rate}, raw }
+  const [ocrResult, setOcrResult] = useState(null);
   const [acceptFlags, setAcceptFlags] = useState({
     amount: false,
     date: false,
     category: false,
     vat: false,
   });
-  const [isNewImageSession, setIsNewImageSession] = useState(false); // first add vs reopen
+  const [isNewImageSession, setIsNewImageSession] = useState(false);
 
   const [isUploading, setIsUploading] = useState(false);
 
   // Fullscreen viewer (separate, top-level modal)
-  const [fullScreenImage, setFullScreenImage] = useState(null); // { uri }
+  const [fullScreenImage, setFullScreenImage] = useState(null);
   const [returnToOcrAfterFullscreen, setReturnToOcrAfterFullscreen] = useState(false);
 
+  // Category dropdown items
   const [items, setItems] = useState(
     categories_meta.map((cat) => ({ label: cat.name, value: cat.name }))
   );
+
+  // VAT RATE DROPDOWN — options come from categories_meta unique vatRate values
+  const deriveVatRateItems = () => {
+    const unique = Array.from(
+      new Set(
+        (categories_meta || [])
+          .map((c) => c?.vatRate)
+          .filter((r) => r !== undefined && r !== null && !Number.isNaN(r))
+      )
+    ).sort((a, b) => Number(a) - Number(b));
+    return unique.map((r) => ({ label: `${r}%`, value: String(r) }));
+  };
+  const [vatRateOpen, setVatRateOpen] = useState(false);
+  const [vatRateItems, setVatRateItems] = useState(deriveVatRateItems());
 
   const flatListRef = useRef(null);
 
@@ -112,6 +129,16 @@ const ReceiptAdd = ({ navigation }) => {
     throw new Error("No uri/base64 on asset for OCR");
   };
 
+  const computeVat = (grossStr, rateStr) => {
+  const gross = parseFloat(grossStr);
+  const rate = parseFloat(rateStr);
+  if (!isFinite(gross) || !isFinite(rate)) return "";
+  const net = gross / (1 + rate / 100);
+  const vat = gross - net;
+  return vat.toFixed(2);
+};
+
+
   const openOcrModal = async (uri, { autoScan = true, newSession = false } = {}) => {
     setPreview({ uri });
     setOcrResult(null);
@@ -126,7 +153,6 @@ const ReceiptAdd = ({ navigation }) => {
   const runOcr = async (uriOrLocal) => {
     try {
       setOcrLoading(true);
-      // normalize to local file for TextRecognition
       let localUri = uriOrLocal;
       if (!/^(file|content):\/\//i.test(uriOrLocal)) {
         const dest = FileSystem.cacheDirectory + `ocr-${Date.now()}.jpg`;
@@ -152,7 +178,7 @@ const ReceiptAdd = ({ navigation }) => {
       setOcrResult({
         amount: res?.money?.value ?? null,
         date: res?.date ?? null,
-        vat: res?.vat ?? null, // {value, rate} if extractor returns it
+        vat: res?.vat ?? null,
         categoryIndex,
         categoryName,
         raw: text,
@@ -192,11 +218,18 @@ const ReceiptAdd = ({ navigation }) => {
     }
     if (acceptFlags.category && ocrResult.categoryName) {
       setSelectedCategory(ocrResult.categoryName);
-      // seed vat rate from category default if OCR didn’t give one
       if (!(ocrResult.vat && ocrResult.vat.rate)) {
-        const catRate =
-          categories_meta[ocrResult.categoryIndex]?.vatRate ?? "";
-        if (catRate !== "") setVatRate(String(catRate));
+        const catRate = categories_meta[ocrResult.categoryIndex]?.vatRate ?? "";
+        if (catRate !== "") {
+          const rStr = String(catRate);
+          setVatRate(rStr);
+          setVatRateItems((prev) => {
+            const has = prev.some((it) => it.value === rStr);
+            return has ? prev : [...prev, { label: `${catRate}%`, value: rStr }].sort(
+              (a, b) => Number(a.value) - Number(b.value)
+            );
+          });
+        }
       }
     }
     if (acceptFlags.vat) {
@@ -207,9 +240,6 @@ const ReceiptAdd = ({ navigation }) => {
     setReturnToOcrAfterFullscreen(false);
   };
 
-  // Cancel in OCR modal:
-  // - If this was a new image session (user just added it), remove the image.
-  // - If it was an existing image, just close.
   const handleCancelModal = () => {
     if (isNewImageSession && preview?.uri) {
       setImages((prev) => prev.filter((img) => img.uri !== preview.uri));
@@ -257,7 +287,6 @@ const ReceiptAdd = ({ navigation }) => {
         setShowConfirmLeaveModal(false);
         return true;
       }
-
       if (!amount && !selectedCategory && images.length === 0) {
         navigation.goBack();
         return true;
@@ -278,7 +307,15 @@ const ReceiptAdd = ({ navigation }) => {
     navigation,
   ]);
 
-  // ------- VAT helpers -------
+  // Auto-calc VAT when amount/rate present but vatAmount blank
+  useEffect(() => {
+  if (!vatAmountEdited && amount && vatRate) {
+    setVatAmount(computeVat(amount, vatRate));
+  }
+  }, [amount, vatRate, vatAmountEdited]);
+
+
+  // ------- save helpers -------
   const calculateVatFromRate = () => {
     if (!amount || !vatRate) return "";
     const gross = parseFloat(amount);
@@ -289,7 +326,6 @@ const ReceiptAdd = ({ navigation }) => {
     return vat.toFixed(2);
   };
 
-  // ------- save flow -------
   const handleSavePress = () => {
     if (
       !amount ||
@@ -412,7 +448,6 @@ const ReceiptAdd = ({ navigation }) => {
     try {
       if (response?.didCancel || !response?.assets?.length) return;
 
-      // first asset → local cache so preview.uri is a local path (reliable on iOS/Android)
       const first = response.assets[0];
       const filePath = await ensureFileFromAsset(first);
 
@@ -421,7 +456,6 @@ const ReceiptAdd = ({ navigation }) => {
       }));
       setImages((prev) => [...prev, ...newImages]);
 
-      // open OCR modal on the first image + auto-scan
       await openOcrModal(filePath, { autoScan: true, newSession: true });
     } catch (e) {
       console.error("❌ OCR error:", e);
@@ -461,29 +495,54 @@ const ReceiptAdd = ({ navigation }) => {
               />
             </View>
 
-            {/* VAT (Amount + Rate) */}
-            <View style={[styles.inputRow, { alignItems: "center" }]}>
-              <Text style={[styles.label, { marginRight: 8 }]}>VAT Amount:</Text>
-              <TextInput
-                style={[styles.input, { flex: 0.6, marginRight: 8 }]}
-                keyboardType="decimal-pad"
-                placeholder="£"
-                value={vatAmount}
-                onChangeText={setVatAmount}
-              />
-              <Text style={[styles.label, { marginRight: 8 }]}>Rate %:</Text>
-              <TextInput
-                style={[styles.input, { flex: 0.35 }]}
-                keyboardType="decimal-pad"
-                placeholder="%"
-                value={vatRate}
-                onChangeText={setVatRate}
-                onBlur={() => {
-                  if (!vatAmount && amount && vatRate) {
-                    setVatAmount(calculateVatFromRate());
-                  }
-                }}
-              />
+            {/* VAT Section: labels above fields */}
+            <View style={styles.vatRow}>
+              {/* VAT Amount Column */}
+              <View style={styles.vatColLeft}>
+                <Text style={styles.label}>VAT Amount:</Text>
+                <View style={styles.inputRow}>
+                  <Text style={styles.vatCurrency}>£</Text>
+                  <TextInput
+                    style={styles.vatInput}
+                    keyboardType="decimal-pad"
+                    placeholder="0.00"
+                    value={vatAmount}
+                    onChangeText={(v) => {
+                      setVatAmount(v);
+                      setVatAmountEdited(v.trim().length > 0); // user is taking control
+                    }}
+                    onBlur={() => {
+                      // if user cleared the field, go back to auto mode
+                      if (!vatAmount.trim()) setVatAmountEdited(false);
+                    }}
+                  />
+                </View>
+              </View>
+
+              {/* Rate Column */}
+              <View style={styles.vatColRight}>
+                <Text style={styles.label}>Rate (%):</Text>
+                <DropDownPicker
+                  open={vatRateOpen}
+                  value={vatRate}
+                  items={vatRateItems}
+                  setOpen={setVatRateOpen}
+                  setValue={(set) => setVatRate(set(vatRate))}
+                  setItems={setVatRateItems}
+                  placeholder="Select"
+                  style={styles.vatRatePicker}
+                  dropDownContainerStyle={styles.vatRateDropdown}
+                  zIndex={2000}
+                  zIndexInverse={2000}
+                  listMode="SCROLLVIEW"
+                  onChangeValue={(val) => {
+                    setVatRate(val ?? "");
+                    if (!vatAmountEdited && val && amount) {
+                      setVatAmount(computeVat(amount, val));
+                    }
+                  }}
+                />
+              </View>
             </View>
 
             {/* Date */}
@@ -510,7 +569,26 @@ const ReceiptAdd = ({ navigation }) => {
               items={items}
               setOpen={setOpen}
               setItems={setItems}
-              setValue={(cb) => setSelectedCategory(cb(selectedCategory))}
+              setValue={(cb) => {
+                const next = cb(selectedCategory);
+                setSelectedCategory(next);
+                if (!vatRate && next) {
+                  const cat = categories_meta.find((c) => c.name === next);
+                  const r = cat?.vatRate;
+                  if (r !== undefined && r !== null && !Number.isNaN(r)) {
+                    const rStr = String(r);
+                    setVatRate(rStr);
+                    setVatRateItems((prev) => {
+                      const has = prev.some((it) => it.value === rStr);
+                      return has
+                        ? prev
+                        : [...prev, { label: `${r}%`, value: rStr }].sort(
+                            (a, b) => Number(a.value) - Number(b.value)
+                          );
+                    });
+                  }
+                }
+              }}
               placeholder="Select a category"
               style={styles.dropdown}
               dropDownContainerStyle={styles.dropdownContainer}
@@ -607,7 +685,7 @@ const ReceiptAdd = ({ navigation }) => {
         </View>
       </Modal>
 
-      {/* Reset Modal */}
+      {/* Leave/Reset Modals */}
       <Modal
         visible={showConfirmReset}
         transparent
@@ -629,7 +707,6 @@ const ReceiptAdd = ({ navigation }) => {
         </View>
       </Modal>
 
-      {/* Leave Modal */}
       <Modal
         visible={showConfirmLeaveModal}
         transparent
@@ -684,11 +761,10 @@ const ReceiptAdd = ({ navigation }) => {
                 <TouchableOpacity
                   style={{ alignSelf: "stretch", opacity: ocrLoading ? 0.6 : 1 }}
                   activeOpacity={0.7}
-                  disabled={ocrLoading}   // 👉 disable tap-to-fullscreen while scanning
+                  disabled={ocrLoading}
                   onPress={() => {
                     const current = preview?.uri;
                     if (!current) return;
-                    // iOS: close OCR first, then open fullscreen in next frame
                     setReturnToOcrAfterFullscreen(true);
                     setOcrModalVisible(false);
                     requestAnimationFrame(() =>
@@ -780,12 +856,12 @@ const ReceiptAdd = ({ navigation }) => {
         </View>
       </Modal>
 
-      {/* Full-screen Image Modal (separate, always on top) */}
+      {/* Full-screen Image Modal */}
       <Modal
         visible={!!fullScreenImage}
         animationType="fade"
-        presentationStyle="fullScreen"   // iOS: true fullscreen
-        transparent={false}               // avoid black overlay issues
+        presentationStyle="fullScreen"
+        transparent={false}
         onRequestClose={() => {
           setFullScreenImage(null);
           if (returnToOcrAfterFullscreen) {
@@ -883,6 +959,7 @@ const styles = StyleSheet.create({
     fontWeight: "bold",
     color: "#333",
     marginTop: 10,
+    marginBottom: 6,
   },
   inputRow: {
     flexDirection: "row",
@@ -902,6 +979,46 @@ const styles = StyleSheet.create({
     fontSize: 16,
     margin: 8,
   },
+
+  // VAT layout
+  vatRow: {
+    flexDirection: "row",
+    gap: 12,
+    alignItems: "flex-start",
+  },
+  vatColLeft: {
+    flex: 1,
+  },
+  vatColRight: {
+    width: 100, // smaller dropdown
+  },
+  vatCurrency: {
+    fontSize: 18,
+    fontWeight: "bold",
+    marginLeft: 10,
+    paddingRight:5 // smaller so input gets more width
+  },
+  vatInput: {
+    borderWidth: 1,
+    borderColor: "#ccc",
+    borderRadius: 5,
+    padding: 10,
+    flex: 1,
+    fontSize: 16,
+    marginVertical: 8,
+    marginRight: 8,
+  },
+  vatRatePicker: {
+    backgroundColor: "#fafafa",
+    borderColor: "#ccc",
+    height: 44,
+    paddingHorizontal: 8,
+    marginTop: 8,
+  },
+  vatRateDropdown: {
+    borderColor: "#ccc",
+  },
+
   dateButton: {
     borderWidth: 1,
     borderColor: "#ccc",
@@ -911,9 +1028,8 @@ const styles = StyleSheet.create({
     marginRight: 36,
     marginLeft: 44,
   },
-  dateText: {
-    fontSize: 16,
-  },
+  dateText: { fontSize: 16 },
+
   dropdown: {
     backgroundColor: "#fafafa",
     borderColor: "#ccc",
@@ -922,6 +1038,7 @@ const styles = StyleSheet.create({
     backgroundColor: "#fafafa",
     borderColor: "#ccc",
   },
+
   receiptImage: {
     width: 100,
     height: 150,
@@ -939,19 +1056,14 @@ const styles = StyleSheet.create({
     alignItems: "center",
     backgroundColor: "#f5f5f5",
   },
-  plus: {
-    fontSize: 32,
-    color: "#a60d49",
-  },
+  plus: { fontSize: 32, color: "#a60d49" },
+
   buttonContainer: {
     flexDirection: "row",
     justifyContent: "space-between",
     paddingBottom: 10,
   },
-  button: {
-    flex: 1,
-    marginHorizontal: 5,
-  },
+  button: { flex: 1, marginHorizontal: 5 },
 
   // Shared modal styling
   modalOverlay: {
@@ -965,11 +1077,7 @@ const styles = StyleSheet.create({
     borderRadius: 10,
     padding: 20,
   },
-  modalTitle: {
-    fontSize: 18,
-    fontWeight: "bold",
-    marginBottom: 10,
-  },
+  modalTitle: { fontSize: 18, fontWeight: "bold", marginBottom: 10 },
   modalButtons: {
     flexDirection: "row",
     justifyContent: "space-between",
@@ -984,23 +1092,10 @@ const styles = StyleSheet.create({
     borderRadius: 8,
     marginBottom: 12,
   },
-  scanningText: {
-    marginTop: 8,
-    fontStyle: "italic",
-    color: "#555",
-  },
-  ocrRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    marginTop: 8,
-  },
-  ocrLabel: {
-    fontWeight: "600",
-    marginRight: 6,
-  },
-  ocrValue: {
-    flexShrink: 1,
-  },
+  scanningText: { marginTop: 8, fontStyle: "italic", color: "#555" },
+  ocrRow: { flexDirection: "row", alignItems: "center", marginTop: 8 },
+  ocrLabel: { fontWeight: "600", marginRight: 6 },
+  ocrValue: { flexShrink: 1 },
 
   // Upload overlay
   uploadOverlay: {
@@ -1033,11 +1128,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 24,
     borderRadius: 20,
   },
-  fullScreenCloseText: {
-    color: "#fff",
-    fontWeight: "bold",
-    fontSize: 16,
-  },
+  fullScreenCloseText: { color: "#fff", fontWeight: "bold", fontSize: 16 },
 
   // hint text
   fullscreenHint: {
