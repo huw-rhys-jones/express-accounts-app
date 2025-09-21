@@ -190,40 +190,85 @@ function normalizeForMatch(s) {
 }
 
 
-// ---------- VAT extraction ----------
+// ---------- VAT extraction (robust) ----------
 function extractVAT(text, amountInfo, categoryIdx) {
   if (!text) return { value: null, rate: null };
 
-  // Try to detect explicit VAT amounts
-  const vatAmountMatch = text.match(/\bVAT[^0-9]*(\d+\.\d{1,2})\b/i);
-  if (vatAmountMatch) {
-    return { value: parseFloat(vatAmountMatch[1]), rate: null };
-  }
+  const cleaned = text.replace(/\r\n/g, "\n");
+  const lines = cleaned.split("\n").map(l => l.trim()).filter(Boolean);
 
-  // Try to detect VAT rate
-  const vatRateMatch = text.match(/(\d{1,2})\s?%[\s\S]{0,10}VAT/i);
-  if (vatRateMatch) {
-    const rate = parseFloat(vatRateMatch[1]);
-    if (amountInfo?.amount && !isNaN(rate)) {
-      const net = amountInfo.amount / (1 + rate / 100);
-      const vat = amountInfo.amount - net;
-      return { value: parseFloat(vat.toFixed(2)), rate };
+  // 1) Structured table: "Vat Rate  Incl  Excl  Amount"
+  const hdrIdx = lines.findIndex(l =>
+    /vat\s*rate.*incl.*excl.*amount/i.test(l)
+  );
+  if (hdrIdx >= 0 && lines[hdrIdx + 1]) {
+    // Try next 1–3 lines (some receipts put values a couple of lines below)
+    for (let i = 1; i <= 3 && hdrIdx + i < lines.length; i++) {
+      const row = lines[hdrIdx + i];
+      // collect all money-like numbers (allow £, decimals)
+      const nums = (row.match(/£?\s*\d+\.\d{2}/g) || []).map(s =>
+        parseFloat(s.replace(/[£\s]/g, ""))
+      );
+      // Some receipts put rate as a number with 2 dp, sometimes % is absent.
+      const rateMatch = row.match(/(\d{1,2}(?:\.\d{1,2})?)\s*(?:%|$)/);
+      const possibleRate = rateMatch ? parseFloat(rateMatch[1]) : null;
+
+      // Heuristic: we expect at least Incl, Excl, VAT columns.
+      // Many show: [rate, incl, excl, vat] or just [incl, excl, vat].
+      if (nums.length >= 3) {
+        const vatVal = nums[nums.length - 1]; // last number is usually VAT Amount
+        const rateVal =
+          possibleRate != null && possibleRate <= 25 ? possibleRate : null;
+        return { value: parseFloat(vatVal.toFixed(2)), rate: rateVal };
+      }
     }
   }
 
-  // Fall back to category default
+  // 2) Explicit "VAT amount" lines (ignore VAT No)
+  for (const l of lines) {
+    if (/vat\s*no\b/i.test(l)) continue; // skip VAT No
+    // "VAT amount £4.63", "VAT: £4.63", "VAT £4.63"
+    const m =
+      l.match(/vat(?!\s*no)[^0-9£]*(£?\s*\d+\.\d{2})/i) ||
+      l.match(/(£\s*\d+\.\d{2})\s*vat\b/i);
+    if (m) {
+      const val = parseFloat(m[1].replace(/[£\s]/g, ""));
+      if (isFinite(val)) return { value: parseFloat(val.toFixed(2)), rate: null };
+    }
+  }
+
+  // 3) A rate near the word VAT → compute VAT from gross amount (if we have it)
+  // e.g. "20.00% VAT", "VAT 20%"
+  let rate = null;
+  const rateFromText =
+    cleaned.match(/(?:vat[^%\n]{0,12})?(\d{1,2}(?:\.\d{1,2})?)\s*%/i) ||
+    cleaned.match(/(\d{1,2}(?:\.\d{1,2})?)\s*%\s*vat/i);
+  if (rateFromText) {
+    const r = parseFloat(rateFromText[1]);
+    if (isFinite(r) && r <= 25) rate = r;
+  }
+
+  if (rate != null && amountInfo?.amount) {
+    const gross = amountInfo.amount;
+    const net = gross / (1 + rate / 100);
+    const vat = gross - net;
+    return { value: parseFloat(vat.toFixed(2)), rate };
+  }
+
+  // 4) Fallback to category default
   if (categoryIdx >= 0) {
-    const cat = categories_meta[categoryIdx];
-    if (cat?.vatRate && amountInfo?.amount) {
-      const rate = cat.vatRate;
-      const net = amountInfo.amount / (1 + rate / 100);
-      const vat = amountInfo.amount - net;
-      return { value: parseFloat(vat.toFixed(2)), rate };
+    const catRate = categories_meta[categoryIdx]?.vatRate;
+    if (isFinite(catRate) && amountInfo?.amount) {
+      const gross = amountInfo.amount;
+      const net = gross / (1 + catRate / 100);
+      const vat = gross - net;
+      return { value: parseFloat(vat.toFixed(2)), rate: catRate };
     }
   }
 
   return { value: null, rate: null };
 }
+
 
 
 

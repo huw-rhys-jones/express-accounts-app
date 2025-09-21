@@ -34,10 +34,10 @@ import ImageViewer from "react-native-image-zoom-viewer";
 const ReceiptAdd = ({ navigation }) => {
   const [amount, setAmount] = useState("");
   const [vatAmount, setVatAmount] = useState("");
-  const [vatRate, setVatRate] = useState(""); // % (string in UI)
+  const [vatRate, setVatRate] = useState(""); // % as string in UI
   const [selectedDate, setSelectedDate] = useState(new Date());
   const [isDatePickerVisible, setDatePickerVisibility] = useState(false);
-  const [images, setImages] = useState([]); // [{uri}]
+  const [images, setImages] = useState([]); // [{ uri }]
   const [open, setOpen] = useState(false);
   const [selectedCategory, setSelectedCategory] = useState(null);
 
@@ -60,9 +60,11 @@ const ReceiptAdd = ({ navigation }) => {
   });
   const [isNewImageSession, setIsNewImageSession] = useState(false); // first add vs reopen
 
-  // Uploading overlay while saving (after Confirm)
   const [isUploading, setIsUploading] = useState(false);
+
+  // Fullscreen viewer (separate, top-level modal)
   const [fullScreenImage, setFullScreenImage] = useState(null); // { uri }
+  const [returnToOcrAfterFullscreen, setReturnToOcrAfterFullscreen] = useState(false);
 
   const [items, setItems] = useState(
     categories_meta.map((cat) => ({ label: cat.name, value: cat.name }))
@@ -150,7 +152,7 @@ const ReceiptAdd = ({ navigation }) => {
       setOcrResult({
         amount: res?.money?.value ?? null,
         date: res?.date ?? null,
-        vat: res?.vat ?? null, // {value, rate} if your extractor returns it
+        vat: res?.vat ?? null, // {value, rate} if extractor returns it
         categoryIndex,
         categoryName,
         raw: text,
@@ -176,6 +178,7 @@ const ReceiptAdd = ({ navigation }) => {
     if (!preview?.uri) return;
     setImages((prev) => prev.filter((img) => img.uri !== preview.uri));
     setOcrModalVisible(false);
+    setReturnToOcrAfterFullscreen(false);
   };
 
   const applyAcceptedValues = () => {
@@ -189,7 +192,7 @@ const ReceiptAdd = ({ navigation }) => {
     }
     if (acceptFlags.category && ocrResult.categoryName) {
       setSelectedCategory(ocrResult.categoryName);
-      // If OCR didn’t give a rate, seed rate from category default
+      // seed vat rate from category default if OCR didn’t give one
       if (!(ocrResult.vat && ocrResult.vat.rate)) {
         const catRate =
           categories_meta[ocrResult.categoryIndex]?.vatRate ?? "";
@@ -201,6 +204,7 @@ const ReceiptAdd = ({ navigation }) => {
       if (ocrResult.vat?.rate != null) setVatRate(String(ocrResult.vat.rate));
     }
     setOcrModalVisible(false);
+    setReturnToOcrAfterFullscreen(false);
   };
 
   // Cancel in OCR modal:
@@ -211,6 +215,7 @@ const ReceiptAdd = ({ navigation }) => {
       setImages((prev) => prev.filter((img) => img.uri !== preview.uri));
     }
     setOcrModalVisible(false);
+    setReturnToOcrAfterFullscreen(false);
   };
 
   // ------- effects -------
@@ -275,8 +280,6 @@ const ReceiptAdd = ({ navigation }) => {
 
   // ------- VAT helpers -------
   const calculateVatFromRate = () => {
-    // If amount is gross and rate is %, compute VAT = gross - net
-    // net = gross / (1 + r), VAT = gross - net
     if (!amount || !vatRate) return "";
     const gross = parseFloat(amount);
     const rate = parseFloat(vatRate);
@@ -305,7 +308,7 @@ const ReceiptAdd = ({ navigation }) => {
 
   const handleConfirmReceipt = async () => {
     try {
-      setIsUploading(true); // HOLDING ANIMATION while uploading
+      setIsUploading(true);
       await uploadReceipt({
         amount,
         date: selectedDate,
@@ -409,7 +412,7 @@ const ReceiptAdd = ({ navigation }) => {
     try {
       if (response?.didCancel || !response?.assets?.length) return;
 
-      // First asset → write/copy into cache so preview.uri matches state (for reliable discard on Cancel)
+      // first asset → local cache so preview.uri is a local path (reliable on iOS/Android)
       const first = response.assets[0];
       const filePath = await ensureFileFromAsset(first);
 
@@ -418,7 +421,7 @@ const ReceiptAdd = ({ navigation }) => {
       }));
       setImages((prev) => [...prev, ...newImages]);
 
-      // Open modal on the first image and auto-scan. Mark as new session so Cancel discards.
+      // open OCR modal on the first image + auto-scan
       await openOcrModal(filePath, { autoScan: true, newSession: true });
     } catch (e) {
       console.error("❌ OCR error:", e);
@@ -679,21 +682,28 @@ const ReceiptAdd = ({ navigation }) => {
             {preview?.uri ? (
               <View style={{ alignItems: "center" }}>
                 <TouchableOpacity
-                  style={{ alignSelf: "stretch" }}
-                  onPress={() => setFullScreenImage(preview)}
+                  style={{ alignSelf: "stretch", opacity: ocrLoading ? 0.6 : 1 }}
+                  activeOpacity={0.7}
+                  disabled={ocrLoading}   // 👉 disable tap-to-fullscreen while scanning
+                  onPress={() => {
+                    const current = preview?.uri;
+                    if (!current) return;
+                    // iOS: close OCR first, then open fullscreen in next frame
+                    setReturnToOcrAfterFullscreen(true);
+                    setOcrModalVisible(false);
+                    requestAnimationFrame(() =>
+                      setFullScreenImage({ uri: current })
+                    );
+                  }}
                 >
                   <Image source={{ uri: preview.uri }} style={styles.modalImage} />
                 </TouchableOpacity>
-                {ocrLoading && (
-                  <Text style={styles.scanningText}>Scanning…</Text>
-                )}
+                {ocrLoading && <Text style={styles.scanningText}>Scanning…</Text>}
               </View>
             ) : null}
 
             {!ocrLoading && (
-              <Text style={styles.fullscreenHint}>
-                Tap image to view full screen
-              </Text>
+              <Text style={styles.fullscreenHint}>Tap image to view full screen</Text>
             )}
 
             {!ocrLoading && (
@@ -748,7 +758,6 @@ const ReceiptAdd = ({ navigation }) => {
                 </View>
 
                 <View style={styles.modalButtons}>
-                  {/* Delete should be hidden on first add (isNewImageSession === true) */}
                   {!isNewImageSession && (
                     <Button
                       mode="outlined"
@@ -758,12 +767,9 @@ const ReceiptAdd = ({ navigation }) => {
                       Delete Image
                     </Button>
                   )}
-
-                  {/* Cancel: discard (if new) or just close (if existing) */}
                   <Button mode="text" onPress={handleCancelModal}>
                     Cancel
                   </Button>
-
                   <Button mode="contained" onPress={applyAcceptedValues}>
                     Accept
                   </Button>
@@ -774,50 +780,62 @@ const ReceiptAdd = ({ navigation }) => {
         </View>
       </Modal>
 
-      {/* Success Modal */}
+      {/* Full-screen Image Modal (separate, always on top) */}
       <Modal
-        visible={showSuccess}
-        transparent
-        animationType="slide"
-        onRequestClose={() => setShowSuccess(false)}
+        visible={!!fullScreenImage}
+        animationType="fade"
+        presentationStyle="fullScreen"   // iOS: true fullscreen
+        transparent={false}               // avoid black overlay issues
+        onRequestClose={() => {
+          setFullScreenImage(null);
+          if (returnToOcrAfterFullscreen) {
+            requestAnimationFrame(() => setOcrModalVisible(true));
+            setReturnToOcrAfterFullscreen(false);
+          }
+        }}
       >
-        <View style={styles.modalOverlay}>
-          <View style={styles.modalContent}>
-            <Text style={styles.modalTitle}>
-              Receipt saved successfully! Add another?
-            </Text>
-            <View style={styles.modalButtons}>
-              <RNButton
-                title="No"
+        {fullScreenImage ? (
+          <>
+            <ImageViewer
+              imageUrls={[{ url: fullScreenImage.uri }]}
+              enableSwipeDown
+              onSwipeDown={() => {
+                setFullScreenImage(null);
+                if (returnToOcrAfterFullscreen) {
+                  requestAnimationFrame(() => setOcrModalVisible(true));
+                  setReturnToOcrAfterFullscreen(false);
+                }
+              }}
+              onClick={() => {
+                setFullScreenImage(null);
+                if (returnToOcrAfterFullscreen) {
+                  requestAnimationFrame(() => setOcrModalVisible(true));
+                  setReturnToOcrAfterFullscreen(false);
+                }
+              }}
+              backgroundColor="black"
+              renderIndicator={() => null}
+              saveToLocalByLongPress={false}
+            />
+            <View style={styles.fullScreenCloseButtonWrapper}>
+              <TouchableOpacity
+                style={styles.fullScreenCloseButton}
                 onPress={() => {
-                  setShowSuccess(false);
-                  setShowConfirmModal(false);
-                  navigation.reset({
-                    index: 0,
-                    routes: [
-                      {
-                        name: "MainTabs",
-                        state: { routes: [{ name: "Expenses" }] },
-                      },
-                    ],
-                  });
+                  setFullScreenImage(null);
+                  if (returnToOcrAfterFullscreen) {
+                    requestAnimationFrame(() => setOcrModalVisible(true));
+                    setReturnToOcrAfterFullscreen(false);
+                  }
                 }}
-                color="#a60d49"
-              />
-              <RNButton
-                title="Yes"
-                onPress={() => {
-                  setShowSuccess(false);
-                  setShowConfirmModal(false);
-                }}
-                color="#a60d49"
-              />
+              >
+                <Text style={styles.fullScreenCloseText}>Close</Text>
+              </TouchableOpacity>
             </View>
-          </View>
-        </View>
+          </>
+        ) : null}
       </Modal>
 
-      {/* Uploading overlay (shown after pressing Confirm during upload) */}
+      {/* Uploading overlay */}
       <Modal
         visible={isUploading}
         transparent
@@ -831,31 +849,6 @@ const ReceiptAdd = ({ navigation }) => {
               Uploading…
             </Text>
           </View>
-        </View>
-      </Modal>
-
-      {/* Full-screen Image Modal */}
-      <Modal
-        visible={!!fullScreenImage}
-        transparent
-        animationType="fade"
-        statusBarTranslucent
-        onRequestClose={() => setFullScreenImage(null)}
-      >
-        <ImageViewer
-          imageUrls={[{ url: fullScreenImage?.uri }]}
-          enableSwipeDown
-          onSwipeDown={() => setFullScreenImage(null)}
-          backgroundColor="black"
-        />
-
-        <View style={styles.fullScreenCloseButtonWrapper}>
-          <TouchableOpacity
-            style={styles.fullScreenCloseButton}
-            onPress={() => setFullScreenImage(null)}
-          >
-            <Text style={styles.fullScreenCloseText}>Close</Text>
-          </TouchableOpacity>
         </View>
       </Modal>
     </KeyboardAvoidingView>
@@ -1026,15 +1019,7 @@ const styles = StyleSheet.create({
     minWidth: 180,
   },
 
-  // Fullscreen viewer
-  fullscreenHint: {
-    fontSize: 12,
-    color: "#666",
-    marginTop: 4,
-    fontStyle: "italic",
-    textAlign: "center",
-    alignSelf: "center",
-  },
+  // Fullscreen close button
   fullScreenCloseButtonWrapper: {
     position: "absolute",
     bottom: 30,
@@ -1052,6 +1037,16 @@ const styles = StyleSheet.create({
     color: "#fff",
     fontWeight: "bold",
     fontSize: 16,
+  },
+
+  // hint text
+  fullscreenHint: {
+    fontSize: 12,
+    color: "#666",
+    marginTop: 4,
+    fontStyle: "italic",
+    textAlign: "center",
+    alignSelf: "center",
   },
 });
 
