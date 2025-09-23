@@ -345,25 +345,43 @@ const ReceiptAdd = ({ navigation }) => {
   const handleLeavePress = () => setShowConfirmLeaveModal(true);
 
   const handleConfirmReceipt = async () => {
-    try {
-      setIsUploading(true);
-      await uploadReceipt({
-        amount,
-        date: selectedDate,
-        category: selectedCategory,
-        vatAmount: vatAmount ? vatAmount : calculateVatFromRate(),
-        vatRate,
-        images,
-      });
-      setIsUploading(false);
-      resetForm();
-      setShowSuccess(true); // <-- show the success modal after upload
-    } catch (err) {
-      console.error("Upload failed:", err);
-      setIsUploading(false);
-      Alert.alert("Upload failed", "Please try again.");
-    }
-  };
+  try {
+    // 1) Close the confirm modal FIRST (iOS can't layer modals)
+    setShowConfirmModal(false);
+
+    // 2) Yield one frame to let iOS fully dismiss it
+    await new Promise((resolve) => requestAnimationFrame(resolve));
+
+    // 3) Show the uploading overlay
+    setIsUploading(true);
+
+    await uploadReceipt({
+      amount,
+      date: selectedDate,
+      category: selectedCategory,
+      vatAmount: vatAmount ? vatAmount : calculateVatFromRate(),
+      vatRate,
+      images,
+    });
+
+    // 4) Hide uploading, reset form
+    setIsUploading(false);
+    resetForm();
+
+    // 5) Yield one frame, then show success modal
+    await new Promise((resolve) => requestAnimationFrame(resolve));
+    setShowSuccess(true);
+  } catch (err) {
+    console.error("Upload failed:", err);
+    setIsUploading(false);
+
+    // If confirm modal somehow re-opened, make sure it's closed
+    setShowConfirmModal(false);
+
+    Alert.alert("Upload failed", "Please try again.");
+  }
+};
+
 
   const resetForm = () => {
     setAmount("");
@@ -983,6 +1001,8 @@ const ReceiptAdd = ({ navigation }) => {
         visible={isUploading}
         transparent
         animationType="fade"
+        presentationStyle="overFullScreen"   // 👈 important on iOS
+        statusBarTranslucent                  // optional, nicer on iOS
         onRequestClose={() => {}}
       >
         <View style={styles.uploadOverlay}>
