@@ -357,7 +357,7 @@ const ReceiptAdd = ({ navigation }) => {
       });
       setIsUploading(false);
       resetForm();
-      setShowSuccess(true);
+      setShowSuccess(true); // <-- show the success modal after upload
     } catch (err) {
       console.error("Upload failed:", err);
       setIsUploading(false);
@@ -706,7 +706,52 @@ const ReceiptAdd = ({ navigation }) => {
         </View>
       </Modal>
 
-      {/* Leave/Reset Modals */}
+      {/* ✅ Success Modal (was missing) */}
+      <Modal
+        visible={showSuccess}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setShowSuccess(false)}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalContent}>
+            <Text style={[styles.modalTitle, { textAlign: "center" }]}>
+              Receipt saved 🎉
+            </Text>
+            <Text style={{ textAlign: "center", marginTop: 4 }}>
+              Do you want to add another?
+            </Text>
+            <View style={[styles.modalButtons, { marginTop: 16 }]}>
+              <RNButton
+                title="Go to Expenses"
+                onPress={() => {
+                  setShowSuccess(false);
+                  navigation.reset({
+                    index: 0,
+                    routes: [
+                      {
+                        name: "MainTabs",
+                        state: { routes: [{ name: "Expenses" }] },
+                      },
+                    ],
+                  });
+                }}
+                color="#555"
+              />
+              <RNButton
+                title="Add another"
+                onPress={() => {
+                  setShowSuccess(false);
+                  // form already reset in handleConfirmReceipt()
+                }}
+                color="#a60d49"
+              />
+            </View>
+          </View>
+        </View>
+      </Modal>
+
+      {/* Reset Modal */}
       <Modal
         visible={showConfirmReset}
         transparent
@@ -728,6 +773,7 @@ const ReceiptAdd = ({ navigation }) => {
         </View>
       </Modal>
 
+      {/* Leave Modal */}
       <Modal
         visible={showConfirmLeaveModal}
         transparent
@@ -932,7 +978,7 @@ const ReceiptAdd = ({ navigation }) => {
         ) : null}
       </Modal>
 
-      {/* Uploading overlay */}
+      {/* Uploading overlay (spinner/holding animation) */}
       <Modal
         visible={isUploading}
         transparent

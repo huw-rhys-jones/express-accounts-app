@@ -22,14 +22,23 @@ export default function SummaryScreen({ navigation }) {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [receipts, setReceipts] = useState([]);
-  const [totals, setTotals] = useState({ overall: 0, byCategory: {} });
+  const [totals, setTotals] = useState({ overall: 0, byCategory: {}, totalVat: 0 });
+
+  const computeVatFromRate = (amount, rate) => {
+    const a = Number(amount);
+    const r = Number(rate);
+    if (!Number.isFinite(a) || !Number.isFinite(r)) return 0;
+    const net = a / (1 + r / 100);
+    const vat = a - net;
+    return vat;
+  };
 
   const fetchReceipts = useCallback(async () => {
     try {
       const user = auth.currentUser;
       if (!user) {
         setReceipts([]);
-        setTotals({ overall: 0, byCategory: {} });
+        setTotals({ overall: 0, byCategory: {}, totalVat: 0 });
         return;
       }
 
@@ -43,12 +52,23 @@ export default function SummaryScreen({ navigation }) {
 
       // Calculate totals
       let overall = 0;
+      let totalVat = 0;
       const byCategory = {};
+
       for (const r of userReceipts) {
-        overall += r.amount;
-        byCategory[r.category] = (byCategory[r.category] || 0) + r.amount;
+        const amt = Number(r.amount) || 0;
+        overall += amt;
+        byCategory[r.category] = (byCategory[r.category] || 0) + amt;
+
+        // VAT: prefer stored vatAmount, else derive from vatRate
+        if (r.vatAmount != null && !Number.isNaN(Number(r.vatAmount))) {
+          totalVat += Number(r.vatAmount);
+        } else if (r.vatRate != null && !Number.isNaN(Number(r.vatRate))) {
+          totalVat += computeVatFromRate(amt, r.vatRate);
+        }
       }
-      setTotals({ overall, byCategory });
+
+      setTotals({ overall, byCategory, totalVat });
     } catch (err) {
       console.error("Error fetching receipts for summary:", err);
     }
@@ -106,6 +126,9 @@ export default function SummaryScreen({ navigation }) {
             <Text style={styles.title}>Summary</Text>
             <Text style={styles.subtitle}>
               Total Spent: £{totals.overall.toFixed(2)}
+            </Text>
+            <Text style={styles.subtitleVat}>
+              Total VAT: £{totals.totalVat.toFixed(2)}
             </Text>
           </View>
 
@@ -224,6 +247,7 @@ const styles = StyleSheet.create({
   },
   title: { fontSize: 20, fontWeight: "bold", color: "#1C1C4E" },
   subtitle: { fontSize: 17, color: "#a60d49", marginTop: 14 },
+  subtitleVat: { fontSize: 16, color: "#1C1C4E", marginTop: 6 },
   chartCard: {
     marginTop: 30,
     backgroundColor: "#fff",

@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from "react";
+import React, { useState, useEffect, useCallback, useMemo } from "react";
 import {
   View,
   Text,
@@ -13,16 +13,19 @@ import { signOut } from "firebase/auth";
 import { collection, query, where, getDocs } from "firebase/firestore";
 import { db, auth } from "../firebaseConfig";
 import { formatDate } from "../utils/format_style";
-import BottomNav from "../components/BottomNav";
+// import BottomNav from "../components/BottomNav"; // (still optional)
 
 const ExpensesScreen = ({ navigation }) => {
   const [displayName, setDisplayName] = useState("User");
   const [receipts, setReceipts] = useState([]);
-  const [loading, setLoading] = useState(true); // start true to avoid empty flash
+  const [loading, setLoading] = useState(true);
   const [loadingText, setLoadingText] = useState(null);
   const [refreshing, setRefreshing] = useState(false);
 
-  // Shared loader wrapper (initial + logout)
+  // --- sorting state ---
+  const [sortKey, setSortKey] = useState("date");      // "date" | "amount" | "category"
+  const [sortDir, setSortDir] = useState("desc");      // "asc" | "desc"
+
   const runWithLoading = async (text, fn) => {
     setLoadingText(text);
     setLoading(true);
@@ -57,10 +60,8 @@ const ExpensesScreen = ({ navigation }) => {
   }, []);
 
   useEffect(() => {
-    // Initial load with overlay
     runWithLoading("Loading receipts…", fetchReceipts);
 
-    // Refresh when returning to this screen
     const unsubscribeFocus = navigation.addListener("focus", () => {
       fetchReceipts().catch((e) => console.error("Refresh on focus failed", e));
     });
@@ -82,6 +83,66 @@ const ExpensesScreen = ({ navigation }) => {
       navigation.replace("SignIn");
     });
   };
+
+  // --- sorting helpers ---
+  const toggleSort = (key) => {
+    if (sortKey === key) {
+      setSortDir((d) => (d === "asc" ? "desc" : "asc"));
+    } else {
+      setSortKey(key);
+      // nice defaults per column
+      setSortDir(key === "date" ? "desc" : "asc");
+    }
+  };
+
+  const sortIcon = (key) => {
+    if (sortKey !== key) return "↕";
+    return sortDir === "asc" ? "▲" : "▼";
+    // If you prefer caret-style: "▲"/"▼" or "△"/"▽"
+  };
+
+  const sortedReceipts = useMemo(() => {
+    const data = [...receipts];
+    data.sort((a, b) => {
+      let av, bv, cmp = 0;
+
+      if (sortKey === "amount") {
+        av = Number(a.amount) || 0;
+        bv = Number(b.amount) || 0;
+        cmp = av - bv;
+      } else if (sortKey === "date") {
+        av = new Date(a.date).getTime() || 0;
+        bv = new Date(b.date).getTime() || 0;
+        cmp = av - bv;
+      } else if (sortKey === "category") {
+        av = String(a.category || "");
+        bv = String(b.category || "");
+        cmp = av.localeCompare(bv, undefined, { sensitivity: "base" });
+      }
+
+      return sortDir === "asc" ? cmp : -cmp;
+    });
+    return data;
+  }, [receipts, sortKey, sortDir]);
+
+  const renderHeaderRow = () => (
+    <View style={styles.headerRow}>
+      <TouchableOpacity style={styles.headerCellDate} onPress={() => toggleSort("date")}>
+        <Text style={styles.headerText}>Date</Text>
+        <Text style={styles.headerArrow}>{sortIcon("date")}</Text>
+      </TouchableOpacity>
+
+      <TouchableOpacity style={styles.headerCellCategory} onPress={() => toggleSort("category")}>
+        <Text style={styles.headerText}>Category</Text>
+        <Text style={styles.headerArrow}>{sortIcon("category")}</Text>
+      </TouchableOpacity>
+
+      <TouchableOpacity style={styles.headerCellAmount} onPress={() => toggleSort("amount")}>
+        <Text style={styles.headerTextRight}>Amount</Text>
+        <Text style={styles.headerArrow}>{sortIcon("amount")}</Text>
+      </TouchableOpacity>
+    </View>
+  );
 
   const renderReceiptItem = ({ item }) => (
     <TouchableOpacity
@@ -117,12 +178,14 @@ const ExpensesScreen = ({ navigation }) => {
       </View>
     );
 
+  const hasReceipts = !loading && sortedReceipts.length > 0;
+
   return (
     <SafeAreaView style={styles.container}>
       <View style={styles.content}>
         <View style={styles.card}>
           <Text style={styles.title}>Welcome, {displayName}!</Text>
-          {loading ? null : receipts.length === 0 ? (
+          {loading ? null : sortedReceipts.length === 0 ? (
             <Text style={styles.subtitle}>
               You haven't added any expenses yet!
             </Text>
@@ -132,17 +195,21 @@ const ExpensesScreen = ({ navigation }) => {
         </View>
 
         <FlatList
-          data={loading ? [] : receipts}
+          ListEmptyComponent={!loading ? renderEmptyState : null}
+          data={loading ? [] : sortedReceipts}
           keyExtractor={(item) => item.id}
           renderItem={renderReceiptItem}
           contentContainerStyle={[
             styles.listContainer,
-            receipts.length === 0 && !loading ? { flex: 1 } : null,
+            !hasReceipts ? { flexGrow: 1, justifyContent: "center" } : null,
           ]}
           refreshControl={
             <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
           }
-          ListEmptyComponent={renderEmptyState}
+          ListHeaderComponent={hasReceipts ? renderHeaderRow : null}
+          stickyHeaderIndices={hasReceipts ? [0] : undefined}
+          ListHeaderComponentStyle={{ marginTop: 10, marginBottom: 8 }}
+
         />
       </View>
 
@@ -177,6 +244,7 @@ export default ExpensesScreen;
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: "#302C66" },
   content: { flex: 1, alignItems: "center", paddingBottom: 20 },
+
   card: {
     backgroundColor: "#E5E5EA",
     width: "85%",
@@ -214,19 +282,6 @@ const styles = StyleSheet.create({
     width: "100%",
   },
 
-  bottomNav: {
-    bottom: 0,
-    width: "100%",
-    paddingBottom: 35,
-    backgroundColor: "#B5B3C6",
-    flexDirection: "row",
-    justifyContent: "space-around",
-    alignItems: "center",
-  },
-  navItem: { padding: 10 },
-  navText: { fontSize: 14, color: "#7B7B7B" },
-  activeNav: { fontWeight: "bold", color: "#1C1C4E" },
-
   listContainer: {
     marginTop: 10,
     borderRadius: 10,
@@ -234,6 +289,45 @@ const styles = StyleSheet.create({
     backgroundColor: "#1C1C4E",
     width: "100%",
   },
+
+  // ---- Header row (sortable columns) ----
+  headerRow: {
+  backgroundColor: "#DCDCE4",
+  borderRadius: 12,            // ⬅️ round all corners
+  paddingHorizontal: 16,
+  paddingVertical: 12,         // a bit more internal space
+  width: "95%",
+  alignSelf: "center",
+  flexDirection: "row",
+  alignItems: "center",
+  marginTop: 6,
+  marginBottom: 12,            // ⬅️ space between header and first item
+},
+
+  headerCellDate: {
+    minWidth: 90,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+  },
+  headerCellCategory: {
+    flex: 1,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    marginLeft: 25,
+  },
+  headerCellAmount: {
+    minWidth: 90,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "flex-end",
+    gap: 6,
+  },
+  headerText: { fontSize: 14, fontWeight: "700", color: "#1C1C4E" },
+  headerTextRight: { fontSize: 14, fontWeight: "700", color: "#1C1C4E", textAlign: "right" },
+  headerArrow: { fontSize: 12, color: "#555" },
+
   receiptItem: {
     backgroundColor: "#f0f0f0",
     borderRadius: 8,

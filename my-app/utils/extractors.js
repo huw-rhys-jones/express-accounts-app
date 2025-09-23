@@ -190,44 +190,63 @@ function normalizeForMatch(s) {
 }
 
 
-// ---------- VAT extraction (robust) ----------
-function extractVAT(text, amountInfo, categoryIdx) {
+// Unique numeric VAT rates from categories_meta (sorted)
+const getAllowedVatRates = () => {
+  return Array.from(
+    new Set(
+      (categories_meta || [])
+        .map(c => c?.vatRate)
+        .filter(r => Number.isFinite(r))
+    )
+  ).sort((a, b) => a - b);
+};
+
+// ---------- VAT extraction (snaps to categories_meta rates only) ----------
+export function extractVAT(text, amountInfo, categoryIdx) {
   if (!text) return { value: null, rate: null };
+
+  const allowedRates = getAllowedVatRates();
+
+  // If you want only exact matches, set to 0
+  const SNAP_TOLERANCE = 1; // in percentage points (e.g., 20.09 → 20)
+
+  const snapRate = (r) => {
+    if (!Number.isFinite(r) || !allowedRates.length) return null;
+    let best = null, bestDiff = Infinity;
+    for (const a of allowedRates) {
+      const d = Math.abs(a - r);
+      if (d < bestDiff) { best = a; bestDiff = d; }
+    }
+    return bestDiff <= SNAP_TOLERANCE ? best : null;
+  };
 
   const cleaned = text.replace(/\r\n/g, "\n");
   const lines = cleaned.split("\n").map(l => l.trim()).filter(Boolean);
 
-  // 1) Structured table: "Vat Rate  Incl  Excl  Amount"
-  const hdrIdx = lines.findIndex(l =>
-    /vat\s*rate.*incl.*excl.*amount/i.test(l)
-  );
-  if (hdrIdx >= 0 && lines[hdrIdx + 1]) {
-    // Try next 1–3 lines (some receipts put values a couple of lines below)
+  // 1) Table header: "VAT Rate  Incl  Excl  Amount"
+  const hdrIdx = lines.findIndex(l => /vat\s*rate.*incl.*excl.*amount/i.test(l));
+  if (hdrIdx >= 0) {
     for (let i = 1; i <= 3 && hdrIdx + i < lines.length; i++) {
       const row = lines[hdrIdx + i];
-      // collect all money-like numbers (allow £, decimals)
       const nums = (row.match(/£?\s*\d+\.\d{2}/g) || []).map(s =>
         parseFloat(s.replace(/[£\s]/g, ""))
       );
-      // Some receipts put rate as a number with 2 dp, sometimes % is absent.
-      const rateMatch = row.match(/(\d{1,2}(?:\.\d{1,2})?)\s*(?:%|$)/);
-      const possibleRate = rateMatch ? parseFloat(rateMatch[1]) : null;
+      const rm = row.match(/(\d{1,2}(?:\.\d{1,2})?)\s*(?:%|$)/);
+      const snapped = rm ? snapRate(parseFloat(rm[1])) : null;
 
-      // Heuristic: we expect at least Incl, Excl, VAT columns.
-      // Many show: [rate, incl, excl, vat] or just [incl, excl, vat].
       if (nums.length >= 3) {
-        const vatVal = nums[nums.length - 1]; // last number is usually VAT Amount
-        const rateVal =
-          possibleRate != null && possibleRate <= 25 ? possibleRate : null;
-        return { value: parseFloat(vatVal.toFixed(2)), rate: rateVal };
+        const vatVal = nums[nums.length - 1]; // VAT column usually last
+        return {
+          value: Number.isFinite(vatVal) ? parseFloat(vatVal.toFixed(2)) : null,
+          rate: snapped,
+        };
       }
     }
   }
 
-  // 2) Explicit "VAT amount" lines (ignore VAT No)
+  // 2) Explicit "VAT amount" lines (ignore "VAT No")
   for (const l of lines) {
-    if (/vat\s*no\b/i.test(l)) continue; // skip VAT No
-    // "VAT amount £4.63", "VAT: £4.63", "VAT £4.63"
+    if (/vat\s*no\b/i.test(l)) continue;
     const m =
       l.match(/vat(?!\s*no)[^0-9£]*(£?\s*\d+\.\d{2})/i) ||
       l.match(/(£\s*\d+\.\d{2})\s*vat\b/i);
@@ -237,28 +256,23 @@ function extractVAT(text, amountInfo, categoryIdx) {
     }
   }
 
-  // 3) A rate near the word VAT → compute VAT from gross amount (if we have it)
-  // e.g. "20.00% VAT", "VAT 20%"
-  let rate = null;
-  const rateFromText =
+  // 3) A rate near "VAT" → compute using snapped rate
+  const rateHit =
     cleaned.match(/(?:vat[^%\n]{0,12})?(\d{1,2}(?:\.\d{1,2})?)\s*%/i) ||
     cleaned.match(/(\d{1,2}(?:\.\d{1,2})?)\s*%\s*vat/i);
-  if (rateFromText) {
-    const r = parseFloat(rateFromText[1]);
-    if (isFinite(r) && r <= 25) rate = r;
-  }
+  const snappedRate = rateHit ? snapRate(parseFloat(rateHit[1])) : null;
 
-  if (rate != null && amountInfo?.amount) {
+  if (snappedRate != null && amountInfo?.amount) {
     const gross = amountInfo.amount;
-    const net = gross / (1 + rate / 100);
+    const net = gross / (1 + snappedRate / 100);
     const vat = gross - net;
-    return { value: parseFloat(vat.toFixed(2)), rate };
+    return { value: parseFloat(vat.toFixed(2)), rate: snappedRate };
   }
 
-  // 4) Fallback to category default
+  // 4) Fallback to category default (already from categories_meta)
   if (categoryIdx >= 0) {
     const catRate = categories_meta[categoryIdx]?.vatRate;
-    if (isFinite(catRate) && amountInfo?.amount) {
+    if (Number.isFinite(catRate) && amountInfo?.amount) {
       const gross = amountInfo.amount;
       const net = gross / (1 + catRate / 100);
       const vat = gross - net;

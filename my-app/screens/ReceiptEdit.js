@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from "react";
+import React, { useMemo, useState, useEffect } from "react";
 import {
   View,
   Text,
@@ -38,14 +38,30 @@ export default function ReceiptDetailsScreen({ route, navigation }) {
   const { receipt } = route.params;
 
   // --- base form state
-  const [amount, setAmount] = useState(receipt.amount.toString());
-  const [selectedDate, setSelectedDate] = useState(new Date(receipt.date));
-  const [selectedCategory, setSelectedCategory] = useState(receipt.category);
-  const [images, setImages] = useState(
-    (receipt.images || []).map((url) => ({ uri: url }))
+  const [amount, setAmount] = useState(
+    receipt?.amount != null ? String(receipt.amount) : ""
   );
 
-  const originalUrls = useMemo(() => new Set(receipt.images || []), [receipt.id]);
+  // VAT state (mirrors ReceiptAdd.js)
+  const [vatAmount, setVatAmount] = useState(
+    receipt?.vatAmount != null ? String(receipt.vatAmount) : ""
+  );
+  const [vatRate, setVatRate] = useState(
+    receipt?.vatRate != null ? String(receipt.vatRate) : ""
+  ); // string
+  const [vatAmountEdited, setVatAmountEdited] = useState(
+    receipt?.vatAmount != null && receipt.vatAmount !== ""
+  );
+
+  const [selectedDate, setSelectedDate] = useState(
+    receipt?.date ? new Date(receipt.date) : new Date()
+  );
+  const [selectedCategory, setSelectedCategory] = useState(receipt?.category || "");
+  const [images, setImages] = useState(
+    (receipt?.images || []).map((url) => ({ uri: url }))
+  );
+
+  const originalUrls = useMemo(() => new Set(receipt?.images || []), [receipt?.id]);
 
   const [open, setOpen] = useState(false);
   const [items, setItems] = useState(
@@ -64,11 +80,68 @@ export default function ReceiptDetailsScreen({ route, navigation }) {
     amount: false,
     date: false,
     category: false,
+    vat: false,
   });
   const [isNewImageSession, setIsNewImageSession] = useState(false);
 
   // ===== Fullscreen viewer =====
   const [fullScreenImage, setFullScreenImage] = useState(null);
+
+  // ===== VAT rate options from categories_meta =====
+  const deriveVatRateItems = () => {
+    const unique = Array.from(
+      new Set(
+        (categories_meta || [])
+          .map((c) => c?.vatRate)
+          .filter((r) => r !== undefined && r !== null && !Number.isNaN(r))
+      )
+    ).sort((a, b) => Number(a) - Number(b));
+    return unique.map((r) => ({ label: `${r}%`, value: String(r) }));
+  };
+  const [vatRateOpen, setVatRateOpen] = useState(false);
+  const [vatRateItems, setVatRateItems] = useState(deriveVatRateItems());
+
+  // ===== helpers =====
+  const computeVat = (grossStr, rateStr) => {
+    const gross = parseFloat(grossStr);
+    const rate = parseFloat(rateStr);
+    if (!isFinite(gross) || !isFinite(rate)) return "";
+    const net = gross / (1 + rate / 100);
+    const vat = gross - net;
+    return vat.toFixed(2);
+  };
+
+  // Auto-calc VAT when amount/rate present but vatAmount not manually overridden
+  useEffect(() => {
+    if (!vatAmountEdited && amount && vatRate) {
+      setVatAmount(computeVat(amount, vatRate));
+    }
+  }, [amount, vatRate, vatAmountEdited]);
+
+  // Seed rate from category on mount if blank (use existing category)
+  useEffect(() => {
+    if (!vatRate && selectedCategory) {
+      const cat = categories_meta.find((c) => c.name === selectedCategory);
+      const r = cat?.vatRate;
+      if (r !== undefined && r !== null && !Number.isNaN(r)) {
+        const rStr = String(r);
+        setVatRate(rStr);
+        // include in the dropdown items if missing
+        setVatRateItems((prev) => {
+          const has = prev.some((it) => it.value === rStr);
+          return has
+            ? prev
+            : [...prev, { label: `${r}%`, value: rStr }].sort(
+                (a, b) => Number(a.value) - Number(b.value)
+              );
+        });
+        if (!vatAmountEdited && amount) {
+          setVatAmount(computeVat(amount, rStr));
+        }
+      }
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // ✅ Safe navigate back
   const safeNavigateToExpenses = () => {
@@ -136,7 +209,7 @@ export default function ReceiptDetailsScreen({ route, navigation }) {
   const openOcrModal = async (uri, { autoScan, newSession }) => {
     setPreview({ uri });
     setOcrResult(null);
-    setAcceptFlags({ amount: false, date: false, category: false });
+    setAcceptFlags({ amount: false, date: false, category: false, vat: false });
     setIsNewImageSession(!!newSession);
     setOcrModalVisible(true);
 
@@ -173,6 +246,7 @@ export default function ReceiptDetailsScreen({ route, navigation }) {
       setOcrResult({
         amount: res?.money?.value ?? null,
         date: res?.date ?? null,
+        vat: res?.vat ?? null, // keep for parity (might not be used if your extractor doesn't return VAT)
         categoryIndex,
         categoryName,
         raw: text,
@@ -181,6 +255,7 @@ export default function ReceiptDetailsScreen({ route, navigation }) {
         amount: !!res?.money?.value,
         date: !!res?.date,
         category: categoryIndex >= 0,
+        vat: !!res?.vat?.value || !!res?.vat?.rate,
       });
     } catch (e) {
       console.error("❌ OCR error:", e);
@@ -197,6 +272,8 @@ export default function ReceiptDetailsScreen({ route, navigation }) {
     if (!ocrResult) return;
     if (acceptFlags.amount && ocrResult.amount != null) {
       setAmount(String(ocrResult.amount));
+      // recalc if we have a rate and user didn't override VAT manually
+      if (!vatAmountEdited && vatRate) setVatAmount(computeVat(String(ocrResult.amount), vatRate));
     }
     if (acceptFlags.date && ocrResult.date) {
       const d = new Date(ocrResult.date);
@@ -204,6 +281,27 @@ export default function ReceiptDetailsScreen({ route, navigation }) {
     }
     if (acceptFlags.category && ocrResult.categoryName) {
       setSelectedCategory(ocrResult.categoryName);
+      // if rate blank, seed from category default
+      if (!vatRate && typeof ocrResult.categoryIndex === "number") {
+        const catRate = categories_meta[ocrResult.categoryIndex]?.vatRate ?? "";
+        if (catRate !== "") {
+          const rStr = String(catRate);
+          setVatRate(rStr);
+          setVatRateItems((prev) => {
+            const has = prev.some((it) => it.value === rStr);
+            return has
+              ? prev
+              : [...prev, { label: `${catRate}%`, value: rStr }].sort(
+                  (a, b) => Number(a.value) - Number(b.value)
+                );
+          });
+          if (!vatAmountEdited && amount) setVatAmount(computeVat(amount, rStr));
+        }
+      }
+    }
+    if (acceptFlags.vat) {
+      if (ocrResult.vat?.value != null) setVatAmount(String(ocrResult.vat.value));
+      if (ocrResult.vat?.rate != null) setVatRate(String(ocrResult.vat.rate));
     }
     setOcrModalVisible(false);
   };
@@ -317,6 +415,8 @@ export default function ReceiptDetailsScreen({ route, navigation }) {
         amount: parseFloat(amount),
         date: selectedDate.toISOString(),
         category: selectedCategory,
+        vatAmount: vatAmount ? parseFloat(vatAmount) : null,
+        vatRate: vatRate ? parseFloat(vatRate) : null,
         images: uploadedImageUrls,
       });
 
@@ -348,14 +448,76 @@ export default function ReceiptDetailsScreen({ route, navigation }) {
       <View style={styles.container}>
         <Text style={styles.header}>Edit Receipt</Text>
 
+        {/* Amount */}
         <Text style={styles.label}>Amount (£)</Text>
         <TextInput
           style={styles.input}
           value={amount}
-          keyboardType="numeric"
-          onChangeText={setAmount}
+          keyboardType="decimal-pad"
+          onChangeText={(v) => {
+            setAmount(v);
+            if (!vatAmountEdited && v && vatRate) {
+              setVatAmount(computeVat(v, vatRate));
+            }
+          }}
         />
 
+        {/* VAT Section: labels above fields (match ReceiptAdd.js layout) */}
+        <View style={styles.vatRow}>
+          {/* VAT Amount */}
+          <View style={styles.vatColLeft}>
+            <Text style={styles.label}>VAT Amount</Text>
+            <View style={styles.inputRow}>
+              <Text style={styles.vatCurrency}>£</Text>
+              <TextInput
+                style={styles.vatInput}
+                keyboardType="decimal-pad"
+                placeholder="0.00"
+                value={vatAmount}
+                onChangeText={(v) => {
+                  setVatAmount(v);
+                  const edited = v.trim().length > 0;
+                  setVatAmountEdited(edited);
+                  if (!edited && amount && vatRate) {
+                    setVatAmount(computeVat(amount, vatRate));
+                  }
+                }}
+                onBlur={() => {
+                  if (!vatAmount.trim()) setVatAmountEdited(false);
+                }}
+              />
+            </View>
+          </View>
+
+          {/* VAT Rate dropdown */}
+          <View style={styles.vatColRight}>
+            <Text style={styles.label}>Rate (%)</Text>
+            <DropDownPicker
+              open={vatRateOpen}
+              value={vatRate}
+              items={vatRateItems}
+              setOpen={setVatRateOpen}
+              setValue={(set) => setVatRate(set(vatRate))}
+              setItems={setVatRateItems}
+              placeholder="Select"
+              style={styles.vatRatePicker}
+              dropDownContainerStyle={styles.vatRateDropdown}
+              zIndex={2000}
+              zIndexInverse={2000}
+              listMode="SCROLLVIEW"
+              onChangeValue={(val) => {
+                const next = val ?? "";
+                setVatRate(next);
+                setVatAmountEdited(false);
+                if (next && amount) {
+                  setVatAmount(computeVat(amount, next));
+                }
+              }}
+            />
+          </View>
+        </View>
+
+        {/* Date */}
         <Text style={styles.label}>Date</Text>
         <TouchableOpacity
           style={styles.dateButton}
@@ -374,6 +536,7 @@ export default function ReceiptDetailsScreen({ route, navigation }) {
           onCancel={() => setDatePickerVisibility(false)}
         />
 
+        {/* Category */}
         <Text style={styles.label}>Category</Text>
         <DropDownPicker
           listMode="MODAL"
@@ -382,12 +545,35 @@ export default function ReceiptDetailsScreen({ route, navigation }) {
           items={items}
           setOpen={setOpen}
           setItems={setItems}
-          setValue={setSelectedCategory}
+          setValue={(cb) => {
+            const next = cb(selectedCategory);
+            setSelectedCategory(next);
+            if (!vatRate && next) {
+              const cat = categories_meta.find((c) => c.name === next);
+              const r = cat?.vatRate;
+              if (r !== undefined && r !== null && !Number.isNaN(r)) {
+                const rStr = String(r);
+                setVatRate(rStr);
+                setVatRateItems((prev) => {
+                  const has = prev.some((it) => it.value === rStr);
+                  return has
+                    ? prev
+                    : [...prev, { label: `${r}%`, value: rStr }].sort(
+                        (a, b) => Number(a.value) - Number(b.value)
+                      );
+                });
+                if (!vatAmountEdited && amount) {
+                  setVatAmount(computeVat(amount, rStr));
+                }
+              }
+            }
+          }}
           placeholder="Select a category"
           style={styles.dropdown}
           dropDownContainerStyle={styles.dropdownContainer}
         />
 
+        {/* Images */}
         <FlatList
           data={[...images, { addButton: true }]}
           horizontal
@@ -402,6 +588,7 @@ export default function ReceiptDetailsScreen({ route, navigation }) {
               </TouchableOpacity>
             ) : (
               <TouchableOpacity
+                disabled={ocrLoading}
                 onPress={() =>
                   openOcrModal(item.uri, { autoScan: true, newSession: false })
                 }
@@ -462,7 +649,9 @@ export default function ReceiptDetailsScreen({ route, navigation }) {
             {preview?.uri ? (
               <View style={{ alignItems: "center" }}>
                 <TouchableOpacity
-                  style={{ alignSelf: "stretch" }}
+                  style={{ alignSelf: "stretch", opacity: ocrLoading ? 0.6 : 1 }}
+                  activeOpacity={0.7}
+                  disabled={ocrLoading}
                   onPress={() => setFullScreenImage(preview)}
                 >
                   <Image source={{ uri: preview.uri }} style={styles.modalImage} />
@@ -472,10 +661,8 @@ export default function ReceiptDetailsScreen({ route, navigation }) {
             ) : null}
 
             {!ocrLoading && (
-                          <Text style={styles.fullscreenHint}>
-                            Tap image to view full screen
-                          </Text>
-                        )}
+              <Text style={styles.fullscreenHint}>Tap image to view full screen</Text>
+            )}
 
             {!ocrLoading && (
               <>
@@ -529,6 +716,29 @@ export default function ReceiptDetailsScreen({ route, navigation }) {
                     {ocrResult?.categoryName ?? "—"}
                   </Text>
                 </View>
+
+                {/* (Optional) Show OCR VAT if your extractor returns it */}
+                {ocrResult?.vat ? (
+                  <View style={styles.ocrRow}>
+                    <Checkbox
+                      status={acceptFlags.vat ? "checked" : "unchecked"}
+                      onPress={() => toggleAccept("vat")}
+                    />
+                    <Text
+                      style={[styles.ocrLabel, !acceptFlags.vat && styles.strike]}
+                    >
+                      VAT:
+                    </Text>
+                    <Text
+                      style={[styles.ocrValue, !acceptFlags.vat && styles.strike]}
+                    >
+                      {ocrResult?.vat?.value != null
+                        ? `£${ocrResult.vat.value}`
+                        : "—"}{" "}
+                      (Rate {ocrResult?.vat?.rate ?? "—"}%)
+                    </Text>
+                  </View>
+                ) : null}
 
                 <View style={styles.modalButtons}>
                   {!isNewImageSession && (
@@ -606,23 +816,70 @@ const styles = StyleSheet.create({
     padding: 16,
   },
   header: { fontSize: 22, fontWeight: "bold", marginBottom: 16 },
-  label: { fontSize: 16, marginTop: 10 },
+  label: { fontSize: 16, marginTop: 10, marginBottom: 6 },
+
+  inputRow: {
+    flexDirection: "row",
+    alignItems: "center",
+  },
+
   input: {
     borderWidth: 1,
     borderColor: "#ccc",
-    padding: 8,
+    padding: 10,
     borderRadius: 5,
     marginTop: 5,
   },
+
+  // VAT layout (matches ReceiptAdd.js proportions)
+  vatRow: {
+    flexDirection: "row",
+    gap: 12,
+    alignItems: "flex-start",
+  },
+  vatColLeft: {
+    flex: 1,
+  },
+  vatColRight: {
+    width: 100, // compact dropdown column
+  },
+  vatCurrency: {
+    fontSize: 18,
+    fontWeight: "bold",
+    marginLeft: 10,
+    paddingRight: 5,
+  },
+  vatInput: {
+    borderWidth: 1,
+    borderColor: "#ccc",
+    borderRadius: 5,
+    padding: 10,
+    flex: 1,
+    fontSize: 16,
+    marginVertical: 8,
+    marginRight: 8,
+  },
+  vatRatePicker: {
+    backgroundColor: "#fafafa",
+    borderColor: "#ccc",
+    height: 44,
+    paddingHorizontal: 8,
+    marginTop: 8,
+  },
+  vatRateDropdown: {
+    borderColor: "#ccc",
+  },
+
   dateButton: {
     borderWidth: 1,
     borderColor: "#ccc",
-    padding: 8,
+    padding: 10,
     borderRadius: 5,
     marginTop: 5,
   },
-  dropdown: { marginTop: 5 },
-  dropdownContainer: {},
+
+  dropdown: { marginTop: 5, backgroundColor: "#fafafa", borderColor: "#ccc" },
+  dropdownContainer: { borderColor: "#ccc", backgroundColor: "#fafafa" },
 
   receiptImage: {
     width: 100,
