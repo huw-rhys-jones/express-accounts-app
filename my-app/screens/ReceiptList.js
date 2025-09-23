@@ -98,7 +98,6 @@ const ExpensesScreen = ({ navigation }) => {
   const sortIcon = (key) => {
     if (sortKey !== key) return "↕";
     return sortDir === "asc" ? "▲" : "▼";
-    // If you prefer caret-style: "▲"/"▼" or "△"/"▽"
   };
 
   const sortedReceipts = useMemo(() => {
@@ -194,6 +193,13 @@ const ExpensesScreen = ({ navigation }) => {
           )}
         </View>
 
+        {/* Header row OUTSIDE the FlatList to avoid Android sticky bug */}
+        {hasReceipts ? (
+          <View style={{ marginTop: 10, marginBottom: 8 }}>
+            {renderHeaderRow()}
+          </View>
+        ) : null}
+
         <FlatList
           ListEmptyComponent={!loading ? renderEmptyState : null}
           data={loading ? [] : sortedReceipts}
@@ -206,10 +212,7 @@ const ExpensesScreen = ({ navigation }) => {
           refreshControl={
             <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
           }
-          ListHeaderComponent={hasReceipts ? renderHeaderRow : null}
-          stickyHeaderIndices={hasReceipts ? [0] : undefined}
-          ListHeaderComponentStyle={{ marginTop: 10, marginBottom: 8 }}
-
+          // NOTE: header is outside; do not use stickyHeaderIndices/ListHeaderComponent
         />
       </View>
 
@@ -292,18 +295,16 @@ const styles = StyleSheet.create({
 
   // ---- Header row (sortable columns) ----
   headerRow: {
-  backgroundColor: "#DCDCE4",
-  borderRadius: 12,            // ⬅️ round all corners
-  paddingHorizontal: 16,
-  paddingVertical: 12,         // a bit more internal space
-  width: "95%",
-  alignSelf: "center",
-  flexDirection: "row",
-  alignItems: "center",
-  marginTop: 6,
-  marginBottom: 12,            // ⬅️ space between header and first item
-},
-
+    backgroundColor: "#DCDCE4",
+    borderRadius: 12,            // round all corners
+    paddingHorizontal: 16,
+    paddingVertical: 12,         // internal space
+    width: "95%",
+    alignSelf: "center",
+    flexDirection: "row",
+    alignItems: "center",
+    // external margins handled by wrapper View
+  },
   headerCellDate: {
     minWidth: 90,
     flexDirection: "row",
