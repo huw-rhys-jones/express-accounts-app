@@ -16,6 +16,7 @@ import ReceiptAdd from "./screens/ReceiptAdd";
 import ReceiptDetailsScreen from "./screens/ReceiptEdit";
 import SummaryScreen from "./screens/SummaryScreen";
 import * as WebBrowser from "expo-web-browser";
+import 'react-native-reanimated';
 
 WebBrowser.maybeCompleteAuthSession();
 
