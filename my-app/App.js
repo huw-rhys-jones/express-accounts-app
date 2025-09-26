@@ -11,7 +11,7 @@ import SignUpScreen from "./screens/Register";
 import SignInScreen from "./screens/LogIn";
 import IncomeScreen from "./screens/Income";
 import ExpensesScreen from "./screens/ReceiptList";
-import ScanScreen from "./screens/scan";
+import ScanScreen from "./screens/Scan";
 import ReceiptAdd from "./screens/ReceiptAdd";
 import ReceiptDetailsScreen from "./screens/ReceiptEdit";
 import SummaryScreen from "./screens/SummaryScreen";
