@@ -80,9 +80,17 @@ const LoginScreen = ({ navigation }) => {
 
   let request, promptAsync;
   if (Platform.OS === "android" && useGoogleSignIn) {
-    [request, promptAsync] = useGoogleSignIn(() =>
-      navigation.reset({ index: 0, routes: [{ name: "Expenses" }] })
-    );
+     [request, promptAsync] = useGoogleSignIn(() =>
+        navigation.reset({
+          index: 0,
+          routes: [
+            {
+              name: "MainTabs",
+              state: { index: 0, routes: [{ name: "Expenses" }] },
+            },
+          ],
+        })
+     );
   }
 
   useEffect(() => {
@@ -157,7 +165,15 @@ const LoginScreen = ({ navigation }) => {
           passwordTrimmed
         );
 
-        navigation.reset({ index: 0, routes: [{ name: "Expenses" }] });
+         navigation.reset({
+          index: 0,
+          routes: [
+            {
+              name: "MainTabs",
+              state: { index: 0, routes: [{ name: "Expenses" }] },
+              },
+            ],
+          });
       });
     } catch (error) {
       console.error("❌ Email login failed:", error);
@@ -221,7 +237,15 @@ const LoginScreen = ({ navigation }) => {
           { merge: true }
         );
 
-        navigation.reset({ index: 0, routes: [{ name: "Expenses" }] });
+         navigation.reset({
+          index: 0,
+          routes: [
+            {
+              name: "MainTabs",
+              state: { index: 0, routes: [{ name: "Expenses" }] },
+            },
+          ],
+        });
       });
     } catch (e) {
       if (e && e.code === "ERR_CANCELED") {

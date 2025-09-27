@@ -13,7 +13,12 @@ import { signOut } from "firebase/auth";
 import { collection, query, where, getDocs } from "firebase/firestore";
 import { db, auth } from "../firebaseConfig";
 import { formatDate } from "../utils/format_style";
-// import BottomNav from "../components/BottomNav"; // (still optional)
+import SideMenu from "../components/SideMenu";
+import { StatusBar, Platform } from "react-native";
+
+const TOP_PAD = Platform.OS === "android" ? (StatusBar.currentHeight || 0) : 0;
+
+
 
 const ExpensesScreen = ({ navigation }) => {
   const [displayName, setDisplayName] = useState("User");
@@ -21,6 +26,8 @@ const ExpensesScreen = ({ navigation }) => {
   const [loading, setLoading] = useState(true);
   const [loadingText, setLoadingText] = useState(null);
   const [refreshing, setRefreshing] = useState(false);
+  const [menuOpen, setMenuOpen] = useState(false);
+
 
   // --- sorting state ---
   const [sortKey, setSortKey] = useState("date");      // "date" | "amount" | "category"
@@ -181,6 +188,19 @@ const ExpensesScreen = ({ navigation }) => {
 
   return (
     <SafeAreaView style={styles.container}>
+      {/* Top App Bar */}
+      <View style={[styles.topBar, { paddingTop: TOP_PAD }]}>
+        <TouchableOpacity style={styles.topBarButton} onPress={() => setMenuOpen(true)}>
+          <Text style={styles.topBarButtonText}>≡</Text>
+        </TouchableOpacity>
+
+        <Text style={styles.topBarTitle}>Expenses</Text>
+
+        {/* Right spacer to balance the layout (same width as the button) */}
+        <View style={{ width: 44 }} />
+      </View>
+
+
       <View style={styles.content}>
         <View style={styles.card}>
           <Text style={styles.title}>Welcome, {displayName}!</Text>
@@ -224,9 +244,6 @@ const ExpensesScreen = ({ navigation }) => {
         <Text style={styles.floatingButtonText}>+</Text>
       </TouchableOpacity>
 
-      {/* Bottom Navigation
-      <BottomNav navigation={navigation} active="Expenses" /> */}
-
       {/* Full-screen loading overlay */}
       {loading && (
         <View style={styles.blockingOverlay} pointerEvents="auto">
@@ -238,7 +255,31 @@ const ExpensesScreen = ({ navigation }) => {
           </View>
         </View>
       )}
+
+      {/* Slide-in side menu */}
+      <SideMenu open={menuOpen} onClose={() => setMenuOpen(false)}>
+        <Text style={{ fontSize: 20, fontWeight: "800", color: "#1C1C4E", marginBottom: 18 }}>
+          Menu
+        </Text>
+
+        <TouchableOpacity
+          onPress={async () => {
+            setMenuOpen(false);
+            await handleLogout(); // you already have this helper on this screen
+          }}
+          style={{
+            backgroundColor: "#a60d49",
+            paddingVertical: 12,
+            paddingHorizontal: 16,
+            borderRadius: 10,
+            marginTop: 6,
+          }}
+        >
+          <Text style={{ color: "white", fontWeight: "700" }}>Sign out</Text>
+        </TouchableOpacity>
+      </SideMenu>
     </SafeAreaView>
+
   );
 };
 
@@ -382,4 +423,39 @@ const styles = StyleSheet.create({
     minWidth: 200,
   },
   loadingText: { marginTop: 10, fontSize: 16, fontWeight: "600" },
+  topBar: {
+  backgroundColor: "#DCDCE4",
+  width: "100%",
+  // height is paddingTop (status bar) + this content height
+  // keep the content area comfy:
+  paddingHorizontal: 12,
+  paddingBottom: 10,
+  flexDirection: "row",
+  alignItems: "center",
+  justifyContent: "space-between",
+  // subtle shadow/elevation
+  elevation: 3,
+  shadowColor: "#000",
+  shadowOpacity: 0.1,
+  shadowRadius: 4,
+  shadowOffset: { width: 0, height: 2 },
+},
+topBarButton: {
+  width: 44,
+  height: 36,
+  borderRadius: 18,
+  backgroundColor: "#C8C8D2",
+  alignItems: "center",
+  justifyContent: "center",
+},
+topBarButtonText: {
+  fontSize: 18,
+  fontWeight: "700",
+  color: "#1C1C4E",
+},
+topBarTitle: {
+  fontSize: 18,
+  fontWeight: "800",
+  color: "#1C1C4E",
+},
 });
