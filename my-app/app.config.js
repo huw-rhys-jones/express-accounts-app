@@ -10,7 +10,7 @@ export default ({ config }) => ({
   orientation: "portrait",
   icon: "./assets/icon.png",
   userInterfaceStyle: "light",
-  newArchEnabled: false,
+  newArchEnabled: false, // Keeping this false as per your current setup
 
   splash: {
     image: "./assets/splash-icon.png",
@@ -44,8 +44,17 @@ export default ({ config }) => ({
   },
 
   plugins: [
-    "expo-apple-authentication",  // Enables Sign in with Apple capability
+    "expo-apple-authentication",
     "expo-router",
+    [
+      "react-native-edge-to-edge",
+      {
+        android: {
+          parentTheme: "Default",
+          enforceNavigationBarContrast: false
+        }
+      }
+    ],
     [
       "expo-build-properties",
       {
@@ -56,7 +65,7 @@ export default ({ config }) => ({
         },
         ios: {
           deploymentTarget: "15.1",
-          useFrameworks: "static"  // Needed for some native Firebase modules
+          useFrameworks: "static"
         }
       }
     ],

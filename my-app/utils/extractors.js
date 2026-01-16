@@ -190,28 +190,100 @@ function normalizeForMatch(s) {
 }
 
 
-// Normalise OCR quirks
-// function normalizeWhitespace(s) {
-//   return s.replace(/\s+/g, " ").trim();
-// }
+// Unique numeric VAT rates from categories_meta (sorted)
+const getAllowedVatRates = () => {
+  return Array.from(
+    new Set(
+      (categories_meta || [])
+        .map(c => c?.vatRate)
+        .filter(r => Number.isFinite(r))
+    )
+  ).sort((a, b) => a - b);
+};
 
-// function normalizeForMatch(s) {
-//   return s
-//     .replace(/\u2019/g, "'") // curly apostrophe -> straight
-//     .replace(/\s+/g, " ")
-//     .trim()
-//     .toLowerCase();
-// }
+// ---------- VAT extraction (snaps to categories_meta rates only) ----------
+export function extractVAT(text, amountInfo, categoryIdx) {
+  if (!text) return { value: null, rate: null };
+
+  const allowedRates = getAllowedVatRates();
+
+  // If you want only exact matches, set to 0
+  const SNAP_TOLERANCE = 1; // in percentage points (e.g., 20.09 → 20)
+
+  const snapRate = (r) => {
+    if (!Number.isFinite(r) || !allowedRates.length) return null;
+    let best = null, bestDiff = Infinity;
+    for (const a of allowedRates) {
+      const d = Math.abs(a - r);
+      if (d < bestDiff) { best = a; bestDiff = d; }
+    }
+    return bestDiff <= SNAP_TOLERANCE ? best : null;
+  };
+
+  const cleaned = text.replace(/\r\n/g, "\n");
+  const lines = cleaned.split("\n").map(l => l.trim()).filter(Boolean);
+
+  // 1) Table header: "VAT Rate  Incl  Excl  Amount"
+  const hdrIdx = lines.findIndex(l => /vat\s*rate.*incl.*excl.*amount/i.test(l));
+  if (hdrIdx >= 0) {
+    for (let i = 1; i <= 3 && hdrIdx + i < lines.length; i++) {
+      const row = lines[hdrIdx + i];
+      const nums = (row.match(/£?\s*\d+\.\d{2}/g) || []).map(s =>
+        parseFloat(s.replace(/[£\s]/g, ""))
+      );
+      const rm = row.match(/(\d{1,2}(?:\.\d{1,2})?)\s*(?:%|$)/);
+      const snapped = rm ? snapRate(parseFloat(rm[1])) : null;
+
+      if (nums.length >= 3) {
+        const vatVal = nums[nums.length - 1]; // VAT column usually last
+        return {
+          value: Number.isFinite(vatVal) ? parseFloat(vatVal.toFixed(2)) : null,
+          rate: snapped,
+        };
+      }
+    }
+  }
+
+  // 2) Explicit "VAT amount" lines (ignore "VAT No")
+  for (const l of lines) {
+    if (/vat\s*no\b/i.test(l)) continue;
+    const m =
+      l.match(/vat(?!\s*no)[^0-9£]*(£?\s*\d+\.\d{2})/i) ||
+      l.match(/(£\s*\d+\.\d{2})\s*vat\b/i);
+    if (m) {
+      const val = parseFloat(m[1].replace(/[£\s]/g, ""));
+      if (isFinite(val)) return { value: parseFloat(val.toFixed(2)), rate: null };
+    }
+  }
+
+  // 3) A rate near "VAT" → compute using snapped rate
+  const rateHit =
+    cleaned.match(/(?:vat[^%\n]{0,12})?(\d{1,2}(?:\.\d{1,2})?)\s*%/i) ||
+    cleaned.match(/(\d{1,2}(?:\.\d{1,2})?)\s*%\s*vat/i);
+  const snappedRate = rateHit ? snapRate(parseFloat(rateHit[1])) : null;
+
+  if (snappedRate != null && amountInfo?.amount) {
+    const gross = amountInfo.amount;
+    const net = gross / (1 + snappedRate / 100);
+    const vat = gross - net;
+    return { value: parseFloat(vat.toFixed(2)), rate: snappedRate };
+  }
+
+  // 4) Fallback to category default (already from categories_meta)
+  if (categoryIdx >= 0) {
+    const catRate = categories_meta[categoryIdx]?.vatRate;
+    if (Number.isFinite(catRate) && amountInfo?.amount) {
+      const gross = amountInfo.amount;
+      const net = gross / (1 + catRate / 100);
+      const vat = gross - net;
+      return { value: parseFloat(vat.toFixed(2)), rate: catRate };
+    }
+  }
+
+  return { value: null, rate: null };
+}
 
 
-// Normalize OCR quirks (smart quotes, extra whitespace, Unicode folding)
-// function normalizeForMatch(s) {
-//   return s
-//     .replace(/\u2019/g, "'")    // curly apostrophe -> straight
-//     .replace(/\s+/g, " ")
-//     .trim()
-//     .toLowerCase();
-// }
 
 
 export function categoryFinder(text, categories) {
@@ -255,30 +327,31 @@ export function categoryFinder(text, categories) {
 
 // ---------- main ----------
 export function extractData(text) {
-
   if (!text || typeof text !== 'string') {
     return {
       money: { value: null, currency: 0 },
       date: null,
       category: -1,
+      vat: { value: null, rate: null },
     };
   }
 
-  // Normalise \r\n just in case
   const cleaned = text.replace(/\r\n/g, '\n');
 
   const amountInfo = extractAmount(cleaned);
   const dateIso = extractDate(cleaned);
-
   const categoryIdx = categoryFinder(cleaned, categories_meta);
+  const vatInfo = extractVAT(cleaned, amountInfo, categoryIdx);
 
   return {
     money: {
       value: amountInfo ? amountInfo.amount : null,
-      currency: 0, // keep your existing mapping if 0==GBP
+      currency: 0,
       display: amountInfo ? amountInfo.display : null,
     },
-    date: dateIso, // ISO string 'YYYY-MM-DD' (or null)
+    date: dateIso,
     category: categoryIdx,
+    vat: vatInfo, // ✅ new field
   };
 }
+
