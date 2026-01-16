@@ -105,7 +105,17 @@ const SignUpScreen = ({ navigation }) => {
       }
 
       // Navigate in with a clean stack
-      navigation.reset({ index: 0, routes: [{ name: "Expenses" }] });
+      navigation.reset({
+        index: 0,
+        routes: [
+          {
+            name: "MainTabs", // The parent navigator
+            state: { 
+              routes: [{ name: "Expenses" }] // The child screen
+            },
+          },
+        ],
+      });
     } catch (e) {
       console.error("Registration error:", e);
       showRegistrationError(e?.code, e?.message);
