@@ -30,7 +30,7 @@ import {
 import { categories_meta } from "../constants/arrays";
 import { formatDate } from "../utils/format_style";
 import TextRecognition from "react-native-text-recognition";
-import * as FileSystem from "expo-file-system";
+import * as FileSystem from "expo-file-system/legacy";
 import { extractData } from "../utils/extractors";
 import ImageViewer from "react-native-image-zoom-viewer";
 
