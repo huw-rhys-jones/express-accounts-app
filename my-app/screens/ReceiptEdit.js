@@ -29,7 +29,7 @@ import {
 } from "firebase/storage";
 import { categories_meta } from "../constants/arrays";
 import { formatDate } from "../utils/format_style";
-import TextRecognition from "react-native-text-recognition";
+import TextRecognition from '@react-native-ml-kit/text-recognition';
 import * as FileSystem from "expo-file-system/legacy";
 import { extractData } from "../utils/extractors";
 import ImageViewer from "react-native-image-zoom-viewer";
@@ -232,10 +232,11 @@ export default function ReceiptDetailsScreen({ route, navigation }) {
           localUri = dl;
         }
       }
-
-      const lines = await TextRecognition.recognize(localUri);
-      const text = Array.isArray(lines) ? lines.join("\n") : String(lines || "");
+      // Call the ML Kit recognize method
+      const result = await TextRecognition.recognize(localUri);
+      const text = result?.text || ""; 
       const res = extractData(text);
+
       const categoryIndex =
         typeof res?.category === "number" ? res.category : -1;
       const categoryName =
