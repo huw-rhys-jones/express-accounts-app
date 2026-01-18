@@ -1,0 +1,24 @@
+diff --git a/node_modules/react-native-text-recognition/android/build.gradle b/node_modules/react-native-text-recognition/android/build.gradle
+index b76e895..a9b983e 100644
+--- a/node_modules/react-native-text-recognition/android/build.gradle
++++ b/node_modules/react-native-text-recognition/android/build.gradle
+@@ -18,14 +18,14 @@ def safeExtGet(prop, fallback) {
+ }
+ 
+ android {
+-    compileSdkVersion safeExtGet('TextRecognition_compileSdkVersion', 29)
+-    buildToolsVersion safeExtGet('TextRecognition_buildToolsVersion', '29.0.2')
++compileSdkVersion safeExtGet('TextRecognition_compileSdkVersion', 35)
++    buildToolsVersion safeExtGet('TextRecognition_buildToolsVersion', '35.0.0')
++    
+     defaultConfig {
+-        minSdkVersion safeExtGet('TextRecognition_minSdkVersion', 16)
+-        targetSdkVersion safeExtGet('TextRecognition_targetSdkVersion', 29)
++        minSdkVersion safeExtGet('TextRecognition_minSdkVersion', 24)
++        targetSdkVersion safeExtGet('TextRecognition_targetSdkVersion', 35)
+         versionCode 1
+         versionName "1.0"
+-
+     }
+ 
+     buildTypes {
