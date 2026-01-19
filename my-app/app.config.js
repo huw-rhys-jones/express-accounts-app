@@ -40,12 +40,23 @@ export default ({ config }) => ({
       foregroundImage: "./assets/adaptive-icon.png",
       backgroundColor: "#ffffff"
     },
-    permissions: ["CAMERA", "READ_MEDIA_IMAGES", "READ_EXTERNAL_STORAGE"]
+    permissions: [
+      "android.permission.CAMERA", 
+      "android.permission.WRITE_EXTERNAL_STORAGE",
+      "android.permission.READ_EXTERNAL_STORAGE"
+    ]
   },
 
   plugins: [
     "expo-apple-authentication",
     "expo-router",
+    [
+      "expo-image-picker",
+      {
+        "cameraPermission": "Express Accounts needs access to your camera to scan receipts.",
+        "photosPermission": "Express Accounts needs access to your photos to upload receipts."
+      }
+    ],
     [
       "react-native-edge-to-edge",
       {

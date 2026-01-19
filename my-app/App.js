@@ -3,10 +3,8 @@ import { NavigationContainer } from "@react-navigation/native";
 import { createStackNavigator } from "@react-navigation/stack";
 import { createBottomTabNavigator } from "@react-navigation/bottom-tabs";
 import { View, Text, TouchableOpacity, StyleSheet } from "react-native";
-
 import { onAuthStateChanged } from "firebase/auth";
 import { auth } from "./firebaseConfig";
-
 import SignUpScreen from "./screens/Register";
 import SignInScreen from "./screens/LogIn";
 import IncomeScreen from "./screens/Income";
@@ -16,12 +14,23 @@ import ReceiptAdd from "./screens/ReceiptAdd";
 import ReceiptDetailsScreen from "./screens/ReceiptEdit";
 import SummaryScreen from "./screens/SummaryScreen";
 import * as WebBrowser from "expo-web-browser";
-
+import { MD3LightTheme, PaperProvider } from 'react-native-paper';
 
 WebBrowser.maybeCompleteAuthSession();
 
 const Stack = createStackNavigator();
 const Tab = createBottomTabNavigator();
+
+// Create a custom theme based on the Light Theme
+const theme = {
+  ...MD3LightTheme,
+  // You can force specific colors here if needed
+  colors: {
+    ...MD3LightTheme.colors,
+    primary: 'tomato',
+    secondary: 'yellow',
+  },
+};
 
 // 🔧 Global flag to disable swipe when modal is open
 export let modalOpen = false;
@@ -120,23 +129,26 @@ export default function App() {
     return unsubscribe;
   }, []);
 
-  if (checkingAuth) return null; // TODO: replace with splash screen if desired
+  if (checkingAuth) return null;
 
   return (
-    <NavigationContainer>
-      <Stack.Navigator
-        initialRouteName={user ? "MainTabs" : "SignIn"}
-        screenOptions={{ headerShown: false }}
-      >
-        <Stack.Screen name="SignUp" component={SignUpScreen} />
-        <Stack.Screen name="SignIn" component={SignInScreen} />
-        <Stack.Screen name="Income" component={IncomeScreen} />
-        <Stack.Screen name="MainTabs" component={AppTabs} />
-        <Stack.Screen name="Scan" component={ScanScreen} />
-        <Stack.Screen name="Receipt" component={ReceiptAdd} />
-        <Stack.Screen name="ReceiptDetails" component={ReceiptDetailsScreen} />
-      </Stack.Navigator>
-    </NavigationContainer>
+    /* Wrap everything in PaperProvider to fix the text color issue */
+    <PaperProvider theme={MD3LightTheme}>
+      <NavigationContainer>
+        <Stack.Navigator
+          initialRouteName={user ? "MainTabs" : "SignIn"}
+          screenOptions={{ headerShown: false }}
+        >
+          <Stack.Screen name="SignUp" component={SignUpScreen} />
+          <Stack.Screen name="SignIn" component={SignInScreen} />
+          <Stack.Screen name="Income" component={IncomeScreen} />
+          <Stack.Screen name="MainTabs" component={AppTabs} />
+          <Stack.Screen name="Scan" component={ScanScreen} />
+          <Stack.Screen name="Receipt" component={ReceiptAdd} />
+          <Stack.Screen name="ReceiptDetails" component={ReceiptDetailsScreen} />
+        </Stack.Navigator>
+      </NavigationContainer>
+    </PaperProvider>
   );
 }
 

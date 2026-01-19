@@ -320,24 +320,45 @@ export default function ReceiptDetailsScreen({ route, navigation }) {
     setOcrModalVisible(false);
   };
 
-  const pickImageOption = () => {
-    Alert.alert(
+    const pickImageOption = () => {
+      Alert.alert(
       "Add Image",
       "Choose an option",
       [
-        {
+    {
           text: "Camera",
-          onPress: () =>
+          onPress: async () => {
+            if (Platform.OS === 'android') {
+              const granted = await PermissionsAndroid.request(
+                PermissionsAndroid.PERMISSIONS.CAMERA
+              );
+              
+              if (granted !== PermissionsAndroid.RESULTS.GRANTED) {
+                Alert.alert(
+                  "Permission Denied", 
+                  "You need to allow camera access to take photos of receipts."
+                );
+                return;
+              }
+            }
+  
+            // Launch camera only after permission is confirmed
             ImagePicker.launchCamera(
               { mediaType: "photo", includeBase64: true, quality: 0.9 },
               handleImagePicked
-            ),
+            );
+          },
         },
         {
           text: "Gallery",
           onPress: () =>
             ImagePicker.launchImageLibrary(
-              { mediaType: "photo", includeBase64: true, quality: 0.9 },
+              {
+                mediaType: "photo",
+                includeBase64: true,
+                selectionLimit: 1,
+                quality: 0.9,
+              },
               handleImagePicked
             ),
         },
@@ -345,7 +366,7 @@ export default function ReceiptDetailsScreen({ route, navigation }) {
       ],
       { cancelable: true }
     );
-  };
+    };
 
   const handleImagePicked = async (response) => {
     try {
