@@ -64,7 +64,7 @@ export default ({ config }) => ({
           minSdkVersion: 24
         },
         ios: {
-          deploymentTarget: "15.1",
+          deploymentTarget: "15.5",
           useFrameworks: "static"
         }
       }
