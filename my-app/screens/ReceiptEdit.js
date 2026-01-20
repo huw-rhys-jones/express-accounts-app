@@ -12,6 +12,8 @@ import {
   InteractionManager,
   Modal,
   ActivityIndicator,
+  Platform,
+  PermissionsAndroid,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Button, Checkbox } from "react-native-paper";
@@ -320,38 +322,51 @@ export default function ReceiptDetailsScreen({ route, navigation }) {
     setOcrModalVisible(false);
   };
 
-    const pickImageOption = () => {
-      Alert.alert(
-      "Add Image",
-      "Choose an option",
-      [
-    {
-          text: "Camera",
-          onPress: async () => {
+  const pickImageOption = () => {
+  Alert.alert(
+    "Add Image",
+    "Choose an option",
+    [
+      {
+        text: "Camera",
+        onPress: async () => {
+          try {
             if (Platform.OS === 'android') {
+              // 1. Request Camera Permission
               const granted = await PermissionsAndroid.request(
-                PermissionsAndroid.PERMISSIONS.CAMERA
+                PermissionsAndroid.PERMISSIONS.CAMERA,
+                {
+                  title: "Camera Permission",
+                  message: "Express Accounts needs camera access to scan receipts.",
+                  buttonPositive: "OK",
+                }
               );
               
               if (granted !== PermissionsAndroid.RESULTS.GRANTED) {
-                Alert.alert(
-                  "Permission Denied", 
-                  "You need to allow camera access to take photos of receipts."
-                );
+                Alert.alert("Permission Denied", "Camera access is required.");
                 return;
               }
             }
-  
-            // Launch camera only after permission is confirmed
-            ImagePicker.launchCamera(
-              { mediaType: "photo", includeBase64: true, quality: 0.9 },
-              handleImagePicked
-            );
-          },
+
+            // 2. Launch Camera - Use a tiny timeout to ensure the Alert has fully dismissed
+            // This prevents the "Activity is not focused" error on Android
+            setTimeout(() => {
+              ImagePicker.launchCamera(
+                { mediaType: "photo", includeBase64: true, quality: 0.9 },
+                (res) => handleImagePicked(res) // Use arrow function to ensure context
+              );
+            }, 100);
+          } catch (err) {
+            console.warn(err);
+          }
         },
-        {
-          text: "Gallery",
-          onPress: () =>
+      },
+      {
+        text: "Gallery",
+        onPress: () => {
+          // Gallery usually doesn't need explicit PermissionsAndroid on SDK 33+ 
+          // because it uses the System Picker, but it's safer to wrap in a timeout.
+          setTimeout(() => {
             ImagePicker.launchImageLibrary(
               {
                 mediaType: "photo",
@@ -359,14 +374,16 @@ export default function ReceiptDetailsScreen({ route, navigation }) {
                 selectionLimit: 1,
                 quality: 0.9,
               },
-              handleImagePicked
-            ),
+              (res) => handleImagePicked(res)
+            );
+          }, 100);
         },
-        { text: "Cancel", style: "cancel" },
-      ],
-      { cancelable: true }
-    );
-    };
+      },
+      { text: "Cancel", style: "cancel" },
+    ],
+    { cancelable: true }
+  );
+};
 
   const handleImagePicked = async (response) => {
     try {
