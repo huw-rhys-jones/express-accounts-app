@@ -2,7 +2,7 @@ import React, { useEffect, useState } from "react";
 import { NavigationContainer } from "@react-navigation/native";
 import { createStackNavigator } from "@react-navigation/stack";
 import { createBottomTabNavigator } from "@react-navigation/bottom-tabs";
-import { View, Text, TouchableOpacity, StyleSheet } from "react-native";
+import { View, Text, TouchableOpacity, StyleSheet, Platform } from "react-native";
 import { onAuthStateChanged } from "firebase/auth";
 import { auth } from "./firebaseConfig";
 import SignUpScreen from "./screens/Register";
@@ -15,6 +15,7 @@ import ReceiptDetailsScreen from "./screens/ReceiptEdit";
 import SummaryScreen from "./screens/SummaryScreen";
 import * as WebBrowser from "expo-web-browser";
 import { MD3LightTheme, PaperProvider } from 'react-native-paper';
+import { useSafeAreaInsets, SafeAreaProvider } from 'react-native-safe-area-context';
 
 WebBrowser.maybeCompleteAuthSession();
 
@@ -40,8 +41,13 @@ export const setModalOpen = (isOpen) => {
 
 // ---------------- Custom Tab Bar ----------------
 function CustomTabBar({ state, descriptors, navigation }) {
+  const insets = useSafeAreaInsets();
+
   return (
-    <View style={styles.tabBar}>
+    <View style={[
+      styles.tabBar, 
+      { paddingBottom: Math.max(insets.bottom, 15) } // Automatically handles buttons/home bars
+    ]}>
       {state.routes.map((route, index) => {
         const { options } = descriptors[route.key];
         const label =
@@ -133,7 +139,7 @@ export default function App() {
 
   return (
     /* Wrap everything in PaperProvider to fix the text color issue */
-    <PaperProvider theme={MD3LightTheme}>
+    <PaperProvider theme={theme}>
       <NavigationContainer>
         <Stack.Navigator
           initialRouteName={user ? "MainTabs" : "SignIn"}
@@ -156,10 +162,12 @@ export default function App() {
 const styles = StyleSheet.create({
   tabBar: {
     flexDirection: "row",
-    height: 70,
+    // height: 70,
     backgroundColor: "#B5B3C6",
     alignItems: "center",
     justifyContent: "space-around",
+    paddingBottom: Platform.OS === 'android' ? 60 : 0,
+    paddingTop: 10,
   },
   tabItem: { flex: 1, alignItems: "center" },
   tabText: { color: "#7B7B7B", fontSize: 14 },
