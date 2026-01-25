@@ -4,10 +4,10 @@ import {
   Text,
   TouchableOpacity,
   StyleSheet,
-  SafeAreaView,
   FlatList,
   ActivityIndicator,
   RefreshControl,
+  Divider
 } from "react-native";
 import { signOut } from "firebase/auth";
 import { collection, query, where, getDocs } from "firebase/firestore";
@@ -15,8 +15,11 @@ import { db, auth } from "../firebaseConfig";
 import { formatDate } from "../utils/format_style";
 import SideMenu from "../components/SideMenu";
 import { StatusBar, Platform } from "react-native";
+import { SafeAreaView } from "react-native-safe-area-context";
+import Constants from 'expo-constants';
 
-const TOP_PAD = Platform.OS === "android" ? (StatusBar.currentHeight || 0) : 0;
+// Inside your component
+const appVersion = Constants.expoConfig?.version || "1.0.0";
 
 
 
@@ -188,8 +191,9 @@ const ExpensesScreen = ({ navigation }) => {
 
   return (
     <SafeAreaView style={styles.container}>
+
       {/* Top App Bar */}
-      <View style={[styles.topBar, { paddingTop: TOP_PAD }]}>
+      <View style={[styles.topBar, { paddingTop: 5 }]}>
         <TouchableOpacity style={styles.topBarButton} onPress={() => setMenuOpen(true)}>
           <Text style={styles.topBarButtonText}>≡</Text>
         </TouchableOpacity>
@@ -258,25 +262,28 @@ const ExpensesScreen = ({ navigation }) => {
 
       {/* Slide-in side menu */}
       <SideMenu open={menuOpen} onClose={() => setMenuOpen(false)}>
-        <Text style={{ fontSize: 20, fontWeight: "800", color: "#1C1C4E", marginBottom: 18 }}>
-          Menu
-        </Text>
+       <View style={{ flex: 1 }}> 
+
+        <Text style={styles.menuTitle}>Menu</Text>
+      
+        <View style={styles.userInfo}>
+          <Text style={styles.userEmail}>{auth.currentUser?.email}</Text>
+        </View>
 
         <TouchableOpacity
           onPress={async () => {
             setMenuOpen(false);
-            await handleLogout(); // you already have this helper on this screen
+            await handleLogout();
           }}
-          style={{
-            backgroundColor: "#a60d49",
-            paddingVertical: 12,
-            paddingHorizontal: 16,
-            borderRadius: 10,
-            marginTop: 6,
-          }}
-        >
-          <Text style={{ color: "white", fontWeight: "700" }}>Sign out</Text>
+          style={styles.signOutBtn}>
+          <Text style={styles.signOutText}>Sign out</Text>
         </TouchableOpacity>
+
+        <View style={styles.versionContainer}>
+          <Text style={styles.versionText}>Version {appVersion}</Text>
+        </View>
+        
+       </View>
       </SideMenu>
     </SafeAreaView>
 
@@ -458,4 +465,40 @@ topBarTitle: {
   fontWeight: "800",
   color: "#1C1C4E",
 },
+menuTitle: { 
+    fontSize: 22, 
+    fontWeight: "800", 
+    color: "#1C1C4E", 
+    marginBottom: 10 
+  },
+  userInfo: {
+    marginBottom: 20,
+  },
+  userEmail: {
+    color: "#7B7B7B",
+    fontSize: 14,
+  },
+  signOutBtn: {
+    backgroundColor: "#a60d49",
+    paddingVertical: 12,
+    paddingHorizontal: 16,
+    borderRadius: 10,
+    marginTop: 20,
+  },
+  signOutText: { 
+    color: "white", 
+    fontWeight: "700", 
+    textAlign: 'center' 
+  },
+  versionContainer: {
+    marginTop: 'auto', // Pushes to bottom of the flex container
+    paddingBottom: 20,
+    alignItems: 'center',
+  },
+  versionText: {
+    color: '#B5B3C6',
+    fontSize: 12,
+    fontWeight: '600',
+  }
+
 });

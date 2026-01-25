@@ -12,6 +12,8 @@ import {
   InteractionManager,
   Modal,
   ActivityIndicator,
+  Platform,
+  PermissionsAndroid,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Button, Checkbox } from "react-native-paper";
@@ -29,7 +31,7 @@ import {
 } from "firebase/storage";
 import { categories_meta } from "../constants/arrays";
 import { formatDate } from "../utils/format_style";
-import TextRecognition from "react-native-text-recognition";
+import TextRecognition from '@react-native-ml-kit/text-recognition';
 import * as FileSystem from "expo-file-system/legacy";
 import { extractData } from "../utils/extractors";
 import ImageViewer from "react-native-image-zoom-viewer";
@@ -232,10 +234,11 @@ export default function ReceiptDetailsScreen({ route, navigation }) {
           localUri = dl;
         }
       }
-
-      const lines = await TextRecognition.recognize(localUri);
-      const text = Array.isArray(lines) ? lines.join("\n") : String(lines || "");
+      // Call the ML Kit recognize method
+      const result = await TextRecognition.recognize(localUri);
+      const text = result?.text || ""; 
       const res = extractData(text);
+
       const categoryIndex =
         typeof res?.category === "number" ? res.category : -1;
       const categoryName =
@@ -320,31 +323,67 @@ export default function ReceiptDetailsScreen({ route, navigation }) {
   };
 
   const pickImageOption = () => {
-    Alert.alert(
-      "Add Image",
-      "Choose an option",
-      [
-        {
-          text: "Camera",
-          onPress: () =>
-            ImagePicker.launchCamera(
-              { mediaType: "photo", includeBase64: true, quality: 0.9 },
-              handleImagePicked
-            ),
+  Alert.alert(
+    "Add Image",
+    "Choose an option",
+    [
+      {
+        text: "Camera",
+        onPress: async () => {
+          try {
+            if (Platform.OS === 'android') {
+              // 1. Request Camera Permission
+              const granted = await PermissionsAndroid.request(
+                PermissionsAndroid.PERMISSIONS.CAMERA,
+                {
+                  title: "Camera Permission",
+                  message: "Express Accounts needs camera access to scan receipts.",
+                  buttonPositive: "OK",
+                }
+              );
+              
+              if (granted !== PermissionsAndroid.RESULTS.GRANTED) {
+                Alert.alert("Permission Denied", "Camera access is required.");
+                return;
+              }
+            }
+
+            // 2. Launch Camera - Use a tiny timeout to ensure the Alert has fully dismissed
+            // This prevents the "Activity is not focused" error on Android
+            setTimeout(() => {
+              ImagePicker.launchCamera(
+                { mediaType: "photo", includeBase64: true, quality: 0.9 },
+                (res) => handleImagePicked(res) // Use arrow function to ensure context
+              );
+            }, 100);
+          } catch (err) {
+            console.warn(err);
+          }
         },
-        {
-          text: "Gallery",
-          onPress: () =>
+      },
+      {
+        text: "Gallery",
+        onPress: () => {
+          // Gallery usually doesn't need explicit PermissionsAndroid on SDK 33+ 
+          // because it uses the System Picker, but it's safer to wrap in a timeout.
+          setTimeout(() => {
             ImagePicker.launchImageLibrary(
-              { mediaType: "photo", includeBase64: true, quality: 0.9 },
-              handleImagePicked
-            ),
+              {
+                mediaType: "photo",
+                includeBase64: true,
+                selectionLimit: 1,
+                quality: 0.9,
+              },
+              (res) => handleImagePicked(res)
+            );
+          }, 100);
         },
-        { text: "Cancel", style: "cancel" },
-      ],
-      { cancelable: true }
-    );
-  };
+      },
+      { text: "Cancel", style: "cancel" },
+    ],
+    { cancelable: true }
+  );
+};
 
   const handleImagePicked = async (response) => {
     try {
