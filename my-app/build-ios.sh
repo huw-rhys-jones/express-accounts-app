@@ -17,4 +17,4 @@ done
 read -p "Do these look correct? Press enter to continue..."
 
 # Run the EAS build
-eas build --platform ios --profile production
+# eas build --platform ios --profile production
