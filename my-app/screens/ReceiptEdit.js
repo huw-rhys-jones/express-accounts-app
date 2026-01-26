@@ -501,60 +501,61 @@ export default function ReceiptDetailsScreen({ route, navigation }) {
           }}
         />
 
-        {/* VAT Section: labels above fields (match ReceiptAdd.js layout) */}
-        <View style={styles.vatRow}>
-          {/* VAT Amount */}
-          <View style={styles.vatColLeft}>
-            <Text style={styles.label}>VAT Amount</Text>
-            <View style={styles.inputRow}>
-              <Text style={styles.vatCurrency}>£</Text>
-              <TextInput
-                style={styles.vatInput}
-                keyboardType="decimal-pad"
-                placeholder="0.00"
-                value={vatAmount}
-                onChangeText={(v) => {
-                  setVatAmount(v);
-                  const edited = v.trim().length > 0;
-                  setVatAmountEdited(edited);
-                  if (!edited && amount && vatRate) {
-                    setVatAmount(computeVat(amount, vatRate));
-                  }
-                }}
-                onBlur={() => {
-                  if (!vatAmount.trim()) setVatAmountEdited(false);
-                }}
-              />
-            </View>
-          </View>
+        {/* VAT Section */}
+<View style={styles.vatRow}>
+  {/* VAT Amount Column */}
+  <View style={styles.vatColLeft}>
+    <Text style={styles.label}>VAT Amount</Text>
+    <View style={styles.inputRow}>
+      <Text style={styles.vatCurrency}>£</Text>
+      <TextInput
+        style={styles.vatInput}
+        keyboardType="decimal-pad"
+        placeholder="0.00"
+        value={vatAmount}
+        onChangeText={(v) => {
+          setVatAmount(v);
+          const edited = v.trim().length > 0;
+          setVatAmountEdited(edited);
+          if (!edited && amount && vatRate) {
+            setVatAmount(computeVat(amount, vatRate));
+          }
+        }}
+        onBlur={() => {
+          if (!vatAmount.trim()) setVatAmountEdited(false);
+        }}
+      />
+    </View>
+  </View>
 
-          {/* VAT Rate dropdown */}
-          <View style={styles.vatColRight}>
-            <Text style={styles.label}>Rate (%)</Text>
-            <DropDownPicker
-              open={vatRateOpen}
-              value={vatRate}
-              items={vatRateItems}
-              setOpen={setVatRateOpen}
-              setValue={(set) => setVatRate(set(vatRate))}
-              setItems={setVatRateItems}
-              placeholder="Select"
-              style={styles.vatRatePicker}
-              dropDownContainerStyle={styles.vatRateDropdown}
-              zIndex={2000}
-              zIndexInverse={2000}
-              listMode="SCROLLVIEW"
-              onChangeValue={(val) => {
-                const next = val ?? "";
-                setVatRate(next);
-                setVatAmountEdited(false);
-                if (next && amount) {
-                  setVatAmount(computeVat(amount, next));
-                }
-              }}
-            />
-          </View>
-        </View>
+  {/* VAT Rate Column */}
+  <View style={styles.vatColRight}>
+    <Text style={styles.label}>Rate (%)</Text>
+    <DropDownPicker
+      open={vatRateOpen}
+      value={vatRate}
+      items={vatRateItems}
+      setOpen={setVatRateOpen}
+      setValue={(set) => setVatRate(set(vatRate))}
+      setItems={setVatRateItems}
+      placeholder="Select"
+      style={styles.vatRatePicker}
+      dropDownContainerStyle={styles.vatRateDropdown}
+      containerStyle={{ marginTop: 8 }} // This aligns the picker top with the "£" inputRow top
+      zIndex={2000}
+      zIndexInverse={2000}
+      listMode="SCROLLVIEW"
+      onChangeValue={(val) => {
+        const next = val ?? "";
+        setVatRate(next);
+        setVatAmountEdited(false);
+        if (next && amount) {
+          setVatAmount(computeVat(amount, next));
+        }
+      }}
+    />
+  </View>
+</View>
 
         {/* Date */}
         <Text style={styles.label}>Date</Text>
@@ -870,43 +871,50 @@ const styles = StyleSheet.create({
     marginTop: 5,
   },
 
-  // VAT layout (matches ReceiptAdd.js proportions)
+  // Standardized VAT layout
   vatRow: {
     flexDirection: "row",
-    gap: 12,
-    alignItems: "flex-start",
+    alignItems: "flex-start", // Keeps labels aligned at the top
+    marginTop: 10,
   },
   vatColLeft: {
-    flex: 1,
+    flex: 1, // Stretches the amount box to fill available space
   },
   vatColRight: {
-    width: 100, // compact dropdown column
+    width: 110, // Slightly wider to ensure "Select" or "20%" fits comfortably
+    marginLeft: 12,
+  },
+  inputRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    marginTop: 8, // Matches the containerStyle margin of the picker
   },
   vatCurrency: {
     fontSize: 18,
     fontWeight: "bold",
-    marginLeft: 10,
-    paddingRight: 5,
+    marginRight: 6,
   },
   vatInput: {
     borderWidth: 1,
     borderColor: "#ccc",
     borderRadius: 5,
-    padding: 10,
+    height: 50,           // Standardized height
     flex: 1,
     fontSize: 16,
-    marginVertical: 8,
-    marginRight: 8,
+    paddingHorizontal: 12,
+    backgroundColor: "#ffffff",
   },
   vatRatePicker: {
-    backgroundColor: "#fafafa",
+    backgroundColor: "#ffffff",
     borderColor: "#ccc",
-    height: 44,
+    height: 50,           // Matches vatInput exactly
     paddingHorizontal: 8,
-    marginTop: 8,
+    // Removed marginTop here to prevent double-spacing
   },
   vatRateDropdown: {
+    backgroundColor: "#ffffff",
     borderColor: "#ccc",
+    zIndex: 5000,
   },
 
   dateButton: {
