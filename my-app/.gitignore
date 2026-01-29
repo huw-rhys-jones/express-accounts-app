@@ -18,6 +18,7 @@ android/.idea/
 android/local.properties
 android/**/build/
 android/**/intermediates/
+*.apk
 # Do NOT ignore android/ itself
 
 # --- iOS (keep project, ignore build artifacts) ---
