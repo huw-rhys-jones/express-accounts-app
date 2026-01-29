@@ -429,11 +429,20 @@ const ReceiptAdd = ({ navigation }) => {
 
   // ------- date & image picking -------
   const showDatePicker = () => setDatePickerVisibility(true);
-  const hideDatePicker = () => setDatePickerVisibility(false);
-  const handleConfirmDate = (date) => {
+  const hideDatePicker = () => {
+  setDatePickerVisibility(false);
+};
+
+const handleConfirmDate = (date) => {
+  // 1. Hide the picker first
+  hideDatePicker();
+  
+  // 2. Wrap the value setting in a tiny delay to let 
+  // the Android native bridge finish dismissing the modal
+  setTimeout(() => {
     setSelectedDate(date);
-    hideDatePicker();
-  };
+  }, 100); 
+};
 
   const pickImageOption = () => {
     Alert.alert(
@@ -541,7 +550,7 @@ const ReceiptAdd = ({ navigation }) => {
             </View>
 
             {/* VAT Section: labels above fields */}
-            <View style={styles.vatRow}>
+            <View style={[styles.vatRow, { zIndex: 2000, elevation: 5 }]}>
               {/* VAT Amount Column */}
               <View style={styles.vatColLeft}>
                 <Text style={styles.label}>VAT Amount:</Text>
@@ -581,6 +590,7 @@ const ReceiptAdd = ({ navigation }) => {
                   placeholder="Select"
                   style={styles.vatRatePicker}
                   dropDownContainerStyle={styles.vatRateDropdown}
+                  containerStyle={{ marginTop: 8 }} // Move margin here for better stability
                   zIndex={2000}
                   zIndexInverse={2000}
                   listMode="SCROLLVIEW"
@@ -1092,7 +1102,8 @@ const styles = StyleSheet.create({
     alignItems: "flex-start",
   },
   vatColLeft: {
-    flex: 1,
+    flex: 1, // This ensures the left side takes up the remaining space
+    marginRight: 12, 
   },
   vatColRight: {
     width: 100, // smaller dropdown column
@@ -1107,21 +1118,28 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: "#ccc",
     borderRadius: 5,
-    padding: 10,
-    flex: 1,
+    height: 50,             // Increased from 44 to 50 for a better touch target
+    paddingHorizontal: 12,
     fontSize: 16,
-    marginVertical: 8,
-    marginRight: 8,
+    backgroundColor: "#ffffff",
+    marginTop: 8,           // Match the picker's margin exactly
   },
   vatRatePicker: {
-    backgroundColor: "#fafafa",
+    backgroundColor: "#ffffff",
     borderColor: "#ccc",
-    height: 44,
+    height: 50,             // MUST match vatInput height exactly
+    justifyContent: 'center',
     paddingHorizontal: 8,
-    marginTop: 8,
+    // Do NOT put marginTop here
   },
   vatRateDropdown: {
+    backgroundColor: "#ffffff", // Critical: adds solid background to the list
     borderColor: "#ccc",
+    zIndex: 5000,              // Ensures the list itself stays on top
+    shadowColor: "#000",       // Optional: adds a slight shadow for depth on iOS
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
   },
 
   dateButton: {
