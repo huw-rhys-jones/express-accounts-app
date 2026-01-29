@@ -15,6 +15,7 @@ import {
   Platform,
   PermissionsAndroid,
 } from "react-native";
+import { KeyboardAwareScrollView } from "react-native-keyboard-aware-scroll-view";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Button, Checkbox } from "react-native-paper";
 import DateTimePickerModal from "react-native-modal-datetime-picker";
@@ -484,8 +485,13 @@ export default function ReceiptDetailsScreen({ route, navigation }) {
 
   return (
     <SafeAreaView style={styles.safeArea}>
-      <View style={styles.container}>
-        <Text style={styles.header}>Edit Receipt</Text>
+      <KeyboardAwareScrollView
+        contentContainerStyle={{ flexGrow: 1 }}
+        enableOnAndroid={true}
+        keyboardShouldPersistTaps="handled"
+      >
+        <View style={styles.container}>
+          <Text style={styles.header}>Edit Receipt</Text>
 
         {/* Amount */}
         <Text style={styles.label}>Amount (£)</Text>
@@ -673,7 +679,9 @@ export default function ReceiptDetailsScreen({ route, navigation }) {
             </Button>
           </View>
         </View>
-      </View>
+        </View>
+
+      </KeyboardAwareScrollView>
 
       {/* OCR Preview + Accept Modal */}
       <Modal
