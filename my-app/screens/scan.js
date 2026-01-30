@@ -11,6 +11,7 @@ import {
   Platform,
 } from "react-native";
 import { launchCamera, launchImageLibrary } from "react-native-image-picker";
+import { Colors } from "../utils/sharedStyles";
 
 const ScannerScreen = () => {
   const [receiptImage, setReceiptImage] = useState(null);
@@ -106,7 +107,7 @@ export default ScannerScreen;
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: "#302C66",
+    backgroundColor: Colors.background,
     alignItems: "center",
     justifyContent: "center",
     paddingHorizontal: 20,
@@ -114,7 +115,7 @@ const styles = StyleSheet.create({
   instructionText: {
     fontSize: 16,
     fontWeight: "bold",
-    color: "white",
+    color: Colors.surface,
     textAlign: "center",
     marginBottom: 300,
     marginTop: -300,
@@ -125,15 +126,15 @@ const styles = StyleSheet.create({
     borderRadius: 10,
     marginBottom: 20,
     borderWidth: 2,
-    borderColor: "white",
+    borderColor: Colors.surface,
   },
   scanButton: {
-    backgroundColor: "#a60d49",
+    backgroundColor: Colors.accent,
     paddingVertical: 12,
     paddingHorizontal: 50,
     borderRadius: 35,
     marginTop: 50,
-    shadowColor: "#C51F63",
+    shadowColor: Colors.accent,
     shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.3,
     shadowRadius: 5,
@@ -141,10 +142,10 @@ const styles = StyleSheet.create({
   scanButtonText: {
     fontSize: 25,
     fontWeight: "bold",
-    color: "white",
+    color: Colors.surface,
   },
   uploadButton: {
-    backgroundColor: "#E5E5EA",
+    backgroundColor: Colors.card,
     paddingVertical: 16,
     paddingHorizontal: 22,
     borderRadius: 33,
@@ -154,7 +155,7 @@ const styles = StyleSheet.create({
   },
   uploadText: {
     fontSize: 14,
-    color: "#1C1C4E",
+    color: Colors.textPrimary,
     textAlign: "center",
   },
   cancelButton: {
@@ -166,6 +167,6 @@ const styles = StyleSheet.create({
   cancelText: {
     fontSize: 16,
     fontWeight: "bold",
-    color: "white",
+    color: Colors.surface,
   },
 });

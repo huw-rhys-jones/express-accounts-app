@@ -13,6 +13,7 @@ import { collection, query, where, getDocs } from "firebase/firestore";
 import { db, auth } from "../firebaseConfig";
 import { PieChart, BarChart } from "react-native-chart-kit";
 import { groupReceiptsByMonth } from "../utils/groupByMonth";
+import { Colors, SharedStyles } from "../utils/sharedStyles";
 
 const screenWidth = Dimensions.get("window").width;
 const CHART_CARD_WIDTH = screenWidth * 0.9;
@@ -249,40 +250,31 @@ function getYAxisTicks(values = [], numTicks = 5) {
 
 // ===== Config =====
 const CHART_COLORS = [
-  "#a60d49", "#302C66", "#1C1C4E", "#FF8C00", "#008080", "#4682B4", "#556B2F",
+  Colors.accent,
+  Colors.background,
+  Colors.textPrimary,
+  "#FF8C00",
+  "#008080",
+  "#4682B4",
+  "#556B2F",
 ];
 
 const chartConfig = {
-  backgroundGradientFrom: "#fff",
-  backgroundGradientTo: "#fff",
+  backgroundGradientFrom: Colors.surface,
+  backgroundGradientTo: Colors.surface,
   color: (opacity = 1) => `rgba(49, 46, 116, ${opacity})`,
   labelColor: (opacity = 1) => `rgba(0,0,0,${opacity})`,
 };
 
 // ===== Styles =====
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: "#302C66" },
-  content: { alignItems: "center", paddingBottom: 40 },
-  card: {
-    backgroundColor: "#E5E5EA",
-    width: "85%",
-    padding: 22,
-    borderRadius: 20,
-    marginTop: 40,
-    alignItems: "center",
-  },
-  title: { fontSize: 20, fontWeight: "bold", color: "#1C1C4E" },
-  subtitle: { fontSize: 17, color: "#a60d49", marginTop: 14 },
-  subtitleVat: { fontSize: 16, color: "#1C1C4E", marginTop: 6 },
-  chartCard: {
-    marginTop: 30,
-    backgroundColor: "#fff",
-    borderRadius: 20,
-    padding: 20,
-    width: "90%",
-    overflow: "visible",
-    alignItems: "center",
-  },
+  container: SharedStyles.screen,
+  content: SharedStyles.content,
+  card: SharedStyles.card,
+  title: SharedStyles.title,
+  subtitle: SharedStyles.subtitle,
+  subtitleVat: { fontSize: 16, color: Colors.textPrimary, marginTop: 6 },
+  chartCard: { ...SharedStyles.chartCard, overflow: "visible" },
   chartTitle: { fontSize: 16, fontWeight: "bold", marginBottom: 12, textAlign: "center" },
   noData: { fontSize: 15, color: "#666", marginTop: 10, textAlign: "center" },
   center: { flex: 1, justifyContent: "center", alignItems: "center" },
