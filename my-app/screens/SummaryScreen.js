@@ -15,6 +15,13 @@ import { PieChart, BarChart } from "react-native-chart-kit";
 import { groupReceiptsByMonth } from "../utils/groupByMonth";
 
 const screenWidth = Dimensions.get("window").width;
+const CHART_CARD_WIDTH = screenWidth * 0.9;
+const CHART_CARD_PADDING = 20;
+const PIE_CHART_SIZE = Math.max(
+  0,
+  Math.min(screenWidth * 0.7, CHART_CARD_WIDTH - CHART_CARD_PADDING * 2)
+);
+const PIE_CHART_CENTER_X = PIE_CHART_SIZE * 0.12;
 const BAR_CHART_HEIGHT = 220;
 const Y_AXIS_WIDTH = 46;
 
@@ -136,22 +143,39 @@ export default function SummaryScreen({ navigation }) {
           <View style={styles.chartCard}>
             <Text style={styles.chartTitle}>Spending by Category</Text>
             {pieData.length > 0 ? (
-              <PieChart
-                data={pieData.map((d) => ({
-                  name: d.name,
-                  population: Number(d.amount.toFixed(2)),
-                  color: d.color,
-                  legendFontColor: d.legendFontColor,
-                  legendFontSize: d.legendFontSize,
-                }))}
-                width={screenWidth - 40}
-                height={250}
-                chartConfig={chartConfig}
-                accessor="population"
-                backgroundColor="transparent"
-                paddingLeft="10"
-                absolute
-              />
+              <>
+                <View style={styles.pieChartWrapper}>
+                  <PieChart
+                    data={pieData.map((d) => ({
+                      name: d.name,
+                      population: Number(d.amount.toFixed(2)),
+                      color: d.color,
+                      legendFontColor: d.legendFontColor,
+                      legendFontSize: d.legendFontSize,
+                    }))}
+                    width={PIE_CHART_SIZE}
+                    height={PIE_CHART_SIZE}
+                    chartConfig={chartConfig}
+                    accessor="population"
+                    backgroundColor="transparent"
+                    paddingLeft="12"
+                    absolute
+                    hasLegend={false}
+                    center={[PIE_CHART_CENTER_X, 0]}
+                    style={styles.pieChart}
+                  />
+                </View>
+                <View style={styles.legendContainer}>
+                  {pieData.map((d) => (
+                    <View key={d.name} style={styles.legendItem}>
+                      <View style={[styles.legendDot, { backgroundColor: d.color }]} />
+                      <Text style={styles.legendText}>
+                        {Number(d.amount.toFixed(2))} {d.name}
+                      </Text>
+                    </View>
+                  ))}
+                </View>
+              </>
             ) : (
               <Text style={styles.noData}>No receipts yet!</Text>
             )}
@@ -254,11 +278,42 @@ const styles = StyleSheet.create({
     borderRadius: 20,
     padding: 20,
     width: "90%",
-    overflow: "hidden",
+    overflow: "visible",
+    alignItems: "center",
   },
-  chartTitle: { fontSize: 16, fontWeight: "bold", marginBottom: 12 },
+  chartTitle: { fontSize: 16, fontWeight: "bold", marginBottom: 12, textAlign: "center" },
   noData: { fontSize: 15, color: "#666", marginTop: 10, textAlign: "center" },
   center: { flex: 1, justifyContent: "center", alignItems: "center" },
+  legendContainer: {
+    marginTop: 12,
+    width: "100%",
+    alignItems: "center",
+  },
+  legendItem: {
+    flexDirection: "row",
+    alignItems: "center",
+    marginBottom: 8,
+    maxWidth: "90%",
+  },
+  legendDot: {
+    width: 12,
+    height: 12,
+    borderRadius: 6,
+    marginRight: 8,
+  },
+  legendText: {
+    fontSize: 13,
+    color: "#333",
+    flexShrink: 1,
+  },
+  pieChartWrapper: {
+    width: "100%",
+    alignItems: "center",
+    paddingHorizontal: 6,
+  },
+  pieChart: {
+    alignSelf: "center",
+  },
   chartRow: {
     flexDirection: "row",
     alignItems: "flex-end",
