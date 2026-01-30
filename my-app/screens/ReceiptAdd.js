@@ -675,6 +675,7 @@ const handleConfirmDate = (date) => {
               ref={flatListRef}
               data={[...images, { addButton: true }]}
               horizontal
+              nestedScrollEnabled={true}
               keyExtractor={(item, index) => index.toString()}
               renderItem={({ item }) =>
                 item.addButton ? (

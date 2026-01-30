@@ -623,6 +623,7 @@ export default function ReceiptDetailsScreen({ route, navigation }) {
         <FlatList
           data={[...images, { addButton: true }]}
           horizontal
+          nestedScrollEnabled={true}
           keyExtractor={(_, index) => index.toString()}
           renderItem={({ item }) =>
             item.addButton ? (

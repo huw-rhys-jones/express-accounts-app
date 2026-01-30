@@ -16,11 +16,12 @@ import { groupReceiptsByMonth } from "../utils/groupByMonth";
 
 const screenWidth = Dimensions.get("window").width;
 const CHART_CARD_WIDTH = screenWidth * 0.9;
-const CHART_CARD_PADDING = 20;
+const CHART_CARD_PADDING = 15;
 const PIE_CHART_SIZE = Math.max(
   0,
   Math.min(screenWidth * 0.7, CHART_CARD_WIDTH - CHART_CARD_PADDING * 2)
 );
+const PIE_CHART_PADDING_LEFT = Math.round(PIE_CHART_SIZE * 0.13);
 const PIE_CHART_CENTER_X = PIE_CHART_SIZE * 0.12;
 const BAR_CHART_HEIGHT = 220;
 const Y_AXIS_WIDTH = 46;
@@ -158,7 +159,7 @@ export default function SummaryScreen({ navigation }) {
                     chartConfig={chartConfig}
                     accessor="population"
                     backgroundColor="transparent"
-                    paddingLeft="12"
+                    paddingLeft={PIE_CHART_PADDING_LEFT}
                     absolute
                     hasLegend={false}
                     center={[PIE_CHART_CENTER_X, 0]}
@@ -170,7 +171,7 @@ export default function SummaryScreen({ navigation }) {
                     <View key={d.name} style={styles.legendItem}>
                       <View style={[styles.legendDot, { backgroundColor: d.color }]} />
                       <Text style={styles.legendText}>
-                        {Number(d.amount.toFixed(2))} {d.name}
+                        {d.name}: £{Number(d.amount).toFixed(2)}
                       </Text>
                     </View>
                   ))}
@@ -199,6 +200,7 @@ export default function SummaryScreen({ navigation }) {
                 horizontal
                 showsHorizontalScrollIndicator={false}
                 contentContainerStyle={{ paddingRight: 12 }}
+                nestedScrollEnabled={true}
               >
                 <BarChart
                   data={{
