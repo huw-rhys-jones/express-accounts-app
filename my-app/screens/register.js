@@ -159,14 +159,14 @@ const SignUpScreen = ({ navigation }) => {
 
             {/* Header */}
             <View style={styles.header}>
-              <Text style={styles.title}>Create new{"\n"}Account</Text>
+              <Text style={styles.headerText}>Create new account</Text>
               <Text style={styles.subtitle}>
-                Already Registered?{" "}
+                Already registered?{" "}
                 <Text
                   onPress={() => navigation.navigate("SignIn")}
                   style={styles.link}
                 >
-                  Log in here.
+                  Log in here
                 </Text>
               </Text>
             </View>
@@ -303,6 +303,8 @@ const styles = StyleSheet.create({
   // Floating logo card
   logoContainer: {
     backgroundColor: "#fff",
+    width: "85%",
+    maxWidth: 400,
     paddingVertical: 16,
     paddingHorizontal: 32,
     borderRadius: 16,
@@ -322,37 +324,44 @@ const styles = StyleSheet.create({
   },
 
   header: {
+    backgroundColor: "#FFF",
+    paddingVertical: 12,
+    paddingHorizontal: 24,
+    borderRadius: 20,
     width: "85%",
-    backgroundColor: "#E5E4F2",
-    padding: 20,
-    borderTopLeftRadius: 20,
-    borderTopRightRadius: 20,
+    maxWidth: 400,
+    alignSelf: "center",
+    marginBottom: 20,
     alignItems: "center",
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    elevation: 3,
   },
-  title: {
-    fontSize: 26,
+  headerText: {
+    fontSize: 18,
     fontWeight: "bold",
+    color: "#262261",
     textAlign: "center",
-    color: "#1C1A4D",
     marginBottom: 8,
   },
   subtitle: {
     fontSize: 14,
     color: "#555",
     textAlign: "center",
-    marginBottom: 15,
   },
   link: {
-    color: "#B00040",
+    color: "#a60d49",
     fontWeight: "bold",
   },
 
   form: {
     width: "85%",
+    maxWidth: 400,
     backgroundColor: "#E5E4F2",
     padding: 20,
-    borderBottomLeftRadius: 20,
-    borderBottomRightRadius: 20,
+    borderRadius: 20,
   },
   label: {
     fontSize: 12,

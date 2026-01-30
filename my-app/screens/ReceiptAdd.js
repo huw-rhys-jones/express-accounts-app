@@ -21,6 +21,7 @@ import {
 import { Button, Checkbox } from "react-native-paper";
 import DateTimePickerModal from "react-native-modal-datetime-picker";
 import * as ImagePicker from "react-native-image-picker";
+import { KeyboardAwareScrollView } from "react-native-keyboard-aware-scroll-view";
 import DropDownPicker from "react-native-dropdown-picker";
 import { db, auth } from "../firebaseConfig";
 import { addDoc, collection, serverTimestamp } from "firebase/firestore";
@@ -527,9 +528,14 @@ const handleConfirmDate = (date) => {
       behavior={Platform.OS === "ios" ? "padding" : "height"}
     >
       <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
-        <View style={styles.container}>
-          <View style={styles.borderContainer}>
-            <Text style={styles.header}>Your Receipt</Text>
+        <KeyboardAwareScrollView
+          contentContainerStyle={{ flexGrow: 1, paddingBottom: 40 }}
+          enableOnAndroid={true}
+          keyboardShouldPersistTaps="handled"
+        >
+          <View style={styles.container}>
+            <View style={styles.borderContainer}>
+              <Text style={styles.header}>Your Receipt</Text>
 
             {/* Amount */}
             <Text style={styles.label}>Amount:</Text>
@@ -717,8 +723,9 @@ const handleConfirmDate = (date) => {
             >
               Reset Form
             </Button>
+            </View>
           </View>
-        </View>
+        </KeyboardAwareScrollView>
       </TouchableWithoutFeedback>
 
       {/* Confirmation Modal */}
