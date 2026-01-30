@@ -26,6 +26,7 @@ import * as AppleAuthentication from "expo-apple-authentication";
 import * as Crypto from "expo-crypto";
 import { GoogleLogo } from "../utils/format_style";
 import { Ionicons } from "@expo/vector-icons";
+import { KeyboardAwareScrollView } from "react-native-keyboard-aware-scroll-view";
 
 WebBrowser.maybeCompleteAuthSession();
 
@@ -318,14 +319,19 @@ const LoginScreen = ({ navigation }) => {
       style={styles.flex}
       behavior={Platform.OS === "ios" ? "padding" : "height"}
     >
-      <View style={styles.logoContainer}>
-        <Image
-          source={require("../assets/images/logo.png")}
-          style={styles.logo}
-        />
-      </View>
+      <KeyboardAwareScrollView
+        contentContainerStyle={{ flexGrow: 1 }}
+        enableOnAndroid={true}
+        keyboardShouldPersistTaps="handled"
+      >
+        <View style={styles.logoContainer}>
+          <Image
+            source={require("../assets/images/logo.png")}
+            style={styles.logo}
+          />
+        </View>
 
-      <View style={styles.container}>
+        <View style={styles.container}>
         <View style={styles.header}>
           <Text style={styles.headerText}>Sign in to continue</Text>
         </View>
@@ -375,15 +381,6 @@ const LoginScreen = ({ navigation }) => {
             <Text style={styles.loginButtonText}>Log in</Text>
           </TouchableOpacity>
 
-          {/* Secondary actions */}
-          <TouchableOpacity onPress={openForgot}>
-            <Text style={styles.forgotPassword}>Forgot Password?</Text>
-          </TouchableOpacity>
-
-          <TouchableOpacity onPress={() => navigation.navigate("SignUp")}>
-            <Text style={styles.signup}>Signup</Text>
-          </TouchableOpacity>
-
           {/* Social buttons */}
           {Platform.OS === "android" && (
             <TouchableOpacity
@@ -411,6 +408,17 @@ const LoginScreen = ({ navigation }) => {
               onPress={onAppleButtonPress}
             />
           )}
+
+          {/* Secondary actions */}
+          <View style={styles.linksRow}>
+            <TouchableOpacity onPress={() => navigation.navigate("SignUp")}>
+              <Text style={styles.signup}>Create account</Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity onPress={openForgot}>
+              <Text style={styles.forgotPassword}>Forgot Password?</Text>
+            </TouchableOpacity>
+          </View>
         </View>
       </View>
 
@@ -478,6 +486,8 @@ const LoginScreen = ({ navigation }) => {
           </View>
         </View>
       </Modal>
+
+      </KeyboardAwareScrollView>
     </KeyboardAvoidingView>
   );
 };
@@ -495,10 +505,11 @@ const styles = StyleSheet.create({
     paddingVertical: 12,
     paddingHorizontal: 32,
     borderRadius: 20,
+    width: "85%",
+    maxWidth: 400,
     alignSelf: "center",
     marginTop: -10,
     marginBottom: 20,
-    minWidth: 220,
     alignItems: "center",
   },
   headerText: {
@@ -507,16 +518,21 @@ const styles = StyleSheet.create({
     color: "#262261",
     textAlign: "center",
   },
-  logo: { width: 260, height: 80, resizeMode: "contain" },
+  logo: { 
+    width: 260,
+    height: 80,
+    resizeMode: "contain" 
+  },
   logoContainer: {
     backgroundColor: "#fff",
     width: "85%",
+    maxWidth: 400,
     paddingVertical: 16,
     borderRadius: 20,
     alignItems: "center",
     justifyContent: "center",
     marginTop: 50,
-    marginBottom: 15,
+    marginBottom: 30,
     alignSelf: "center",
     shadowColor: "#000",
     shadowOffset: { width: 0, height: 4 },
@@ -529,6 +545,7 @@ const styles = StyleSheet.create({
     padding: 20,
     borderRadius: 20,
     width: "85%",
+    maxWidth: 400,
   },
 
   label: {
@@ -601,16 +618,19 @@ const styles = StyleSheet.create({
   appleButton: { width: "100%", height: 50, marginTop: 16 },
 
   // Links
-  forgotPassword: {
+  linksRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
     marginTop: 12,
-    textAlign: "center",
+    width: "100%",
+  },
+  forgotPassword: {
     color: "#555",
     fontSize: 14,
     textDecorationLine: "underline",
   },
   signup: {
-    marginTop: 8,
-    textAlign: "center",
     color: "#a60d49",
     fontWeight: "bold",
     fontSize: 15,
