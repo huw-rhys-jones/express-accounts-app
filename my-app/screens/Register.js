@@ -16,6 +16,7 @@ import { auth } from "../firebaseConfig";
 import { createUserWithEmailAndPassword, updateProfile } from "firebase/auth";
 import { Ionicons } from "@expo/vector-icons";
 import { KeyboardAwareScrollView } from "react-native-keyboard-aware-scroll-view";
+import { Colors } from "../utils/sharedStyles";
 
 const looksLikeEmail = (s) => /\S+@\S+\.\S+/.test(String(s || "").trim());
 
@@ -139,7 +140,7 @@ const SignUpScreen = ({ navigation }) => {
   );
 
   return (
-    <SafeAreaView style={{ flex: 1, backgroundColor: "#151337" }}>
+    <SafeAreaView style={{ flex: 1, backgroundColor: Colors.background }}>
       <TouchableWithoutFeedback onPress={Keyboard.dismiss} accessible={false}>
         <KeyboardAwareScrollView
           contentContainerStyle={{ flexGrow: 1, paddingBottom: 40 }} // 👈 padding for Android nav bar
@@ -295,14 +296,14 @@ const SignUpScreen = ({ navigation }) => {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: "#151337",
+    backgroundColor: Colors.background,
     alignItems: "center",
     paddingTop: 40,
   },
 
   // Floating logo card
   logoContainer: {
-    backgroundColor: "#fff",
+    backgroundColor: Colors.surface,
     width: "85%",
     maxWidth: 400,
     paddingVertical: 16,
@@ -324,7 +325,7 @@ const styles = StyleSheet.create({
   },
 
   header: {
-    backgroundColor: "#FFF",
+    backgroundColor: Colors.surface,
     paddingVertical: 12,
     paddingHorizontal: 24,
     borderRadius: 20,
@@ -342,40 +343,40 @@ const styles = StyleSheet.create({
   headerText: {
     fontSize: 18,
     fontWeight: "bold",
-    color: "#262261",
+    color: Colors.textPrimary,
     textAlign: "center",
     marginBottom: 8,
   },
   subtitle: {
     fontSize: 14,
-    color: "#555",
+    color: Colors.textMuted,
     textAlign: "center",
   },
   link: {
-    color: "#a60d49",
+    color: Colors.accent,
     fontWeight: "bold",
   },
 
   form: {
     width: "85%",
     maxWidth: 400,
-    backgroundColor: "#E5E4F2",
+    backgroundColor: Colors.card,
     padding: 20,
     borderRadius: 20,
   },
   label: {
     fontSize: 12,
     fontWeight: "bold",
-    color: "#1C1A4D",
+    color: Colors.textPrimary,
     marginTop: 10,
   },
   input: {
     width: "100%",
     padding: 12,
     borderRadius: 10,
-    backgroundColor: "#C4C3CC",
+    backgroundColor: Colors.inputBg,
     marginTop: 6,
-    color: "#000",
+    color: Colors.textSecondary,
   },
   inputError: {
     borderWidth: 1,
@@ -420,7 +421,7 @@ const styles = StyleSheet.create({
   },
 
   button: {
-    backgroundColor: "#a60d49",
+    backgroundColor: Colors.accent,
     paddingVertical: 12,
     borderRadius: 25,
     alignItems: "center",

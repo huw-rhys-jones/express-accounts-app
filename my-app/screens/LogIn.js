@@ -5,7 +5,6 @@ import {
   TextInput,
   TouchableOpacity,
   StyleSheet,
-  KeyboardAvoidingView,
   Platform,
   Image,
   ActivityIndicator,
@@ -27,6 +26,7 @@ import * as Crypto from "expo-crypto";
 import { GoogleLogo } from "../utils/format_style";
 import { Ionicons } from "@expo/vector-icons";
 import { KeyboardAwareScrollView } from "react-native-keyboard-aware-scroll-view";
+import { Colors } from "../utils/sharedStyles";
 
 WebBrowser.maybeCompleteAuthSession();
 
@@ -315,10 +315,7 @@ const LoginScreen = ({ navigation }) => {
   };
 
   return (
-    <KeyboardAvoidingView
-      style={styles.flex}
-      behavior={Platform.OS === "ios" ? "padding" : "height"}
-    >
+    <View style={styles.flex}>
       <KeyboardAwareScrollView
         contentContainerStyle={{ flexGrow: 1 }}
         enableOnAndroid={true}
@@ -488,20 +485,20 @@ const LoginScreen = ({ navigation }) => {
       </Modal>
 
       </KeyboardAwareScrollView>
-    </KeyboardAvoidingView>
+    </View>
   );
 };
 
 const styles = StyleSheet.create({
-  flex: { flex: 1, backgroundColor: "#262261" },
+  flex: { flex: 1, backgroundColor: Colors.background },
   container: {
     flex: 1,
-    backgroundColor: "#262261",
+    backgroundColor: Colors.background,
     alignItems: "center",
     justifyContent: "center",
   },
   header: {
-    backgroundColor: "#FFF",
+    backgroundColor: Colors.surface,
     paddingVertical: 12,
     paddingHorizontal: 32,
     borderRadius: 20,
@@ -515,7 +512,7 @@ const styles = StyleSheet.create({
   headerText: {
     fontSize: 18,
     fontWeight: "bold",
-    color: "#262261",
+    color: Colors.textPrimary,
     textAlign: "center",
   },
   logo: { 
@@ -524,7 +521,7 @@ const styles = StyleSheet.create({
     resizeMode: "contain" 
   },
   logoContainer: {
-    backgroundColor: "#fff",
+    backgroundColor: Colors.surface,
     width: "85%",
     maxWidth: 400,
     paddingVertical: 16,
@@ -541,7 +538,7 @@ const styles = StyleSheet.create({
     elevation: 6,
   },
   formContainer: {
-    backgroundColor: "#EAEAF2",
+    backgroundColor: Colors.card,
     padding: 20,
     borderRadius: 20,
     width: "85%",
@@ -551,14 +548,14 @@ const styles = StyleSheet.create({
   label: {
     fontSize: 16,
     fontWeight: "bold",
-    color: "#333",
+    color: Colors.textSecondary,
     marginTop: 10,
   },
 
   // ---- Unified input style for both fields ----
   input: {
-    backgroundColor: "#C4C4C4",
-    color: "#000",
+    backgroundColor: Colors.inputBg,
+    color: Colors.textSecondary,
     fontSize: 16,
     paddingVertical: 12,
     paddingHorizontal: 12,
@@ -590,7 +587,7 @@ const styles = StyleSheet.create({
   },
 
   loginButton: {
-    backgroundColor: "#a60d49",
+    backgroundColor: Colors.accent,
     paddingVertical: 12,
     borderRadius: 25,
     alignItems: "center",
@@ -599,7 +596,7 @@ const styles = StyleSheet.create({
   loginButtonText: { color: "#FFF", fontWeight: "bold", fontSize: 16 },
 
   googleButton: {
-    backgroundColor: "#FFF",
+    backgroundColor: Colors.surface,
     paddingVertical: 12,
     borderRadius: 25,
     alignItems: "center",
@@ -613,7 +610,7 @@ const styles = StyleSheet.create({
     fontWeight: "bold",
     fontSize: 16,
     marginRight: 8,
-    color: "#000",
+    color: Colors.textSecondary,
   },
   appleButton: { width: "100%", height: 50, marginTop: 16 },
 
@@ -626,12 +623,12 @@ const styles = StyleSheet.create({
     width: "100%",
   },
   forgotPassword: {
-    color: "#555",
+    color: Colors.textMuted,
     fontSize: 14,
     textDecorationLine: "underline",
   },
   signup: {
-    color: "#a60d49",
+    color: Colors.accent,
     fontWeight: "bold",
     fontSize: 15,
   },
@@ -644,7 +641,7 @@ const styles = StyleSheet.create({
     alignItems: "center",
   },
   loadingCard: {
-    backgroundColor: "white",
+    backgroundColor: Colors.surface,
     paddingVertical: 20,
     paddingHorizontal: 24,
     borderRadius: 12,
