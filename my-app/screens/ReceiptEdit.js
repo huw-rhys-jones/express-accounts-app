@@ -877,6 +877,8 @@ const styles = StyleSheet.create({
     padding: 10,
     borderRadius: 5,
     marginTop: 5,
+    color: "#000",
+    backgroundColor: "#fff",
   },
 
   // Standardized VAT layout
@@ -911,6 +913,7 @@ const styles = StyleSheet.create({
     fontSize: 16,
     paddingHorizontal: 12,
     backgroundColor: "#ffffff",
+    color: "#000",
   },
   vatRatePicker: {
     backgroundColor: "#ffffff",

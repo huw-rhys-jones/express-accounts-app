@@ -390,7 +390,7 @@ const styles = StyleSheet.create({
     minHeight: 60,
   },
   receiptDate: { fontSize: 14, color: "#555" },
-  receiptCategory: { fontSize: 16, fontWeight: "500" },
+  receiptCategory: { fontSize: 16, fontWeight: "500", color: "#000" },
   receiptAmount: { fontSize: 16, fontWeight: "bold", color: "#a60d49" },
 
   floatingButton: {

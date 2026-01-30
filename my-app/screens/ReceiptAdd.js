@@ -1100,6 +1100,8 @@ const styles = StyleSheet.create({
     flex: 1,
     fontSize: 16,
     margin: 8,
+    color: "#000",
+    backgroundColor: "#fff",
   },
 
   // VAT layout
@@ -1130,6 +1132,7 @@ const styles = StyleSheet.create({
     fontSize: 16,
     backgroundColor: "#ffffff",
     marginTop: 8,           // Match the picker's margin exactly
+    color: "#000",
   },
   vatRatePicker: {
     backgroundColor: "#ffffff",
