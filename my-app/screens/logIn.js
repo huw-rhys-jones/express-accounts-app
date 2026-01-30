@@ -5,7 +5,6 @@ import {
   TextInput,
   TouchableOpacity,
   StyleSheet,
-  KeyboardAvoidingView,
   Platform,
   Image,
   ActivityIndicator,
@@ -315,10 +314,7 @@ const LoginScreen = ({ navigation }) => {
   };
 
   return (
-    <KeyboardAvoidingView
-      style={styles.flex}
-      behavior={Platform.OS === "ios" ? "padding" : "height"}
-    >
+    <View style={styles.flex}>
       <KeyboardAwareScrollView
         contentContainerStyle={{ flexGrow: 1 }}
         enableOnAndroid={true}
@@ -488,7 +484,7 @@ const LoginScreen = ({ navigation }) => {
       </Modal>
 
       </KeyboardAwareScrollView>
-    </KeyboardAvoidingView>
+    </View>
   );
 };
 
