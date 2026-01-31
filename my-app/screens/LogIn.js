@@ -553,6 +553,7 @@ const styles = StyleSheet.create({
   },
 
   // ---- Unified input style for both fields ----
+  // 1. Remove margins from the base input so it doesn't shift away from the icon
   input: {
     backgroundColor: Colors.inputBg,
     color: Colors.textSecondary,
@@ -560,30 +561,33 @@ const styles = StyleSheet.create({
     paddingVertical: 12,
     paddingHorizontal: 12,
     borderRadius: 10,
-    marginTop: 5,
-    marginBottom: 15,
+    // marginTop: 5,    <-- REMOVE THIS
+    // marginBottom: 15, <-- REMOVE THIS
   },
 
-  // Password wrapper so we can place the eye icon inside
+  // 2. Move those margins to the container instead
   passwordContainer: {
     position: "relative",
     justifyContent: "center",
+    marginTop: 5,      // <-- ADDED HERE
+    marginBottom: 15,   // <-- ADDED HERE
   },
 
-  // Extra right padding so text doesn't overlap the eye icon
   inputWithIcon: {
     paddingRight: 44,
   },
 
-  // Eye icon aligned inside the input, vertically centered
   eyeIcon: {
     position: "absolute",
     right: 10,
+    // Removing top: 0 and bottom: 0 is fine if the parent has a defined height, 
+    // but keeping them with justifyContent: 'center' is the safest way to center.
     top: 0,
     bottom: 0,
     justifyContent: "center",
     alignItems: "center",
     width: 32,
+    zIndex: 1, // Ensure it sits above the input for taps
   },
 
   loginButton: {

@@ -375,7 +375,7 @@ const styles = StyleSheet.create({
     padding: 12,
     borderRadius: 10,
     backgroundColor: Colors.inputBg,
-    marginTop: 6,
+    // marginTop: 6, <--- REMOVE THIS
     color: Colors.textSecondary,
   },
   inputError: {
@@ -384,13 +384,17 @@ const styles = StyleSheet.create({
   },
 
   // Eye-in-input pattern
+  // 2. Move the margin and relative positioning to the container
   passwordContainer: {
     position: "relative",
     justifyContent: "center",
+    marginTop: 6,    // <--- ADDED HERE (matches your previous input margin)
+    marginBottom: 0, // Adjust if you need spacing below the confirm box
   },
   inputWithIcon: {
     paddingRight: 44,
   },
+// 3. Ensure the icon fills the height of the container to center correctly
   eyeIcon: {
     position: "absolute",
     right: 10,
@@ -399,6 +403,7 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     alignItems: "center",
     width: 32,
+    zIndex: 1, 
   },
 
   requirements: {
