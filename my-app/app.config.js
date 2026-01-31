@@ -1,4 +1,5 @@
 import 'dotenv/config';
+import pkg from './package.json'; // Import your package.json
 
 export default ({ config }) => ({
   ...config,
@@ -36,6 +37,7 @@ export default ({ config }) => ({
 
   android: {
     package: "com.caistec.expressaccounts",
+    versionCode: 15,
     adaptiveIcon: {
       foregroundImage: "./assets/adaptive-icon.png",
       backgroundColor: "#ffffff"
