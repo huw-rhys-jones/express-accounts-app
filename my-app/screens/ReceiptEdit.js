@@ -36,6 +36,7 @@ import TextRecognition from '@react-native-ml-kit/text-recognition';
 import * as FileSystem from "expo-file-system/legacy";
 import { extractData } from "../utils/extractors";
 import ImageViewer from "react-native-image-zoom-viewer";
+import { Colors } from "../utils/sharedStyles";
 
 export default function ReceiptDetailsScreen({ route, navigation }) {
   const { receipt } = route.params;
@@ -491,7 +492,8 @@ export default function ReceiptDetailsScreen({ route, navigation }) {
         keyboardShouldPersistTaps="handled"
       >
         <View style={styles.container}>
-          <Text style={styles.header}>Edit Receipt</Text>
+          <View style={styles.borderContainer}>
+            <Text style={styles.header}>Edit Receipt</Text>
 
         {/* Amount */}
         <Text style={styles.label}>Amount (£)</Text>
@@ -623,6 +625,7 @@ export default function ReceiptDetailsScreen({ route, navigation }) {
         <FlatList
           data={[...images, { addButton: true }]}
           horizontal
+          nestedScrollEnabled={true}
           keyExtractor={(_, index) => index.toString()}
           renderItem={({ item }) =>
             item.addButton ? (
@@ -679,6 +682,7 @@ export default function ReceiptDetailsScreen({ route, navigation }) {
             </Button>
           </View>
         </View>
+          </View>
         </View>
 
       </KeyboardAwareScrollView>
@@ -857,14 +861,23 @@ export default function ReceiptDetailsScreen({ route, navigation }) {
 const styles = StyleSheet.create({
   safeArea: {
     flex: 1,
-    backgroundColor: "#fff",
+    backgroundColor: Colors.background,
   },
   container: {
     flex: 1,
     padding: 16,
+    alignItems: "center",
   },
-  header: { fontSize: 22, fontWeight: "bold", marginBottom: 16 },
-  label: { fontSize: 16, marginTop: 10, marginBottom: 6 },
+  borderContainer: {
+    borderWidth: 5,
+    borderColor: Colors.background,
+    borderRadius: 35,
+    padding: 20,
+    width: "90%",
+    backgroundColor: Colors.surface,
+  },
+  header: { fontSize: 22, fontWeight: "bold", marginBottom: 16, color: Colors.accent },
+  label: { fontSize: 16, marginTop: 10, marginBottom: 6, color: Colors.textSecondary },
 
   inputRow: {
     flexDirection: "row",
@@ -873,10 +886,12 @@ const styles = StyleSheet.create({
 
   input: {
     borderWidth: 1,
-    borderColor: "#ccc",
+    borderColor: Colors.border,
     padding: 10,
     borderRadius: 5,
     marginTop: 5,
+    color: Colors.textSecondary,
+    backgroundColor: Colors.surface,
   },
 
   // Standardized VAT layout
@@ -904,37 +919,38 @@ const styles = StyleSheet.create({
   },
   vatInput: {
     borderWidth: 1,
-    borderColor: "#ccc",
+    borderColor: Colors.border,
     borderRadius: 5,
     height: 50,           // Standardized height
     flex: 1,
     fontSize: 16,
     paddingHorizontal: 12,
-    backgroundColor: "#ffffff",
+    backgroundColor: Colors.surface,
+    color: Colors.textSecondary,
   },
   vatRatePicker: {
-    backgroundColor: "#ffffff",
-    borderColor: "#ccc",
+    backgroundColor: Colors.surface,
+    borderColor: Colors.border,
     height: 50,           // Matches vatInput exactly
     paddingHorizontal: 8,
     // Removed marginTop here to prevent double-spacing
   },
   vatRateDropdown: {
-    backgroundColor: "#ffffff",
-    borderColor: "#ccc",
+    backgroundColor: Colors.surface,
+    borderColor: Colors.border,
     zIndex: 5000,
   },
 
   dateButton: {
     borderWidth: 1,
-    borderColor: "#ccc",
+    borderColor: Colors.border,
     padding: 10,
     borderRadius: 5,
     marginTop: 5,
   },
 
-  dropdown: { marginTop: 5, backgroundColor: "#fafafa", borderColor: "#ccc" },
-  dropdownContainer: { borderColor: "#ccc", backgroundColor: "#fafafa" },
+  dropdown: { marginTop: 5, backgroundColor: Colors.surface, borderColor: Colors.border },
+  dropdownContainer: { borderColor: Colors.border, backgroundColor: Colors.surface },
 
   receiptImage: {
     width: 100,
@@ -947,11 +963,11 @@ const styles = StyleSheet.create({
     height: 150,
     justifyContent: "center",
     alignItems: "center",
-    backgroundColor: "#f0f0f0",
+    backgroundColor: Colors.surface,
     borderRadius: 5,
     marginRight: 10,
   },
-  plus: { fontSize: 30, color: "#a60d49" },
+  plus: { fontSize: 30, color: Colors.accent },
 
   bottomButtons: {
     marginTop: 6,
@@ -979,7 +995,7 @@ const styles = StyleSheet.create({
     padding: 20,
   },
   modalContent: {
-    backgroundColor: "white",
+    backgroundColor: Colors.surface,
     borderRadius: 10,
     padding: 20,
   },
@@ -994,7 +1010,7 @@ const styles = StyleSheet.create({
     marginTop: 8,
     marginBottom: 12,
   },
-  scanningText: { marginTop: 8, fontStyle: "italic", color: "#555" },
+  scanningText: { marginTop: 8, fontStyle: "italic", color: Colors.textMuted },
   ocrRow: { flexDirection: "row", alignItems: "center", marginTop: 8 },
   ocrLabel: { fontWeight: "600", marginRight: 6 },
   ocrValue: { flexShrink: 1 },
@@ -1023,7 +1039,7 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
   uploadCard: {
-    backgroundColor: "#fff",
+    backgroundColor: Colors.surface,
     paddingVertical: 20,
     paddingHorizontal: 24,
     borderRadius: 12,

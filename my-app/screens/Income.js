@@ -7,13 +7,14 @@ import {
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
+import { Colors, SharedStyles } from "../utils/sharedStyles";
 
 const IncomeScreen = () => {
   return (
     <SafeAreaView style={styles.container}>
       {/* Header */}
       <View style={styles.header}>
-        <Ionicons name="menu" size={24} color="black" />
+        <Ionicons name="menu" size={24} color={Colors.textSecondary} />
       </View>
 
       {/* Welcome Section */}
@@ -59,52 +60,26 @@ export default IncomeScreen;
 
 /* 📌 Styles */
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: "#302C66",
-    alignItems: "center",
-    paddingTop: 0,
-  },
+  container: SharedStyles.screen,
   header: {
     width: "100%",
     height: 60,
-    backgroundColor: "#B5B3C6",
+    backgroundColor: Colors.card,
     justifyContent: "center",
     
     paddingLeft: 20,
   },
-  card: {
-    backgroundColor: "#E5E5EA",
-    width: "85%",
-    padding: 22,
-    borderRadius: 20,
-    marginTop: 40,
-    alignItems: "center",
-  },
-  title: {
-    fontSize: 19,
-    fontWeight: "bold",
-    color: "#1C1C4E",
-  },
-  subtitle: {
-    fontSize: 17,
-    color: "#1C1C4E",
-    marginTop: 15,
-    textAlign: "center",
-  },
-  description: {
-    fontSize: 16,
-    color: "#1C1C4E",
-    textAlign: "center",
-    marginTop: 10,
-  },
+  card: { ...SharedStyles.card, width: "85%" },
+  title: { fontSize: 19, fontWeight: "bold", color: Colors.textPrimary },
+  subtitle: { fontSize: 17, color: Colors.textPrimary, marginTop: 15, textAlign: "center" },
+  description: { fontSize: 16, color: Colors.textPrimary, textAlign: "center", marginTop: 10 },
   addButton: {
-    backgroundColor: "#a60d49",
+    backgroundColor: Colors.accent,
     paddingVertical: 16,
     paddingHorizontal: 46,
     borderRadius: 35,
     marginTop: 50,
-    shadowColor: "#a60d49",
+    shadowColor: Colors.accent,
     shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.3,
     shadowRadius: 5,
@@ -120,7 +95,7 @@ const styles = StyleSheet.create({
     bottom: 0,
     width: "100%",
     height: 60,
-    backgroundColor: "#B5B3C6",
+    backgroundColor: Colors.card,
     flexDirection: "row",
     justifyContent: "space-around",
     alignItems: "center",
@@ -128,12 +103,6 @@ const styles = StyleSheet.create({
   navItem: {
     padding: 10,
   },
-  navText: {
-    fontSize: 14,
-    color: "#7B7B7B",
-  },
-  activeNav: {
-    fontWeight: "bold",
-    color: "#1C1C4E",
-  },
+  navText: { fontSize: 14, color: Colors.textMuted },
+  activeNav: { fontWeight: "bold", color: Colors.textPrimary },
 });

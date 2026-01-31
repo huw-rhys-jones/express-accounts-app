@@ -32,6 +32,7 @@ import TextRecognition from '@react-native-ml-kit/text-recognition';
 import * as FileSystem from "expo-file-system/legacy";
 import { extractData } from "../utils/extractors";
 import ImageViewer from "react-native-image-zoom-viewer";
+import { Colors } from "../utils/sharedStyles";
 
 const ReceiptAdd = ({ navigation }) => {
   const [amount, setAmount] = useState("");
@@ -675,6 +676,7 @@ const handleConfirmDate = (date) => {
               ref={flatListRef}
               data={[...images, { addButton: true }]}
               horizontal
+              nestedScrollEnabled={true}
               keyExtractor={(item, index) => index.toString()}
               renderItem={({ item }) =>
                 item.addButton ? (
@@ -1056,30 +1058,30 @@ const handleConfirmDate = (date) => {
 const styles = StyleSheet.create({
   container: {
     padding: 12,
-    backgroundColor: "#312e74",
+    backgroundColor: Colors.background,
     flex: 1,
     alignItems: "center",
     justifyContent: "center",
   },
   borderContainer: {
     borderWidth: 5,
-    borderColor: "#312e74",
+    borderColor: Colors.background,
     borderRadius: 35,
     padding: 20,
     width: "90%",
-    backgroundColor: "#FFFFFF",
+    backgroundColor: Colors.surface,
   },
   header: {
     fontSize: 22,
     fontWeight: "bold",
-    color: "#a60d49",
+    color: Colors.accent,
     marginBottom: 20,
     textAlign: "center",
   },
   label: {
     fontSize: 16,
     fontWeight: "bold",
-    color: "#333",
+    color: Colors.textSecondary,
     marginTop: 10,
     marginBottom: 6,
   },
@@ -1094,12 +1096,14 @@ const styles = StyleSheet.create({
   },
   input: {
     borderWidth: 1,
-    borderColor: "#ccc",
+    borderColor: Colors.border,
     borderRadius: 5,
     padding: 10,
     flex: 1,
     fontSize: 16,
     margin: 8,
+    color: Colors.textSecondary,
+    backgroundColor: Colors.surface,
   },
 
   // VAT layout
@@ -1123,25 +1127,26 @@ const styles = StyleSheet.create({
   },
   vatInput: {
     borderWidth: 1,
-    borderColor: "#ccc",
+    borderColor: Colors.border,
     borderRadius: 5,
     height: 50,             // Increased from 44 to 50 for a better touch target
     paddingHorizontal: 12,
     fontSize: 16,
-    backgroundColor: "#ffffff",
+    backgroundColor: Colors.surface,
     marginTop: 8,           // Match the picker's margin exactly
+    color: Colors.textSecondary,
   },
   vatRatePicker: {
-    backgroundColor: "#ffffff",
-    borderColor: "#ccc",
+    backgroundColor: Colors.surface,
+    borderColor: Colors.border,
     height: 50,             // MUST match vatInput height exactly
     justifyContent: 'center',
     paddingHorizontal: 8,
     // Do NOT put marginTop here
   },
   vatRateDropdown: {
-    backgroundColor: "#ffffff", // Critical: adds solid background to the list
-    borderColor: "#ccc",
+    backgroundColor: Colors.surface, // Critical: adds solid background to the list
+    borderColor: Colors.border,
     zIndex: 5000,              // Ensures the list itself stays on top
     shadowColor: "#000",       // Optional: adds a slight shadow for depth on iOS
     shadowOffset: { width: 0, height: 2 },
@@ -1151,22 +1156,22 @@ const styles = StyleSheet.create({
 
   dateButton: {
     borderWidth: 1,
-    borderColor: "#ccc",
+    borderColor: Colors.border,
     borderRadius: 5,
     padding: 10,
     margin: 25,
     marginRight: 36,
     marginLeft: 44,
   },
-  dateText: { fontSize: 16 },
+  dateText: { fontSize: 16, color: Colors.textPrimary },
 
   dropdown: {
-    backgroundColor: "#fafafa",
-    borderColor: "#ccc",
+    backgroundColor: Colors.surface,
+    borderColor: Colors.border,
   },
   dropdownContainer: {
-    backgroundColor: "#fafafa",
-    borderColor: "#ccc",
+    backgroundColor: Colors.surface,
+    borderColor: Colors.border,
   },
 
   receiptImage: {
@@ -1181,12 +1186,12 @@ const styles = StyleSheet.create({
     height: 150,
     borderRadius: 5,
     borderWidth: 1,
-    borderColor: "#ccc",
+    borderColor: Colors.border,
     justifyContent: "center",
     alignItems: "center",
-    backgroundColor: "#f5f5f5",
+    backgroundColor: Colors.surface,
   },
-  plus: { fontSize: 32, color: "#a60d49" },
+  plus: { fontSize: 32, color: Colors.accent },
 
   buttonContainer: {
     flexDirection: "row",
@@ -1203,7 +1208,7 @@ const styles = StyleSheet.create({
     padding: 20,
   },
   modalContent: {
-    backgroundColor: "white",
+    backgroundColor: Colors.surface,
     borderRadius: 10,
     padding: 20,
   },
