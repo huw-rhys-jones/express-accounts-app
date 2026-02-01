@@ -335,7 +335,7 @@ const LoginScreen = ({ navigation }) => {
         </View>
 
         <View style={AuthStyles.formContainer}>
-          
+
           <Text style={AuthStyles.label}>EMAIL</Text>
           <View style={AuthStyles.passwordContainer}>
             <TextInput
@@ -379,7 +379,7 @@ const LoginScreen = ({ navigation }) => {
             onPress={login}
             disabled={loading}
           >
-            <Text style={AuthStyles.loginButtonText}>Log in</Text>
+            <Text style={AuthStyles.loginButtonText}>Sign in</Text>
           </TouchableOpacity>
 
           {/* Social buttons */}

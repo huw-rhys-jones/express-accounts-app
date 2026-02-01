@@ -20,7 +20,7 @@ import Constants from 'expo-constants';
 import { Colors } from "../utils/sharedStyles";
 
 // Inside your component
-const appVersion = Constants.expoConfig?.version || "1.0.0";
+const appVersion = Constants.expoConfig?.version;
 
 
 
@@ -231,9 +231,11 @@ const ExpensesScreen = ({ navigation }) => {
           keyExtractor={(item) => item.id}
           renderItem={renderReceiptItem}
           contentContainerStyle={[
-            styles.listContainer,
-            !hasReceipts ? { flexGrow: 1, justifyContent: "center" } : null,
-          ]}
+              styles.listContainer,
+              // Add this line: only show the dark background if NOT loading
+              { backgroundColor: loading ? "transparent" : Colors.textPrimary },
+              !hasReceipts ? { flexGrow: 1, justifyContent: "center" } : null,
+            ]}
           refreshControl={
             <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
           }
@@ -417,7 +419,7 @@ const styles = StyleSheet.create({
   blockingOverlay: {
     position: "absolute",
     top: 0, left: 0, right: 0, bottom: 0,
-    backgroundColor: "rgba(0,0,0,0.3)",
+    backgroundColor: "rgba(0,0,0,0.5)", // Slightly darker for better contrast
     justifyContent: "center",
     alignItems: "center",
     zIndex: 999,

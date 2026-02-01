@@ -911,6 +911,7 @@ const handleConfirmDate = (date) => {
                   <Checkbox
                     status={acceptFlags.amount ? "checked" : "unchecked"}
                     onPress={() => toggleAccept("amount")}
+                    color={Colors.accent}
                   />
                   <Text style={styles.ocrLabel}>Amount:</Text>
                   <Text style={styles.ocrValue}>
@@ -923,6 +924,7 @@ const handleConfirmDate = (date) => {
                   <Checkbox
                     status={acceptFlags.date ? "checked" : "unchecked"}
                     onPress={() => toggleAccept("date")}
+                    color={Colors.accent}
                   />
                   <Text style={styles.ocrLabel}>Date:</Text>
                   <Text style={styles.ocrValue}>
@@ -935,6 +937,7 @@ const handleConfirmDate = (date) => {
                   <Checkbox
                     status={acceptFlags.category ? "checked" : "unchecked"}
                     onPress={() => toggleAccept("category")}
+                    color={Colors.accent}
                   />
                   <Text style={styles.ocrLabel}>Category:</Text>
                   <Text style={styles.ocrValue}>
@@ -947,6 +950,7 @@ const handleConfirmDate = (date) => {
                   <Checkbox
                     status={acceptFlags.vat ? "checked" : "unchecked"}
                     onPress={() => toggleAccept("vat")}
+                    color={Colors.accent}
                   />
                   <Text style={styles.ocrLabel}>VAT:</Text>
                   <Text style={styles.ocrValue}>
@@ -960,15 +964,15 @@ const handleConfirmDate = (date) => {
                     <Button
                       mode="outlined"
                       onPress={deleteCurrentImage}
-                      textColor="#a60d49"
+                      textColor={Colors.accent}
                     >
                       Delete Image
                     </Button>
                   )}
-                  <Button mode="text" onPress={handleCancelModal}>
+                  <Button buttonColor={Colors.accent} mode="contained" onPress={handleCancelModal}>
                     Cancel
                   </Button>
-                  <Button mode="contained" onPress={applyAcceptedValues}>
+                  <Button buttonColor={Colors.accent} mode="contained" onPress={applyAcceptedValues}>
                     Accept
                   </Button>
                 </View>

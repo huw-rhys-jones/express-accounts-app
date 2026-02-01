@@ -1,6 +1,4 @@
 import 'dotenv/config';
-import pkg from './package.json'; // Import your package.json
-import { Colors } from "./utils/sharedStyles";
 
 export default ({ config }) => ({
   ...config,
@@ -8,7 +6,7 @@ export default ({ config }) => ({
   name: "Express Accounts",
   slug: "express-accounts",
   scheme: "com.caistec.expressaccounts",
-  version: pkg.version,
+  version: "1.0.2",
   orientation: "portrait",
   icon: "./assets/icon.png",
   userInterfaceStyle: "light",
