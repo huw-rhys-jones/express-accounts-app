@@ -36,7 +36,7 @@ import TextRecognition from '@react-native-ml-kit/text-recognition';
 import * as FileSystem from "expo-file-system/legacy";
 import { extractData } from "../utils/extractors";
 import ImageViewer from "react-native-image-zoom-viewer";
-import { Colors } from "../utils/sharedStyles";
+import { Colors, ReceiptStyles } from "../utils/sharedStyles";
 
 export default function ReceiptDetailsScreen({ route, navigation }) {
   const { receipt } = route.params;
@@ -485,20 +485,20 @@ export default function ReceiptDetailsScreen({ route, navigation }) {
   };
 
   return (
-    <SafeAreaView style={styles.safeArea}>
+    <SafeAreaView style={ReceiptStyles.safeArea}>
       <KeyboardAwareScrollView
         contentContainerStyle={{ flexGrow: 1 }}
         enableOnAndroid={true}
         keyboardShouldPersistTaps="handled"
       >
-        <View style={styles.container}>
-          <View style={styles.borderContainer}>
-            <Text style={styles.header}>Edit Receipt</Text>
+        <View style={ReceiptStyles.container}>
+          <View style={ReceiptStyles.borderContainer}>
+            <Text style={ReceiptStyles.header}>Edit Receipt</Text>
 
         {/* Amount */}
-        <Text style={styles.label}>Amount (£)</Text>
+        <Text style={ReceiptStyles.label}>Amount (£)</Text>
         <TextInput
-          style={styles.input}
+          style={ReceiptStyles.input}
           value={amount}
           keyboardType="decimal-pad"
           onChangeText={(v) => {
@@ -510,14 +510,14 @@ export default function ReceiptDetailsScreen({ route, navigation }) {
         />
 
         {/* VAT Section */}
-<View style={styles.vatRow}>
+<View style={ReceiptStyles.vatRow}>
   {/* VAT Amount Column */}
-  <View style={styles.vatColLeft}>
-    <Text style={styles.label}>VAT Amount</Text>
-    <View style={styles.inputRow}>
-      <Text style={styles.vatCurrency}>£</Text>
+  <View style={ReceiptStyles.vatColLeft}>
+    <Text style={ReceiptStyles.label}>VAT Amount</Text>
+    <View style={ReceiptStyles.inputRow}>
+      <Text style={ReceiptStyles.vatCurrency}>£</Text>
       <TextInput
-        style={styles.vatInput}
+        style={ReceiptStyles.vatInput}
         keyboardType="decimal-pad"
         placeholder="0.00"
         value={vatAmount}
@@ -537,8 +537,8 @@ export default function ReceiptDetailsScreen({ route, navigation }) {
   </View>
 
   {/* VAT Rate Column */}
-  <View style={styles.vatColRight}>
-    <Text style={styles.label}>Rate (%)</Text>
+  <View style={ReceiptStyles.vatColRight}>
+    <Text style={ReceiptStyles.label}>Rate (%)</Text>
     <DropDownPicker
       open={vatRateOpen}
       value={vatRate}
@@ -547,8 +547,8 @@ export default function ReceiptDetailsScreen({ route, navigation }) {
       setValue={(set) => setVatRate(set(vatRate))}
       setItems={setVatRateItems}
       placeholder="Select"
-      style={styles.vatRatePicker}
-      dropDownContainerStyle={styles.vatRateDropdown}
+      style={ReceiptStyles.vatRatePicker}
+      dropDownContainerStyle={ReceiptStyles.vatRateDropdown}
       containerStyle={{ marginTop: 8 }} // This aligns the picker top with the "£" inputRow top
       zIndex={2000}
       zIndexInverse={2000}
@@ -566,9 +566,9 @@ export default function ReceiptDetailsScreen({ route, navigation }) {
 </View>
 
         {/* Date */}
-        <Text style={styles.label}>Date</Text>
+        <Text style={ReceiptStyles.label}>Date</Text>
         <TouchableOpacity
-          style={styles.dateButton}
+          style={ReceiptStyles.dateButton}
           onPress={() => setDatePickerVisibility(true)}
         >
           <Text>{formatDate(selectedDate)}</Text>
@@ -585,7 +585,7 @@ export default function ReceiptDetailsScreen({ route, navigation }) {
         />
 
         {/* Category */}
-        <Text style={styles.label}>Category</Text>
+        <Text style={ReceiptStyles.label}>Category</Text>
         <DropDownPicker
           listMode="MODAL"
           open={open}
@@ -617,8 +617,8 @@ export default function ReceiptDetailsScreen({ route, navigation }) {
             }
           }}
           placeholder="Select a category"
-          style={styles.dropdown}
-          dropDownContainerStyle={styles.dropdownContainer}
+          style={ReceiptStyles.dropdown}
+          dropDownContainerStyle={ReceiptStyles.dropdownContainer}
         />
 
         {/* Images */}
@@ -630,10 +630,10 @@ export default function ReceiptDetailsScreen({ route, navigation }) {
           renderItem={({ item }) =>
             item.addButton ? (
               <TouchableOpacity
-                style={styles.uploadPlaceholder}
+                style={ReceiptStyles.uploadPlaceholder}
                 onPress={pickImageOption}
               >
-                <Text style={styles.plus}>+</Text>
+                <Text style={ReceiptStyles.plus}>+</Text>
               </TouchableOpacity>
             ) : (
               <TouchableOpacity
@@ -642,7 +642,7 @@ export default function ReceiptDetailsScreen({ route, navigation }) {
                   openOcrModal(item.uri, { autoScan: true, newSession: false })
                 }
               >
-                <Image source={{ uri: item.uri }} style={styles.receiptImage} />
+                <Image source={{ uri: item.uri }} style={ReceiptStyles.receiptImage} />
               </TouchableOpacity>
             )
           }
@@ -651,13 +651,13 @@ export default function ReceiptDetailsScreen({ route, navigation }) {
         />
 
         {/* Bottom actions */}
-        <View style={styles.bottomButtons}>
-          <View style={styles.primaryRow}>
+        <View style={ReceiptStyles.bottomButtons}>
+          <View style={ReceiptStyles.primaryRow}>
             <Button
               mode="outlined"
               onPress={safeNavigateToExpenses}
               textColor="#555"
-              style={styles.actionBtn}
+              style={ReceiptStyles.actionBtn}
             >
               Cancel
             </Button>
@@ -665,18 +665,18 @@ export default function ReceiptDetailsScreen({ route, navigation }) {
               mode="contained"
               onPress={saveChanges}
               buttonColor="#a60d49"
-              style={styles.actionBtn}
+              style={ReceiptStyles.actionBtn}
             >
               Save Changes
             </Button>
           </View>
 
-          <View style={styles.deleteRow}>
+          <View style={ReceiptStyles.deleteRow}>
             <Button
               mode="outlined"
               onPress={deleteReceipt}
               textColor="#a60d49"
-              style={styles.deleteBtn}
+              style={ReceiptStyles.deleteBtn}
             >
               Delete Receipt
             </Button>
@@ -694,9 +694,9 @@ export default function ReceiptDetailsScreen({ route, navigation }) {
         animationType="slide"
         onRequestClose={() => setOcrModalVisible(false)}
       >
-        <View style={styles.modalOverlay}>
-          <View style={[styles.modalContent, { maxHeight: "90%" }]}>
-            <Text style={styles.modalTitle}>Receipt Preview</Text>
+        <View style={ReceiptStyles.modalOverlay}>
+          <View style={[ReceiptStyles.modalContent, { maxHeight: "90%" }]}>
+            <Text style={ReceiptStyles.modalTitle}>Receipt Preview</Text>
 
             {preview?.uri ? (
               <View style={{ alignItems: "center" }}>
@@ -706,64 +706,67 @@ export default function ReceiptDetailsScreen({ route, navigation }) {
                   disabled={ocrLoading}
                   onPress={() => setFullScreenImage(preview)}
                 >
-                  <Image source={{ uri: preview.uri }} style={styles.modalImage} />
+                  <Image source={{ uri: preview.uri }} style={ReceiptStyles.modalImage} />
                 </TouchableOpacity>
-                {ocrLoading && <Text style={styles.scanningText}>Scanning…</Text>}
+                {ocrLoading && <Text style={ReceiptStyles.scanningText}>Scanning…</Text>}
               </View>
             ) : null}
 
             {!ocrLoading && (
-              <Text style={styles.fullscreenHint}>Tap image to view full screen</Text>
+              <Text style={ReceiptStyles.fullscreenHint}>Tap image to view full screen</Text>
             )}
 
             {!ocrLoading && (
               <>
-                <View style={styles.ocrRow}>
+                <View style={ReceiptStyles.ocrRow}>
                   <Checkbox
                     status={acceptFlags.amount ? "checked" : "unchecked"}
                     onPress={() => toggleAccept("amount")}
+                    color={Colors.accent}
                   />
                   <Text
-                    style={[styles.ocrLabel, !acceptFlags.amount && styles.strike]}
+                    style={[ReceiptStyles.ocrLabel, !acceptFlags.amount && ReceiptStyles.strike]}
                   >
                     Amount:
                   </Text>
                   <Text
-                    style={[styles.ocrValue, !acceptFlags.amount && styles.strike]}
+                    style={[ReceiptStyles.ocrValue, !acceptFlags.amount && ReceiptStyles.strike]}
                   >
                     {ocrResult?.amount != null ? `£${ocrResult.amount}` : "—"}
                   </Text>
                 </View>
 
-                <View style={styles.ocrRow}>
+                <View style={ReceiptStyles.ocrRow}>
                   <Checkbox
                     status={acceptFlags.date ? "checked" : "unchecked"}
                     onPress={() => toggleAccept("date")}
+                    color={Colors.accent}
                   />
                   <Text
-                    style={[styles.ocrLabel, !acceptFlags.date && styles.strike]}
+                    style={[ReceiptStyles.ocrLabel, !acceptFlags.date && ReceiptStyles.strike]}
                   >
                     Date:
                   </Text>
                   <Text
-                    style={[styles.ocrValue, !acceptFlags.date && styles.strike]}
+                    style={[ReceiptStyles.ocrValue, !acceptFlags.date && ReceiptStyles.strike]}
                   >
                     {ocrResult?.date ? formatDate(new Date(ocrResult.date)) : "—"}
                   </Text>
                 </View>
 
-                <View style={styles.ocrRow}>
+                <View style={ReceiptStyles.ocrRow}>
                   <Checkbox
                     status={acceptFlags.category ? "checked" : "unchecked"}
                     onPress={() => toggleAccept("category")}
+                    color={Colors.accent}
                   />
                   <Text
-                    style={[styles.ocrLabel, !acceptFlags.category && styles.strike]}
+                    style={[ReceiptStyles.ocrLabel, !acceptFlags.category && ReceiptStyles.strike]}
                   >
                     Category:
                   </Text>
                   <Text
-                    style={[styles.ocrValue, !acceptFlags.category && styles.strike]}
+                    style={[ReceiptStyles.ocrValue, !acceptFlags.category && ReceiptStyles.strike]}
                   >
                     {ocrResult?.categoryName ?? "—"}
                   </Text>
@@ -771,18 +774,19 @@ export default function ReceiptDetailsScreen({ route, navigation }) {
 
                 {/* (Optional) Show OCR VAT if your extractor returns it */}
                 {ocrResult?.vat ? (
-                  <View style={styles.ocrRow}>
+                  <View style={ReceiptStyles.ocrRow}>
                     <Checkbox
                       status={acceptFlags.vat ? "checked" : "unchecked"}
                       onPress={() => toggleAccept("vat")}
+                      color={Colors.accent}
                     />
                     <Text
-                      style={[styles.ocrLabel, !acceptFlags.vat && styles.strike]}
+                      style={[ReceiptStyles.ocrLabel, !acceptFlags.vat && ReceiptStyles.strike]}
                     >
                       VAT:
                     </Text>
                     <Text
-                      style={[styles.ocrValue, !acceptFlags.vat && styles.strike]}
+                      style={[ReceiptStyles.ocrValue, !acceptFlags.vat && ReceiptStyles.strike]}
                     >
                       {ocrResult?.vat?.value != null
                         ? `£${ocrResult.vat.value}`
@@ -792,7 +796,7 @@ export default function ReceiptDetailsScreen({ route, navigation }) {
                   </View>
                 ) : null}
 
-                <View style={styles.modalButtons}>
+                <View style={ReceiptStyles.modalButtons}>
                   {!isNewImageSession && (
                     <Button
                       mode="outlined"
@@ -802,10 +806,10 @@ export default function ReceiptDetailsScreen({ route, navigation }) {
                       Delete Image
                     </Button>
                   )}
-                  <Button mode="text" onPress={handleCancelModal}>
+                  <Button buttonColor={Colors.accent} mode="contained" onPress={handleCancelModal}>
                     Cancel
                   </Button>
-                  <Button mode="contained" onPress={applyAcceptedValues}>
+                  <Button buttonColor={Colors.accent} mode="contained" onPress={applyAcceptedValues}>
                     Accept
                   </Button>
                 </View>
@@ -822,8 +826,8 @@ export default function ReceiptDetailsScreen({ route, navigation }) {
         animationType="fade"
         onRequestClose={() => {}}
       >
-        <View style={styles.uploadOverlay}>
-          <View style={styles.uploadCard}>
+        <View style={ReceiptStyles.uploadOverlay}>
+          <View style={ReceiptStyles.uploadCard}>
             <ActivityIndicator size="large" color="#a60d49" />
             <Text style={{ marginTop: 12, fontWeight: "600" }}>Uploading…</Text>
           </View>
@@ -845,12 +849,12 @@ export default function ReceiptDetailsScreen({ route, navigation }) {
           backgroundColor="black"
         />
 
-        <View style={styles.fullScreenCloseButtonWrapper}>
+        <View style={ReceiptStyles.fullScreenCloseButtonWrapper}>
           <TouchableOpacity
-            style={styles.fullScreenCloseButton}
+            style={ReceiptStyles.fullScreenCloseButton}
             onPress={() => setFullScreenImage(null)}
           >
-            <Text style={styles.fullScreenCloseText}>Close</Text>
+            <Text style={ReceiptStyles.fullScreenCloseText}>Close</Text>
           </TouchableOpacity>
         </View>
       </Modal>

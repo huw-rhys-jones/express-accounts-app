@@ -270,6 +270,7 @@ const ExpensesScreen = ({ navigation }) => {
         <Text style={styles.menuTitle}>Menu</Text>
       
         <View style={styles.userInfo}>
+          <Text style={styles.userEmail}>{displayName}</Text>
           <Text style={styles.userEmail}>{auth.currentUser?.email}</Text>
         </View>
 

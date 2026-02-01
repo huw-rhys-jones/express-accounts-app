@@ -278,3 +278,229 @@ export const AuthStyles = StyleSheet.create({
 
 })
 
+
+export const ReceiptStyles = StyleSheet.create({
+  safeArea: {
+    flex: 1,
+    backgroundColor: Colors.background,
+  },
+  container: {
+    padding: 12,
+    backgroundColor: Colors.background,
+    flex: 1,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  borderContainer: {
+    borderWidth: 5,
+    borderColor: Colors.background,
+    borderRadius: 35,
+    padding: 20,
+    width: "90%",
+    backgroundColor: Colors.surface,
+  },
+  header: {
+    fontSize: 22,
+    fontWeight: "bold",
+    color: Colors.accent,
+    marginBottom: 20,
+    textAlign: "center",
+  },
+  label: {
+    fontSize: 16,
+    fontWeight: "bold",
+    color: Colors.textSecondary,
+    marginTop: 10,
+    marginBottom: 6,
+  },
+  inputRow: {
+    flexDirection: "row",
+    alignItems: "center",
+  },
+  currency: {
+    fontSize: 18,
+    fontWeight: "bold",
+    marginLeft: 25,
+  },
+  input: {
+    borderWidth: 1,
+    borderColor: Colors.border,
+    borderRadius: 5,
+    padding: 10,
+    flex: 1,
+    fontSize: 16,
+    margin: 8,
+    color: Colors.textSecondary,
+    backgroundColor: Colors.surface,
+  },
+
+  // VAT layout
+  vatRow: {
+    flexDirection: "row",
+    gap: 12,
+    alignItems: "flex-start",
+  },
+  vatColLeft: {
+    flex: 1, // This ensures the left side takes up the remaining space
+    marginRight: 12, 
+  },
+  vatColRight: {
+    width: 100, // smaller dropdown column
+  },
+  vatCurrency: {
+    fontSize: 18,
+    fontWeight: "bold",
+    marginLeft: 10,
+    paddingRight: 5,
+  },
+  vatInput: {
+    borderWidth: 1,
+    borderColor: Colors.border,
+    borderRadius: 5,
+    height: 50,             // Increased from 44 to 50 for a better touch target
+    paddingHorizontal: 12,
+    fontSize: 16,
+    backgroundColor: Colors.surface,
+    marginTop: 8,           // Match the picker's margin exactly
+    color: Colors.textSecondary,
+  },
+  vatRatePicker: {
+    backgroundColor: Colors.surface,
+    borderColor: Colors.border,
+    height: 50,             // MUST match vatInput height exactly
+    justifyContent: 'center',
+    paddingHorizontal: 8,
+    // Do NOT put marginTop here
+  },
+  vatRateDropdown: {
+    backgroundColor: Colors.surface, // Critical: adds solid background to the list
+    borderColor: Colors.border,
+    zIndex: 5000,              // Ensures the list itself stays on top
+    shadowColor: "#000",       // Optional: adds a slight shadow for depth on iOS
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+  },
+
+  dateButton: {
+    borderWidth: 1,
+    borderColor: Colors.border,
+    borderRadius: 5,
+    padding: 10,
+    margin: 25,
+    marginRight: 36,
+    marginLeft: 44,
+  },
+  dateText: { fontSize: 16, color: Colors.textPrimary },
+
+  dropdown: {
+    backgroundColor: Colors.surface,
+    borderColor: Colors.border,
+  },
+  dropdownContainer: {
+    backgroundColor: Colors.surface,
+    borderColor: Colors.border,
+  },
+
+  receiptImage: {
+    width: 100,
+    height: 150,
+    resizeMode: "contain",
+    borderRadius: 5,
+    marginRight: 10,
+  },
+  uploadPlaceholder: {
+    width: 100,
+    height: 150,
+    borderRadius: 5,
+    borderWidth: 1,
+    borderColor: Colors.border,
+    justifyContent: "center",
+    alignItems: "center",
+    backgroundColor: Colors.surface,
+  },
+  plus: { fontSize: 32, color: Colors.accent },
+
+  buttonContainer: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    paddingBottom: 10,
+  },
+  button: { flex: 1, marginHorizontal: 5 },
+
+  // Shared modal styling
+  modalOverlay: {
+    flex: 1,
+    justifyContent: "center",
+    backgroundColor: "rgba(0,0,0,0.5)",
+    padding: 20,
+  },
+  modalContent: {
+    backgroundColor: Colors.surface,
+    borderRadius: 10,
+    padding: 20,
+  },
+  modalTitle: { fontSize: 18, fontWeight: "bold", marginBottom: 10 },
+  modalButtons: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    marginTop: 20,
+  },
+
+  // OCR modal extras
+  modalImage: {
+    width: "100%",
+    height: 320,
+    resizeMode: "contain",
+    borderRadius: 8,
+    marginBottom: 12,
+  },
+  scanningText: { marginTop: 8, fontStyle: "italic", color: "#555" },
+  ocrRow: { flexDirection: "row", alignItems: "center", marginTop: 8 },
+  ocrLabel: { fontWeight: "600", marginRight: 6 },
+  ocrValue: { flexShrink: 1 },
+
+  // Upload overlay
+  uploadOverlay: {
+    flex: 1,
+    backgroundColor: "rgba(0,0,0,0.35)",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  uploadCard: {
+    backgroundColor: "#fff",
+    paddingVertical: 20,
+    paddingHorizontal: 24,
+    borderRadius: 12,
+    alignItems: "center",
+    justifyContent: "center",
+    minWidth: 180,
+  },
+
+  // Fullscreen close button
+  fullScreenCloseButtonWrapper: {
+    position: "absolute",
+    bottom: 30,
+    left: 0,
+    right: 0,
+    alignItems: "center",
+  },
+  fullScreenCloseButton: {
+    backgroundColor: "rgba(166, 13, 73, 0.9)",
+    paddingVertical: 8,
+    paddingHorizontal: 24,
+    borderRadius: 20,
+  },
+  fullScreenCloseText: { color: "#fff", fontWeight: "bold", fontSize: 16 },
+
+  // hint text
+  fullscreenHint: {
+    fontSize: 12,
+    color: "#666",
+    marginTop: 4,
+    fontStyle: "italic",
+    textAlign: "center",
+    alignSelf: "center",
+  },
+});
+

@@ -32,7 +32,7 @@ import TextRecognition from '@react-native-ml-kit/text-recognition';
 import * as FileSystem from "expo-file-system/legacy";
 import { extractData } from "../utils/extractors";
 import ImageViewer from "react-native-image-zoom-viewer";
-import { Colors } from "../utils/sharedStyles";
+import { Colors, ReceiptStyles } from "../utils/sharedStyles";
 
 const ReceiptAdd = ({ navigation }) => {
   const [amount, setAmount] = useState("");
@@ -518,7 +518,7 @@ const handleConfirmDate = (date) => {
         openOcrModal(item.uri, { autoScan: true, newSession: false })
       }
     >
-      <Image source={{ uri: item.uri }} style={styles.receiptImage} />
+      <Image source={{ uri: item.uri }} style={ReceiptStyles.receiptImage} />
     </TouchableOpacity>
   );
 
@@ -534,16 +534,16 @@ const handleConfirmDate = (date) => {
           enableOnAndroid={true}
           keyboardShouldPersistTaps="handled"
         >
-          <View style={styles.container}>
-            <View style={styles.borderContainer}>
-              <Text style={styles.header}>Your Receipt</Text>
+          <View style={ReceiptStyles.container}>
+            <View style={ReceiptStyles.borderContainer}>
+              <Text style={ReceiptStyles.header}>Your Receipt</Text>
 
             {/* Amount */}
-            <Text style={styles.label}>Amount:</Text>
-            <View style={styles.inputRow}>
-              <Text style={styles.currency}>£</Text>
+            <Text style={ReceiptStyles.label}>Amount:</Text>
+            <View style={ReceiptStyles.inputRow}>
+              <Text style={ReceiptStyles.currency}>£</Text>
               <TextInput
-                style={styles.input}
+                style={ReceiptStyles.input}
                 keyboardType="decimal-pad"
                 value={amount}
                 onChangeText={(v) => {
@@ -557,14 +557,14 @@ const handleConfirmDate = (date) => {
             </View>
 
             {/* VAT Section: labels above fields */}
-            <View style={[styles.vatRow, { zIndex: 2000, elevation: 5 }]}>
+            <View style={[ReceiptStyles.vatRow, { zIndex: 2000, elevation: 5 }]}>
               {/* VAT Amount Column */}
-              <View style={styles.vatColLeft}>
-                <Text style={styles.label}>VAT Amount:</Text>
-                <View style={styles.inputRow}>
-                  <Text style={styles.vatCurrency}>£</Text>
+              <View style={ReceiptStyles.vatColLeft}>
+                <Text style={ReceiptStyles.label}>VAT Amount:</Text>
+                <View style={ReceiptStyles.inputRow}>
+                  <Text style={ReceiptStyles.vatCurrency}>£</Text>
                   <TextInput
-                    style={styles.vatInput}
+                    style={ReceiptStyles.vatInput}
                     keyboardType="decimal-pad"
                     placeholder="0.00"
                     value={vatAmount}
@@ -585,8 +585,8 @@ const handleConfirmDate = (date) => {
               </View>
 
               {/* Rate Column */}
-              <View style={styles.vatColRight}>
-                <Text style={styles.label}>Rate (%):</Text>
+              <View style={ReceiptStyles.vatColRight}>
+                <Text style={ReceiptStyles.label}>Rate (%):</Text>
                 <DropDownPicker
                   open={vatRateOpen}
                   value={vatRate}
@@ -595,8 +595,8 @@ const handleConfirmDate = (date) => {
                   setValue={(set) => setVatRate(set(vatRate))}
                   setItems={setVatRateItems}
                   placeholder="Select"
-                  style={styles.vatRatePicker}
-                  dropDownContainerStyle={styles.vatRateDropdown}
+                  style={ReceiptStyles.vatRatePicker}
+                  dropDownContainerStyle={ReceiptStyles.vatRateDropdown}
                   containerStyle={{ marginTop: 8 }} // Move margin here for better stability
                   zIndex={2000}
                   zIndexInverse={2000}
@@ -615,12 +615,12 @@ const handleConfirmDate = (date) => {
             </View>
 
             {/* Date */}
-            <Text style={styles.label}>Date:</Text>
+            <Text style={ReceiptStyles.label}>Date:</Text>
             <TouchableOpacity
-              style={styles.dateButton}
+              style={ReceiptStyles.dateButton}
               onPress={showDatePicker}
             >
-              <Text style={styles.dateText}>{formatDate(selectedDate)}</Text>
+              <Text style={ReceiptStyles.dateText}>{formatDate(selectedDate)}</Text>
             </TouchableOpacity>
             <DateTimePickerModal
               isVisible={isDatePickerVisible}
@@ -631,7 +631,7 @@ const handleConfirmDate = (date) => {
             />
 
             {/* Category */}
-            <Text style={styles.label}>Category:</Text>
+            <Text style={ReceiptStyles.label}>Category:</Text>
             <DropDownPicker
               open={open}
               value={selectedCategory}
@@ -664,8 +664,8 @@ const handleConfirmDate = (date) => {
                 }
               }}
               placeholder="Select a category"
-              style={styles.dropdown}
-              dropDownContainerStyle={styles.dropdownContainer}
+              style={ReceiptStyles.dropdown}
+              dropDownContainerStyle={ReceiptStyles.dropdownContainer}
               zIndex={1000}
               zIndexInverse={1000}
               dropDownDirection="AUTO"
@@ -681,10 +681,10 @@ const handleConfirmDate = (date) => {
               renderItem={({ item }) =>
                 item.addButton ? (
                   <TouchableOpacity
-                    style={styles.uploadPlaceholder}
+                    style={ReceiptStyles.uploadPlaceholder}
                     onPress={pickImageOption}
                   >
-                    <Text style={styles.plus}>+</Text>
+                    <Text style={ReceiptStyles.plus}>+</Text>
                   </TouchableOpacity>
                 ) : (
                   renderImage({ item })
@@ -695,11 +695,11 @@ const handleConfirmDate = (date) => {
             />
 
             {/* Buttons */}
-            <View style={styles.buttonContainer}>
+            <View style={ReceiptStyles.buttonContainer}>
               <Button
                 mode="contained"
                 buttonColor="#a60d49"
-                style={styles.button}
+                style={ReceiptStyles.button}
                 onPress={handleLeavePress}
               >
                 Cancel
@@ -709,7 +709,7 @@ const handleConfirmDate = (date) => {
                 mode="contained"
                 onPress={handleSavePress}
                 buttonColor="#a60d49"
-                style={styles.button}
+                style={ReceiptStyles.button}
                 disabled={!selectedCategory || amount.trim() === ""}
               >
                 Save
@@ -719,7 +719,7 @@ const handleConfirmDate = (date) => {
             <Button
               mode="outlined"
               onPress={handleResetPress}
-              style={styles.resetButton}
+              style={ReceiptStyles.resetButton}
               textColor="#a60d49"
               icon="autorenew"
             >
@@ -737,15 +737,15 @@ const handleConfirmDate = (date) => {
         animationType="slide"
         onRequestClose={() => setShowConfirmModal(false)}
       >
-        <View style={styles.modalOverlay}>
-          <View style={styles.modalContent}>
-            <Text style={styles.modalTitle}>Confirm Receipt Details</Text>
+        <View style={ReceiptStyles.modalOverlay}>
+          <View style={ReceiptStyles.modalContent}>
+            <Text style={ReceiptStyles.modalTitle}>Confirm Receipt Details</Text>
             <Text>Amount: £{amount}</Text>
             <Text>Date: {selectedDate.toDateString()}</Text>
             <Text>Category: {selectedCategory}</Text>
             <Text>VAT Amount: £{vatAmount || calculateVatFromRate() || "0.00"}</Text>
             <Text>VAT Rate: {vatRate || "—"}%</Text>
-            <View style={styles.modalButtons}>
+            <View style={ReceiptStyles.modalButtons}>
               <RNButton
                 title="Cancel"
                 onPress={() => setShowConfirmModal(false)}
@@ -768,15 +768,15 @@ const handleConfirmDate = (date) => {
         animationType="fade"
         onRequestClose={() => setShowSuccess(false)}
       >
-        <View style={styles.modalOverlay}>
-          <View style={styles.modalContent}>
-            <Text style={[styles.modalTitle, { textAlign: "center" }]}>
+        <View style={ReceiptStyles.modalOverlay}>
+          <View style={ReceiptStyles.modalContent}>
+            <Text style={[ReceiptStyles.modalTitle, { textAlign: "center" }]}>
               Receipt saved 🎉
             </Text>
             <Text style={{ textAlign: "center", marginTop: 4 }}>
               Do you want to add another?
             </Text>
-            <View style={[styles.modalButtons, { marginTop: 16 }]}>
+            <View style={[ReceiptStyles.modalButtons, { marginTop: 16 }]}>
               <RNButton
                 title="Go to Expenses"
                 onPress={() => {
@@ -813,10 +813,10 @@ const handleConfirmDate = (date) => {
         animationType="slide"
         onRequestClose={() => setConfirmReset(false)}
       >
-        <View style={styles.modalOverlay}>
-          <View style={styles.modalContent}>
-            <Text style={styles.modalTitle}>Confirm Reset</Text>
-            <View style={styles.modalButtons}>
+        <View style={ReceiptStyles.modalOverlay}>
+          <View style={ReceiptStyles.modalContent}>
+            <Text style={ReceiptStyles.modalTitle}>Confirm Reset</Text>
+            <View style={ReceiptStyles.modalButtons}>
               <RNButton
                 title="Cancel"
                 onPress={() => setConfirmReset(false)}
@@ -835,12 +835,12 @@ const handleConfirmDate = (date) => {
         animationType="slide"
         onRequestClose={() => setShowConfirmLeaveModal(false)}
       >
-        <View style={styles.modalOverlay}>
-          <View style={styles.modalContent}>
-            <Text style={styles.modalTitle}>
+        <View style={ReceiptStyles.modalOverlay}>
+          <View style={ReceiptStyles.modalContent}>
+            <Text style={ReceiptStyles.modalTitle}>
               Are you sure you want to go back?
             </Text>
-            <View style={styles.modalButtons}>
+            <View style={ReceiptStyles.modalButtons}>
               <RNButton
                 title="Cancel"
                 onPress={() => setShowConfirmLeaveModal(false)}
@@ -874,9 +874,9 @@ const handleConfirmDate = (date) => {
         animationType="slide"
         onRequestClose={handleCancelModal}
       >
-        <View style={styles.modalOverlay}>
-          <View style={[styles.modalContent, { maxHeight: "90%" }]}>
-            <Text style={styles.modalTitle}>Receipt Preview</Text>
+        <View style={ReceiptStyles.modalOverlay}>
+          <View style={[ReceiptStyles.modalContent, { maxHeight: "90%" }]}>
+            <Text style={ReceiptStyles.modalTitle}>Receipt Preview</Text>
 
             {preview?.uri ? (
               <View style={{ alignItems: "center" }}>
@@ -894,72 +894,72 @@ const handleConfirmDate = (date) => {
                     );
                   }}
                 >
-                  <Image source={{ uri: preview.uri }} style={styles.modalImage} />
+                  <Image source={{ uri: preview.uri }} style={ReceiptStyles.modalImage} />
                 </TouchableOpacity>
-                {ocrLoading && <Text style={styles.scanningText}>Scanning…</Text>}
+                {ocrLoading && <Text style={ReceiptStyles.scanningText}>Scanning…</Text>}
               </View>
             ) : null}
 
             {!ocrLoading && (
-              <Text style={styles.fullscreenHint}>Tap image to view full screen</Text>
+              <Text style={ReceiptStyles.fullscreenHint}>Tap image to view full screen</Text>
             )}
 
             {!ocrLoading && (
               <>
                 {/* Amount */}
-                <View style={styles.ocrRow}>
+                <View style={ReceiptStyles.ocrRow}>
                   <Checkbox
                     status={acceptFlags.amount ? "checked" : "unchecked"}
                     onPress={() => toggleAccept("amount")}
                     color={Colors.accent}
                   />
-                  <Text style={styles.ocrLabel}>Amount:</Text>
-                  <Text style={styles.ocrValue}>
+                  <Text style={ReceiptStyles.ocrLabel}>Amount:</Text>
+                  <Text style={ReceiptStyles.ocrValue}>
                     {ocrResult?.amount != null ? `£${ocrResult.amount}` : "—"}
                   </Text>
                 </View>
 
                 {/* Date */}
-                <View style={styles.ocrRow}>
+                <View style={ReceiptStyles.ocrRow}>
                   <Checkbox
                     status={acceptFlags.date ? "checked" : "unchecked"}
                     onPress={() => toggleAccept("date")}
                     color={Colors.accent}
                   />
-                  <Text style={styles.ocrLabel}>Date:</Text>
-                  <Text style={styles.ocrValue}>
+                  <Text style={ReceiptStyles.ocrLabel}>Date:</Text>
+                  <Text style={ReceiptStyles.ocrValue}>
                     {ocrResult?.date ? formatDate(new Date(ocrResult.date)) : "—"}
                   </Text>
                 </View>
 
                 {/* Category */}
-                <View style={styles.ocrRow}>
+                <View style={ReceiptStyles.ocrRow}>
                   <Checkbox
                     status={acceptFlags.category ? "checked" : "unchecked"}
                     onPress={() => toggleAccept("category")}
                     color={Colors.accent}
                   />
-                  <Text style={styles.ocrLabel}>Category:</Text>
-                  <Text style={styles.ocrValue}>
+                  <Text style={ReceiptStyles.ocrLabel}>Category:</Text>
+                  <Text style={ReceiptStyles.ocrValue}>
                     {ocrResult?.categoryName ?? "—"}
                   </Text>
                 </View>
 
                 {/* VAT */}
-                <View style={styles.ocrRow}>
+                <View style={ReceiptStyles.ocrRow}>
                   <Checkbox
                     status={acceptFlags.vat ? "checked" : "unchecked"}
                     onPress={() => toggleAccept("vat")}
                     color={Colors.accent}
                   />
-                  <Text style={styles.ocrLabel}>VAT:</Text>
-                  <Text style={styles.ocrValue}>
+                  <Text style={ReceiptStyles.ocrLabel}>VAT:</Text>
+                  <Text style={ReceiptStyles.ocrValue}>
                     {ocrResult?.vat?.value != null ? `£${ocrResult.vat.value}` : "—"}
                     {`  (Rate ${ocrResult?.vat?.rate ?? "—"}%)`}
                   </Text>
                 </View>
 
-                <View style={styles.modalButtons}>
+                <View style={ReceiptStyles.modalButtons}>
                   {!isNewImageSession && (
                     <Button
                       mode="outlined"
@@ -1019,9 +1019,9 @@ const handleConfirmDate = (date) => {
               renderIndicator={() => null}
               saveToLocalByLongPress={false}
             />
-            <View style={styles.fullScreenCloseButtonWrapper}>
+            <View style={ReceiptStyles.fullScreenCloseButtonWrapper}>
               <TouchableOpacity
-                style={styles.fullScreenCloseButton}
+                style={ReceiptStyles.fullScreenCloseButton}
                 onPress={() => {
                   setFullScreenImage(null);
                   if (returnToOcrAfterFullscreen) {
@@ -1030,7 +1030,7 @@ const handleConfirmDate = (date) => {
                   }
                 }}
               >
-                <Text style={styles.fullScreenCloseText}>Close</Text>
+                <Text style={ReceiptStyles.fullScreenCloseText}>Close</Text>
               </TouchableOpacity>
             </View>
           </>
@@ -1046,8 +1046,8 @@ const handleConfirmDate = (date) => {
         statusBarTranslucent                  // optional, nicer on iOS
         onRequestClose={() => {}}
       >
-        <View style={styles.uploadOverlay}>
-          <View style={styles.uploadCard}>
+        <View style={ReceiptStyles.uploadOverlay}>
+          <View style={ReceiptStyles.uploadCard}>
             <ActivityIndicator size="large" color="#a60d49" />
             <Text style={{ marginTop: 12, fontWeight: "600" }}>
               Uploading…
