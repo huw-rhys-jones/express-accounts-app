@@ -16,7 +16,7 @@ import { auth } from "../firebaseConfig";
 import { createUserWithEmailAndPassword, updateProfile } from "firebase/auth";
 import { Ionicons } from "@expo/vector-icons";
 import { KeyboardAwareScrollView } from "react-native-keyboard-aware-scroll-view";
-import { Colors } from "../utils/sharedStyles";
+import { Colors, AuthStyles } from "../utils/sharedStyles";
 
 const looksLikeEmail = (s) => /\S+@\S+\.\S+/.test(String(s || "").trim());
 
@@ -126,21 +126,21 @@ const SignUpScreen = ({ navigation }) => {
   };
 
   const Rule = ({ ok, text }) => (
-    <View style={styles.ruleRow}>
+    <View style={AuthStyles.ruleRow}>
       <Ionicons
         name={ok ? "checkmark-circle" : "close-circle"}
         size={18}
         color={ok ? "#2e7d32" : "#b00020"}
         style={{ marginRight: 6 }}
       />
-      <Text style={[styles.ruleText, ok ? styles.ruleOk : styles.ruleBad]}>
+      <Text style={[AuthStyles.ruleText, ok ? AuthStyles.ruleOk : AuthStyles.ruleBad]}>
         {text}
       </Text>
     </View>
   );
 
   return (
-    <SafeAreaView style={{ flex: 1, backgroundColor: Colors.background }}>
+    <SafeAreaView style={AuthStyles.flex} edges={['bottom', 'left', 'right']}>
       <TouchableWithoutFeedback onPress={Keyboard.dismiss} accessible={false}>
         <KeyboardAwareScrollView
           contentContainerStyle={{ flexGrow: 1, paddingBottom: 40 }} // 👈 padding for Android nav bar
@@ -148,24 +148,26 @@ const SignUpScreen = ({ navigation }) => {
           extraScrollHeight={20}
           keyboardShouldPersistTaps="handled"
           showsVerticalScrollIndicator={false}
-        >
-          <View style={styles.container}>
+        >        
+          <View style={AuthStyles.logoContainer}>
+                <Image
+                  source={require("../assets/images/logo.png")}
+                  style={AuthStyles.logo}
+                />
+          </View>
+
+          <View style={AuthStyles.container}>
             {/* Logo */}
-            <View style={styles.logoContainer}>
-              <Image
-                source={require("../assets/images/logo.png")}
-                style={styles.logo}
-              />
-            </View>
+    
 
             {/* Header */}
-            <View style={styles.header}>
-              <Text style={styles.headerText}>Create new account</Text>
-              <Text style={styles.subtitle}>
+            <View style={AuthStyles.header}>
+              <Text style={AuthStyles.headerText}>Create new account</Text>
+              <Text style={AuthStyles.subtitle}>
                 Already registered?{" "}
                 <Text
                   onPress={() => navigation.navigate("SignIn")}
-                  style={styles.link}
+                  style={AuthStyles.link}
                 >
                   Log in here
                 </Text>
@@ -173,42 +175,49 @@ const SignUpScreen = ({ navigation }) => {
             </View>
 
             {/* Form */}
-            <View style={styles.form}>
-              <Text style={styles.label}>NAME (COMPANY OR PERSONAL)</Text>
-              <TextInput
-                style={styles.input}
-                placeholder="Bob Builder"
-                placeholderTextColor="#555"
-                value={name}
-                onChangeText={setName}
-                editable={!loading}
-                returnKeyType="next"
-                onSubmitEditing={() => emailRef.current.focus()}
-              />
+            <View style={AuthStyles.form}>
+              <Text style={AuthStyles.label}>NAME (COMPANY OR PERSONAL)</Text>
 
-              <Text style={styles.label}>EMAIL</Text>
-              <TextInput
-                ref={emailRef}
-                style={[
-                  styles.input,
-                  email.length > 0 && !emailOk && styles.inputError,
-                ]}
-                placeholder="you@example.com"
-                placeholderTextColor="#555"
-                keyboardType="email-address"
-                autoCapitalize="none"
-                value={email}
-                onChangeText={setEmail}
-                editable={!loading}
-                returnKeyType="next"
-                onSubmitEditing={() => passwordRef.current.focus()}
-              />
+              <View style={AuthStyles.passwordContainer}>
+                <TextInput
+                  style={AuthStyles.input}
+                  placeholder="Bob Builder"
+                  placeholderTextColor="#555"
+                  value={name}
+                  onChangeText={setName}
+                  editable={!loading}
+                  returnKeyType="next"
+                  onSubmitEditing={() => emailRef.current.focus()}
+                />
+              </View>
 
-              <Text style={styles.label}>PASSWORD</Text>
-              <View style={styles.passwordContainer}>
+              <Text style={AuthStyles.label}>EMAIL</Text>
+              
+              <View style={AuthStyles.passwordContainer}>
+                <TextInput
+                  ref={emailRef}
+                  style={[
+                    AuthStyles.input,
+                    email.length > 0 && !emailOk && AuthStyles.inputError,
+                  ]}
+                  placeholder="you@example.com"
+                  placeholderTextColor="#555"
+                  keyboardType="email-address"
+                  autoCapitalize="none"
+                  value={email}
+                  onChangeText={setEmail}
+                  editable={!loading}
+                  returnKeyType="next"
+                  onSubmitEditing={() => passwordRef.current.focus()}
+                />
+              </View>
+
+
+              <Text style={AuthStyles.label}>PASSWORD</Text>
+              <View style={AuthStyles.passwordContainer}>
                 <TextInput
                   ref={passwordRef}
-                  style={[styles.input, styles.inputWithIcon]}
+                  style={[AuthStyles.input, AuthStyles.inputWithIcon]}
                   placeholder="******"
                   placeholderTextColor="#555"
                   secureTextEntry={!showPassword}
@@ -219,7 +228,7 @@ const SignUpScreen = ({ navigation }) => {
                   onSubmitEditing={() => confirmRef.current.focus()}
                 />
                 <TouchableOpacity
-                  style={styles.eyeIcon}
+                  style={AuthStyles.eyeIcon}
                   onPress={() => setShowPassword((v) => !v)}
                   hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
                 >
@@ -231,14 +240,14 @@ const SignUpScreen = ({ navigation }) => {
                 </TouchableOpacity>
               </View>
 
-              <Text style={styles.label}>CONFIRM PASSWORD</Text>
-              <View style={styles.passwordContainer}>
+              <Text style={AuthStyles.label}>CONFIRM PASSWORD</Text>
+              <View style={AuthStyles.passwordContainer}>
                 <TextInput
                   ref={confirmRef}
                   style={[
-                    styles.input,
-                    styles.inputWithIcon,
-                    confirm.length > 0 && !passwordsMatch && styles.inputError,
+                    AuthStyles.input,
+                    AuthStyles.inputWithIcon,
+                    confirm.length > 0 && !passwordsMatch && AuthStyles.inputError,
                   ]}
                   placeholder="******"
                   placeholderTextColor="#555"
@@ -250,7 +259,7 @@ const SignUpScreen = ({ navigation }) => {
                   onSubmitEditing={register} // 👈 Done submits form
                 />
                 <TouchableOpacity
-                  style={styles.eyeIcon}
+                  style={AuthStyles.eyeIcon}
                   onPress={() => setShowConfirm((v) => !v)}
                   hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
                 >
@@ -263,7 +272,7 @@ const SignUpScreen = ({ navigation }) => {
               </View>
 
               {/* Password requirements */}
-              <View style={styles.requirements}>
+              <View style={AuthStyles.requirements}>
                 <Rule ok={rules.minLen} text="At least 8 characters" />
                 <Rule ok={rules.upper} text="At least 1 uppercase letter" />
                 <Rule ok={rules.lower} text="At least 1 lowercase letter" />
@@ -275,14 +284,14 @@ const SignUpScreen = ({ navigation }) => {
               </View>
 
               <TouchableOpacity
-                style={[styles.button, !canSubmit && { opacity: 0.6 }]}
+                style={[AuthStyles.button, !canSubmit && { opacity: 0.6 }]}
                 onPress={register}
                 disabled={!canSubmit}
               >
                 {loading ? (
                   <ActivityIndicator color="#fff" />
                 ) : (
-                  <Text style={styles.buttonText}>Sign up</Text>
+                  <Text style={AuthStyles.buttonText}>Sign up</Text>
                 )}
               </TouchableOpacity>
             </View>

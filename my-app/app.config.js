@@ -1,5 +1,6 @@
 import 'dotenv/config';
 import pkg from './package.json'; // Import your package.json
+import { Colors } from "./utils/sharedStyles";
 
 export default ({ config }) => ({
   ...config,
@@ -12,6 +13,7 @@ export default ({ config }) => ({
   icon: "./assets/icon.png",
   userInterfaceStyle: "light",
   newArchEnabled: false, // Keeping this false as per your current setup
+  backgroundColor: "#302C66",
 
   splash: {
     image: "./assets/splash-icon.png",

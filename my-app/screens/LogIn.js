@@ -26,7 +26,7 @@ import * as Crypto from "expo-crypto";
 import { GoogleLogo } from "../utils/format_style";
 import { Ionicons } from "@expo/vector-icons";
 import { KeyboardAwareScrollView } from "react-native-keyboard-aware-scroll-view";
-import { Colors } from "../utils/sharedStyles";
+import { Colors, AuthStyles } from "../utils/sharedStyles";
 
 WebBrowser.maybeCompleteAuthSession();
 
@@ -315,42 +315,46 @@ const LoginScreen = ({ navigation }) => {
   };
 
   return (
-    <View style={styles.flex}>
+    <View style={AuthStyles.flex}>
       <KeyboardAwareScrollView
         contentContainerStyle={{ flexGrow: 1 }}
         enableOnAndroid={true}
         keyboardShouldPersistTaps="handled"
+        extraScrollHeight={20}
       >
-        <View style={styles.logoContainer}>
+        <View style={AuthStyles.logoContainer}>
           <Image
             source={require("../assets/images/logo.png")}
-            style={styles.logo}
+            style={AuthStyles.logo}
           />
         </View>
 
-        <View style={styles.container}>
-        <View style={styles.header}>
-          <Text style={styles.headerText}>Sign in to continue</Text>
+        <View style={AuthStyles.container}>
+        <View style={AuthStyles.header}>
+          <Text style={AuthStyles.headerText}>Sign in to continue</Text>
         </View>
 
-        <View style={styles.formContainer}>
-          <Text style={styles.label}>EMAIL</Text>
-          <TextInput
-            editable={!loading}
-            style={styles.input}
-            placeholder="example@email.com"
-            placeholderTextColor="#AAA"
-            keyboardType="email-address"
-            value={email}
-            onChangeText={setEmail}
-            autoCapitalize="none"
-          />
-
-          <Text style={styles.label}>PASSWORD</Text>
-          <View style={styles.passwordContainer}>
+        <View style={AuthStyles.formContainer}>
+          
+          <Text style={AuthStyles.label}>EMAIL</Text>
+          <View style={AuthStyles.passwordContainer}>
             <TextInput
               editable={!loading}
-              style={[styles.input, styles.inputWithIcon]}
+              style={AuthStyles.input}
+              placeholder="example@email.com"
+              placeholderTextColor="#AAA"
+              keyboardType="email-address"
+              value={email}
+              onChangeText={setEmail}
+              autoCapitalize="none"
+            />
+          </View>
+
+          <Text style={AuthStyles.label}>PASSWORD</Text>
+          <View style={AuthStyles.passwordContainer}>
+            <TextInput
+              editable={!loading}
+              style={[AuthStyles.input, AuthStyles.inputWithIcon]}
               placeholder="******"
               placeholderTextColor="#AAA"
               secureTextEntry={!showPassword}
@@ -358,7 +362,7 @@ const LoginScreen = ({ navigation }) => {
               onChangeText={setPassword}
             />
             <TouchableOpacity
-              style={styles.eyeIcon}
+              style={AuthStyles.eyeIcon}
               onPress={() => setShowPassword((prev) => !prev)}
               hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
             >
@@ -371,22 +375,22 @@ const LoginScreen = ({ navigation }) => {
           </View>
 
           <TouchableOpacity
-            style={[styles.loginButton, loading && { opacity: 0.7 }]}
+            style={[AuthStyles.loginButton, loading && { opacity: 0.7 }]}
             onPress={login}
             disabled={loading}
           >
-            <Text style={styles.loginButtonText}>Log in</Text>
+            <Text style={AuthStyles.loginButtonText}>Log in</Text>
           </TouchableOpacity>
 
           {/* Social buttons */}
           {Platform.OS === "android" && (
             <TouchableOpacity
-              style={[styles.googleButton, loading && { opacity: 0.7 }]}
+              style={[AuthStyles.googleButton, loading && { opacity: 0.7 }]}
               onPress={onGooglePress}
               disabled={!request || loading}
             >
-              <View style={styles.googleButtonContent}>
-                <Text style={styles.googleButtonText}>Sign in with Google</Text>
+              <View style={AuthStyles.googleButtonContent}>
+                <Text style={AuthStyles.googleButtonText}>Sign in with Google</Text>
                 <GoogleLogo />
               </View>
             </TouchableOpacity>
@@ -401,19 +405,19 @@ const LoginScreen = ({ navigation }) => {
                 AppleAuthentication.AppleAuthenticationButtonStyle.BLACK
               }
               cornerRadius = {8}
-              style={styles.appleButton}
+              style={AuthStyles.appleButton}
               onPress={onAppleButtonPress}
             />
           )}
 
           {/* Secondary actions */}
-          <View style={styles.linksRow}>
+          <View style={AuthStyles.linksRow}>
             <TouchableOpacity onPress={() => navigation.navigate("SignUp")}>
-              <Text style={styles.signup}>Create account</Text>
+              <Text style={AuthStyles.signup}>Create account</Text>
             </TouchableOpacity>
 
             <TouchableOpacity onPress={openForgot}>
-              <Text style={styles.forgotPassword}>Forgot Password?</Text>
+              <Text style={AuthStyles.forgotPassword}>Forgot Password?</Text>
             </TouchableOpacity>
           </View>
         </View>
@@ -421,10 +425,10 @@ const LoginScreen = ({ navigation }) => {
 
       {/* 🔒 Full-screen loading overlay */}
       <Modal visible={loading} transparent animationType="fade">
-        <View style={styles.loadingOverlay}>
-          <View style={styles.loadingCard}>
+        <View style={AuthStyles.loadingOverlay}>
+          <View style={AuthStyles.loadingCard}>
             <ActivityIndicator size="large" />
-            <Text style={styles.loadingText}>
+            <Text style={AuthStyles.loadingText}>
               {loadingText || "Please wait…"}
             </Text>
           </View>
@@ -438,13 +442,13 @@ const LoginScreen = ({ navigation }) => {
         animationType="fade"
         onRequestClose={() => setForgotVisible(false)}
       >
-        <View style={styles.loadingOverlay}>
-          <View style={styles.loadingCard}>
-            <Text style={[styles.loadingText, { marginBottom: 10 }]}>
+        <View style={AuthStyles.loadingOverlay}>
+          <View style={AuthStyles.loadingCard}>
+            <Text style={[AuthStyles.loadingText, { marginBottom: 10 }]}>
               Reset your password
             </Text>
             <TextInput
-              style={styles.input}
+              style={AuthStyles.input}
               placeholder="Your email address"
               placeholderTextColor="#AAA"
               autoCapitalize="none"
@@ -455,7 +459,7 @@ const LoginScreen = ({ navigation }) => {
             <View style={{ flexDirection: "row", gap: 10, marginTop: 6 }}>
               <TouchableOpacity
                 style={[
-                  styles.loginButton,
+                  AuthStyles.loginButton,
                   { flex: 1, backgroundColor: "#a60d49" },
                   sendingReset && { opacity: 0.7 },
                 ]}
@@ -465,17 +469,17 @@ const LoginScreen = ({ navigation }) => {
                 {sendingReset ? (
                   <ActivityIndicator color="#FFF" />
                 ) : (
-                  <Text style={styles.loginButtonText}>Send reset link</Text>
+                  <Text style={AuthStyles.loginButtonText}>Send reset link</Text>
                 )}
               </TouchableOpacity>
               <TouchableOpacity
                 style={[
-                  styles.googleButton,
+                  AuthStyles.googleButton,
                   { flex: 1, backgroundColor: "#EEE" },
                 ]}
                 onPress={() => setForgotVisible(false)}
               >
-                <Text style={[styles.googleButtonText, { marginRight: 0 }]}>
+                <Text style={[AuthStyles.googleButtonText, { marginRight: 0 }]}>
                   Cancel
                 </Text>
               </TouchableOpacity>
