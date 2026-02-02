@@ -536,26 +536,27 @@ export default function ReceiptDetailsScreen({ route, navigation }) {
     </View>
   </View>
 
-  {/* VAT Rate Column */}
-  <View style={ReceiptStyles.vatColRight}>
-    <Text style={ReceiptStyles.label}>Rate (%)</Text>
-    <DropDownPicker
-      open={vatRateOpen}
-      value={vatRate}
-      items={vatRateItems}
-      setOpen={setVatRateOpen}
-      setValue={(set) => setVatRate(set(vatRate))}
-      setItems={setVatRateItems}
-      placeholder="Select"
-      style={ReceiptStyles.vatRatePicker}
-      dropDownContainerStyle={ReceiptStyles.vatRateDropdown}
-      containerStyle={{ marginTop: 8 }} // This aligns the picker top with the "£" inputRow top
-      zIndex={2000}
-      zIndexInverse={2000}
-      listMode="SCROLLVIEW"
+{/* VAT Rate Column */}
+<View style={[ReceiptStyles.vatColRight, { zIndex: 5000, elevation: 5 }]}>
+  <Text style={ReceiptStyles.label}>Rate (%):</Text>
+  <DropDownPicker
+    open={vatRateOpen}
+    value={vatRate}
+    items={vatRateItems}
+    setOpen={setVatRateOpen}
+    setValue={(set) => setVatRate(set(vatRate))}
+    setItems={setVatRateItems}
+    placeholder="Select"
+    style={[ReceiptStyles.vatRatePicker, { backgroundColor: Colors.surface }]} // Add explicit background
+    dropDownContainerStyle={[ReceiptStyles.vatRateDropdown, { backgroundColor: Colors.surface }]} // Add explicit background
+    containerStyle={{ marginTop: 8 }}
+    zIndex={5000}
+    zIndexInverse={1000}
+    listMode="SCROLLVIEW"
       onChangeValue={(val) => {
         const next = val ?? "";
         setVatRate(next);
+        // changing rate => return to auto mode & recalc if possible
         setVatAmountEdited(false);
         if (next && amount) {
           setVatAmount(computeVat(amount, next));
@@ -563,6 +564,7 @@ export default function ReceiptDetailsScreen({ route, navigation }) {
       }}
     />
   </View>
+            
 </View>
 
         {/* Date */}
@@ -571,7 +573,7 @@ export default function ReceiptDetailsScreen({ route, navigation }) {
           style={ReceiptStyles.dateButton}
           onPress={() => setDatePickerVisibility(true)}
         >
-          <Text>{formatDate(selectedDate)}</Text>
+          <Text style={ReceiptStyles.dateText}>{formatDate(selectedDate)}</Text>
         </TouchableOpacity>
         <DateTimePickerModal
           isVisible={isDatePickerVisible}
@@ -667,7 +669,7 @@ export default function ReceiptDetailsScreen({ route, navigation }) {
               buttonColor="#a60d49"
               style={ReceiptStyles.actionBtn}
             >
-              Save Changes
+              Save 
             </Button>
           </View>
 
@@ -861,214 +863,3 @@ export default function ReceiptDetailsScreen({ route, navigation }) {
     </SafeAreaView>
   );
 }
-
-const styles = StyleSheet.create({
-  safeArea: {
-    flex: 1,
-    backgroundColor: Colors.background,
-  },
-  container: {
-    flex: 1,
-    padding: 16,
-    alignItems: "center",
-  },
-  borderContainer: {
-    borderWidth: 5,
-    borderColor: Colors.background,
-    borderRadius: 35,
-    padding: 20,
-    width: "90%",
-    backgroundColor: Colors.surface,
-  },
-  header: { fontSize: 22, fontWeight: "bold", marginBottom: 16, color: Colors.accent },
-  label: { fontSize: 16, marginTop: 10, marginBottom: 6, color: Colors.textSecondary },
-
-  inputRow: {
-    flexDirection: "row",
-    alignItems: "center",
-  },
-
-  input: {
-    borderWidth: 1,
-    borderColor: Colors.border,
-    padding: 10,
-    borderRadius: 5,
-    marginTop: 5,
-    color: Colors.textSecondary,
-    backgroundColor: Colors.surface,
-  },
-
-  // Standardized VAT layout
-  vatRow: {
-    flexDirection: "row",
-    alignItems: "flex-start", // Keeps labels aligned at the top
-    marginTop: 10,
-  },
-  vatColLeft: {
-    flex: 1, // Stretches the amount box to fill available space
-  },
-  vatColRight: {
-    width: 110, // Slightly wider to ensure "Select" or "20%" fits comfortably
-    marginLeft: 12,
-  },
-  inputRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    marginTop: 8, // Matches the containerStyle margin of the picker
-  },
-  vatCurrency: {
-    fontSize: 18,
-    fontWeight: "bold",
-    marginRight: 6,
-  },
-  vatInput: {
-    borderWidth: 1,
-    borderColor: Colors.border,
-    borderRadius: 5,
-    height: 50,           // Standardized height
-    flex: 1,
-    fontSize: 16,
-    paddingHorizontal: 12,
-    backgroundColor: Colors.surface,
-    color: Colors.textSecondary,
-  },
-  vatRatePicker: {
-    backgroundColor: Colors.surface,
-    borderColor: Colors.border,
-    height: 50,           // Matches vatInput exactly
-    paddingHorizontal: 8,
-    // Removed marginTop here to prevent double-spacing
-  },
-  vatRateDropdown: {
-    backgroundColor: Colors.surface,
-    borderColor: Colors.border,
-    zIndex: 5000,
-  },
-
-  dateButton: {
-    borderWidth: 1,
-    borderColor: Colors.border,
-    padding: 10,
-    borderRadius: 5,
-    marginTop: 5,
-  },
-
-  dropdown: { marginTop: 5, backgroundColor: Colors.surface, borderColor: Colors.border },
-  dropdownContainer: { borderColor: Colors.border, backgroundColor: Colors.surface },
-
-  receiptImage: {
-    width: 100,
-    height: 150,
-    marginRight: 10,
-    borderRadius: 5,
-  },
-  uploadPlaceholder: {
-    width: 100,
-    height: 150,
-    justifyContent: "center",
-    alignItems: "center",
-    backgroundColor: Colors.surface,
-    borderRadius: 5,
-    marginRight: 10,
-  },
-  plus: { fontSize: 30, color: Colors.accent },
-
-  bottomButtons: {
-    marginTop: 6,
-    paddingBottom: 20,
-  },
-  primaryRow: {
-    flexDirection: "row",
-    gap: 8,
-  },
-  actionBtn: {
-    flex: 1,
-  },
-  deleteRow: {
-    marginTop: 10,
-  },
-  deleteBtn: {
-    width: "100%",
-  },
-
-  // ===== Modal shared styles =====
-  modalOverlay: {
-    flex: 1,
-    justifyContent: "center",
-    backgroundColor: "rgba(0,0,0,0.5)",
-    padding: 20,
-  },
-  modalContent: {
-    backgroundColor: Colors.surface,
-    borderRadius: 10,
-    padding: 20,
-  },
-  modalTitle: { fontSize: 18, fontWeight: "bold", marginBottom: 10 },
-
-  // ===== OCR modal extras =====
-  modalImage: {
-    width: "100%",
-    height: 360,
-    resizeMode: "contain",
-    borderRadius: 8,
-    marginTop: 8,
-    marginBottom: 12,
-  },
-  scanningText: { marginTop: 8, fontStyle: "italic", color: Colors.textMuted },
-  ocrRow: { flexDirection: "row", alignItems: "center", marginTop: 8 },
-  ocrLabel: { fontWeight: "600", marginRight: 6 },
-  ocrValue: { flexShrink: 1 },
-  strike: { textDecorationLine: "line-through", color: "#888" },
-  modalButtons: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    gap: 8,
-    marginTop: 20,
-  },
-
-  fullscreenHint: {
-    fontSize: 12,
-    color: "#666",
-    marginTop: 4,
-    fontStyle: "italic",
-    textAlign: "center",
-    alignSelf: "center",
-  },
-
-  // ===== Upload overlay =====
-  uploadOverlay: {
-    flex: 1,
-    backgroundColor: "rgba(0,0,0,0.35)",
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  uploadCard: {
-    backgroundColor: Colors.surface,
-    paddingVertical: 20,
-    paddingHorizontal: 24,
-    borderRadius: 12,
-    alignItems: "center",
-    justifyContent: "center",
-    minWidth: 180,
-  },
-
-  // ===== Fullscreen viewer =====
-  fullScreenCloseButtonWrapper: {
-    position: "absolute",
-    bottom: 30,
-    left: 0,
-    right: 0,
-    alignItems: "center",
-  },
-  fullScreenCloseButton: {
-    backgroundColor: "rgba(166, 13, 73, 0.9)",
-    paddingVertical: 8,
-    paddingHorizontal: 24,
-    borderRadius: 20,
-  },
-  fullScreenCloseText: {
-    color: "#fff",
-    fontWeight: "bold",
-    fontSize: 16,
-  },
-});

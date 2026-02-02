@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useCallback } from "react";
 import {
+  Platform,
   View,
   Text,
   StyleSheet,
@@ -33,6 +34,8 @@ export default function SummaryScreen({ navigation }) {
   const [receipts, setReceipts] = useState([]);
   const [totals, setTotals] = useState({ overall: 0, byCategory: {}, totalVat: 0 });
 
+  const barChartScrollRef = React.useRef(null);
+  
   const computeVatFromRate = (amount, rate) => {
     const a = Number(amount);
     const r = Number(rate);
@@ -91,6 +94,15 @@ export default function SummaryScreen({ navigation }) {
     });
     return unsubscribeFocus;
   }, [navigation, fetchReceipts]);
+
+  useEffect(() => {
+  if (!loading && monthlyData.length > 0) {
+    // Small timeout ensures the layout has calculated widths before scrolling
+    setTimeout(() => {
+      barChartScrollRef.current?.scrollToEnd({ animated: true });
+    }, 500);
+  }
+  }, [loading, monthlyData]);
 
   const onRefresh = useCallback(async () => {
     setRefreshing(true);
@@ -199,9 +211,11 @@ export default function SummaryScreen({ navigation }) {
               {/* Scrollable bars */}
               <ScrollView
                 horizontal
+                ref={barChartScrollRef} // <-- Attach ref here
                 showsHorizontalScrollIndicator={false}
                 contentContainerStyle={{ paddingRight: 12 }}
                 nestedScrollEnabled={true}
+                onContentSizeChange={() => barChartScrollRef.current?.scrollToEnd({ animated: false })}
               >
                 <BarChart
                   data={{
@@ -269,13 +283,17 @@ const chartConfig = {
 // ===== Styles =====
 const styles = StyleSheet.create({
   container: SharedStyles.screen,
-  content: SharedStyles.content,
+  content: {
+  ...SharedStyles.content,
+  paddingTop: Platform.OS === 'android' ? 50 : 10, // Add explicit padding for the status bar
+  paddingBottom: 40, 
+},
   card: SharedStyles.card,
   title: SharedStyles.title,
   subtitle: SharedStyles.subtitle,
   subtitleVat: { fontSize: 16, color: Colors.textPrimary, marginTop: 6 },
   chartCard: { ...SharedStyles.chartCard, overflow: "visible" },
-  chartTitle: { fontSize: 16, fontWeight: "bold", marginBottom: 12, textAlign: "center" },
+  chartTitle: { fontSize: 16, fontWeight: "bold", marginBottom: 12, textAlign: "center", color: "black" },
   noData: { fontSize: 15, color: "#666", marginTop: 10, textAlign: "center" },
   center: { flex: 1, justifyContent: "center", alignItems: "center" },
   legendContainer: {

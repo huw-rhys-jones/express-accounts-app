@@ -346,6 +346,8 @@ export const ReceiptStyles = StyleSheet.create({
   },
   vatColRight: {
     width: 100, // smaller dropdown column
+    zIndex: 2000, 
+    elevation: 5,
   },
   vatCurrency: {
     fontSize: 18,
@@ -440,7 +442,7 @@ export const ReceiptStyles = StyleSheet.create({
     borderRadius: 10,
     padding: 20,
   },
-  modalTitle: { fontSize: 18, fontWeight: "bold", marginBottom: 10 },
+  modalTitle: { fontSize: 18, fontWeight: "bold", marginBottom: 10, color: "#000" },
   modalButtons: {
     flexDirection: "row",
     justifyContent: "space-between",
@@ -501,6 +503,28 @@ export const ReceiptStyles = StyleSheet.create({
     fontStyle: "italic",
     textAlign: "center",
     alignSelf: "center",
+  },
+  modalDetailText: {
+  color: Colors.textPrimary,
+  fontSize: 14, // Optional: keeps it consistent
+  marginBottom: 4, // Optional: adds a little breathing room between lines
+},
+  bottomButtons: {
+    marginTop: 6,    
+    padding: 20,
+  },
+    primaryRow: {
+    flexDirection: "row",
+    gap: 8,
+  },
+  actionBtn: {
+    flex: 1,
+  },
+  deleteRow: {
+    marginTop: 10,
+  },
+  deleteBtn: {
+    width: "100%",
   },
 });
 

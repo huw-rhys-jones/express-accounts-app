@@ -15,7 +15,7 @@ import {
   Button as RNButton,
   BackHandler,
   Alert,
-  FlatList,
+  ScrollView,
   ActivityIndicator,
 } from "react-native";
 import { Button, Checkbox } from "react-native-paper";
@@ -33,6 +33,7 @@ import * as FileSystem from "expo-file-system/legacy";
 import { extractData } from "../utils/extractors";
 import ImageViewer from "react-native-image-zoom-viewer";
 import { Colors, ReceiptStyles } from "../utils/sharedStyles";
+
 
 
 const ReceiptAdd = ({ navigation }) => {
@@ -679,6 +680,7 @@ const handleConfirmDate = (date) => {
               items={items}
               setOpen={setOpen}
               setItems={setItems}
+              listMode="SCROLLVIEW"
               setValue={(cb) => {
                 const next = cb(selectedCategory);
                 setSelectedCategory(next);
@@ -712,41 +714,37 @@ const handleConfirmDate = (date) => {
               dropDownDirection="AUTO"
             />
 
-            <View style={{ flexDirection: 'row', alignItems: 'center', marginVertical: 20, zIndex: 3000 }}>
-              
-              <FlatList
-                ref={flatListRef}
-                data={[...images, { addButton: true }]}
-                horizontal
-                scrollEnabled={false} // Keeps the + box stationary for the tip
-                keyExtractor={(item, index) => index.toString()}
-                renderItem={({ item }) =>
-                  item.addButton ? (
+            {/* Images Section */}
+            <View style={{ marginVertical: 20, zIndex: 1, elevation: 1 }}>
+              <ScrollView 
+                horizontal 
+                showsHorizontalScrollIndicator={false}
+                contentContainerStyle={{ alignItems: 'center' }}
+              >
+                {/* Map through images instead of using FlatList to avoid nesting errors */}
+                {images.map((item, index) => (
+                  <View key={index.toString()}>
                     <TouchableOpacity
-                      style={ReceiptStyles.uploadPlaceholder}
-                      onPress={pickImageOption}
+                      onPress={() => openOcrModal(item.uri, { autoScan: true, newSession: false })}
                     >
-                      <Text style={ReceiptStyles.plus}>+</Text>
-                    </TouchableOpacity>
-                  ) : (
-                    renderImage({ item })
-                  )
-                }
-              />
-
-              {showTip && (
-                <View style={localStyles.sideTipContainer}>
-                  <View style={localStyles.leftTriangle} />
-                  <View style={localStyles.sideTipBox}>
-                    <Text style={localStyles.sideTipText}>
-                      Tap to scan your receipt. We'll auto-fill the details! ✨
-                    </Text>
-                    <TouchableOpacity onPress={dismissTip}>
-                      <Text style={localStyles.sideGotIt}>Got it</Text>
+                      <Image source={{ uri: item.uri }} style={ReceiptStyles.receiptImage} />
                     </TouchableOpacity>
                   </View>
+                ))}
+                
+                {/* The + Button and Tooltip aligned in a row */}
+                <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                  <TouchableOpacity
+                    style={[ReceiptStyles.uploadPlaceholder, { marginRight: 0 }]}
+                    onPress={pickImageOption}
+                  >
+                    <Text style={ReceiptStyles.plus}>+</Text>
+                  </TouchableOpacity>
+
+                  {/* This now calls the component defined at the bottom */}
+                  {showTip && <ScannerTooltip onDismiss={dismissTip} />}
                 </View>
-              )}
+              </ScrollView>
             </View>
 
             {/* Buttons */}
@@ -795,11 +793,11 @@ const handleConfirmDate = (date) => {
         <View style={ReceiptStyles.modalOverlay}>
           <View style={ReceiptStyles.modalContent}>
             <Text style={ReceiptStyles.modalTitle}>Confirm Receipt Details</Text>
-            <Text>Amount: £{amount}</Text>
-            <Text>Date: {selectedDate.toDateString()}</Text>
-            <Text>Category: {selectedCategory}</Text>
-            <Text>VAT Amount: £{vatAmount || calculateVatFromRate() || "0.00"}</Text>
-            <Text>VAT Rate: {vatRate || "—"}%</Text>
+            <Text style={ReceiptStyles.modalDetailText}>Amount: £{amount}</Text>
+            <Text style={ReceiptStyles.modalDetailText}>Date: {selectedDate.toDateString()}</Text>
+            <Text style={ReceiptStyles.modalDetailText}>Category: {selectedCategory}</Text>
+            <Text style={ReceiptStyles.modalDetailText}>VAT Amount: £{vatAmount || calculateVatFromRate() || "0.00"}</Text>
+            <Text style={ReceiptStyles.modalDetailText}>VAT Rate: {vatRate || "—"}%</Text>
             <View style={ReceiptStyles.modalButtons}>
               <RNButton
                 title="Cancel"
@@ -1189,7 +1187,7 @@ const localStyles = StyleSheet.create({
     backgroundColor: '#F0D1FF',
     padding: 10,
     borderRadius: 12,
-    flexShrink: 1, // Prevents text from pushing off screen
+    maxWidth: 160,
     elevation: 4,
     shadowColor: '#000',
     shadowOpacity: 0.1,
@@ -1198,16 +1196,47 @@ const localStyles = StyleSheet.create({
   },
   sideTipText: {
     color: '#4A148C',
-    fontSize: 12, // Smaller, cleaner font
-    lineHeight: 16,
+    fontSize: 11,
+    lineHeight: 15,
   },
   sideGotIt: {
     color: '#4A148C',
     fontWeight: 'bold',
-    fontSize: 11,
+    fontSize: 10,
     marginTop: 5,
     textAlign: 'right',
   },
+  sideTipWrapper: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginLeft: 5, // Pulls the triangle right up to the box edge
+    zIndex: 5000,
+  },
+  leftTriangle: {
+    width: 0,
+    height: 0,
+    borderTopWidth: 7,
+    borderBottomWidth: 7,
+    borderRightWidth: 10,
+    borderTopColor: 'transparent',
+    borderBottomColor: 'transparent',
+    borderRightColor: '#F0D1FF',
+  },
+  
 });
 
 export default ReceiptAdd;
+
+const ScannerTooltip = ({ onDismiss }) => (
+  <View style={localStyles.sideTipWrapper}>
+    <View style={localStyles.leftTriangle} />
+    <View style={localStyles.sideTipBox}>
+      <Text style={localStyles.sideTipText}>
+        Tap to scan your receipt. We'll auto-fill the details! ✨
+      </Text>
+      <TouchableOpacity onPress={onDismiss}>
+        <Text style={localStyles.sideGotIt}>Got it</Text>
+      </TouchableOpacity>
+    </View>
+  </View>
+);

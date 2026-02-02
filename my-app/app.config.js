@@ -6,7 +6,7 @@ export default ({ config }) => ({
   name: "Express Accounts",
   slug: "express-accounts",
   scheme: "com.caistec.expressaccounts",
-  version: "1.0.3",
+  version: "1.0.4",
   orientation: "portrait",
   icon: "./assets/icon.png",
   userInterfaceStyle: "light",
