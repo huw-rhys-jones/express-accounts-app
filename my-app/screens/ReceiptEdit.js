@@ -725,6 +725,7 @@ export default function ReceiptDetailsScreen({ route, navigation }) {
                     status={acceptFlags.amount ? "checked" : "unchecked"}
                     onPress={() => toggleAccept("amount")}
                     color={Colors.accent}
+                    disabled={ocrResult?.amount == null}
                   />
                   <Text
                     style={[ReceiptStyles.ocrLabel, !acceptFlags.amount && ReceiptStyles.strike]}
@@ -734,7 +735,7 @@ export default function ReceiptDetailsScreen({ route, navigation }) {
                   <Text
                     style={[ReceiptStyles.ocrValue, !acceptFlags.amount && ReceiptStyles.strike]}
                   >
-                    {ocrResult?.amount != null ? `£${ocrResult.amount}` : "—"}
+                    {ocrResult?.amount != null ? `£${ocrResult.amount}` : "Not detected"}
                   </Text>
                 </View>
 
@@ -743,6 +744,7 @@ export default function ReceiptDetailsScreen({ route, navigation }) {
                     status={acceptFlags.date ? "checked" : "unchecked"}
                     onPress={() => toggleAccept("date")}
                     color={Colors.accent}
+                    disabled={!ocrResult?.date}
                   />
                   <Text
                     style={[ReceiptStyles.ocrLabel, !acceptFlags.date && ReceiptStyles.strike]}
@@ -752,7 +754,7 @@ export default function ReceiptDetailsScreen({ route, navigation }) {
                   <Text
                     style={[ReceiptStyles.ocrValue, !acceptFlags.date && ReceiptStyles.strike]}
                   >
-                    {ocrResult?.date ? formatDate(new Date(ocrResult.date)) : "—"}
+                    {ocrResult?.date ? formatDate(new Date(ocrResult.date)) : "Not detected"}
                   </Text>
                 </View>
 
@@ -761,6 +763,7 @@ export default function ReceiptDetailsScreen({ route, navigation }) {
                     status={acceptFlags.category ? "checked" : "unchecked"}
                     onPress={() => toggleAccept("category")}
                     color={Colors.accent}
+                    disabled={!ocrResult?.categoryName}
                   />
                   <Text
                     style={[ReceiptStyles.ocrLabel, !acceptFlags.category && ReceiptStyles.strike]}
@@ -770,7 +773,7 @@ export default function ReceiptDetailsScreen({ route, navigation }) {
                   <Text
                     style={[ReceiptStyles.ocrValue, !acceptFlags.category && ReceiptStyles.strike]}
                   >
-                    {ocrResult?.categoryName ?? "—"}
+                    {ocrResult?.categoryName ?? "Not detected"}
                   </Text>
                 </View>
 
@@ -781,6 +784,7 @@ export default function ReceiptDetailsScreen({ route, navigation }) {
                       status={acceptFlags.vat ? "checked" : "unchecked"}
                       onPress={() => toggleAccept("vat")}
                       color={Colors.accent}
+                      disabled={ocrResult?.vat?.value == null && ocrResult?.vat?.rate == null}
                     />
                     <Text
                       style={[ReceiptStyles.ocrLabel, !acceptFlags.vat && ReceiptStyles.strike]}
@@ -793,7 +797,7 @@ export default function ReceiptDetailsScreen({ route, navigation }) {
                       {ocrResult?.vat?.value != null
                         ? `£${ocrResult.vat.value}`
                         : "—"}{" "}
-                      (Rate {ocrResult?.vat?.rate ?? "—"}%)
+                      (Rate {ocrResult?.vat?.rate ?? "Not detected"}%)
                     </Text>
                   </View>
                 ) : null}

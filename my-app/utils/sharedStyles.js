@@ -459,8 +459,8 @@ export const ReceiptStyles = StyleSheet.create({
   },
   scanningText: { marginTop: 8, fontStyle: "italic", color: "#555" },
   ocrRow: { flexDirection: "row", alignItems: "center", marginTop: 8 },
-  ocrLabel: { fontWeight: "600", marginRight: 6 },
-  ocrValue: { flexShrink: 1 },
+  ocrLabel: { fontWeight: "600", marginRight: 6, color: "#555" },
+  ocrValue: { flexShrink: 1, color: "#555" },
 
   // Upload overlay
   uploadOverlay: {

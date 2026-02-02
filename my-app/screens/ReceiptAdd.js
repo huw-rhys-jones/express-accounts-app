@@ -826,7 +826,7 @@ const handleConfirmDate = (date) => {
             <Text style={[ReceiptStyles.modalTitle, { textAlign: "center" }]}>
               Receipt saved 🎉
             </Text>
-            <Text style={{ textAlign: "center", marginTop: 4 }}>
+            <Text style={{ textAlign: "center", marginTop: 4, color: "#555" }}>
               Do you want to add another?
             </Text>
             <View style={[ReceiptStyles.modalButtons, { marginTop: 16 }]}>
@@ -965,10 +965,11 @@ const handleConfirmDate = (date) => {
                     status={acceptFlags.amount ? "checked" : "unchecked"}
                     onPress={() => toggleAccept("amount")}
                     color={Colors.accent}
+                    disabled={ocrResult?.amount == null}
                   />
                   <Text style={ReceiptStyles.ocrLabel}>Amount:</Text>
                   <Text style={ReceiptStyles.ocrValue}>
-                    {ocrResult?.amount != null ? `£${ocrResult.amount}` : "—"}
+                    {ocrResult?.amount != null ? `£${ocrResult.amount}` : "Not detected"}
                   </Text>
                 </View>
 
@@ -978,10 +979,11 @@ const handleConfirmDate = (date) => {
                     status={acceptFlags.date ? "checked" : "unchecked"}
                     onPress={() => toggleAccept("date")}
                     color={Colors.accent}
+                    disabled={!ocrResult?.date}
                   />
                   <Text style={ReceiptStyles.ocrLabel}>Date:</Text>
                   <Text style={ReceiptStyles.ocrValue}>
-                    {ocrResult?.date ? formatDate(new Date(ocrResult.date)) : "—"}
+                    {ocrResult?.date ? formatDate(new Date(ocrResult.date)) : "Not detected"}
                   </Text>
                 </View>
 
@@ -991,10 +993,11 @@ const handleConfirmDate = (date) => {
                     status={acceptFlags.category ? "checked" : "unchecked"}
                     onPress={() => toggleAccept("category")}
                     color={Colors.accent}
+                    disabled={!ocrResult?.categoryName}
                   />
                   <Text style={ReceiptStyles.ocrLabel}>Category:</Text>
                   <Text style={ReceiptStyles.ocrValue}>
-                    {ocrResult?.categoryName ?? "—"}
+                    {ocrResult?.categoryName ?? "Not detected"}
                   </Text>
                 </View>
 
@@ -1004,10 +1007,11 @@ const handleConfirmDate = (date) => {
                     status={acceptFlags.vat ? "checked" : "unchecked"}
                     onPress={() => toggleAccept("vat")}
                     color={Colors.accent}
+                    disabled={ocrResult?.vat?.value == null && ocrResult?.vat?.rate == null}
                   />
                   <Text style={ReceiptStyles.ocrLabel}>VAT:</Text>
                   <Text style={ReceiptStyles.ocrValue}>
-                    {ocrResult?.vat?.value != null ? `£${ocrResult.vat.value}` : "—"}
+                    {ocrResult?.vat?.value != null ? `£${ocrResult.vat.value}` : "Not detected"}
                     {`  (Rate ${ocrResult?.vat?.rate ?? "—"}%)`}
                   </Text>
                 </View>
