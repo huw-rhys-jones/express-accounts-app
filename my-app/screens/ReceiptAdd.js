@@ -24,7 +24,7 @@ import * as ImagePicker from "react-native-image-picker";
 import { KeyboardAwareScrollView } from "react-native-keyboard-aware-scroll-view";
 import DropDownPicker from "react-native-dropdown-picker";
 import { db, auth } from "../firebaseConfig";
-import { addDoc, collection, serverTimestamp } from "firebase/firestore";
+import { doc, getDoc, setDoc, addDoc, collection, serverTimestamp } from "firebase/firestore";
 import { getStorage, ref, uploadBytes, getDownloadURL } from "firebase/storage";
 import { categories_meta } from "../constants/arrays";
 import { formatDate } from "../utils/format_style";
@@ -33,6 +33,7 @@ import * as FileSystem from "expo-file-system/legacy";
 import { extractData } from "../utils/extractors";
 import ImageViewer from "react-native-image-zoom-viewer";
 import { Colors, ReceiptStyles } from "../utils/sharedStyles";
+
 
 const ReceiptAdd = ({ navigation }) => {
   const [amount, setAmount] = useState("");
@@ -44,6 +45,8 @@ const ReceiptAdd = ({ navigation }) => {
   const [open, setOpen] = useState(false);
   const [selectedCategory, setSelectedCategory] = useState(null);
   const [vatAmountEdited, setVatAmountEdited] = useState(false);
+  const [showTip, setShowTip] = useState(false);
+  const [tipPosition, setTipPosition] = useState({ x: 0, y: 0 });
 
   // success + confirm modals
   const [showSuccess, setShowSuccess] = useState(false);
@@ -321,6 +324,41 @@ const ReceiptAdd = ({ navigation }) => {
     }
   }, [amount, vatRate, vatAmountEdited]);
 
+  // Check Firebase for "seen" status on mount
+  useEffect(() => {
+    const checkTooltipStatus = async () => {
+      const user = auth.currentUser;
+      if (user) {
+        try {
+          const userRef = doc(db, "users", user.uid);
+          const userSnap = await getDoc(userRef);
+          
+          // Only show the tip if they haven't seen it and no images are added yet
+          if (!userSnap.data()?.hasSeenScannerTip && images.length === 0) {
+            setShowTip(true);
+          }
+        } catch (error) {
+          console.log("Error fetching tooltip status:", error);
+        }
+      }
+    };
+    checkTooltipStatus();
+  }, []);
+
+  const dismissTip = async () => {
+  setShowTip(false);
+  const user = auth.currentUser;
+  if (user) {
+    try {
+      const userRef = doc(db, "users", user.uid);
+      // setDoc with merge: true is safer than updateDoc for new profiles
+      await setDoc(userRef, { hasSeenScannerTip: true }, { merge: true }); 
+    } catch (error) {
+      console.log("Error updating tooltip status:", error);
+    }
+  }
+};
+
   // ------- save helpers -------
   const calculateVatFromRate = () => {
     if (!amount || !vatRate) return "";
@@ -447,6 +485,9 @@ const handleConfirmDate = (date) => {
 };
 
   const pickImageOption = () => {
+
+    if (showTip) dismissTip();
+
     Alert.alert(
     "Add Image",
     "Choose an option",
@@ -671,28 +712,42 @@ const handleConfirmDate = (date) => {
               dropDownDirection="AUTO"
             />
 
-            {/* Images */}
-            <FlatList
-              ref={flatListRef}
-              data={[...images, { addButton: true }]}
-              horizontal
-              nestedScrollEnabled={true}
-              keyExtractor={(item, index) => index.toString()}
-              renderItem={({ item }) =>
-                item.addButton ? (
-                  <TouchableOpacity
-                    style={ReceiptStyles.uploadPlaceholder}
-                    onPress={pickImageOption}
-                  >
-                    <Text style={ReceiptStyles.plus}>+</Text>
-                  </TouchableOpacity>
-                ) : (
-                  renderImage({ item })
-                )
-              }
-              contentContainerStyle={{ marginVertical: 20 }}
-              showsHorizontalScrollIndicator={true}
-            />
+            <View style={{ flexDirection: 'row', alignItems: 'center', marginVertical: 20, zIndex: 3000 }}>
+              
+              <FlatList
+                ref={flatListRef}
+                data={[...images, { addButton: true }]}
+                horizontal
+                scrollEnabled={false} // Keeps the + box stationary for the tip
+                keyExtractor={(item, index) => index.toString()}
+                renderItem={({ item }) =>
+                  item.addButton ? (
+                    <TouchableOpacity
+                      style={ReceiptStyles.uploadPlaceholder}
+                      onPress={pickImageOption}
+                    >
+                      <Text style={ReceiptStyles.plus}>+</Text>
+                    </TouchableOpacity>
+                  ) : (
+                    renderImage({ item })
+                  )
+                }
+              />
+
+              {showTip && (
+                <View style={localStyles.sideTipContainer}>
+                  <View style={localStyles.leftTriangle} />
+                  <View style={localStyles.sideTipBox}>
+                    <Text style={localStyles.sideTipText}>
+                      Tap to scan your receipt. We'll auto-fill the details! ✨
+                    </Text>
+                    <TouchableOpacity onPress={dismissTip}>
+                      <Text style={localStyles.sideGotIt}>Got it</Text>
+                    </TouchableOpacity>
+                  </View>
+                </View>
+              )}
+            </View>
 
             {/* Buttons */}
             <View style={ReceiptStyles.buttonContainer}>
@@ -1059,224 +1114,99 @@ const handleConfirmDate = (date) => {
   );
 };
 
-const styles = StyleSheet.create({
-  container: {
-    padding: 12,
-    backgroundColor: Colors.background,
-    flex: 1,
-    alignItems: "center",
-    justifyContent: "center",
+
+const localStyles = StyleSheet.create({
+  tipWrapper: {
+    position: 'absolute',
+    // Position it roughly 110 pixels above the button's Y coordinate
+    left: 10,
+    right: 20,
+    zIndex: 5000,
+    alignItems: 'center', // Centers the bubble and triangle
   },
-  borderContainer: {
-    borderWidth: 5,
-    borderColor: Colors.background,
-    borderRadius: 35,
-    padding: 20,
-    width: "90%",
-    backgroundColor: Colors.surface,
+  tipBox: {
+    backgroundColor: '#F0D1FF',
+    padding: 15,
+    borderRadius: 15,
+    width: '100%', // Takes up the width of the container
+    elevation: 10,
+    shadowColor: '#000',
+    shadowOpacity: 0.3,
+    shadowRadius: 5,
+    shadowOffset: { width: 0, height: 4 },
   },
-  header: {
-    fontSize: 22,
-    fontWeight: "bold",
-    color: Colors.accent,
-    marginBottom: 20,
-    textAlign: "center",
+  tipText: {
+    color: '#4A148C',
+    fontSize: 14,
+    lineHeight: 20,
   },
-  label: {
-    fontSize: 16,
-    fontWeight: "bold",
-    color: Colors.textSecondary,
+  tipButton: {
     marginTop: 10,
-    marginBottom: 6,
-  },
-  inputRow: {
-    flexDirection: "row",
-    alignItems: "center",
-  },
-  currency: {
-    fontSize: 18,
-    fontWeight: "bold",
-    marginLeft: 25,
-  },
-  input: {
-    borderWidth: 1,
-    borderColor: Colors.border,
-    borderRadius: 5,
-    padding: 10,
-    flex: 1,
-    fontSize: 16,
-    margin: 8,
-    color: Colors.textSecondary,
-    backgroundColor: Colors.surface,
-  },
-
-  // VAT layout
-  vatRow: {
-    flexDirection: "row",
-    gap: 12,
-    alignItems: "flex-start",
-  },
-  vatColLeft: {
-    flex: 1, // This ensures the left side takes up the remaining space
-    marginRight: 12, 
-  },
-  vatColRight: {
-    width: 100, // smaller dropdown column
-  },
-  vatCurrency: {
-    fontSize: 18,
-    fontWeight: "bold",
-    marginLeft: 10,
-    paddingRight: 5,
-  },
-  vatInput: {
-    borderWidth: 1,
-    borderColor: Colors.border,
-    borderRadius: 5,
-    height: 50,             // Increased from 44 to 50 for a better touch target
-    paddingHorizontal: 12,
-    fontSize: 16,
-    backgroundColor: Colors.surface,
-    marginTop: 8,           // Match the picker's margin exactly
-    color: Colors.textSecondary,
-  },
-  vatRatePicker: {
-    backgroundColor: Colors.surface,
-    borderColor: Colors.border,
-    height: 50,             // MUST match vatInput height exactly
-    justifyContent: 'center',
-    paddingHorizontal: 8,
-    // Do NOT put marginTop here
-  },
-  vatRateDropdown: {
-    backgroundColor: Colors.surface, // Critical: adds solid background to the list
-    borderColor: Colors.border,
-    zIndex: 5000,              // Ensures the list itself stays on top
-    shadowColor: "#000",       // Optional: adds a slight shadow for depth on iOS
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 4,
-  },
-
-  dateButton: {
-    borderWidth: 1,
-    borderColor: Colors.border,
-    borderRadius: 5,
-    padding: 10,
-    margin: 25,
-    marginRight: 36,
-    marginLeft: 44,
-  },
-  dateText: { fontSize: 16, color: Colors.textPrimary },
-
-  dropdown: {
-    backgroundColor: Colors.surface,
-    borderColor: Colors.border,
-  },
-  dropdownContainer: {
-    backgroundColor: Colors.surface,
-    borderColor: Colors.border,
-  },
-
-  receiptImage: {
-    width: 100,
-    height: 150,
-    resizeMode: "contain",
-    borderRadius: 5,
-    marginRight: 10,
-  },
-  uploadPlaceholder: {
-    width: 100,
-    height: 150,
-    borderRadius: 5,
-    borderWidth: 1,
-    borderColor: Colors.border,
-    justifyContent: "center",
-    alignItems: "center",
-    backgroundColor: Colors.surface,
-  },
-  plus: { fontSize: 32, color: Colors.accent },
-
-  buttonContainer: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    paddingBottom: 10,
-  },
-  button: { flex: 1, marginHorizontal: 5 },
-
-  // Shared modal styling
-  modalOverlay: {
-    flex: 1,
-    justifyContent: "center",
-    backgroundColor: "rgba(0,0,0,0.5)",
-    padding: 20,
-  },
-  modalContent: {
-    backgroundColor: Colors.surface,
-    borderRadius: 10,
-    padding: 20,
-  },
-  modalTitle: { fontSize: 18, fontWeight: "bold", marginBottom: 10 },
-  modalButtons: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    marginTop: 20,
-  },
-
-  // OCR modal extras
-  modalImage: {
-    width: "100%",
-    height: 320,
-    resizeMode: "contain",
-    borderRadius: 8,
-    marginBottom: 12,
-  },
-  scanningText: { marginTop: 8, fontStyle: "italic", color: "#555" },
-  ocrRow: { flexDirection: "row", alignItems: "center", marginTop: 8 },
-  ocrLabel: { fontWeight: "600", marginRight: 6 },
-  ocrValue: { flexShrink: 1 },
-
-  // Upload overlay
-  uploadOverlay: {
-    flex: 1,
-    backgroundColor: "rgba(0,0,0,0.35)",
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  uploadCard: {
-    backgroundColor: "#fff",
-    paddingVertical: 20,
-    paddingHorizontal: 24,
-    borderRadius: 12,
-    alignItems: "center",
-    justifyContent: "center",
-    minWidth: 180,
-  },
-
-  // Fullscreen close button
-  fullScreenCloseButtonWrapper: {
-    position: "absolute",
-    bottom: 30,
-    left: 0,
-    right: 0,
-    alignItems: "center",
-  },
-  fullScreenCloseButton: {
-    backgroundColor: "rgba(166, 13, 73, 0.9)",
+    alignSelf: 'flex-end',
+    backgroundColor: '#4A148C',
+    paddingHorizontal: 15,
     paddingVertical: 8,
-    paddingHorizontal: 24,
-    borderRadius: 20,
+    borderRadius: 10,
   },
-  fullScreenCloseText: { color: "#fff", fontWeight: "bold", fontSize: 16 },
-
-  // hint text
-  fullscreenHint: {
+  tipButtonText: {
+    color: '#FFF',
     fontSize: 12,
-    color: "#666",
-    marginTop: 4,
-    fontStyle: "italic",
-    textAlign: "center",
-    alignSelf: "center",
+    fontWeight: 'bold',
+  },
+  triangle: {
+    width: 0,
+    height: 0,
+    backgroundColor: 'transparent',
+    borderStyle: 'solid',
+    borderLeftWidth: 12,
+    borderRightWidth: 12,
+    borderTopWidth: 18,
+    borderLeftColor: 'transparent',
+    borderRightColor: 'transparent',
+    borderTopColor: '#F0D1FF',
+    marginTop: -1, // Merges triangle into the box
+  },
+  sideTipContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flex: 10, // Allows it to take up remaining horizontal space
+    marginLeft: 5, // Pulls the triangle closer to the box
+  },
+  leftTriangle: {
+    width: 0,
+    height: 0,
+    backgroundColor: 'transparent',
+    borderStyle: 'solid',
+    borderTopWidth: 8,
+    borderBottomWidth: 8,
+    borderRightWidth: 12,
+    borderTopColor: 'transparent',
+    borderBottomColor: 'transparent',
+    borderRightColor: '#F0D1FF', // Matches box color
+    zIndex: 3001,
+  },
+  sideTipBox: {
+    backgroundColor: '#F0D1FF',
+    padding: 10,
+    borderRadius: 12,
+    flexShrink: 1, // Prevents text from pushing off screen
+    elevation: 4,
+    shadowColor: '#000',
+    shadowOpacity: 0.1,
+    shadowRadius: 3,
+    shadowOffset: { width: 2, height: 2 },
+  },
+  sideTipText: {
+    color: '#4A148C',
+    fontSize: 12, // Smaller, cleaner font
+    lineHeight: 16,
+  },
+  sideGotIt: {
+    color: '#4A148C',
+    fontWeight: 'bold',
+    fontSize: 11,
+    marginTop: 5,
+    textAlign: 'right',
   },
 });
 
