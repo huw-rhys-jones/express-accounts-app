@@ -36,7 +36,7 @@ export const months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "
 export const categories_meta = [
   {
     name: "Fuel",
-    meta: ["fuel", "filling", "petrol", "deisel", "unleaded", "pump", "gas station", "shell", "bp", "texaco"],
+    meta: ["fuel", "filling", "petrol", "diesel", "unleaded", "pump", "gas station", "shell", "bp", "texaco"],
     vatRate: 20,
   },
   {
