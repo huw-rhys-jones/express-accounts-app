@@ -74,10 +74,13 @@ const ReceiptAdd = ({ navigation }) => {
   const [fullScreenImage, setFullScreenImage] = useState(null);
   const [returnToOcrAfterFullscreen, setReturnToOcrAfterFullscreen] = useState(false);
 
-  // Category dropdown items
-  const [items, setItems] = useState(
-    categories_meta.map((cat) => ({ label: cat.name, value: cat.name }))
-  );
+  const allCategoryItems = categories_meta.map((cat) => ({ 
+    label: cat.name, 
+    value: cat.name 
+  }));
+  
+  // 2. The 'items' state will now only hold what is visible
+  const [items, setItems] = useState(allCategoryItems);
 
   // VAT rate options from categories_meta unique vatRate values
   const deriveVatRateItems = () => {
@@ -675,81 +678,77 @@ const handleConfirmDate = (date) => {
             {/* Category */}
             <Text style={ReceiptStyles.label}>Category:</Text>
             <DropDownPicker
-            open={open}
-            value={selectedCategory}
-            items={items}
-            setOpen={setOpen}
-            setItems={setItems}
-            disableLocalSearch={false}
-            
-            // 1. Switch to SCROLLVIEW mode to kill the VirtualizedList error
-            listMode="SCROLLVIEW" 
-            
-            // 2. This is crucial: it tells the picker to live inside your existing ScrollView
-            nestedScrollEnabled={true} 
-
-            searchable={true}
-            searchPlaceholder="Search categories..."
-
-            // 3. Remove the maxHeight or set it to something very large 
-            // so the list fully expands into the main page
-            dropDownContainerStyle={[
-              ReceiptStyles.dropdownContainer,
-              { position: 'relative', top: 0 } // Keeps it from "floating" over other elements
-            ]}
-
-            searchPredicate={(item, searchText) => {
-              const query = searchText.toLowerCase().trim();
-              if (!query) return true;
-            
-              // Find the metadata using the value (e.g., "Fuel")
-              const categoryData = categories_meta.find((c) => c.name === item.value);
+              open={open}
+              value={selectedCategory}
+              items={items}
+              setOpen={setOpen}
+              setItems={setItems}
               
-              // 1. Check the Label (what the user sees)
-              const labelMatch = item.label.toLowerCase().includes(query);
-              
-              // 2. Check the Meta Keywords
-              const metaMatch = categoryData?.meta?.some((keyword) => 
-                keyword.toLowerCase().includes(query)
-              );
-            
-              return labelMatch || metaMatch;
-            }}
+              searchable={true}
+              disableLocalSearch={true} // We are taking the wheel
+              onChangeSearchText={(text) => {
+                const query = text.toLowerCase().trim();
+                if (!query) {
+                  setItems(allCategoryItems);
+                  return;
+                }
 
-            setValue={(callback) => {
-              // 1. Get the next value by calling the callback with the current state
-              const next = callback(selectedCategory);
+                // Custom filtering logic: Check label OR Meta
+                const filtered = allCategoryItems.filter((item) => {
+                  const categoryData = categories_meta.find((c) => c.name === item.value);
+                  const labelMatch = item.label.toLowerCase().includes(query);
+                  const metaMatch = categoryData?.meta?.some((kw) => kw.toLowerCase().includes(query));
+                  
+                  return labelMatch || metaMatch;
+                });
+
+                setItems(filtered);
+              }}
+
+              // 3. Return to SCROLLVIEW mode for stability
+              listMode="SCROLLVIEW"
+              nestedScrollEnabled={true}
               
-              // 2. Update your state variable
-              setSelectedCategory(next);
-            
-              // 3. Trigger your VAT logic
-              if (!vatRate && next) {
-                const cat = categories_meta.find((c) => c.name === next);
-                const r = cat?.vatRate;
-                if (r !== undefined && r !== null && !Number.isNaN(r)) {
-                  const rStr = String(r);
-                  setVatRate(rStr);
-                  setVatRateItems((prev) => {
-                    const has = prev.some((it) => it.value === rStr);
-                    return has
-                      ? prev
-                      : [...prev, { label: `${r}%`, value: rStr }].sort(
-                          (a, b) => Number(a.value) - Number(b.value)
-                        );
-                  });
-                  if (!vatAmountEdited && amount) {
-                    setVatAmount(computeVat(amount, rStr));
+              // 4. Force a Height to fix the scrolling
+              // This ensures the picker has a defined boundary so the phone knows when to scroll
+              dropDownContainerStyle={[
+                ReceiptStyles.dropdownContainer,
+                { position: 'relative', top: 0, maxHeight: 250 }
+              ]}
+
+              setValue={(callback) => {
+                // 1. Get the next value by calling the callback with the current state
+                const next = callback(selectedCategory);
+                
+                // 2. Update your state variable
+                setSelectedCategory(next);
+              
+                // 3. Trigger your VAT logic
+                if (!vatRate && next) {
+                  const cat = categories_meta.find((c) => c.name === next);
+                  const r = cat?.vatRate;
+                  if (r !== undefined && r !== null && !Number.isNaN(r)) {
+                    const rStr = String(r);
+                    setVatRate(rStr);
+                    setVatRateItems((prev) => {
+                      const has = prev.some((it) => it.value === rStr);
+                      return has
+                        ? prev
+                        : [...prev, { label: `${r}%`, value: rStr }].sort(
+                            (a, b) => Number(a.value) - Number(b.value)
+                          );
+                    });
+                    if (!vatAmountEdited && amount) {
+                      setVatAmount(computeVat(amount, rStr));
+                    }
                   }
                 }
-              }
-            }}
-            
-            placeholder="Select a category"
-            style={ReceiptStyles.dropdown}
-            zIndex={1000}
-            // This helps ensure the dropdown stays "on top" of the Save/Reset buttons
-            zIndexInverse={3000} 
+              }}
+
+              placeholder="Select a category"
+              style={ReceiptStyles.dropdown}
+              zIndex={1000}
+              zIndexInverse={3000}
           />
 
             {/* Images Section */}
