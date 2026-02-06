@@ -7,9 +7,7 @@ import {
   TouchableOpacity,
   Image,
   StyleSheet,
-  TouchableWithoutFeedback,
-  Keyboard,
-  KeyboardAvoidingView,
+  findNodeHandle,
   Platform,
   Modal,
   Button as RNButton,
@@ -97,6 +95,12 @@ const ReceiptAdd = ({ navigation }) => {
   const [vatRateItems, setVatRateItems] = useState(deriveVatRateItems());
 
   const flatListRef = useRef(null);
+
+  const scrollRef = useRef(null);
+
+  const categoryWrapperRef = useRef(null);
+
+  const [categoryY, setCategoryY] = useState(0);
 
   // ------- helpers -------
   const ensureFileFromAsset = async (asset) => {
@@ -569,16 +573,16 @@ const handleConfirmDate = (date) => {
 
   // ------- render -------
   return (
-    <KeyboardAvoidingView
-      style={{ flex: 1 }}
-      behavior={Platform.OS === "ios" ? "padding" : "height"}
-    >
-      <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
-        <KeyboardAwareScrollView
-          contentContainerStyle={{ flexGrow: 1, paddingBottom: 40 }}
-          enableOnAndroid={true}
-          keyboardShouldPersistTaps="handled"
-        >
+    <View style={{ flex: 1 }}>
+ 
+      <KeyboardAwareScrollView
+        ref={scrollRef}
+        contentContainerStyle={{ flexGrow: 1, paddingBottom: 600 }} // INCREASE THIS
+        enableOnAndroid={true}
+        enableAutomaticScroll={false} // Disable auto-scroll so our manual scroll doesn't fight it
+        keyboardShouldPersistTaps="handled"
+        extraScrollHeight={0} 
+      >
           <View style={ReceiptStyles.container}>
             <View style={ReceiptStyles.borderContainer}>
               <Text style={ReceiptStyles.header}>Your Receipt</Text>
@@ -675,8 +679,16 @@ const handleConfirmDate = (date) => {
               onCancel={hideDatePicker}
             />
 
+          <View 
+            ref={categoryWrapperRef}
+            collapsable={false} // CRITICAL for Android measurement
+            style={{ zIndex: 1000, marginTop: 15 }} 
+          >
             {/* Category */}
-            <Text style={ReceiptStyles.label}>Category:</Text>
+            <Text 
+              style={ReceiptStyles.label}
+              onLayout={(event) => setCategoryY(event.nativeEvent.layout.y)}>
+                Category:</Text>
             <DropDownPicker
               open={open}
               value={selectedCategory}
@@ -687,21 +699,23 @@ const handleConfirmDate = (date) => {
               searchable={true}
               disableLocalSearch={true} // We are taking the wheel
               onChangeSearchText={(text) => {
+
+                categoryWrapperRef.current.measureLayout(
+                  findNodeHandle(scrollRef.current),
+                  (x, y) => scrollRef.current?.scrollToPosition(0, y - 50, true)
+                );
+              
+                // ... your existing filter logic ...
                 const query = text.toLowerCase().trim();
                 if (!query) {
                   setItems(allCategoryItems);
                   return;
                 }
-
-                // Custom filtering logic: Check label OR Meta
                 const filtered = allCategoryItems.filter((item) => {
                   const categoryData = categories_meta.find((c) => c.name === item.value);
-                  const labelMatch = item.label.toLowerCase().includes(query);
-                  const metaMatch = categoryData?.meta?.some((kw) => kw.toLowerCase().includes(query));
-                  
-                  return labelMatch || metaMatch;
+                  return item.label.toLowerCase().includes(query) || 
+                         categoryData?.meta?.some((kw) => kw.toLowerCase().includes(query));
                 });
-
                 setItems(filtered);
               }}
 
@@ -745,11 +759,28 @@ const handleConfirmDate = (date) => {
                 }
               }}
 
+              onOpen={() => {
+                setItems(allCategoryItems); // Reset to show everything when opened
+                
+                // Use measureLayout to find exactly where this view is inside the ScrollView
+                categoryWrapperRef.current.measureLayout(
+                  findNodeHandle(scrollRef.current),
+                  (x, y) => {
+                    // Now 'y' is the absolute distance from the top of the list
+                    scrollRef.current?.scrollToPosition(0, y - 50, true);
+                  },
+                  (error) => console.log('Measurement failed', error)
+                );
+              
+              }}
+
               placeholder="Select a category"
               style={ReceiptStyles.dropdown}
               zIndex={1000}
               zIndexInverse={3000}
           />
+
+          </View>
 
             {/* Images Section */}
             <View style={{ marginVertical: 20, zIndex: 1, elevation: 1 }}>
@@ -818,7 +849,7 @@ const handleConfirmDate = (date) => {
             </View>
           </View>
         </KeyboardAwareScrollView>
-      </TouchableWithoutFeedback>
+
 
       {/* Confirmation Modal */}
       <Modal
@@ -1149,7 +1180,7 @@ const handleConfirmDate = (date) => {
           </View>
         </View>
       </Modal>
-    </KeyboardAvoidingView>
+      </View>
   );
 };
 
