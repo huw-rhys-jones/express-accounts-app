@@ -698,6 +698,23 @@ const handleConfirmDate = (date) => {
               
               searchable={true}
               disableLocalSearch={true} // We are taking the wheel
+              
+              // 1. Make the placeholder look like a search instruction
+              placeholder="Search categories..."
+              searchPlaceholder="Type to filter..."
+              
+              // 2. Add an icon to the right side (optional but looks great)
+              // You can use a library like FontAwesome or a simple emoji/Text
+              ArrowDownIconComponent={() => <Text style={{marginRight: 10}}>🔍</Text>}
+              ArrowUpIconComponent={() => <Text style={{marginRight: 10}}>🔍</Text>}
+              showArrowIcon={true}
+
+              // 3. Ensure the keyboard is ready immediately
+              searchTextInputProps={{
+                autoFocus: true,
+                clearButtonMode: 'while-editing', // iOS only, adds a 'X' to clear
+              }}
+
               onChangeSearchText={(text) => {
 
                 categoryWrapperRef.current.measureLayout(
@@ -774,7 +791,7 @@ const handleConfirmDate = (date) => {
               
               }}
 
-              placeholder="Select a category"
+              placeholder="Search for a category..."
               style={ReceiptStyles.dropdown}
               zIndex={1000}
               zIndexInverse={3000}
