@@ -11,5 +11,6 @@
     "react-native-image-zoom-viewer": "^3.0.1",
     "react-native-keyboard-aware-scroll-view": "^0.9.5",
     "react-native-svg": "^15.13.0"
-  }
+  },
+  "version": "0.0.2"
 }

@@ -35,47 +35,47 @@ export const months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "
 
 export const categories_meta = [
   {
-    name: "Accomodation",
-    meta: ["rent", "house", "flat", "monthly", "hotel", "caravan", "bungalow"],
-    vatRate: 20, // hotels 20%, residential rent exempt (you can special-case if needed)
+    name: "Fuel",
+    meta: ["fuel", "filling", "petrol", "diesel", "unleaded", "pump", "gas station", "shell", "bp", "texaco"],
+    vatRate: 20,
+  },
+  {
+    name: "Vehicle Costs and Maintenance",
+    meta: ["parts", "MOT", "servicing", "tyre", "oil", "filter", "brake", "repair", "exhaust", "battery", "garage"],
+    vatRate: 20,
+  },
+  {
+    name: "Vehicle Hire",
+    meta: ["avis", "europcar", "enterprise", "rental", "van hire", "hertz", "sixt"],
+    vatRate: 20,
+  },
+  {
+    name: "Travel (bus, train, taxi)",
+    meta: ["rail", "train", "fare", "ticket", "single", "return", "zone", "tfl", "taxi", "uber", "bolt", "tube", "underground", "bus"],
+    vatRate: 0,
+  },
+  {
+    name: "Accommodation",
+    meta: ["hotel", "inn", "travelodge", "premier inn", "airbnb", "stay", "lodging", "booking.com"],
+    vatRate: 20,
   },
   {
     name: "Subsistence",
     meta: [
       "cafe", "restaurant", "bar", "olive", "hungry", "coffee", "americano",
       "latte", "cappacino", "steak", "peppercorn", "sirloin", "pizza", "meat",
-      "eat", "takeaway", "food", "burger"
+      "eat", "takeaway", "food", "burger", "lunch", "meal", "greggs", "mcdonalds"
     ],
     vatRate: 20,
   },
   {
-    name: "Travel",
-    meta: ["rail", "train", "fare", "ticket", "single", "return", "zone", "tfl", "taxi", "parking", "toll"],
-    vatRate: 0,
-  },
-  {
-    name: "Vehicle Maintenance",
-    meta: ["parts", "MOT", "servicing", "tyre", "oil", "filter", "brake"],
+    name: "Parking",
+    meta: ["parking", "ncp", "pay and display", "ringgo", "car park", "valet", "permit"],
     vatRate: 20,
   },
   {
-    name: "Fuel",
-    meta: ["fuel", "filling", "petrol", "deisel", "unleaded", "pump"],
-    vatRate: 20,
-  },
-  {
-    name: "Rent",
-    meta: ["monthly", "garage", "shop", "office", "premises"],
-    vatRate: 0, // commercial rents usually exempt
-  },
-  {
-    name: "Equipment and Tools",
-    meta: ["hammer", "saw", "driver"],
-    vatRate: 20,
-  },
-  {
-    name: "Telephone and Internet",
-    meta: ["phone", "contract", "handset", "wifi", "router", "internet", "o2", "vodaphone"],
+    name: "Plant & Machinery Hire",
+    meta: ["machine", "plant", "digger", "excavator", "generator", "hss", "speedy", "hire"],
     vatRate: 20,
   },
   {
@@ -83,100 +83,84 @@ export const categories_meta = [
     meta: [
       "nail", "screw", "consumable", "paint", "cement", "wood", "metal",
       "plastic", "slate", "stone", "sand", "B&Q", "lamanate", "floor",
-      "deck", "plaster", "glue", "adhesive", "nuts", "bolts", "washer",
-      "carpet"
+      "deck", "plaster", "glue", "adhesive", "nuts", "bolts", "washer", "carpet", "timber", "brick"
     ],
     vatRate: 20,
   },
   {
-    name: "Plant and Machinery",
-    meta: ["machine", "plant"],
+    name: "Tools and Equipment",
+    meta: ["hammer", "saw", "driver", "drill", "power tool", "wrench", "toolbox", "ladder"],
     vatRate: 20,
   },
   {
-    name: "Vehicle Hire",
-    meta: ["avis", "europcar", "enterprise"],
-    vatRate: 20,
+    name: "Client Entertaining",
+    meta: ["hospitality", "client", "entertainment", "dinner", "drinks", "event", "tickets", "theatre"],
+    vatRate: 0, // In the UK, Client Entertaining is usually not VAT recoverable
   },
   {
-    name: "Training and Tuition",
-    meta: ["course", "exam"],
-    vatRate: 0, // exempt unless commercial training (could be 20%)
-  },
-  {
-    name: "Staff Welfare",
-    meta: ["health", "safety"],
-    vatRate: 20,
-  },
-  {
-    name: "Property Service Charges",
-    meta: ["estate", "management", "letting"],
-    vatRate: 20,
-  },
-  {
-    name: "Lighting and Heating",
-    meta: ["electric", "light", "lamp", "gas", "heat", "bulb", "led", "flourescent"],
-    vatRate: 5, // business use
-  },
-  {
-    name: "Cleaning and Upkeep",
-    meta: ["clean", "wash", "detol", "bleach", "soap"],
-    vatRate: 20,
-  },
-  {
-    name: "Postage and Courier",
-    meta: ["stamps", "courier", "delivery", "postage", "envelope", "package"],
-    vatRate: 20, // Royal Mail exempt, private couriers 20%
-  },
-  {
-    name: "Stationary and Office",
-    meta: ["pen", "stationary", "pencil", "paper", "Print", "extinguisher", "ink", "cartridge", "sellotape", "duct", "memory"],
-    vatRate: 20,
-  },
-  {
-    name: "Subscriptions and Professional Body",
-    meta: ["magazines"],
-    vatRate: 20,
-  },
-  {
-    name: "Insurance",
-    meta: ["insurance"],
-    vatRate: 0, // exempt
-  },
-  {
-    name: "Software and computer",
-    meta: ["virus", "microsoft", "email", "website", "domain", "hosting"],
-    vatRate: 20,
-  },
-  {
-    name: "Repairs and Maintenance",
-    meta: ["plumber", "electrician", "painter", "gardener", "carpender", "carpet", "glazer", "glazier", "glazing"],
-    vatRate: 20,
-  },
-  {
-    name: "Charitable Donations",
-    meta: ["oxfam", "charity", "charitable", "mind"],
-    vatRate: 0, // exempt
-  },
-  {
-    name: "Consultancy Fees",
-    meta: ["law", "accountant", "consult", "medical", "architect", "survey", "engineer", "solicit", "financial", "advis", "security", "fire", "risk", "assess", "bank"],
-    vatRate: 20,
-  },
-  {
-    name: "Advertising and Promotion",
-    meta: ["radio", "billboard", "TV", "announcement", "sponsor", "media", "social", "facebook", "twitter", "instagram"],
-    vatRate: 20,
-  },
-  {
-    name: "Medical",
-    meta: ["plasters", "bandage", "paracetamol", "antiseptic", "drops", "eye", "ibuprofen"],
+    name: "Business Rental",
+    meta: ["monthly", "garage", "shop", "office", "premises", "rent", "lease", "business rates", "council tax"],
     vatRate: 0,
   },
   {
-    name: "Taxes",
-    meta: ["tax", "council", "rates"],
-    vatRate: 0, // exempt
+    name: "Waste Disposal",
+    meta: ["skip", "rubbish", "refuse", "bin", "recycling", "landfill", "hazard", "waste"],
+    vatRate: 20,
+  },
+  {
+    name: "Telephone",
+    meta: ["phone", "contract", "handset", "o2", "vodaphone", "mobile", "ee", "three", "billing"],
+    vatRate: 20,
+  },
+  {
+    name: "Software",
+    meta: ["virus", "microsoft", "email", "website", "domain", "hosting", "saas", "adobe", "subscription", "cloud"],
+    vatRate: 20,
+  },
+  {
+    name: "Business Insurance",
+    meta: ["insurance", "liability", "indemnity", "premium", "broker", "policy"],
+    vatRate: 0,
+  },
+  {
+    name: "Training costs",
+    meta: ["course", "exam", "tuition", "certification", "workshop", "seminar", "degree"],
+    vatRate: 0,
+  },
+  {
+    name: "Professional Fees",
+    meta: ["law", "accountant", "consult", "medical", "architect", "survey", "engineer", "solicit", "financial", "advis", "audit"],
+    vatRate: 20,
+  },
+  {
+    name: "Trade Subscriptions",
+    meta: ["magazines", "journal", "membership", "professional body", "guild", "union", "licence"],
+    vatRate: 20,
+  },
+  {
+    name: "Utilities",
+    meta: ["electric", "light", "lamp", "gas", "heat", "bulb", "led", "flourescent", "water", "utility", "power", "sewerage"],
+    vatRate: 5,
+  },
+  {
+    name: "Cleaning and Upkeep",
+    meta: ["clean", "wash", "detol", "bleach", "soap", "sanitizer", "janitorial", "window", "hygiene"],
+    vatRate: 20,
+  },
+  {
+    name: "Sundry items",
+    meta: ["miscellaneous", "other", "sundry", "petty", "cash", "small", "random"],
+    vatRate: 20,
+  },
+  {
+    name: "Postage",
+    meta: ["stamps", "courier", "delivery", "postage", "envelope", "package", "royal mail", "dpd", "fedex", "ups"],
+    vatRate: 20,
+  },
+  {
+    name: "Stationary",
+    meta: ["pen", "stationary", "pencil", "paper", "print", "extinguisher", "ink", "cartridge", "sellotape", "duct", "memory", "stapler", "folder"],
+    vatRate: 20,
   },
 ];
 

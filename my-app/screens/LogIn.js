@@ -5,7 +5,6 @@ import {
   TextInput,
   TouchableOpacity,
   StyleSheet,
-  KeyboardAvoidingView,
   Platform,
   Image,
   ActivityIndicator,
@@ -26,6 +25,8 @@ import * as AppleAuthentication from "expo-apple-authentication";
 import * as Crypto from "expo-crypto";
 import { GoogleLogo } from "../utils/format_style";
 import { Ionicons } from "@expo/vector-icons";
+import { KeyboardAwareScrollView } from "react-native-keyboard-aware-scroll-view";
+import { Colors, AuthStyles } from "../utils/sharedStyles";
 
 WebBrowser.maybeCompleteAuthSession();
 
@@ -314,40 +315,46 @@ const LoginScreen = ({ navigation }) => {
   };
 
   return (
-    <KeyboardAvoidingView
-      style={styles.flex}
-      behavior={Platform.OS === "ios" ? "padding" : "height"}
-    >
-      <View style={styles.logoContainer}>
-        <Image
-          source={require("../assets/images/logo.png")}
-          style={styles.logo}
-        />
-      </View>
-
-      <View style={styles.container}>
-        <View style={styles.header}>
-          <Text style={styles.headerText}>Sign in to continue</Text>
+    <View style={AuthStyles.flex}>
+      <KeyboardAwareScrollView
+        contentContainerStyle={{ flexGrow: 1 }}
+        enableOnAndroid={true}
+        keyboardShouldPersistTaps="handled"
+        extraScrollHeight={20}
+      >
+        <View style={AuthStyles.logoContainer}>
+          <Image
+            source={require("../assets/images/logo.png")}
+            style={AuthStyles.logo}
+          />
         </View>
 
-        <View style={styles.formContainer}>
-          <Text style={styles.label}>EMAIL</Text>
-          <TextInput
-            editable={!loading}
-            style={styles.input}
-            placeholder="example@email.com"
-            placeholderTextColor="#AAA"
-            keyboardType="email-address"
-            value={email}
-            onChangeText={setEmail}
-            autoCapitalize="none"
-          />
+        <View style={AuthStyles.container}>
+        <View style={AuthStyles.header}>
+          <Text style={AuthStyles.headerText}>Sign in to continue</Text>
+        </View>
 
-          <Text style={styles.label}>PASSWORD</Text>
-          <View style={styles.passwordContainer}>
+        <View style={AuthStyles.formContainer}>
+
+          <Text style={AuthStyles.label}>EMAIL</Text>
+          <View style={AuthStyles.passwordContainer}>
             <TextInput
               editable={!loading}
-              style={[styles.input, styles.inputWithIcon]}
+              style={AuthStyles.input}
+              placeholder="example@email.com"
+              placeholderTextColor="#AAA"
+              keyboardType="email-address"
+              value={email}
+              onChangeText={setEmail}
+              autoCapitalize="none"
+            />
+          </View>
+
+          <Text style={AuthStyles.label}>PASSWORD</Text>
+          <View style={AuthStyles.passwordContainer}>
+            <TextInput
+              editable={!loading}
+              style={[AuthStyles.input, AuthStyles.inputWithIcon]}
               placeholder="******"
               placeholderTextColor="#AAA"
               secureTextEntry={!showPassword}
@@ -355,7 +362,7 @@ const LoginScreen = ({ navigation }) => {
               onChangeText={setPassword}
             />
             <TouchableOpacity
-              style={styles.eyeIcon}
+              style={AuthStyles.eyeIcon}
               onPress={() => setShowPassword((prev) => !prev)}
               hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
             >
@@ -368,31 +375,22 @@ const LoginScreen = ({ navigation }) => {
           </View>
 
           <TouchableOpacity
-            style={[styles.loginButton, loading && { opacity: 0.7 }]}
+            style={[AuthStyles.loginButton, loading && { opacity: 0.7 }]}
             onPress={login}
             disabled={loading}
           >
-            <Text style={styles.loginButtonText}>Log in</Text>
-          </TouchableOpacity>
-
-          {/* Secondary actions */}
-          <TouchableOpacity onPress={openForgot}>
-            <Text style={styles.forgotPassword}>Forgot Password?</Text>
-          </TouchableOpacity>
-
-          <TouchableOpacity onPress={() => navigation.navigate("SignUp")}>
-            <Text style={styles.signup}>Signup</Text>
+            <Text style={AuthStyles.loginButtonText}>Sign in</Text>
           </TouchableOpacity>
 
           {/* Social buttons */}
           {Platform.OS === "android" && (
             <TouchableOpacity
-              style={[styles.googleButton, loading && { opacity: 0.7 }]}
+              style={[AuthStyles.googleButton, loading && { opacity: 0.7 }]}
               onPress={onGooglePress}
               disabled={!request || loading}
             >
-              <View style={styles.googleButtonContent}>
-                <Text style={styles.googleButtonText}>Sign in with Google</Text>
+              <View style={AuthStyles.googleButtonContent}>
+                <Text style={AuthStyles.googleButtonText}>Sign in with Google</Text>
                 <GoogleLogo />
               </View>
             </TouchableOpacity>
@@ -407,19 +405,30 @@ const LoginScreen = ({ navigation }) => {
                 AppleAuthentication.AppleAuthenticationButtonStyle.BLACK
               }
               cornerRadius = {8}
-              style={styles.appleButton}
+              style={AuthStyles.appleButton}
               onPress={onAppleButtonPress}
             />
           )}
+
+          {/* Secondary actions */}
+          <View style={AuthStyles.linksRow}>
+            <TouchableOpacity onPress={() => navigation.navigate("SignUp")}>
+              <Text style={AuthStyles.signup}>Create account</Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity onPress={openForgot}>
+              <Text style={AuthStyles.forgotPassword}>Forgot Password?</Text>
+            </TouchableOpacity>
+          </View>
         </View>
       </View>
 
       {/* 🔒 Full-screen loading overlay */}
       <Modal visible={loading} transparent animationType="fade">
-        <View style={styles.loadingOverlay}>
-          <View style={styles.loadingCard}>
+        <View style={AuthStyles.loadingOverlay}>
+          <View style={AuthStyles.loadingCard}>
             <ActivityIndicator size="large" />
-            <Text style={styles.loadingText}>
+            <Text style={AuthStyles.loadingText}>
               {loadingText || "Please wait…"}
             </Text>
           </View>
@@ -433,13 +442,13 @@ const LoginScreen = ({ navigation }) => {
         animationType="fade"
         onRequestClose={() => setForgotVisible(false)}
       >
-        <View style={styles.loadingOverlay}>
-          <View style={styles.loadingCard}>
-            <Text style={[styles.loadingText, { marginBottom: 10 }]}>
+        <View style={AuthStyles.loadingOverlay}>
+          <View style={AuthStyles.loadingCard}>
+            <Text style={[AuthStyles.loadingText, { marginBottom: 10 }]}>
               Reset your password
             </Text>
             <TextInput
-              style={styles.input}
+              style={AuthStyles.input}
               placeholder="Your email address"
               placeholderTextColor="#AAA"
               autoCapitalize="none"
@@ -450,7 +459,7 @@ const LoginScreen = ({ navigation }) => {
             <View style={{ flexDirection: "row", gap: 10, marginTop: 6 }}>
               <TouchableOpacity
                 style={[
-                  styles.loginButton,
+                  AuthStyles.loginButton,
                   { flex: 1, backgroundColor: "#a60d49" },
                   sendingReset && { opacity: 0.7 },
                 ]}
@@ -460,17 +469,17 @@ const LoginScreen = ({ navigation }) => {
                 {sendingReset ? (
                   <ActivityIndicator color="#FFF" />
                 ) : (
-                  <Text style={styles.loginButtonText}>Send reset link</Text>
+                  <Text style={AuthStyles.loginButtonText}>Send reset link</Text>
                 )}
               </TouchableOpacity>
               <TouchableOpacity
                 style={[
-                  styles.googleButton,
+                  AuthStyles.googleButton,
                   { flex: 1, backgroundColor: "#EEE" },
                 ]}
                 onPress={() => setForgotVisible(false)}
               >
-                <Text style={[styles.googleButtonText, { marginRight: 0 }]}>
+                <Text style={[AuthStyles.googleButtonText, { marginRight: 0 }]}>
                   Cancel
                 </Text>
               </TouchableOpacity>
@@ -478,45 +487,53 @@ const LoginScreen = ({ navigation }) => {
           </View>
         </View>
       </Modal>
-    </KeyboardAvoidingView>
+
+      </KeyboardAwareScrollView>
+    </View>
   );
 };
 
 const styles = StyleSheet.create({
-  flex: { flex: 1, backgroundColor: "#262261" },
+  flex: { flex: 1, backgroundColor: Colors.background },
   container: {
     flex: 1,
-    backgroundColor: "#262261",
+    backgroundColor: Colors.background,
     alignItems: "center",
     justifyContent: "center",
   },
   header: {
-    backgroundColor: "#FFF",
+    backgroundColor: Colors.surface,
     paddingVertical: 12,
     paddingHorizontal: 32,
     borderRadius: 20,
+    width: "85%",
+    maxWidth: 400,
     alignSelf: "center",
     marginTop: -10,
     marginBottom: 20,
-    minWidth: 220,
     alignItems: "center",
   },
   headerText: {
     fontSize: 18,
     fontWeight: "bold",
-    color: "#262261",
+    color: Colors.textPrimary,
     textAlign: "center",
   },
-  logo: { width: 260, height: 80, resizeMode: "contain" },
+  logo: { 
+    width: 260,
+    height: 80,
+    resizeMode: "contain" 
+  },
   logoContainer: {
-    backgroundColor: "#fff",
+    backgroundColor: Colors.surface,
     width: "85%",
+    maxWidth: 400,
     paddingVertical: 16,
     borderRadius: 20,
     alignItems: "center",
     justifyContent: "center",
     marginTop: 50,
-    marginBottom: 15,
+    marginBottom: 30,
     alignSelf: "center",
     shadowColor: "#000",
     shadowOffset: { width: 0, height: 4 },
@@ -525,55 +542,60 @@ const styles = StyleSheet.create({
     elevation: 6,
   },
   formContainer: {
-    backgroundColor: "#EAEAF2",
+    backgroundColor: Colors.card,
     padding: 20,
     borderRadius: 20,
     width: "85%",
+    maxWidth: 400,
   },
 
   label: {
     fontSize: 16,
     fontWeight: "bold",
-    color: "#333",
+    color: Colors.textSecondary,
     marginTop: 10,
   },
 
   // ---- Unified input style for both fields ----
+  // 1. Remove margins from the base input so it doesn't shift away from the icon
   input: {
-    backgroundColor: "#C4C4C4",
-    color: "#000",
+    backgroundColor: Colors.inputBg,
+    color: Colors.textSecondary,
     fontSize: 16,
     paddingVertical: 12,
     paddingHorizontal: 12,
     borderRadius: 10,
-    marginTop: 5,
-    marginBottom: 15,
+    // marginTop: 5,    <-- REMOVE THIS
+    // marginBottom: 15, <-- REMOVE THIS
   },
 
-  // Password wrapper so we can place the eye icon inside
+  // 2. Move those margins to the container instead
   passwordContainer: {
     position: "relative",
     justifyContent: "center",
+    marginTop: 5,      // <-- ADDED HERE
+    marginBottom: 15,   // <-- ADDED HERE
   },
 
-  // Extra right padding so text doesn't overlap the eye icon
   inputWithIcon: {
     paddingRight: 44,
   },
 
-  // Eye icon aligned inside the input, vertically centered
   eyeIcon: {
     position: "absolute",
     right: 10,
+    // Removing top: 0 and bottom: 0 is fine if the parent has a defined height, 
+    // but keeping them with justifyContent: 'center' is the safest way to center.
     top: 0,
     bottom: 0,
     justifyContent: "center",
     alignItems: "center",
     width: 32,
+    zIndex: 1, // Ensure it sits above the input for taps
   },
 
   loginButton: {
-    backgroundColor: "#a60d49",
+    backgroundColor: Colors.accent,
     paddingVertical: 12,
     borderRadius: 25,
     alignItems: "center",
@@ -582,7 +604,7 @@ const styles = StyleSheet.create({
   loginButtonText: { color: "#FFF", fontWeight: "bold", fontSize: 16 },
 
   googleButton: {
-    backgroundColor: "#FFF",
+    backgroundColor: Colors.surface,
     paddingVertical: 12,
     borderRadius: 25,
     alignItems: "center",
@@ -596,22 +618,25 @@ const styles = StyleSheet.create({
     fontWeight: "bold",
     fontSize: 16,
     marginRight: 8,
-    color: "#000",
+    color: Colors.textSecondary,
   },
   appleButton: { width: "100%", height: 50, marginTop: 16 },
 
   // Links
-  forgotPassword: {
+  linksRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
     marginTop: 12,
-    textAlign: "center",
-    color: "#555",
+    width: "100%",
+  },
+  forgotPassword: {
+    color: Colors.textMuted,
     fontSize: 14,
     textDecorationLine: "underline",
   },
   signup: {
-    marginTop: 8,
-    textAlign: "center",
-    color: "#a60d49",
+    color: Colors.accent,
     fontWeight: "bold",
     fontSize: 15,
   },
@@ -624,7 +649,7 @@ const styles = StyleSheet.create({
     alignItems: "center",
   },
   loadingCard: {
-    backgroundColor: "white",
+    backgroundColor: Colors.surface,
     paddingVertical: 20,
     paddingHorizontal: 24,
     borderRadius: 12,

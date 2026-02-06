@@ -17,9 +17,10 @@ import SideMenu from "../components/SideMenu";
 import { StatusBar, Platform } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import Constants from 'expo-constants';
+import { Colors } from "../utils/sharedStyles";
 
 // Inside your component
-const appVersion = Constants.expoConfig?.version || "1.0.0";
+const appVersion = Constants.expoConfig?.version;
 
 
 
@@ -230,9 +231,11 @@ const ExpensesScreen = ({ navigation }) => {
           keyExtractor={(item) => item.id}
           renderItem={renderReceiptItem}
           contentContainerStyle={[
-            styles.listContainer,
-            !hasReceipts ? { flexGrow: 1, justifyContent: "center" } : null,
-          ]}
+              styles.listContainer,
+              // Add this line: only show the dark background if NOT loading
+              { backgroundColor: loading ? "transparent" : Colors.textPrimary },
+              !hasReceipts ? { flexGrow: 1, justifyContent: "center" } : null,
+            ]}
           refreshControl={
             <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
           }
@@ -267,6 +270,7 @@ const ExpensesScreen = ({ navigation }) => {
         <Text style={styles.menuTitle}>Menu</Text>
       
         <View style={styles.userInfo}>
+          <Text style={styles.userEmail}>{displayName}</Text>
           <Text style={styles.userEmail}>{auth.currentUser?.email}</Text>
         </View>
 
@@ -293,27 +297,27 @@ const ExpensesScreen = ({ navigation }) => {
 export default ExpensesScreen;
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: "#302C66" },
+  container: { flex: 1, backgroundColor: Colors.background },
   content: { flex: 1, alignItems: "center", paddingBottom: 20 },
 
   card: {
-    backgroundColor: "#E5E5EA",
+    backgroundColor: Colors.card,
     width: "85%",
     padding: 22,
     borderRadius: 20,
     marginTop: 40,
     alignItems: "center",
   },
-  title: { fontSize: 19, fontWeight: "bold", color: "#1C1C4E" },
-  subtitle: { fontSize: 17, color: "#1C1C4E", marginTop: 14, textAlign: "center" },
+  title: { fontSize: 19, fontWeight: "bold", color: Colors.textPrimary },
+  subtitle: { fontSize: 17, color: Colors.textPrimary, marginTop: 14, textAlign: "center" },
   description: {
     fontSize: 16,
-    color: "#1C1C4E",
+    color: Colors.textPrimary,
     textAlign: "center",
     marginTop: 10,
   },
   addButton: {
-    backgroundColor: "#a60d49",
+    backgroundColor: Colors.accent,
     paddingVertical: 17,
     paddingHorizontal: 43,
     borderRadius: 35,
@@ -337,13 +341,13 @@ const styles = StyleSheet.create({
     marginTop: 10,
     borderRadius: 10,
     padding: 8,
-    backgroundColor: "#1C1C4E",
+    backgroundColor: Colors.textPrimary,
     width: "100%",
   },
 
   // ---- Header row (sortable columns) ----
   headerRow: {
-    backgroundColor: "#DCDCE4",
+    backgroundColor: Colors.card,
     borderRadius: 12,            // round all corners
     paddingHorizontal: 16,
     paddingVertical: 12,         // internal space
@@ -373,8 +377,8 @@ const styles = StyleSheet.create({
     justifyContent: "flex-end",
     gap: 6,
   },
-  headerText: { fontSize: 14, fontWeight: "700", color: "#1C1C4E" },
-  headerTextRight: { fontSize: 14, fontWeight: "700", color: "#1C1C4E", textAlign: "right" },
+  headerText: { fontSize: 14, fontWeight: "700", color: Colors.textPrimary },
+  headerTextRight: { fontSize: 14, fontWeight: "700", color: Colors.textPrimary, textAlign: "right" },
   headerArrow: { fontSize: 12, color: "#555" },
 
   receiptItem: {
@@ -390,14 +394,14 @@ const styles = StyleSheet.create({
     minHeight: 60,
   },
   receiptDate: { fontSize: 14, color: "#555" },
-  receiptCategory: { fontSize: 16, fontWeight: "500" },
-  receiptAmount: { fontSize: 16, fontWeight: "bold", color: "#a60d49" },
+  receiptCategory: { fontSize: 16, fontWeight: "500", color: "#000" },
+  receiptAmount: { fontSize: 16, fontWeight: "bold", color: Colors.accent },
 
   floatingButton: {
     position: "absolute",
     bottom: 100,
     right: 30,
-    backgroundColor: "#a60d49",
+    backgroundColor: Colors.accent,
     width: 60,
     height: 60,
     borderRadius: 30,
@@ -416,7 +420,7 @@ const styles = StyleSheet.create({
   blockingOverlay: {
     position: "absolute",
     top: 0, left: 0, right: 0, bottom: 0,
-    backgroundColor: "rgba(0,0,0,0.3)",
+    backgroundColor: "rgba(0,0,0,0.5)", // Slightly darker for better contrast
     justifyContent: "center",
     alignItems: "center",
     zIndex: 999,
@@ -431,7 +435,7 @@ const styles = StyleSheet.create({
   },
   loadingText: { marginTop: 10, fontSize: 16, fontWeight: "600" },
   topBar: {
-  backgroundColor: "#DCDCE4",
+  backgroundColor: Colors.card,
   width: "100%",
   // height is paddingTop (status bar) + this content height
   // keep the content area comfy:
@@ -451,24 +455,24 @@ topBarButton: {
   width: 44,
   height: 36,
   borderRadius: 18,
-  backgroundColor: "#C8C8D2",
+  backgroundColor: Colors.inputBg,
   alignItems: "center",
   justifyContent: "center",
 },
 topBarButtonText: {
   fontSize: 18,
   fontWeight: "700",
-  color: "#1C1C4E",
+  color: Colors.textPrimary,
 },
 topBarTitle: {
   fontSize: 18,
   fontWeight: "800",
-  color: "#1C1C4E",
+  color: Colors.textPrimary,
 },
 menuTitle: { 
-    fontSize: 22, 
-    fontWeight: "800", 
-    color: "#1C1C4E", 
+  fontSize: 22, 
+  fontWeight: "800", 
+  color: Colors.textPrimary, 
     marginBottom: 10 
   },
   userInfo: {
@@ -479,7 +483,7 @@ menuTitle: {
     fontSize: 14,
   },
   signOutBtn: {
-    backgroundColor: "#a60d49",
+    backgroundColor: Colors.accent,
     paddingVertical: 12,
     paddingHorizontal: 16,
     borderRadius: 10,

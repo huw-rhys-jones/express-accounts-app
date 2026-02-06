@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useCallback } from "react";
 import {
+  Platform,
   View,
   Text,
   StyleSheet,
@@ -13,8 +14,17 @@ import { collection, query, where, getDocs } from "firebase/firestore";
 import { db, auth } from "../firebaseConfig";
 import { PieChart, BarChart } from "react-native-chart-kit";
 import { groupReceiptsByMonth } from "../utils/groupByMonth";
+import { Colors, SharedStyles } from "../utils/sharedStyles";
 
 const screenWidth = Dimensions.get("window").width;
+const CHART_CARD_WIDTH = screenWidth * 0.9;
+const CHART_CARD_PADDING = 15;
+const PIE_CHART_SIZE = Math.max(
+  0,
+  Math.min(screenWidth * 0.7, CHART_CARD_WIDTH - CHART_CARD_PADDING * 2)
+);
+const PIE_CHART_PADDING_LEFT = Math.round(PIE_CHART_SIZE * 0.13);
+const PIE_CHART_CENTER_X = PIE_CHART_SIZE * 0.12;
 const BAR_CHART_HEIGHT = 220;
 const Y_AXIS_WIDTH = 46;
 
@@ -24,6 +34,8 @@ export default function SummaryScreen({ navigation }) {
   const [receipts, setReceipts] = useState([]);
   const [totals, setTotals] = useState({ overall: 0, byCategory: {}, totalVat: 0 });
 
+  const barChartScrollRef = React.useRef(null);
+  
   const computeVatFromRate = (amount, rate) => {
     const a = Number(amount);
     const r = Number(rate);
@@ -83,6 +95,15 @@ export default function SummaryScreen({ navigation }) {
     return unsubscribeFocus;
   }, [navigation, fetchReceipts]);
 
+  useEffect(() => {
+  if (!loading && monthlyData.length > 0) {
+    // Small timeout ensures the layout has calculated widths before scrolling
+    setTimeout(() => {
+      barChartScrollRef.current?.scrollToEnd({ animated: true });
+    }, 500);
+  }
+  }, [loading, monthlyData]);
+
   const onRefresh = useCallback(async () => {
     setRefreshing(true);
     try {
@@ -136,22 +157,39 @@ export default function SummaryScreen({ navigation }) {
           <View style={styles.chartCard}>
             <Text style={styles.chartTitle}>Spending by Category</Text>
             {pieData.length > 0 ? (
-              <PieChart
-                data={pieData.map((d) => ({
-                  name: d.name,
-                  population: Number(d.amount.toFixed(2)),
-                  color: d.color,
-                  legendFontColor: d.legendFontColor,
-                  legendFontSize: d.legendFontSize,
-                }))}
-                width={screenWidth - 40}
-                height={250}
-                chartConfig={chartConfig}
-                accessor="population"
-                backgroundColor="transparent"
-                paddingLeft="10"
-                absolute
-              />
+              <>
+                <View style={styles.pieChartWrapper}>
+                  <PieChart
+                    data={pieData.map((d) => ({
+                      name: d.name,
+                      population: Number(d.amount.toFixed(2)),
+                      color: d.color,
+                      legendFontColor: d.legendFontColor,
+                      legendFontSize: d.legendFontSize,
+                    }))}
+                    width={PIE_CHART_SIZE}
+                    height={PIE_CHART_SIZE}
+                    chartConfig={chartConfig}
+                    accessor="population"
+                    backgroundColor="transparent"
+                    paddingLeft={PIE_CHART_PADDING_LEFT}
+                    absolute
+                    hasLegend={false}
+                    center={[PIE_CHART_CENTER_X, 0]}
+                    style={styles.pieChart}
+                  />
+                </View>
+                <View style={styles.legendContainer}>
+                  {pieData.map((d) => (
+                    <View key={d.name} style={styles.legendItem}>
+                      <View style={[styles.legendDot, { backgroundColor: d.color }]} />
+                      <Text style={styles.legendText}>
+                        {d.name}: £{Number(d.amount).toFixed(2)}
+                      </Text>
+                    </View>
+                  ))}
+                </View>
+              </>
             ) : (
               <Text style={styles.noData}>No receipts yet!</Text>
             )}
@@ -173,8 +211,11 @@ export default function SummaryScreen({ navigation }) {
               {/* Scrollable bars */}
               <ScrollView
                 horizontal
+                ref={barChartScrollRef} // <-- Attach ref here
                 showsHorizontalScrollIndicator={false}
                 contentContainerStyle={{ paddingRight: 12 }}
+                nestedScrollEnabled={true}
+                onContentSizeChange={() => barChartScrollRef.current?.scrollToEnd({ animated: false })}
               >
                 <BarChart
                   data={{
@@ -223,42 +264,68 @@ function getYAxisTicks(values = [], numTicks = 5) {
 
 // ===== Config =====
 const CHART_COLORS = [
-  "#a60d49", "#302C66", "#1C1C4E", "#FF8C00", "#008080", "#4682B4", "#556B2F",
+  Colors.accent,
+  Colors.background,
+  Colors.textPrimary,
+  "#FF8C00",
+  "#008080",
+  "#4682B4",
+  "#556B2F",
 ];
 
 const chartConfig = {
-  backgroundGradientFrom: "#fff",
-  backgroundGradientTo: "#fff",
+  backgroundGradientFrom: Colors.surface,
+  backgroundGradientTo: Colors.surface,
   color: (opacity = 1) => `rgba(49, 46, 116, ${opacity})`,
   labelColor: (opacity = 1) => `rgba(0,0,0,${opacity})`,
 };
 
 // ===== Styles =====
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: "#302C66" },
-  content: { alignItems: "center", paddingBottom: 40 },
-  card: {
-    backgroundColor: "#E5E5EA",
-    width: "85%",
-    padding: 22,
-    borderRadius: 20,
-    marginTop: 40,
-    alignItems: "center",
-  },
-  title: { fontSize: 20, fontWeight: "bold", color: "#1C1C4E" },
-  subtitle: { fontSize: 17, color: "#a60d49", marginTop: 14 },
-  subtitleVat: { fontSize: 16, color: "#1C1C4E", marginTop: 6 },
-  chartCard: {
-    marginTop: 30,
-    backgroundColor: "#fff",
-    borderRadius: 20,
-    padding: 20,
-    width: "90%",
-    overflow: "hidden",
-  },
-  chartTitle: { fontSize: 16, fontWeight: "bold", marginBottom: 12 },
+  container: SharedStyles.screen,
+  content: {
+  ...SharedStyles.content,
+  paddingTop: Platform.OS === 'android' ? 50 : 10, // Add explicit padding for the status bar
+  paddingBottom: 40, 
+},
+  card: SharedStyles.card,
+  title: SharedStyles.title,
+  subtitle: SharedStyles.subtitle,
+  subtitleVat: { fontSize: 16, color: Colors.textPrimary, marginTop: 6 },
+  chartCard: { ...SharedStyles.chartCard, overflow: "visible" },
+  chartTitle: { fontSize: 16, fontWeight: "bold", marginBottom: 12, textAlign: "center", color: "black" },
   noData: { fontSize: 15, color: "#666", marginTop: 10, textAlign: "center" },
   center: { flex: 1, justifyContent: "center", alignItems: "center" },
+  legendContainer: {
+    marginTop: 12,
+    width: "100%",
+    alignItems: "center",
+  },
+  legendItem: {
+    flexDirection: "row",
+    alignItems: "center",
+    marginBottom: 8,
+    maxWidth: "90%",
+  },
+  legendDot: {
+    width: 12,
+    height: 12,
+    borderRadius: 6,
+    marginRight: 8,
+  },
+  legendText: {
+    fontSize: 13,
+    color: "#333",
+    flexShrink: 1,
+  },
+  pieChartWrapper: {
+    width: "100%",
+    alignItems: "center",
+    paddingHorizontal: 6,
+  },
+  pieChart: {
+    alignSelf: "center",
+  },
   chartRow: {
     flexDirection: "row",
     alignItems: "flex-end",

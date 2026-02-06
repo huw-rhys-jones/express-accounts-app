@@ -7,23 +7,22 @@ import {
   TouchableOpacity,
   Image,
   StyleSheet,
-  TouchableWithoutFeedback,
-  Keyboard,
-  KeyboardAvoidingView,
+  findNodeHandle,
   Platform,
   Modal,
   Button as RNButton,
   BackHandler,
   Alert,
-  FlatList,
+  ScrollView,
   ActivityIndicator,
 } from "react-native";
 import { Button, Checkbox } from "react-native-paper";
 import DateTimePickerModal from "react-native-modal-datetime-picker";
 import * as ImagePicker from "react-native-image-picker";
+import { KeyboardAwareScrollView } from "react-native-keyboard-aware-scroll-view";
 import DropDownPicker from "react-native-dropdown-picker";
 import { db, auth } from "../firebaseConfig";
-import { addDoc, collection, serverTimestamp } from "firebase/firestore";
+import { doc, getDoc, setDoc, addDoc, collection, serverTimestamp } from "firebase/firestore";
 import { getStorage, ref, uploadBytes, getDownloadURL } from "firebase/storage";
 import { categories_meta } from "../constants/arrays";
 import { formatDate } from "../utils/format_style";
@@ -31,6 +30,9 @@ import TextRecognition from '@react-native-ml-kit/text-recognition';
 import * as FileSystem from "expo-file-system/legacy";
 import { extractData } from "../utils/extractors";
 import ImageViewer from "react-native-image-zoom-viewer";
+import { Colors, ReceiptStyles } from "../utils/sharedStyles";
+
+
 
 const ReceiptAdd = ({ navigation }) => {
   const [amount, setAmount] = useState("");
@@ -42,6 +44,8 @@ const ReceiptAdd = ({ navigation }) => {
   const [open, setOpen] = useState(false);
   const [selectedCategory, setSelectedCategory] = useState(null);
   const [vatAmountEdited, setVatAmountEdited] = useState(false);
+  const [showTip, setShowTip] = useState(false);
+  const [tipPosition, setTipPosition] = useState({ x: 0, y: 0 });
 
   // success + confirm modals
   const [showSuccess, setShowSuccess] = useState(false);
@@ -68,10 +72,13 @@ const ReceiptAdd = ({ navigation }) => {
   const [fullScreenImage, setFullScreenImage] = useState(null);
   const [returnToOcrAfterFullscreen, setReturnToOcrAfterFullscreen] = useState(false);
 
-  // Category dropdown items
-  const [items, setItems] = useState(
-    categories_meta.map((cat) => ({ label: cat.name, value: cat.name }))
-  );
+  const allCategoryItems = categories_meta.map((cat) => ({ 
+    label: cat.name, 
+    value: cat.name 
+  }));
+  
+  // 2. The 'items' state will now only hold what is visible
+  const [items, setItems] = useState(allCategoryItems);
 
   // VAT rate options from categories_meta unique vatRate values
   const deriveVatRateItems = () => {
@@ -88,6 +95,12 @@ const ReceiptAdd = ({ navigation }) => {
   const [vatRateItems, setVatRateItems] = useState(deriveVatRateItems());
 
   const flatListRef = useRef(null);
+
+  const scrollRef = useRef(null);
+
+  const categoryWrapperRef = useRef(null);
+
+  const [categoryY, setCategoryY] = useState(0);
 
   // ------- helpers -------
   const ensureFileFromAsset = async (asset) => {
@@ -319,6 +332,41 @@ const ReceiptAdd = ({ navigation }) => {
     }
   }, [amount, vatRate, vatAmountEdited]);
 
+  // Check Firebase for "seen" status on mount
+  useEffect(() => {
+    const checkTooltipStatus = async () => {
+      const user = auth.currentUser;
+      if (user) {
+        try {
+          const userRef = doc(db, "users", user.uid);
+          const userSnap = await getDoc(userRef);
+          
+          // Only show the tip if they haven't seen it and no images are added yet
+          if (!userSnap.data()?.hasSeenScannerTip && images.length === 0) {
+            setShowTip(true);
+          }
+        } catch (error) {
+          console.log("Error fetching tooltip status:", error);
+        }
+      }
+    };
+    checkTooltipStatus();
+  }, []);
+
+  const dismissTip = async () => {
+  setShowTip(false);
+  const user = auth.currentUser;
+  if (user) {
+    try {
+      const userRef = doc(db, "users", user.uid);
+      // setDoc with merge: true is safer than updateDoc for new profiles
+      await setDoc(userRef, { hasSeenScannerTip: true }, { merge: true }); 
+    } catch (error) {
+      console.log("Error updating tooltip status:", error);
+    }
+  }
+};
+
   // ------- save helpers -------
   const calculateVatFromRate = () => {
     if (!amount || !vatRate) return "";
@@ -445,6 +493,9 @@ const handleConfirmDate = (date) => {
 };
 
   const pickImageOption = () => {
+
+    if (showTip) dismissTip();
+
     Alert.alert(
     "Add Image",
     "Choose an option",
@@ -516,27 +567,32 @@ const handleConfirmDate = (date) => {
         openOcrModal(item.uri, { autoScan: true, newSession: false })
       }
     >
-      <Image source={{ uri: item.uri }} style={styles.receiptImage} />
+      <Image source={{ uri: item.uri }} style={ReceiptStyles.receiptImage} />
     </TouchableOpacity>
   );
 
   // ------- render -------
   return (
-    <KeyboardAvoidingView
-      style={{ flex: 1 }}
-      behavior={Platform.OS === "ios" ? "padding" : "height"}
-    >
-      <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
-        <View style={styles.container}>
-          <View style={styles.borderContainer}>
-            <Text style={styles.header}>Your Receipt</Text>
+    <View style={{ flex: 1 }}>
+ 
+      <KeyboardAwareScrollView
+        ref={scrollRef}
+        contentContainerStyle={{ flexGrow: 1, paddingBottom: 600 }} // INCREASE THIS
+        enableOnAndroid={true}
+        enableAutomaticScroll={false} // Disable auto-scroll so our manual scroll doesn't fight it
+        keyboardShouldPersistTaps="handled"
+        extraScrollHeight={0} 
+      >
+          <View style={ReceiptStyles.container}>
+            <View style={ReceiptStyles.borderContainer}>
+              <Text style={ReceiptStyles.header}>Your Receipt</Text>
 
             {/* Amount */}
-            <Text style={styles.label}>Amount:</Text>
-            <View style={styles.inputRow}>
-              <Text style={styles.currency}>£</Text>
+            <Text style={ReceiptStyles.label}>Amount:</Text>
+            <View style={ReceiptStyles.inputRow}>
+              <Text style={ReceiptStyles.currency}>£</Text>
               <TextInput
-                style={styles.input}
+                style={ReceiptStyles.input}
                 keyboardType="decimal-pad"
                 value={amount}
                 onChangeText={(v) => {
@@ -550,14 +606,14 @@ const handleConfirmDate = (date) => {
             </View>
 
             {/* VAT Section: labels above fields */}
-            <View style={[styles.vatRow, { zIndex: 2000, elevation: 5 }]}>
+            <View style={[ReceiptStyles.vatRow, { zIndex: 2000, elevation: 5 }]}>
               {/* VAT Amount Column */}
-              <View style={styles.vatColLeft}>
-                <Text style={styles.label}>VAT Amount:</Text>
-                <View style={styles.inputRow}>
-                  <Text style={styles.vatCurrency}>£</Text>
+              <View style={ReceiptStyles.vatColLeft}>
+                <Text style={ReceiptStyles.label}>VAT Amount:</Text>
+                <View style={ReceiptStyles.inputRow}>
+                  <Text style={ReceiptStyles.vatCurrency}>£</Text>
                   <TextInput
-                    style={styles.vatInput}
+                    style={ReceiptStyles.vatInput}
                     keyboardType="decimal-pad"
                     placeholder="0.00"
                     value={vatAmount}
@@ -578,8 +634,8 @@ const handleConfirmDate = (date) => {
               </View>
 
               {/* Rate Column */}
-              <View style={styles.vatColRight}>
-                <Text style={styles.label}>Rate (%):</Text>
+              <View style={ReceiptStyles.vatColRight}>
+                <Text style={ReceiptStyles.label}>Rate (%):</Text>
                 <DropDownPicker
                   open={vatRateOpen}
                   value={vatRate}
@@ -588,8 +644,8 @@ const handleConfirmDate = (date) => {
                   setValue={(set) => setVatRate(set(vatRate))}
                   setItems={setVatRateItems}
                   placeholder="Select"
-                  style={styles.vatRatePicker}
-                  dropDownContainerStyle={styles.vatRateDropdown}
+                  style={ReceiptStyles.vatRatePicker}
+                  dropDownContainerStyle={ReceiptStyles.vatRateDropdown}
                   containerStyle={{ marginTop: 8 }} // Move margin here for better stability
                   zIndex={2000}
                   zIndexInverse={2000}
@@ -608,12 +664,12 @@ const handleConfirmDate = (date) => {
             </View>
 
             {/* Date */}
-            <Text style={styles.label}>Date:</Text>
+            <Text style={ReceiptStyles.label}>Date:</Text>
             <TouchableOpacity
-              style={styles.dateButton}
+              style={ReceiptStyles.dateButton}
               onPress={showDatePicker}
             >
-              <Text style={styles.dateText}>{formatDate(selectedDate)}</Text>
+              <Text style={ReceiptStyles.dateText}>{formatDate(selectedDate)}</Text>
             </TouchableOpacity>
             <DateTimePickerModal
               isVisible={isDatePickerVisible}
@@ -623,18 +679,82 @@ const handleConfirmDate = (date) => {
               onCancel={hideDatePicker}
             />
 
+          <View 
+            ref={categoryWrapperRef}
+            collapsable={false} // CRITICAL for Android measurement
+            style={{ zIndex: 1000, marginTop: 15 }} 
+          >
             {/* Category */}
-            <Text style={styles.label}>Category:</Text>
+            <Text 
+              style={ReceiptStyles.label}
+              onLayout={(event) => setCategoryY(event.nativeEvent.layout.y)}>
+                Category:</Text>
             <DropDownPicker
               open={open}
               value={selectedCategory}
               items={items}
               setOpen={setOpen}
               setItems={setItems}
-              setValue={(cb) => {
-                const next = cb(selectedCategory);
+              
+              searchable={true}
+              disableLocalSearch={true} // We are taking the wheel
+              
+              // 1. Make the placeholder look like a search instruction
+              placeholder="Search categories..."
+              searchPlaceholder="Type to filter..."
+              
+              // 2. Add an icon to the right side (optional but looks great)
+              // You can use a library like FontAwesome or a simple emoji/Text
+              ArrowDownIconComponent={() => <Text style={{marginRight: 10}}>🔍</Text>}
+              ArrowUpIconComponent={() => <Text style={{marginRight: 10}}>🔍</Text>}
+              showArrowIcon={true}
+
+              // 3. Ensure the keyboard is ready immediately
+              searchTextInputProps={{
+                autoFocus: true,
+                clearButtonMode: 'while-editing', // iOS only, adds a 'X' to clear
+              }}
+
+              onChangeSearchText={(text) => {
+
+                categoryWrapperRef.current.measureLayout(
+                  findNodeHandle(scrollRef.current),
+                  (x, y) => scrollRef.current?.scrollToPosition(0, y - 50, true)
+                );
+              
+                // ... your existing filter logic ...
+                const query = text.toLowerCase().trim();
+                if (!query) {
+                  setItems(allCategoryItems);
+                  return;
+                }
+                const filtered = allCategoryItems.filter((item) => {
+                  const categoryData = categories_meta.find((c) => c.name === item.value);
+                  return item.label.toLowerCase().includes(query) || 
+                         categoryData?.meta?.some((kw) => kw.toLowerCase().includes(query));
+                });
+                setItems(filtered);
+              }}
+
+              // 3. Return to SCROLLVIEW mode for stability
+              listMode="SCROLLVIEW"
+              nestedScrollEnabled={true}
+              
+              // 4. Force a Height to fix the scrolling
+              // This ensures the picker has a defined boundary so the phone knows when to scroll
+              dropDownContainerStyle={[
+                ReceiptStyles.dropdownContainer,
+                { position: 'relative', top: 0, maxHeight: 250 }
+              ]}
+
+              setValue={(callback) => {
+                // 1. Get the next value by calling the callback with the current state
+                const next = callback(selectedCategory);
+                
+                // 2. Update your state variable
                 setSelectedCategory(next);
-                // seed rate from category if rate is blank
+              
+                // 3. Trigger your VAT logic
                 if (!vatRate && next) {
                   const cat = categories_meta.find((c) => c.name === next);
                   const r = cat?.vatRate;
@@ -649,49 +769,75 @@ const handleConfirmDate = (date) => {
                             (a, b) => Number(a.value) - Number(b.value)
                           );
                     });
-                    // if user hasn't manually overridden VAT amount, compute now
                     if (!vatAmountEdited && amount) {
                       setVatAmount(computeVat(amount, rStr));
                     }
                   }
                 }
               }}
-              placeholder="Select a category"
-              style={styles.dropdown}
-              dropDownContainerStyle={styles.dropdownContainer}
-              zIndex={1000}
-              zIndexInverse={1000}
-              dropDownDirection="AUTO"
-            />
 
-            {/* Images */}
-            <FlatList
-              ref={flatListRef}
-              data={[...images, { addButton: true }]}
-              horizontal
-              keyExtractor={(item, index) => index.toString()}
-              renderItem={({ item }) =>
-                item.addButton ? (
+              onOpen={() => {
+                setItems(allCategoryItems); // Reset to show everything when opened
+                
+                // Use measureLayout to find exactly where this view is inside the ScrollView
+                categoryWrapperRef.current.measureLayout(
+                  findNodeHandle(scrollRef.current),
+                  (x, y) => {
+                    // Now 'y' is the absolute distance from the top of the list
+                    scrollRef.current?.scrollToPosition(0, y - 50, true);
+                  },
+                  (error) => console.log('Measurement failed', error)
+                );
+              
+              }}
+
+              placeholder="Search for a category..."
+              style={ReceiptStyles.dropdown}
+              zIndex={1000}
+              zIndexInverse={3000}
+          />
+
+          </View>
+
+            {/* Images Section */}
+            <View style={{ marginVertical: 20, zIndex: 1, elevation: 1 }}>
+              <ScrollView 
+                horizontal 
+                showsHorizontalScrollIndicator={false}
+                contentContainerStyle={{ alignItems: 'center' }}
+              >
+                {/* Map through images instead of using FlatList to avoid nesting errors */}
+                {images.map((item, index) => (
+                  <View key={index.toString()}>
+                    <TouchableOpacity
+                      onPress={() => openOcrModal(item.uri, { autoScan: true, newSession: false })}
+                    >
+                      <Image source={{ uri: item.uri }} style={ReceiptStyles.receiptImage} />
+                    </TouchableOpacity>
+                  </View>
+                ))}
+                
+                {/* The + Button and Tooltip aligned in a row */}
+                <View style={{ flexDirection: 'row', alignItems: 'center' }}>
                   <TouchableOpacity
-                    style={styles.uploadPlaceholder}
+                    style={[ReceiptStyles.uploadPlaceholder, { marginRight: 0 }]}
                     onPress={pickImageOption}
                   >
-                    <Text style={styles.plus}>+</Text>
+                    <Text style={ReceiptStyles.plus}>+</Text>
                   </TouchableOpacity>
-                ) : (
-                  renderImage({ item })
-                )
-              }
-              contentContainerStyle={{ marginVertical: 20 }}
-              showsHorizontalScrollIndicator={true}
-            />
+
+                  {/* This now calls the component defined at the bottom */}
+                  {showTip && <ScannerTooltip onDismiss={dismissTip} />}
+                </View>
+              </ScrollView>
+            </View>
 
             {/* Buttons */}
-            <View style={styles.buttonContainer}>
+            <View style={ReceiptStyles.buttonContainer}>
               <Button
                 mode="contained"
                 buttonColor="#a60d49"
-                style={styles.button}
+                style={ReceiptStyles.button}
                 onPress={handleLeavePress}
               >
                 Cancel
@@ -701,7 +847,7 @@ const handleConfirmDate = (date) => {
                 mode="contained"
                 onPress={handleSavePress}
                 buttonColor="#a60d49"
-                style={styles.button}
+                style={ReceiptStyles.button}
                 disabled={!selectedCategory || amount.trim() === ""}
               >
                 Save
@@ -711,15 +857,16 @@ const handleConfirmDate = (date) => {
             <Button
               mode="outlined"
               onPress={handleResetPress}
-              style={styles.resetButton}
+              style={ReceiptStyles.resetButton}
               textColor="#a60d49"
               icon="autorenew"
             >
               Reset Form
             </Button>
+            </View>
           </View>
-        </View>
-      </TouchableWithoutFeedback>
+        </KeyboardAwareScrollView>
+
 
       {/* Confirmation Modal */}
       <Modal
@@ -728,15 +875,15 @@ const handleConfirmDate = (date) => {
         animationType="slide"
         onRequestClose={() => setShowConfirmModal(false)}
       >
-        <View style={styles.modalOverlay}>
-          <View style={styles.modalContent}>
-            <Text style={styles.modalTitle}>Confirm Receipt Details</Text>
-            <Text>Amount: £{amount}</Text>
-            <Text>Date: {selectedDate.toDateString()}</Text>
-            <Text>Category: {selectedCategory}</Text>
-            <Text>VAT Amount: £{vatAmount || calculateVatFromRate() || "0.00"}</Text>
-            <Text>VAT Rate: {vatRate || "—"}%</Text>
-            <View style={styles.modalButtons}>
+        <View style={ReceiptStyles.modalOverlay}>
+          <View style={ReceiptStyles.modalContent}>
+            <Text style={ReceiptStyles.modalTitle}>Confirm Receipt Details</Text>
+            <Text style={ReceiptStyles.modalDetailText}>Amount: £{amount}</Text>
+            <Text style={ReceiptStyles.modalDetailText}>Date: {selectedDate.toDateString()}</Text>
+            <Text style={ReceiptStyles.modalDetailText}>Category: {selectedCategory}</Text>
+            <Text style={ReceiptStyles.modalDetailText}>VAT Amount: £{vatAmount || calculateVatFromRate() || "0.00"}</Text>
+            <Text style={ReceiptStyles.modalDetailText}>VAT Rate: {vatRate || "—"}%</Text>
+            <View style={ReceiptStyles.modalButtons}>
               <RNButton
                 title="Cancel"
                 onPress={() => setShowConfirmModal(false)}
@@ -759,15 +906,15 @@ const handleConfirmDate = (date) => {
         animationType="fade"
         onRequestClose={() => setShowSuccess(false)}
       >
-        <View style={styles.modalOverlay}>
-          <View style={styles.modalContent}>
-            <Text style={[styles.modalTitle, { textAlign: "center" }]}>
+        <View style={ReceiptStyles.modalOverlay}>
+          <View style={ReceiptStyles.modalContent}>
+            <Text style={[ReceiptStyles.modalTitle, { textAlign: "center" }]}>
               Receipt saved 🎉
             </Text>
-            <Text style={{ textAlign: "center", marginTop: 4 }}>
+            <Text style={{ textAlign: "center", marginTop: 4, color: "#555" }}>
               Do you want to add another?
             </Text>
-            <View style={[styles.modalButtons, { marginTop: 16 }]}>
+            <View style={[ReceiptStyles.modalButtons, { marginTop: 16 }]}>
               <RNButton
                 title="Go to Expenses"
                 onPress={() => {
@@ -804,10 +951,10 @@ const handleConfirmDate = (date) => {
         animationType="slide"
         onRequestClose={() => setConfirmReset(false)}
       >
-        <View style={styles.modalOverlay}>
-          <View style={styles.modalContent}>
-            <Text style={styles.modalTitle}>Confirm Reset</Text>
-            <View style={styles.modalButtons}>
+        <View style={ReceiptStyles.modalOverlay}>
+          <View style={ReceiptStyles.modalContent}>
+            <Text style={ReceiptStyles.modalTitle}>Confirm Reset</Text>
+            <View style={ReceiptStyles.modalButtons}>
               <RNButton
                 title="Cancel"
                 onPress={() => setConfirmReset(false)}
@@ -826,12 +973,12 @@ const handleConfirmDate = (date) => {
         animationType="slide"
         onRequestClose={() => setShowConfirmLeaveModal(false)}
       >
-        <View style={styles.modalOverlay}>
-          <View style={styles.modalContent}>
-            <Text style={styles.modalTitle}>
+        <View style={ReceiptStyles.modalOverlay}>
+          <View style={ReceiptStyles.modalContent}>
+            <Text style={ReceiptStyles.modalTitle}>
               Are you sure you want to go back?
             </Text>
-            <View style={styles.modalButtons}>
+            <View style={ReceiptStyles.modalButtons}>
               <RNButton
                 title="Cancel"
                 onPress={() => setShowConfirmLeaveModal(false)}
@@ -865,9 +1012,9 @@ const handleConfirmDate = (date) => {
         animationType="slide"
         onRequestClose={handleCancelModal}
       >
-        <View style={styles.modalOverlay}>
-          <View style={[styles.modalContent, { maxHeight: "90%" }]}>
-            <Text style={styles.modalTitle}>Receipt Preview</Text>
+        <View style={ReceiptStyles.modalOverlay}>
+          <View style={[ReceiptStyles.modalContent, { maxHeight: "90%" }]}>
+            <Text style={ReceiptStyles.modalTitle}>Receipt Preview</Text>
 
             {preview?.uri ? (
               <View style={{ alignItems: "center" }}>
@@ -885,81 +1032,89 @@ const handleConfirmDate = (date) => {
                     );
                   }}
                 >
-                  <Image source={{ uri: preview.uri }} style={styles.modalImage} />
+                  <Image source={{ uri: preview.uri }} style={ReceiptStyles.modalImage} />
                 </TouchableOpacity>
-                {ocrLoading && <Text style={styles.scanningText}>Scanning…</Text>}
+                {ocrLoading && <Text style={ReceiptStyles.scanningText}>Scanning…</Text>}
               </View>
             ) : null}
 
             {!ocrLoading && (
-              <Text style={styles.fullscreenHint}>Tap image to view full screen</Text>
+              <Text style={ReceiptStyles.fullscreenHint}>Tap image to view full screen</Text>
             )}
 
             {!ocrLoading && (
               <>
                 {/* Amount */}
-                <View style={styles.ocrRow}>
+                <View style={ReceiptStyles.ocrRow}>
                   <Checkbox
                     status={acceptFlags.amount ? "checked" : "unchecked"}
                     onPress={() => toggleAccept("amount")}
+                    color={Colors.accent}
+                    disabled={ocrResult?.amount == null}
                   />
-                  <Text style={styles.ocrLabel}>Amount:</Text>
-                  <Text style={styles.ocrValue}>
-                    {ocrResult?.amount != null ? `£${ocrResult.amount}` : "—"}
+                  <Text style={ReceiptStyles.ocrLabel}>Amount:</Text>
+                  <Text style={ReceiptStyles.ocrValue}>
+                    {ocrResult?.amount != null ? `£${ocrResult.amount}` : "Not detected"}
                   </Text>
                 </View>
 
                 {/* Date */}
-                <View style={styles.ocrRow}>
+                <View style={ReceiptStyles.ocrRow}>
                   <Checkbox
                     status={acceptFlags.date ? "checked" : "unchecked"}
                     onPress={() => toggleAccept("date")}
+                    color={Colors.accent}
+                    disabled={!ocrResult?.date}
                   />
-                  <Text style={styles.ocrLabel}>Date:</Text>
-                  <Text style={styles.ocrValue}>
-                    {ocrResult?.date ? formatDate(new Date(ocrResult.date)) : "—"}
+                  <Text style={ReceiptStyles.ocrLabel}>Date:</Text>
+                  <Text style={ReceiptStyles.ocrValue}>
+                    {ocrResult?.date ? formatDate(new Date(ocrResult.date)) : "Not detected"}
                   </Text>
                 </View>
 
                 {/* Category */}
-                <View style={styles.ocrRow}>
+                <View style={ReceiptStyles.ocrRow}>
                   <Checkbox
                     status={acceptFlags.category ? "checked" : "unchecked"}
                     onPress={() => toggleAccept("category")}
+                    color={Colors.accent}
+                    disabled={!ocrResult?.categoryName}
                   />
-                  <Text style={styles.ocrLabel}>Category:</Text>
-                  <Text style={styles.ocrValue}>
-                    {ocrResult?.categoryName ?? "—"}
+                  <Text style={ReceiptStyles.ocrLabel}>Category:</Text>
+                  <Text style={ReceiptStyles.ocrValue}>
+                    {ocrResult?.categoryName ?? "Not detected"}
                   </Text>
                 </View>
 
                 {/* VAT */}
-                <View style={styles.ocrRow}>
+                <View style={ReceiptStyles.ocrRow}>
                   <Checkbox
                     status={acceptFlags.vat ? "checked" : "unchecked"}
                     onPress={() => toggleAccept("vat")}
+                    color={Colors.accent}
+                    disabled={ocrResult?.vat?.value == null && ocrResult?.vat?.rate == null}
                   />
-                  <Text style={styles.ocrLabel}>VAT:</Text>
-                  <Text style={styles.ocrValue}>
-                    {ocrResult?.vat?.value != null ? `£${ocrResult.vat.value}` : "—"}
+                  <Text style={ReceiptStyles.ocrLabel}>VAT:</Text>
+                  <Text style={ReceiptStyles.ocrValue}>
+                    {ocrResult?.vat?.value != null ? `£${ocrResult.vat.value}` : "Not detected"}
                     {`  (Rate ${ocrResult?.vat?.rate ?? "—"}%)`}
                   </Text>
                 </View>
 
-                <View style={styles.modalButtons}>
+                <View style={ReceiptStyles.modalButtons}>
                   {!isNewImageSession && (
                     <Button
                       mode="outlined"
                       onPress={deleteCurrentImage}
-                      textColor="#a60d49"
+                      textColor={Colors.accent}
                     >
                       Delete Image
                     </Button>
                   )}
-                  <Button mode="text" onPress={handleCancelModal}>
+                  <Button buttonColor={Colors.accent} mode="contained" onPress={handleCancelModal}>
                     Cancel
                   </Button>
-                  <Button mode="contained" onPress={applyAcceptedValues}>
+                  <Button buttonColor={Colors.accent} mode="contained" onPress={applyAcceptedValues}>
                     Accept
                   </Button>
                 </View>
@@ -1006,9 +1161,9 @@ const handleConfirmDate = (date) => {
               renderIndicator={() => null}
               saveToLocalByLongPress={false}
             />
-            <View style={styles.fullScreenCloseButtonWrapper}>
+            <View style={ReceiptStyles.fullScreenCloseButtonWrapper}>
               <TouchableOpacity
-                style={styles.fullScreenCloseButton}
+                style={ReceiptStyles.fullScreenCloseButton}
                 onPress={() => {
                   setFullScreenImage(null);
                   if (returnToOcrAfterFullscreen) {
@@ -1017,7 +1172,7 @@ const handleConfirmDate = (date) => {
                   }
                 }}
               >
-                <Text style={styles.fullScreenCloseText}>Close</Text>
+                <Text style={ReceiptStyles.fullScreenCloseText}>Close</Text>
               </TouchableOpacity>
             </View>
           </>
@@ -1033,8 +1188,8 @@ const handleConfirmDate = (date) => {
         statusBarTranslucent                  // optional, nicer on iOS
         onRequestClose={() => {}}
       >
-        <View style={styles.uploadOverlay}>
-          <View style={styles.uploadCard}>
+        <View style={ReceiptStyles.uploadOverlay}>
+          <View style={ReceiptStyles.uploadCard}>
             <ActivityIndicator size="large" color="#a60d49" />
             <Text style={{ marginTop: 12, fontWeight: "600" }}>
               Uploading…
@@ -1042,226 +1197,135 @@ const handleConfirmDate = (date) => {
           </View>
         </View>
       </Modal>
-    </KeyboardAvoidingView>
+      </View>
   );
 };
 
-const styles = StyleSheet.create({
-  container: {
-    padding: 12,
-    backgroundColor: "#312e74",
-    flex: 1,
-    alignItems: "center",
-    justifyContent: "center",
+
+const localStyles = StyleSheet.create({
+  tipWrapper: {
+    position: 'absolute',
+    // Position it roughly 110 pixels above the button's Y coordinate
+    left: 10,
+    right: 20,
+    zIndex: 5000,
+    alignItems: 'center', // Centers the bubble and triangle
   },
-  borderContainer: {
-    borderWidth: 5,
-    borderColor: "#312e74",
-    borderRadius: 35,
-    padding: 20,
-    width: "90%",
-    backgroundColor: "#FFFFFF",
+  tipBox: {
+    backgroundColor: '#F0D1FF',
+    padding: 15,
+    borderRadius: 15,
+    width: '100%', // Takes up the width of the container
+    elevation: 10,
+    shadowColor: '#000',
+    shadowOpacity: 0.3,
+    shadowRadius: 5,
+    shadowOffset: { width: 0, height: 4 },
   },
-  header: {
-    fontSize: 22,
-    fontWeight: "bold",
-    color: "#a60d49",
-    marginBottom: 20,
-    textAlign: "center",
+  tipText: {
+    color: '#4A148C',
+    fontSize: 14,
+    lineHeight: 20,
   },
-  label: {
-    fontSize: 16,
-    fontWeight: "bold",
-    color: "#333",
+  tipButton: {
     marginTop: 10,
-    marginBottom: 6,
-  },
-  inputRow: {
-    flexDirection: "row",
-    alignItems: "center",
-  },
-  currency: {
-    fontSize: 18,
-    fontWeight: "bold",
-    marginLeft: 25,
-  },
-  input: {
-    borderWidth: 1,
-    borderColor: "#ccc",
-    borderRadius: 5,
-    padding: 10,
-    flex: 1,
-    fontSize: 16,
-    margin: 8,
-  },
-
-  // VAT layout
-  vatRow: {
-    flexDirection: "row",
-    gap: 12,
-    alignItems: "flex-start",
-  },
-  vatColLeft: {
-    flex: 1, // This ensures the left side takes up the remaining space
-    marginRight: 12, 
-  },
-  vatColRight: {
-    width: 100, // smaller dropdown column
-  },
-  vatCurrency: {
-    fontSize: 18,
-    fontWeight: "bold",
-    marginLeft: 10,
-    paddingRight: 5,
-  },
-  vatInput: {
-    borderWidth: 1,
-    borderColor: "#ccc",
-    borderRadius: 5,
-    height: 50,             // Increased from 44 to 50 for a better touch target
-    paddingHorizontal: 12,
-    fontSize: 16,
-    backgroundColor: "#ffffff",
-    marginTop: 8,           // Match the picker's margin exactly
-  },
-  vatRatePicker: {
-    backgroundColor: "#ffffff",
-    borderColor: "#ccc",
-    height: 50,             // MUST match vatInput height exactly
-    justifyContent: 'center',
-    paddingHorizontal: 8,
-    // Do NOT put marginTop here
-  },
-  vatRateDropdown: {
-    backgroundColor: "#ffffff", // Critical: adds solid background to the list
-    borderColor: "#ccc",
-    zIndex: 5000,              // Ensures the list itself stays on top
-    shadowColor: "#000",       // Optional: adds a slight shadow for depth on iOS
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 4,
-  },
-
-  dateButton: {
-    borderWidth: 1,
-    borderColor: "#ccc",
-    borderRadius: 5,
-    padding: 10,
-    margin: 25,
-    marginRight: 36,
-    marginLeft: 44,
-  },
-  dateText: { fontSize: 16 },
-
-  dropdown: {
-    backgroundColor: "#fafafa",
-    borderColor: "#ccc",
-  },
-  dropdownContainer: {
-    backgroundColor: "#fafafa",
-    borderColor: "#ccc",
-  },
-
-  receiptImage: {
-    width: 100,
-    height: 150,
-    resizeMode: "contain",
-    borderRadius: 5,
-    marginRight: 10,
-  },
-  uploadPlaceholder: {
-    width: 100,
-    height: 150,
-    borderRadius: 5,
-    borderWidth: 1,
-    borderColor: "#ccc",
-    justifyContent: "center",
-    alignItems: "center",
-    backgroundColor: "#f5f5f5",
-  },
-  plus: { fontSize: 32, color: "#a60d49" },
-
-  buttonContainer: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    paddingBottom: 10,
-  },
-  button: { flex: 1, marginHorizontal: 5 },
-
-  // Shared modal styling
-  modalOverlay: {
-    flex: 1,
-    justifyContent: "center",
-    backgroundColor: "rgba(0,0,0,0.5)",
-    padding: 20,
-  },
-  modalContent: {
-    backgroundColor: "white",
-    borderRadius: 10,
-    padding: 20,
-  },
-  modalTitle: { fontSize: 18, fontWeight: "bold", marginBottom: 10 },
-  modalButtons: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    marginTop: 20,
-  },
-
-  // OCR modal extras
-  modalImage: {
-    width: "100%",
-    height: 320,
-    resizeMode: "contain",
-    borderRadius: 8,
-    marginBottom: 12,
-  },
-  scanningText: { marginTop: 8, fontStyle: "italic", color: "#555" },
-  ocrRow: { flexDirection: "row", alignItems: "center", marginTop: 8 },
-  ocrLabel: { fontWeight: "600", marginRight: 6 },
-  ocrValue: { flexShrink: 1 },
-
-  // Upload overlay
-  uploadOverlay: {
-    flex: 1,
-    backgroundColor: "rgba(0,0,0,0.35)",
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  uploadCard: {
-    backgroundColor: "#fff",
-    paddingVertical: 20,
-    paddingHorizontal: 24,
-    borderRadius: 12,
-    alignItems: "center",
-    justifyContent: "center",
-    minWidth: 180,
-  },
-
-  // Fullscreen close button
-  fullScreenCloseButtonWrapper: {
-    position: "absolute",
-    bottom: 30,
-    left: 0,
-    right: 0,
-    alignItems: "center",
-  },
-  fullScreenCloseButton: {
-    backgroundColor: "rgba(166, 13, 73, 0.9)",
+    alignSelf: 'flex-end',
+    backgroundColor: '#4A148C',
+    paddingHorizontal: 15,
     paddingVertical: 8,
-    paddingHorizontal: 24,
-    borderRadius: 20,
+    borderRadius: 10,
   },
-  fullScreenCloseText: { color: "#fff", fontWeight: "bold", fontSize: 16 },
-
-  // hint text
-  fullscreenHint: {
+  tipButtonText: {
+    color: '#FFF',
     fontSize: 12,
-    color: "#666",
-    marginTop: 4,
-    fontStyle: "italic",
-    textAlign: "center",
-    alignSelf: "center",
+    fontWeight: 'bold',
   },
+  triangle: {
+    width: 0,
+    height: 0,
+    backgroundColor: 'transparent',
+    borderStyle: 'solid',
+    borderLeftWidth: 12,
+    borderRightWidth: 12,
+    borderTopWidth: 18,
+    borderLeftColor: 'transparent',
+    borderRightColor: 'transparent',
+    borderTopColor: '#F0D1FF',
+    marginTop: -1, // Merges triangle into the box
+  },
+  sideTipContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flex: 10, // Allows it to take up remaining horizontal space
+    marginLeft: 5, // Pulls the triangle closer to the box
+  },
+  leftTriangle: {
+    width: 0,
+    height: 0,
+    backgroundColor: 'transparent',
+    borderStyle: 'solid',
+    borderTopWidth: 8,
+    borderBottomWidth: 8,
+    borderRightWidth: 12,
+    borderTopColor: 'transparent',
+    borderBottomColor: 'transparent',
+    borderRightColor: '#F0D1FF', // Matches box color
+    zIndex: 3001,
+  },
+  sideTipBox: {
+    backgroundColor: '#F0D1FF',
+    padding: 10,
+    borderRadius: 12,
+    maxWidth: 160,
+    elevation: 4,
+    shadowColor: '#000',
+    shadowOpacity: 0.1,
+    shadowRadius: 3,
+    shadowOffset: { width: 2, height: 2 },
+  },
+  sideTipText: {
+    color: '#4A148C',
+    fontSize: 11,
+    lineHeight: 15,
+  },
+  sideGotIt: {
+    color: '#4A148C',
+    fontWeight: 'bold',
+    fontSize: 10,
+    marginTop: 5,
+    textAlign: 'right',
+  },
+  sideTipWrapper: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginLeft: 5, // Pulls the triangle right up to the box edge
+    zIndex: 5000,
+  },
+  leftTriangle: {
+    width: 0,
+    height: 0,
+    borderTopWidth: 7,
+    borderBottomWidth: 7,
+    borderRightWidth: 10,
+    borderTopColor: 'transparent',
+    borderBottomColor: 'transparent',
+    borderRightColor: '#F0D1FF',
+  },
+  
 });
 
 export default ReceiptAdd;
+
+const ScannerTooltip = ({ onDismiss }) => (
+  <View style={localStyles.sideTipWrapper}>
+    <View style={localStyles.leftTriangle} />
+    <View style={localStyles.sideTipBox}>
+      <Text style={localStyles.sideTipText}>
+        Tap to scan your receipt. We'll auto-fill the details! ✨
+      </Text>
+      <TouchableOpacity onPress={onDismiss}>
+        <Text style={localStyles.sideGotIt}>Got it</Text>
+      </TouchableOpacity>
+    </View>
+  </View>
+);

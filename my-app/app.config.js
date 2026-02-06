@@ -6,11 +6,12 @@ export default ({ config }) => ({
   name: "Express Accounts",
   slug: "express-accounts",
   scheme: "com.caistec.expressaccounts",
-  version: "1.0.0",
+  version: "1.0.5",
   orientation: "portrait",
   icon: "./assets/icon.png",
   userInterfaceStyle: "light",
   newArchEnabled: false, // Keeping this false as per your current setup
+  backgroundColor: "#302C66",
 
   splash: {
     image: "./assets/splash-icon.png",
@@ -36,6 +37,7 @@ export default ({ config }) => ({
 
   android: {
     package: "com.caistec.expressaccounts",
+    versionCode: 15,
     adaptiveIcon: {
       foregroundImage: "./assets/adaptive-icon.png",
       backgroundColor: "#ffffff"

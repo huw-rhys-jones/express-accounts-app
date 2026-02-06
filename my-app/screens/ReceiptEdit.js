@@ -15,6 +15,7 @@ import {
   Platform,
   PermissionsAndroid,
 } from "react-native";
+import { KeyboardAwareScrollView } from "react-native-keyboard-aware-scroll-view";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Button, Checkbox } from "react-native-paper";
 import DateTimePickerModal from "react-native-modal-datetime-picker";
@@ -35,6 +36,7 @@ import TextRecognition from '@react-native-ml-kit/text-recognition';
 import * as FileSystem from "expo-file-system/legacy";
 import { extractData } from "../utils/extractors";
 import ImageViewer from "react-native-image-zoom-viewer";
+import { Colors, ReceiptStyles } from "../utils/sharedStyles";
 
 export default function ReceiptDetailsScreen({ route, navigation }) {
   const { receipt } = route.params;
@@ -483,14 +485,20 @@ export default function ReceiptDetailsScreen({ route, navigation }) {
   };
 
   return (
-    <SafeAreaView style={styles.safeArea}>
-      <View style={styles.container}>
-        <Text style={styles.header}>Edit Receipt</Text>
+    <SafeAreaView style={ReceiptStyles.safeArea}>
+      <KeyboardAwareScrollView
+        contentContainerStyle={{ flexGrow: 1 }}
+        enableOnAndroid={true}
+        keyboardShouldPersistTaps="handled"
+      >
+        <View style={ReceiptStyles.container}>
+          <View style={ReceiptStyles.borderContainer}>
+            <Text style={ReceiptStyles.header}>Edit Receipt</Text>
 
         {/* Amount */}
-        <Text style={styles.label}>Amount (£)</Text>
+        <Text style={ReceiptStyles.label}>Amount (£)</Text>
         <TextInput
-          style={styles.input}
+          style={ReceiptStyles.input}
           value={amount}
           keyboardType="decimal-pad"
           onChangeText={(v) => {
@@ -502,14 +510,14 @@ export default function ReceiptDetailsScreen({ route, navigation }) {
         />
 
         {/* VAT Section */}
-<View style={styles.vatRow}>
+<View style={ReceiptStyles.vatRow}>
   {/* VAT Amount Column */}
-  <View style={styles.vatColLeft}>
-    <Text style={styles.label}>VAT Amount</Text>
-    <View style={styles.inputRow}>
-      <Text style={styles.vatCurrency}>£</Text>
+  <View style={ReceiptStyles.vatColLeft}>
+    <Text style={ReceiptStyles.label}>VAT Amount</Text>
+    <View style={ReceiptStyles.inputRow}>
+      <Text style={ReceiptStyles.vatCurrency}>£</Text>
       <TextInput
-        style={styles.vatInput}
+        style={ReceiptStyles.vatInput}
         keyboardType="decimal-pad"
         placeholder="0.00"
         value={vatAmount}
@@ -528,26 +536,27 @@ export default function ReceiptDetailsScreen({ route, navigation }) {
     </View>
   </View>
 
-  {/* VAT Rate Column */}
-  <View style={styles.vatColRight}>
-    <Text style={styles.label}>Rate (%)</Text>
-    <DropDownPicker
-      open={vatRateOpen}
-      value={vatRate}
-      items={vatRateItems}
-      setOpen={setVatRateOpen}
-      setValue={(set) => setVatRate(set(vatRate))}
-      setItems={setVatRateItems}
-      placeholder="Select"
-      style={styles.vatRatePicker}
-      dropDownContainerStyle={styles.vatRateDropdown}
-      containerStyle={{ marginTop: 8 }} // This aligns the picker top with the "£" inputRow top
-      zIndex={2000}
-      zIndexInverse={2000}
-      listMode="SCROLLVIEW"
+{/* VAT Rate Column */}
+<View style={[ReceiptStyles.vatColRight, { zIndex: 5000, elevation: 5 }]}>
+  <Text style={ReceiptStyles.label}>Rate (%):</Text>
+  <DropDownPicker
+    open={vatRateOpen}
+    value={vatRate}
+    items={vatRateItems}
+    setOpen={setVatRateOpen}
+    setValue={(set) => setVatRate(set(vatRate))}
+    setItems={setVatRateItems}
+    placeholder="Select"
+    style={[ReceiptStyles.vatRatePicker, { backgroundColor: Colors.surface }]} // Add explicit background
+    dropDownContainerStyle={[ReceiptStyles.vatRateDropdown, { backgroundColor: Colors.surface }]} // Add explicit background
+    containerStyle={{ marginTop: 8 }}
+    zIndex={5000}
+    zIndexInverse={1000}
+    listMode="SCROLLVIEW"
       onChangeValue={(val) => {
         const next = val ?? "";
         setVatRate(next);
+        // changing rate => return to auto mode & recalc if possible
         setVatAmountEdited(false);
         if (next && amount) {
           setVatAmount(computeVat(amount, next));
@@ -555,15 +564,16 @@ export default function ReceiptDetailsScreen({ route, navigation }) {
       }}
     />
   </View>
+            
 </View>
 
         {/* Date */}
-        <Text style={styles.label}>Date</Text>
+        <Text style={ReceiptStyles.label}>Date</Text>
         <TouchableOpacity
-          style={styles.dateButton}
+          style={ReceiptStyles.dateButton}
           onPress={() => setDatePickerVisibility(true)}
         >
-          <Text>{formatDate(selectedDate)}</Text>
+          <Text style={ReceiptStyles.dateText}>{formatDate(selectedDate)}</Text>
         </TouchableOpacity>
         <DateTimePickerModal
           isVisible={isDatePickerVisible}
@@ -577,7 +587,7 @@ export default function ReceiptDetailsScreen({ route, navigation }) {
         />
 
         {/* Category */}
-        <Text style={styles.label}>Category</Text>
+        <Text style={ReceiptStyles.label}>Category</Text>
         <DropDownPicker
           listMode="MODAL"
           open={open}
@@ -609,22 +619,23 @@ export default function ReceiptDetailsScreen({ route, navigation }) {
             }
           }}
           placeholder="Select a category"
-          style={styles.dropdown}
-          dropDownContainerStyle={styles.dropdownContainer}
+          style={ReceiptStyles.dropdown}
+          dropDownContainerStyle={ReceiptStyles.dropdownContainer}
         />
 
         {/* Images */}
         <FlatList
           data={[...images, { addButton: true }]}
           horizontal
+          nestedScrollEnabled={true}
           keyExtractor={(_, index) => index.toString()}
           renderItem={({ item }) =>
             item.addButton ? (
               <TouchableOpacity
-                style={styles.uploadPlaceholder}
+                style={ReceiptStyles.uploadPlaceholder}
                 onPress={pickImageOption}
               >
-                <Text style={styles.plus}>+</Text>
+                <Text style={ReceiptStyles.plus}>+</Text>
               </TouchableOpacity>
             ) : (
               <TouchableOpacity
@@ -633,7 +644,7 @@ export default function ReceiptDetailsScreen({ route, navigation }) {
                   openOcrModal(item.uri, { autoScan: true, newSession: false })
                 }
               >
-                <Image source={{ uri: item.uri }} style={styles.receiptImage} />
+                <Image source={{ uri: item.uri }} style={ReceiptStyles.receiptImage} />
               </TouchableOpacity>
             )
           }
@@ -642,13 +653,13 @@ export default function ReceiptDetailsScreen({ route, navigation }) {
         />
 
         {/* Bottom actions */}
-        <View style={styles.bottomButtons}>
-          <View style={styles.primaryRow}>
+        <View style={ReceiptStyles.bottomButtons}>
+          <View style={ReceiptStyles.primaryRow}>
             <Button
               mode="outlined"
               onPress={safeNavigateToExpenses}
               textColor="#555"
-              style={styles.actionBtn}
+              style={ReceiptStyles.actionBtn}
             >
               Cancel
             </Button>
@@ -656,24 +667,27 @@ export default function ReceiptDetailsScreen({ route, navigation }) {
               mode="contained"
               onPress={saveChanges}
               buttonColor="#a60d49"
-              style={styles.actionBtn}
+              style={ReceiptStyles.actionBtn}
             >
-              Save Changes
+              Save 
             </Button>
           </View>
 
-          <View style={styles.deleteRow}>
+          <View style={ReceiptStyles.deleteRow}>
             <Button
               mode="outlined"
               onPress={deleteReceipt}
               textColor="#a60d49"
-              style={styles.deleteBtn}
+              style={ReceiptStyles.deleteBtn}
             >
               Delete Receipt
             </Button>
           </View>
         </View>
-      </View>
+          </View>
+        </View>
+
+      </KeyboardAwareScrollView>
 
       {/* OCR Preview + Accept Modal */}
       <Modal
@@ -682,9 +696,9 @@ export default function ReceiptDetailsScreen({ route, navigation }) {
         animationType="slide"
         onRequestClose={() => setOcrModalVisible(false)}
       >
-        <View style={styles.modalOverlay}>
-          <View style={[styles.modalContent, { maxHeight: "90%" }]}>
-            <Text style={styles.modalTitle}>Receipt Preview</Text>
+        <View style={ReceiptStyles.modalOverlay}>
+          <View style={[ReceiptStyles.modalContent, { maxHeight: "90%" }]}>
+            <Text style={ReceiptStyles.modalTitle}>Receipt Preview</Text>
 
             {preview?.uri ? (
               <View style={{ alignItems: "center" }}>
@@ -694,93 +708,101 @@ export default function ReceiptDetailsScreen({ route, navigation }) {
                   disabled={ocrLoading}
                   onPress={() => setFullScreenImage(preview)}
                 >
-                  <Image source={{ uri: preview.uri }} style={styles.modalImage} />
+                  <Image source={{ uri: preview.uri }} style={ReceiptStyles.modalImage} />
                 </TouchableOpacity>
-                {ocrLoading && <Text style={styles.scanningText}>Scanning…</Text>}
+                {ocrLoading && <Text style={ReceiptStyles.scanningText}>Scanning…</Text>}
               </View>
             ) : null}
 
             {!ocrLoading && (
-              <Text style={styles.fullscreenHint}>Tap image to view full screen</Text>
+              <Text style={ReceiptStyles.fullscreenHint}>Tap image to view full screen</Text>
             )}
 
             {!ocrLoading && (
               <>
-                <View style={styles.ocrRow}>
+                <View style={ReceiptStyles.ocrRow}>
                   <Checkbox
                     status={acceptFlags.amount ? "checked" : "unchecked"}
                     onPress={() => toggleAccept("amount")}
+                    color={Colors.accent}
+                    disabled={ocrResult?.amount == null}
                   />
                   <Text
-                    style={[styles.ocrLabel, !acceptFlags.amount && styles.strike]}
+                    style={[ReceiptStyles.ocrLabel, !acceptFlags.amount && ReceiptStyles.strike]}
                   >
                     Amount:
                   </Text>
                   <Text
-                    style={[styles.ocrValue, !acceptFlags.amount && styles.strike]}
+                    style={[ReceiptStyles.ocrValue, !acceptFlags.amount && ReceiptStyles.strike]}
                   >
-                    {ocrResult?.amount != null ? `£${ocrResult.amount}` : "—"}
+                    {ocrResult?.amount != null ? `£${ocrResult.amount}` : "Not detected"}
                   </Text>
                 </View>
 
-                <View style={styles.ocrRow}>
+                <View style={ReceiptStyles.ocrRow}>
                   <Checkbox
                     status={acceptFlags.date ? "checked" : "unchecked"}
                     onPress={() => toggleAccept("date")}
+                    color={Colors.accent}
+                    disabled={!ocrResult?.date}
                   />
                   <Text
-                    style={[styles.ocrLabel, !acceptFlags.date && styles.strike]}
+                    style={[ReceiptStyles.ocrLabel, !acceptFlags.date && ReceiptStyles.strike]}
                   >
                     Date:
                   </Text>
                   <Text
-                    style={[styles.ocrValue, !acceptFlags.date && styles.strike]}
+                    style={[ReceiptStyles.ocrValue, !acceptFlags.date && ReceiptStyles.strike]}
                   >
-                    {ocrResult?.date ? formatDate(new Date(ocrResult.date)) : "—"}
+                    {ocrResult?.date ? formatDate(new Date(ocrResult.date)) : "Not detected"}
                   </Text>
                 </View>
 
-                <View style={styles.ocrRow}>
+                <View style={ReceiptStyles.ocrRow}>
                   <Checkbox
                     status={acceptFlags.category ? "checked" : "unchecked"}
                     onPress={() => toggleAccept("category")}
+                    color={Colors.accent}
+                    disabled={!ocrResult?.categoryName}
                   />
                   <Text
-                    style={[styles.ocrLabel, !acceptFlags.category && styles.strike]}
+                    style={[ReceiptStyles.ocrLabel, !acceptFlags.category && ReceiptStyles.strike]}
                   >
                     Category:
                   </Text>
                   <Text
-                    style={[styles.ocrValue, !acceptFlags.category && styles.strike]}
+                    style={[ReceiptStyles.ocrValue, !acceptFlags.category && ReceiptStyles.strike]}
                   >
-                    {ocrResult?.categoryName ?? "—"}
+                    {ocrResult?.categoryName ?? "Not detected"}
                   </Text>
                 </View>
 
                 {/* (Optional) Show OCR VAT if your extractor returns it */}
                 {ocrResult?.vat ? (
-                  <View style={styles.ocrRow}>
+                  <View style={ReceiptStyles.ocrRow}>
                     <Checkbox
                       status={acceptFlags.vat ? "checked" : "unchecked"}
                       onPress={() => toggleAccept("vat")}
+                      color={Colors.accent}
+                      disabled={ocrResult?.vat?.value == null && ocrResult?.vat?.rate == null}
                     />
                     <Text
-                      style={[styles.ocrLabel, !acceptFlags.vat && styles.strike]}
+                      style={[ReceiptStyles.ocrLabel, !acceptFlags.vat && ReceiptStyles.strike]}
                     >
                       VAT:
                     </Text>
                     <Text
-                      style={[styles.ocrValue, !acceptFlags.vat && styles.strike]}
+                      style={[ReceiptStyles.ocrValue, !acceptFlags.vat && ReceiptStyles.strike]}
                     >
                       {ocrResult?.vat?.value != null
                         ? `£${ocrResult.vat.value}`
                         : "—"}{" "}
-                      (Rate {ocrResult?.vat?.rate ?? "—"}%)
+                      (Rate {ocrResult?.vat?.rate ?? "Not detected"}%)
                     </Text>
                   </View>
                 ) : null}
 
-                <View style={styles.modalButtons}>
+                <View style={ReceiptStyles.modalButtons}>
                   {!isNewImageSession && (
                     <Button
                       mode="outlined"
@@ -790,10 +812,10 @@ export default function ReceiptDetailsScreen({ route, navigation }) {
                       Delete Image
                     </Button>
                   )}
-                  <Button mode="text" onPress={handleCancelModal}>
+                  <Button buttonColor={Colors.accent} mode="contained" onPress={handleCancelModal}>
                     Cancel
                   </Button>
-                  <Button mode="contained" onPress={applyAcceptedValues}>
+                  <Button buttonColor={Colors.accent} mode="contained" onPress={applyAcceptedValues}>
                     Accept
                   </Button>
                 </View>
@@ -810,8 +832,8 @@ export default function ReceiptDetailsScreen({ route, navigation }) {
         animationType="fade"
         onRequestClose={() => {}}
       >
-        <View style={styles.uploadOverlay}>
-          <View style={styles.uploadCard}>
+        <View style={ReceiptStyles.uploadOverlay}>
+          <View style={ReceiptStyles.uploadCard}>
             <ActivityIndicator size="large" color="#a60d49" />
             <Text style={{ marginTop: 12, fontWeight: "600" }}>Uploading…</Text>
           </View>
@@ -833,214 +855,15 @@ export default function ReceiptDetailsScreen({ route, navigation }) {
           backgroundColor="black"
         />
 
-        <View style={styles.fullScreenCloseButtonWrapper}>
+        <View style={ReceiptStyles.fullScreenCloseButtonWrapper}>
           <TouchableOpacity
-            style={styles.fullScreenCloseButton}
+            style={ReceiptStyles.fullScreenCloseButton}
             onPress={() => setFullScreenImage(null)}
           >
-            <Text style={styles.fullScreenCloseText}>Close</Text>
+            <Text style={ReceiptStyles.fullScreenCloseText}>Close</Text>
           </TouchableOpacity>
         </View>
       </Modal>
     </SafeAreaView>
   );
 }
-
-const styles = StyleSheet.create({
-  safeArea: {
-    flex: 1,
-    backgroundColor: "#fff",
-  },
-  container: {
-    flex: 1,
-    padding: 16,
-  },
-  header: { fontSize: 22, fontWeight: "bold", marginBottom: 16 },
-  label: { fontSize: 16, marginTop: 10, marginBottom: 6 },
-
-  inputRow: {
-    flexDirection: "row",
-    alignItems: "center",
-  },
-
-  input: {
-    borderWidth: 1,
-    borderColor: "#ccc",
-    padding: 10,
-    borderRadius: 5,
-    marginTop: 5,
-  },
-
-  // Standardized VAT layout
-  vatRow: {
-    flexDirection: "row",
-    alignItems: "flex-start", // Keeps labels aligned at the top
-    marginTop: 10,
-  },
-  vatColLeft: {
-    flex: 1, // Stretches the amount box to fill available space
-  },
-  vatColRight: {
-    width: 110, // Slightly wider to ensure "Select" or "20%" fits comfortably
-    marginLeft: 12,
-  },
-  inputRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    marginTop: 8, // Matches the containerStyle margin of the picker
-  },
-  vatCurrency: {
-    fontSize: 18,
-    fontWeight: "bold",
-    marginRight: 6,
-  },
-  vatInput: {
-    borderWidth: 1,
-    borderColor: "#ccc",
-    borderRadius: 5,
-    height: 50,           // Standardized height
-    flex: 1,
-    fontSize: 16,
-    paddingHorizontal: 12,
-    backgroundColor: "#ffffff",
-  },
-  vatRatePicker: {
-    backgroundColor: "#ffffff",
-    borderColor: "#ccc",
-    height: 50,           // Matches vatInput exactly
-    paddingHorizontal: 8,
-    // Removed marginTop here to prevent double-spacing
-  },
-  vatRateDropdown: {
-    backgroundColor: "#ffffff",
-    borderColor: "#ccc",
-    zIndex: 5000,
-  },
-
-  dateButton: {
-    borderWidth: 1,
-    borderColor: "#ccc",
-    padding: 10,
-    borderRadius: 5,
-    marginTop: 5,
-  },
-
-  dropdown: { marginTop: 5, backgroundColor: "#fafafa", borderColor: "#ccc" },
-  dropdownContainer: { borderColor: "#ccc", backgroundColor: "#fafafa" },
-
-  receiptImage: {
-    width: 100,
-    height: 150,
-    marginRight: 10,
-    borderRadius: 5,
-  },
-  uploadPlaceholder: {
-    width: 100,
-    height: 150,
-    justifyContent: "center",
-    alignItems: "center",
-    backgroundColor: "#f0f0f0",
-    borderRadius: 5,
-    marginRight: 10,
-  },
-  plus: { fontSize: 30, color: "#a60d49" },
-
-  bottomButtons: {
-    marginTop: 6,
-    paddingBottom: 20,
-  },
-  primaryRow: {
-    flexDirection: "row",
-    gap: 8,
-  },
-  actionBtn: {
-    flex: 1,
-  },
-  deleteRow: {
-    marginTop: 10,
-  },
-  deleteBtn: {
-    width: "100%",
-  },
-
-  // ===== Modal shared styles =====
-  modalOverlay: {
-    flex: 1,
-    justifyContent: "center",
-    backgroundColor: "rgba(0,0,0,0.5)",
-    padding: 20,
-  },
-  modalContent: {
-    backgroundColor: "white",
-    borderRadius: 10,
-    padding: 20,
-  },
-  modalTitle: { fontSize: 18, fontWeight: "bold", marginBottom: 10 },
-
-  // ===== OCR modal extras =====
-  modalImage: {
-    width: "100%",
-    height: 360,
-    resizeMode: "contain",
-    borderRadius: 8,
-    marginTop: 8,
-    marginBottom: 12,
-  },
-  scanningText: { marginTop: 8, fontStyle: "italic", color: "#555" },
-  ocrRow: { flexDirection: "row", alignItems: "center", marginTop: 8 },
-  ocrLabel: { fontWeight: "600", marginRight: 6 },
-  ocrValue: { flexShrink: 1 },
-  strike: { textDecorationLine: "line-through", color: "#888" },
-  modalButtons: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    gap: 8,
-    marginTop: 20,
-  },
-
-  fullscreenHint: {
-    fontSize: 12,
-    color: "#666",
-    marginTop: 4,
-    fontStyle: "italic",
-    textAlign: "center",
-    alignSelf: "center",
-  },
-
-  // ===== Upload overlay =====
-  uploadOverlay: {
-    flex: 1,
-    backgroundColor: "rgba(0,0,0,0.35)",
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  uploadCard: {
-    backgroundColor: "#fff",
-    paddingVertical: 20,
-    paddingHorizontal: 24,
-    borderRadius: 12,
-    alignItems: "center",
-    justifyContent: "center",
-    minWidth: 180,
-  },
-
-  // ===== Fullscreen viewer =====
-  fullScreenCloseButtonWrapper: {
-    position: "absolute",
-    bottom: 30,
-    left: 0,
-    right: 0,
-    alignItems: "center",
-  },
-  fullScreenCloseButton: {
-    backgroundColor: "rgba(166, 13, 73, 0.9)",
-    paddingVertical: 8,
-    paddingHorizontal: 24,
-    borderRadius: 20,
-  },
-  fullScreenCloseText: {
-    color: "#fff",
-    fontWeight: "bold",
-    fontSize: 16,
-  },
-});
