@@ -7,22 +7,28 @@ import {
   FlatList,
   ActivityIndicator,
   RefreshControl,
-  Divider
+  Divider,
 } from "react-native";
 import { signOut } from "firebase/auth";
-import { collection, query, where, getDocs } from "firebase/firestore";
+import {
+  collection,
+  query,
+  where,
+  getDocs,
+  doc,
+  getDoc,
+  setDoc,
+} from "firebase/firestore";
 import { db, auth } from "../firebaseConfig";
 import { formatDate } from "../utils/format_style";
 import SideMenu from "../components/SideMenu";
 import { StatusBar, Platform } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
-import Constants from 'expo-constants';
+import Constants from "expo-constants";
 import { Colors } from "../utils/sharedStyles";
 
 // Inside your component
 const appVersion = Constants.expoConfig?.version;
-
-
 
 const ExpensesScreen = ({ navigation }) => {
   const [displayName, setDisplayName] = useState("User");
@@ -32,12 +38,37 @@ const ExpensesScreen = ({ navigation }) => {
   const [refreshing, setRefreshing] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
 
-
   // --- sorting state ---
-  const [sortKey, setSortKey] = useState("date");      // "date" | "amount" | "category"
-  const [sortDir, setSortDir] = useState("desc");      // "asc" | "desc"
+  const [sortKey, setSortKey] = useState("date"); // "date" | "amount" | "category"
+  const [sortDir, setSortDir] = useState("desc"); // "asc" | "desc"
 
   const [showItemTip, setShowItemTip] = useState(false);
+
+  const sortedReceipts = useMemo(() => {
+    const data = [...receipts];
+    data.sort((a, b) => {
+      let av,
+        bv,
+        cmp = 0;
+
+      if (sortKey === "amount") {
+        av = Number(a.amount) || 0;
+        bv = Number(b.amount) || 0;
+        cmp = av - bv;
+      } else if (sortKey === "date") {
+        av = new Date(a.date).getTime() || 0;
+        bv = new Date(b.date).getTime() || 0;
+        cmp = av - bv;
+      } else if (sortKey === "category") {
+        av = String(a.category || "");
+        bv = String(b.category || "");
+        cmp = av.localeCompare(bv, undefined, { sensitivity: "base" });
+      }
+
+      return sortDir === "asc" ? cmp : -cmp;
+    });
+    return data;
+  }, [receipts, sortKey, sortDir]);
 
   // Check Firebase for "seen" status
   useEffect(() => {
@@ -48,7 +79,7 @@ const ExpensesScreen = ({ navigation }) => {
         try {
           const userRef = doc(db, "users", user.uid);
           const userSnap = await getDoc(userRef);
-          
+
           if (!userSnap.data()?.hasSeenItemTip) {
             setShowItemTip(true);
           }
@@ -94,7 +125,10 @@ const ExpensesScreen = ({ navigation }) => {
       }
       setDisplayName(user.displayName || "User");
 
-      const q = query(collection(db, "receipts"), where("userId", "==", user.uid));
+      const q = query(
+        collection(db, "receipts"),
+        where("userId", "==", user.uid)
+      );
       const querySnapshot = await getDocs(q);
       const userReceipts = querySnapshot.docs.map((doc) => ({
         id: doc.id,
@@ -147,77 +181,64 @@ const ExpensesScreen = ({ navigation }) => {
     return sortDir === "asc" ? "▲" : "▼";
   };
 
-  const sortedReceipts = useMemo(() => {
-    const data = [...receipts];
-    data.sort((a, b) => {
-      let av, bv, cmp = 0;
-
-      if (sortKey === "amount") {
-        av = Number(a.amount) || 0;
-        bv = Number(b.amount) || 0;
-        cmp = av - bv;
-      } else if (sortKey === "date") {
-        av = new Date(a.date).getTime() || 0;
-        bv = new Date(b.date).getTime() || 0;
-        cmp = av - bv;
-      } else if (sortKey === "category") {
-        av = String(a.category || "");
-        bv = String(b.category || "");
-        cmp = av.localeCompare(bv, undefined, { sensitivity: "base" });
-      }
-
-      return sortDir === "asc" ? cmp : -cmp;
-    });
-    return data;
-  }, [receipts, sortKey, sortDir]);
-
   const renderHeaderRow = () => (
     <View style={styles.headerRow}>
-      <TouchableOpacity style={styles.headerCellDate} onPress={() => toggleSort("date")}>
+      <TouchableOpacity
+        style={styles.headerCellDate}
+        onPress={() => toggleSort("date")}
+      >
         <Text style={styles.headerText}>Date</Text>
         <Text style={styles.headerArrow}>{sortIcon("date")}</Text>
       </TouchableOpacity>
 
-      <TouchableOpacity style={styles.headerCellCategory} onPress={() => toggleSort("category")}>
+      <TouchableOpacity
+        style={styles.headerCellCategory}
+        onPress={() => toggleSort("category")}
+      >
         <Text style={styles.headerText}>Category</Text>
         <Text style={styles.headerArrow}>{sortIcon("category")}</Text>
       </TouchableOpacity>
 
-      <TouchableOpacity style={styles.headerCellAmount} onPress={() => toggleSort("amount")}>
+      <TouchableOpacity
+        style={styles.headerCellAmount}
+        onPress={() => toggleSort("amount")}
+      >
         <Text style={styles.headerTextRight}>Amount</Text>
         <Text style={styles.headerArrow}>{sortIcon("amount")}</Text>
       </TouchableOpacity>
     </View>
   );
 
-  const renderReceiptItem = ({ item, index }) => (
-    <View>
-      <TouchableOpacity
-        onPress={() => navigation.navigate("ReceiptDetails", { receipt: item })}
-        style={styles.receiptItem}
-      >
-        {/* Date Column */}
-        <Text style={styles.receiptDate}>{formatDate(new Date(item.date))}</Text>
+  const renderReceiptItem = ({ item, index }) => {
+    const isFirst = index === 0;
   
-        {/* Category Column - preserving your line-break logic */}
-        <View style={{ flex: 1, alignItems: "flex-start", marginLeft: 25 }}>
-          <Text style={styles.receiptCategory}>
-            {String(item.category).split(" ").join("\n")}
-          </Text>
+    return (
+      <View style={{ width: '100%', alignItems: 'center' }}>
+        {/* 1. The Blue "Container" wrapper */}
+        <View style={[styles.listContainer, { width: '95%', marginTop: 0, marginBottom: 5 }]}>
+          <TouchableOpacity
+            onPress={() => navigation.navigate("ReceiptDetails", { receipt: item })}
+            style={[styles.receiptItem, { width: '100%', marginBottom: 0 }]}
+          >
+            <Text style={styles.receiptDate}>{formatDate(new Date(item.date))}</Text>
+  
+            <View style={{ flex: 1, alignItems: "flex-start", marginLeft: 25 }}>
+              <Text style={styles.receiptCategory}>
+                {String(item.category).split(" ").join("\n")}
+              </Text>
+            </View>
+  
+            <Text style={styles.receiptAmount}>£{Number(item.amount).toFixed(2)}</Text>
+          </TouchableOpacity>
         </View>
   
-        {/* Amount Column */}
-        <Text style={styles.receiptAmount}>£{Number(item.amount).toFixed(2)}</Text>
-      </TouchableOpacity>
-  
-      {/* Inject Tooltip directly below the first item.
-          Condition: It's the first index AND the tip hasn't been dismissed AND it's the very first receipt.
-      */}
-      {index === 0 && showItemTip && sortedReceipts.length === 1 && (
-        <ItemTooltip onDismiss={dismissItemTip} />
-      )}
-    </View>
-  );
+        {/* 2. The Tooltip (Sibling to the blue box) */}
+        {isFirst && showItemTip && sortedReceipts.length === 1 && (
+          <ItemTooltip onDismiss={dismissItemTip} />
+        )}
+      </View>
+    );
+  };
 
   const renderEmptyState = () =>
     loading ? null : (
@@ -240,10 +261,12 @@ const ExpensesScreen = ({ navigation }) => {
 
   return (
     <SafeAreaView style={styles.container}>
-
       {/* Top App Bar */}
       <View style={[styles.topBar, { paddingTop: 5 }]}>
-        <TouchableOpacity style={styles.topBarButton} onPress={() => setMenuOpen(true)}>
+        <TouchableOpacity
+          style={styles.topBarButton}
+          onPress={() => setMenuOpen(true)}
+        >
           <Text style={styles.topBarButtonText}>≡</Text>
         </TouchableOpacity>
 
@@ -252,7 +275,6 @@ const ExpensesScreen = ({ navigation }) => {
         {/* Right spacer to balance the layout (same width as the button) */}
         <View style={{ width: 44 }} />
       </View>
-
 
       <View style={styles.content}>
         <View style={styles.card}>
@@ -279,16 +301,16 @@ const ExpensesScreen = ({ navigation }) => {
           keyExtractor={(item) => item.id}
           renderItem={renderReceiptItem}
           contentContainerStyle={[
-              styles.listContainer,
-              // Add this line: only show the dark background if NOT loading
-              { backgroundColor: loading ? "transparent" : Colors.textPrimary },
-              !hasReceipts ? { flexGrow: 1, justifyContent: "center" } : null,
-            ]}
+            // REMOVE styles.listContainer and the backgroundColor logic here
+            { paddingVertical: 10 },
+            !hasReceipts ? { flexGrow: 1, justifyContent: "center" } : null,
+          ]}
           refreshControl={
             <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
           }
-          // NOTE: header is outside; do not use stickyHeaderIndices/ListHeaderComponent
         />
+
+        {/* REMOVE the ItemTooltip from here (the bottom of your file) */}
       </View>
 
       {/* Floating Add Expenses Button */}
@@ -313,32 +335,30 @@ const ExpensesScreen = ({ navigation }) => {
 
       {/* Slide-in side menu */}
       <SideMenu open={menuOpen} onClose={() => setMenuOpen(false)}>
-       <View style={{ flex: 1 }}> 
+        <View style={{ flex: 1 }}>
+          <Text style={styles.menuTitle}>Menu</Text>
 
-        <Text style={styles.menuTitle}>Menu</Text>
-      
-        <View style={styles.userInfo}>
-          <Text style={styles.userEmail}>{displayName}</Text>
-          <Text style={styles.userEmail}>{auth.currentUser?.email}</Text>
+          <View style={styles.userInfo}>
+            <Text style={styles.userEmail}>{displayName}</Text>
+            <Text style={styles.userEmail}>{auth.currentUser?.email}</Text>
+          </View>
+
+          <TouchableOpacity
+            onPress={async () => {
+              setMenuOpen(false);
+              await handleLogout();
+            }}
+            style={styles.signOutBtn}
+          >
+            <Text style={styles.signOutText}>Sign out</Text>
+          </TouchableOpacity>
+
+          <View style={styles.versionContainer}>
+            <Text style={styles.versionText}>Version {appVersion}</Text>
+          </View>
         </View>
-
-        <TouchableOpacity
-          onPress={async () => {
-            setMenuOpen(false);
-            await handleLogout();
-          }}
-          style={styles.signOutBtn}>
-          <Text style={styles.signOutText}>Sign out</Text>
-        </TouchableOpacity>
-
-        <View style={styles.versionContainer}>
-          <Text style={styles.versionText}>Version {appVersion}</Text>
-        </View>
-        
-       </View>
       </SideMenu>
     </SafeAreaView>
-
   );
 };
 
@@ -357,7 +377,12 @@ const styles = StyleSheet.create({
     alignItems: "center",
   },
   title: { fontSize: 19, fontWeight: "bold", color: Colors.textPrimary },
-  subtitle: { fontSize: 17, color: Colors.textPrimary, marginTop: 14, textAlign: "center" },
+  subtitle: {
+    fontSize: 17,
+    color: Colors.textPrimary,
+    marginTop: 14,
+    textAlign: "center",
+  },
   description: {
     fontSize: 16,
     color: Colors.textPrimary,
@@ -396,9 +421,9 @@ const styles = StyleSheet.create({
   // ---- Header row (sortable columns) ----
   headerRow: {
     backgroundColor: Colors.card,
-    borderRadius: 12,            // round all corners
+    borderRadius: 12, // round all corners
     paddingHorizontal: 16,
-    paddingVertical: 12,         // internal space
+    paddingVertical: 12, // internal space
     width: "95%",
     alignSelf: "center",
     flexDirection: "row",
@@ -426,7 +451,12 @@ const styles = StyleSheet.create({
     gap: 6,
   },
   headerText: { fontSize: 14, fontWeight: "700", color: Colors.textPrimary },
-  headerTextRight: { fontSize: 14, fontWeight: "700", color: Colors.textPrimary, textAlign: "right" },
+  headerTextRight: {
+    fontSize: 14,
+    fontWeight: "700",
+    color: Colors.textPrimary,
+    textAlign: "right",
+  },
   headerArrow: { fontSize: 12, color: "#555" },
 
   receiptItem: {
@@ -467,7 +497,10 @@ const styles = StyleSheet.create({
   // Blocking overlay
   blockingOverlay: {
     position: "absolute",
-    top: 0, left: 0, right: 0, bottom: 0,
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
     backgroundColor: "rgba(0,0,0,0.5)", // Slightly darker for better contrast
     justifyContent: "center",
     alignItems: "center",
@@ -483,45 +516,45 @@ const styles = StyleSheet.create({
   },
   loadingText: { marginTop: 10, fontSize: 16, fontWeight: "600" },
   topBar: {
-  backgroundColor: Colors.card,
-  width: "100%",
-  // height is paddingTop (status bar) + this content height
-  // keep the content area comfy:
-  paddingHorizontal: 12,
-  paddingBottom: 10,
-  flexDirection: "row",
-  alignItems: "center",
-  justifyContent: "space-between",
-  // subtle shadow/elevation
-  elevation: 3,
-  shadowColor: "#000",
-  shadowOpacity: 0.1,
-  shadowRadius: 4,
-  shadowOffset: { width: 0, height: 2 },
-},
-topBarButton: {
-  width: 44,
-  height: 36,
-  borderRadius: 18,
-  backgroundColor: Colors.inputBg,
-  alignItems: "center",
-  justifyContent: "center",
-},
-topBarButtonText: {
-  fontSize: 18,
-  fontWeight: "700",
-  color: Colors.textPrimary,
-},
-topBarTitle: {
-  fontSize: 18,
-  fontWeight: "800",
-  color: Colors.textPrimary,
-},
-menuTitle: { 
-  fontSize: 22, 
-  fontWeight: "800", 
-  color: Colors.textPrimary, 
-    marginBottom: 10 
+    backgroundColor: Colors.card,
+    width: "100%",
+    // height is paddingTop (status bar) + this content height
+    // keep the content area comfy:
+    paddingHorizontal: 12,
+    paddingBottom: 10,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    // subtle shadow/elevation
+    elevation: 3,
+    shadowColor: "#000",
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    shadowOffset: { width: 0, height: 2 },
+  },
+  topBarButton: {
+    width: 44,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: Colors.inputBg,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  topBarButtonText: {
+    fontSize: 18,
+    fontWeight: "700",
+    color: Colors.textPrimary,
+  },
+  topBarTitle: {
+    fontSize: 18,
+    fontWeight: "800",
+    color: Colors.textPrimary,
+  },
+  menuTitle: {
+    fontSize: 22,
+    fontWeight: "800",
+    color: Colors.textPrimary,
+    marginBottom: 10,
   },
   userInfo: {
     marginBottom: 20,
@@ -537,23 +570,23 @@ menuTitle: {
     borderRadius: 10,
     marginTop: 20,
   },
-  signOutText: { 
-    color: "white", 
-    fontWeight: "700", 
-    textAlign: 'center' 
+  signOutText: {
+    color: "white",
+    fontWeight: "700",
+    textAlign: "center",
   },
   versionContainer: {
-    marginTop: 'auto', // Pushes to bottom of the flex container
+    marginTop: "auto", // Pushes to bottom of the flex container
     paddingBottom: 20,
-    alignItems: 'center',
+    alignItems: "center",
   },
   versionText: {
-    color: '#B5B3C6',
+    color: "#B5B3C6",
     fontSize: 12,
-    fontWeight: '600',
+    fontWeight: "600",
   },
   itemTipWrapper: {
-    alignItems: 'center',
+    alignItems: "center",
     marginTop: -5, // Pull it closer to the item
     marginBottom: 10,
     paddingHorizontal: 20,
@@ -562,51 +595,51 @@ menuTitle: {
   topTriangle: {
     width: 0,
     height: 0,
-    backgroundColor: 'transparent',
-    borderStyle: 'solid',
+    backgroundColor: "transparent",
+    borderStyle: "solid",
     borderLeftWidth: 10,
     borderRightWidth: 10,
     borderBottomWidth: 15,
-    borderLeftColor: 'transparent',
-    borderRightColor: 'transparent',
-    borderBottomColor: '#a60d49', // Match your brand color
+    borderLeftColor: "transparent",
+    borderRightColor: "transparent",
+    borderBottomColor: "#F0D1FF", // Match your brand color
   },
   itemTipBox: {
-    backgroundColor: '#a60d49',
+    backgroundColor: "#F0D1FF",
     padding: 12,
     borderRadius: 8,
-    width: '100%',
+    width: "100%",
     elevation: 5,
-    shadowColor: '#000',
+    shadowColor: "#000",
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.3,
     shadowRadius: 4,
   },
   itemTipText: {
-    color: '#fff',
+    color: "#4A148C",
     fontSize: 14,
     lineHeight: 20,
-    textAlign: 'center',
+    textAlign: "center",
   },
   itemGotIt: {
-    color: '#fff',
-    fontWeight: 'bold',
-    textAlign: 'right',
+    color: "#4A148C",
+    fontWeight: "bold",
+    textAlign: "right",
     marginTop: 8,
-    textDecorationLine: 'underline',
+    textDecorationLine: "underline",
   },
-
 });
 
 const ItemTooltip = ({ onDismiss }) => (
-  <View style={localStyles.itemTipWrapper}>
-    <View style={localStyles.topTriangle} />
-    <View style={localStyles.itemTipBox}>
-      <Text style={localStyles.itemTipText}>
-        Here's your first expense! Tap it to see the full details and the receipt image. 📑
+  <View style={styles.itemTipWrapper}>
+    <View style={styles.topTriangle} />
+    <View style={styles.itemTipBox}>
+      <Text style={styles.itemTipText}>
+        Here's your first expense receipt! Tap it to edit, delete or see the
+        receipt image. 
       </Text>
       <TouchableOpacity onPress={onDismiss}>
-        <Text style={localStyles.itemGotIt}>Got it</Text>
+        <Text style={styles.itemGotIt}>Got it</Text>
       </TouchableOpacity>
     </View>
   </View>
