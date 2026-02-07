@@ -791,7 +791,6 @@ const handleConfirmDate = (date) => {
               
               }}
 
-              placeholder="Search for a category..."
               style={ReceiptStyles.dropdown}
               zIndex={1000}
               zIndexInverse={3000}

@@ -37,6 +37,42 @@ const ExpensesScreen = ({ navigation }) => {
   const [sortKey, setSortKey] = useState("date");      // "date" | "amount" | "category"
   const [sortDir, setSortDir] = useState("desc");      // "asc" | "desc"
 
+  const [showItemTip, setShowItemTip] = useState(false);
+
+  // Check Firebase for "seen" status
+  useEffect(() => {
+    const checkItemTipStatus = async () => {
+      const user = auth.currentUser;
+      // Condition: 1 receipt exactly + not loading
+      if (user && !loading && sortedReceipts.length === 1) {
+        try {
+          const userRef = doc(db, "users", user.uid);
+          const userSnap = await getDoc(userRef);
+          
+          if (!userSnap.data()?.hasSeenItemTip) {
+            setShowItemTip(true);
+          }
+        } catch (error) {
+          console.log("Error fetching item tooltip status:", error);
+        }
+      }
+    };
+    checkItemTipStatus();
+  }, [loading, sortedReceipts.length]); // Re-run when list length changes
+
+  const dismissItemTip = async () => {
+    setShowItemTip(false);
+    const user = auth.currentUser;
+    if (user) {
+      try {
+        const userRef = doc(db, "users", user.uid);
+        await setDoc(userRef, { hasSeenItemTip: true }, { merge: true });
+      } catch (error) {
+        console.log("Error updating item tooltip status:", error);
+      }
+    }
+  };
+
   const runWithLoading = async (text, fn) => {
     setLoadingText(text);
     setLoading(true);
@@ -154,21 +190,33 @@ const ExpensesScreen = ({ navigation }) => {
     </View>
   );
 
-  const renderReceiptItem = ({ item }) => (
-    <TouchableOpacity
-      onPress={() => navigation.navigate("ReceiptDetails", { receipt: item })}
-      style={styles.receiptItem}
-    >
-      <Text style={styles.receiptDate}>{formatDate(new Date(item.date))}</Text>
-
-      <View style={{ flex: 1, alignItems: "flex-start", marginLeft: 25 }}>
-        <Text style={styles.receiptCategory}>
-          {String(item.category).split(" ").join("\n")}
-        </Text>
-      </View>
-
-      <Text style={styles.receiptAmount}>£{Number(item.amount).toFixed(2)}</Text>
-    </TouchableOpacity>
+  const renderReceiptItem = ({ item, index }) => (
+    <View>
+      <TouchableOpacity
+        onPress={() => navigation.navigate("ReceiptDetails", { receipt: item })}
+        style={styles.receiptItem}
+      >
+        {/* Date Column */}
+        <Text style={styles.receiptDate}>{formatDate(new Date(item.date))}</Text>
+  
+        {/* Category Column - preserving your line-break logic */}
+        <View style={{ flex: 1, alignItems: "flex-start", marginLeft: 25 }}>
+          <Text style={styles.receiptCategory}>
+            {String(item.category).split(" ").join("\n")}
+          </Text>
+        </View>
+  
+        {/* Amount Column */}
+        <Text style={styles.receiptAmount}>£{Number(item.amount).toFixed(2)}</Text>
+      </TouchableOpacity>
+  
+      {/* Inject Tooltip directly below the first item.
+          Condition: It's the first index AND the tip hasn't been dismissed AND it's the very first receipt.
+      */}
+      {index === 0 && showItemTip && sortedReceipts.length === 1 && (
+        <ItemTooltip onDismiss={dismissItemTip} />
+      )}
+    </View>
   );
 
   const renderEmptyState = () =>
@@ -503,6 +551,63 @@ menuTitle: {
     color: '#B5B3C6',
     fontSize: 12,
     fontWeight: '600',
-  }
+  },
+  itemTipWrapper: {
+    alignItems: 'center',
+    marginTop: -5, // Pull it closer to the item
+    marginBottom: 10,
+    paddingHorizontal: 20,
+    zIndex: 10,
+  },
+  topTriangle: {
+    width: 0,
+    height: 0,
+    backgroundColor: 'transparent',
+    borderStyle: 'solid',
+    borderLeftWidth: 10,
+    borderRightWidth: 10,
+    borderBottomWidth: 15,
+    borderLeftColor: 'transparent',
+    borderRightColor: 'transparent',
+    borderBottomColor: '#a60d49', // Match your brand color
+  },
+  itemTipBox: {
+    backgroundColor: '#a60d49',
+    padding: 12,
+    borderRadius: 8,
+    width: '100%',
+    elevation: 5,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.3,
+    shadowRadius: 4,
+  },
+  itemTipText: {
+    color: '#fff',
+    fontSize: 14,
+    lineHeight: 20,
+    textAlign: 'center',
+  },
+  itemGotIt: {
+    color: '#fff',
+    fontWeight: 'bold',
+    textAlign: 'right',
+    marginTop: 8,
+    textDecorationLine: 'underline',
+  },
 
 });
+
+const ItemTooltip = ({ onDismiss }) => (
+  <View style={localStyles.itemTipWrapper}>
+    <View style={localStyles.topTriangle} />
+    <View style={localStyles.itemTipBox}>
+      <Text style={localStyles.itemTipText}>
+        Here's your first expense! Tap it to see the full details and the receipt image. 📑
+      </Text>
+      <TouchableOpacity onPress={onDismiss}>
+        <Text style={localStyles.itemGotIt}>Got it</Text>
+      </TouchableOpacity>
+    </View>
+  </View>
+);
