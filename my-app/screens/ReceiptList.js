@@ -7,9 +7,11 @@ import {
   FlatList,
   ActivityIndicator,
   RefreshControl,
-  Divider,
+  Modal,
+  TextInput,
+  Alert,
 } from "react-native";
-import { signOut } from "firebase/auth";
+import { signOut, deleteUser } from "firebase/auth";
 import {
   collection,
   query,
@@ -18,6 +20,8 @@ import {
   doc,
   getDoc,
   setDoc,
+  deleteDoc, // Add this
+  writeBatch,
 } from "firebase/firestore";
 import { db, auth } from "../firebaseConfig";
 import { formatDate } from "../utils/format_style";
@@ -26,6 +30,12 @@ import { StatusBar, Platform } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import Constants from "expo-constants";
 import { Colors } from "../utils/sharedStyles";
+import {
+  getStorage,
+  ref as storageRef,
+  listAll,
+  deleteObject,
+} from "firebase/storage";
 
 // Inside your component
 const appVersion = Constants.expoConfig?.version;
@@ -43,6 +53,81 @@ const ExpensesScreen = ({ navigation }) => {
   const [sortDir, setSortDir] = useState("desc"); // "asc" | "desc"
 
   const [showItemTip, setShowItemTip] = useState(false);
+
+  const [deleteModalVisible, setDeleteModalVisible] = useState(false);
+  const [confirmText, setConfirmText] = useState("");
+
+  const handleDeleteAccount = () => {
+    // Close the side menu first so it's not in the way
+    setMenuOpen(false);
+    // Open the "Type DELETE" modal instead of an Alert
+    setDeleteModalVisible(true);
+  };
+
+  const performDeletion = async () => {
+    const user = auth.currentUser;
+    if (!user) return;
+
+    // 1. Close the modal immediately
+    setDeleteModalVisible(false);
+    setConfirmText("");
+
+    // 2. Start the loading overlay
+    await runWithLoading("Permanently erasing data...", async () => {
+      try {
+        // Step A: Delete images from Storage (Do this first while auth is active)
+        await deleteUserStorage(user.uid);
+
+        // Step B: Delete Receipt documents in Firestore
+        const q = query(
+          collection(db, "receipts"),
+          where("userId", "==", user.uid)
+        );
+        const querySnapshot = await getDocs(q);
+        const batch = writeBatch(db);
+        querySnapshot.forEach((docRef) => batch.delete(docRef.ref));
+        await batch.commit();
+
+        // Step C: Delete the main User Profile document
+        await deleteDoc(doc(db, "users", user.uid));
+
+        // Step D: Finally, delete the Auth account
+        // This is the "Point of No Return"
+        await deleteUser(user);
+
+        navigation.replace("SignIn");
+      } catch (error) {
+        console.error("Deletion Error:", error);
+
+        if (error.code === "auth/requires-recent-login") {
+          Alert.alert(
+            "Security Timeout",
+            "For your security, you must have logged in recently to delete your account. Please sign out and back in, then try again."
+          );
+        } else {
+          Alert.alert(
+            "Error",
+            "Something went wrong while deleting your data. Please try again."
+          );
+        }
+      }
+    });
+  };
+
+  const deleteUserStorage = async (userId) => {
+    const storage = getStorage();
+    const userFolderRef = storageRef(storage, `receipts/${userId}`);
+
+    try {
+      const listResult = await listAll(userFolderRef);
+      const deletePromises = listResult.items.map((item) => deleteObject(item));
+      await Promise.all(deletePromises);
+      console.log("All receipt images deleted.");
+    } catch (error) {
+      // If the folder doesn't exist, listAll might throw an error; we can ignore it
+      console.log("Storage cleanup error (likely no files):", error);
+    }
+  };
 
   const sortedReceipts = useMemo(() => {
     const data = [...receipts];
@@ -211,27 +296,38 @@ const ExpensesScreen = ({ navigation }) => {
 
   const renderReceiptItem = ({ item, index }) => {
     const isFirst = index === 0;
-  
+
     return (
-      <View style={{ width: '100%', alignItems: 'center' }}>
+      <View style={{ width: "100%", alignItems: "center" }}>
         {/* 1. The Blue "Container" wrapper */}
-        <View style={[styles.listContainer, { width: '95%', marginTop: 0, marginBottom: 5 }]}>
+        <View
+          style={[
+            styles.listContainer,
+            { width: "95%", marginTop: 0, marginBottom: 5 },
+          ]}
+        >
           <TouchableOpacity
-            onPress={() => navigation.navigate("ReceiptDetails", { receipt: item })}
-            style={[styles.receiptItem, { width: '100%', marginBottom: 0 }]}
+            onPress={() =>
+              navigation.navigate("ReceiptDetails", { receipt: item })
+            }
+            style={[styles.receiptItem, { width: "100%", marginBottom: 0 }]}
           >
-            <Text style={styles.receiptDate}>{formatDate(new Date(item.date))}</Text>
-  
+            <Text style={styles.receiptDate}>
+              {formatDate(new Date(item.date))}
+            </Text>
+
             <View style={{ flex: 1, alignItems: "flex-start", marginLeft: 25 }}>
               <Text style={styles.receiptCategory}>
                 {String(item.category).split(" ").join("\n")}
               </Text>
             </View>
-  
-            <Text style={styles.receiptAmount}>£{Number(item.amount).toFixed(2)}</Text>
+
+            <Text style={styles.receiptAmount}>
+              £{Number(item.amount).toFixed(2)}
+            </Text>
           </TouchableOpacity>
         </View>
-  
+
         {/* 2. The Tooltip (Sibling to the blue box) */}
         {isFirst && showItemTip && sortedReceipts.length === 1 && (
           <ItemTooltip onDismiss={dismissItemTip} />
@@ -336,6 +432,7 @@ const ExpensesScreen = ({ navigation }) => {
       {/* Slide-in side menu */}
       <SideMenu open={menuOpen} onClose={() => setMenuOpen(false)}>
         <View style={{ flex: 1 }}>
+          {/* Top Section */}
           <Text style={styles.menuTitle}>Menu</Text>
 
           <View style={styles.userInfo}>
@@ -343,21 +440,87 @@ const ExpensesScreen = ({ navigation }) => {
             <Text style={styles.userEmail}>{auth.currentUser?.email}</Text>
           </View>
 
-          <TouchableOpacity
-            onPress={async () => {
-              setMenuOpen(false);
-              await handleLogout();
-            }}
-            style={styles.signOutBtn}
-          >
-            <Text style={styles.signOutText}>Sign out</Text>
-          </TouchableOpacity>
+          {/* Bottom Section */}
+          <View style={styles.footerContainer}>
+            
 
-          <View style={styles.versionContainer}>
-            <Text style={styles.versionText}>Version {appVersion}</Text>
+            {/* Sign Out - Now the Transparent Link */}
+            <TouchableOpacity
+              onPress={async () => {
+                setMenuOpen(false);
+                await handleLogout();
+              }}
+              style={styles.signOutLink}
+            >
+              <Text style={styles.linkBtnText}>Sign out</Text>
+            </TouchableOpacity>
+
+            {/* Delete Account - Now the Filled Button */}
+            <TouchableOpacity
+              onPress={handleDeleteAccount}
+              style={styles.deleteBtnFilled}
+            >
+              <Text style={styles.filledBtnText}>Delete Account</Text>
+            </TouchableOpacity>
+
+            <View style={styles.versionContainer}>
+              <Text style={styles.versionText}>Version {appVersion}</Text>
+            </View>
           </View>
         </View>
       </SideMenu>
+
+      <Modal visible={deleteModalVisible} transparent animationType="fade">
+        <View style={styles.modalOverlay}>
+          <View style={styles.loadingCard}>
+            <Text style={[styles.title, { color: "#ff4444" }]}>
+              Delete Account?
+            </Text>
+            <Text style={{ textAlign: "center", marginVertical: 10 }}>
+              This will permanently erase all receipts and images. Please type{" "}
+              <Text style={{ fontWeight: "bold" }}>DELETE</Text> to confirm.
+            </Text>
+
+            <TextInput
+              style={[styles.input, { width: "100%", textAlign: "center" }]}
+              placeholder="Type here"
+              value={confirmText}
+              onChangeText={setConfirmText}
+              autoCapitalize="characters"
+            />
+
+            <View style={{ flexDirection: "row", marginTop: 20, gap: 10 }}>
+              <TouchableOpacity
+                onPress={() => {
+                  setDeleteModalVisible(false);
+                  setConfirmText("");
+                }}
+                style={[
+                  styles.signOutBtn,
+                  { backgroundColor: "#ccc", flex: 1 },
+                ]}
+              >
+                <Text style={{ color: "#000" }}>Cancel</Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                onPress={performDeletion} // This triggers the logic above
+                disabled={confirmText !== "DELETE"}
+                style={[
+                  styles.signOutBtn,
+                  {
+                    backgroundColor:
+                      confirmText === "DELETE" ? "#ff4444" : "#ffcccc",
+                    flex: 1,
+                  },
+                ]}
+              >
+                <Text style={{ color: "white" }}>Delete All</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
     </SafeAreaView>
   );
 };
@@ -575,10 +738,39 @@ const styles = StyleSheet.create({
     fontWeight: "700",
     textAlign: "center",
   },
+  // Pushes the entire block to the bottom of the SideMenu
+  footerContainer: {
+    marginTop: "auto",
+    paddingBottom: 10,
+  },
+  // The new filled style (formerly for Sign Out, now for Delete)
+  deleteBtnFilled: {
+    backgroundColor: Colors.accent, // Red for destruction
+    paddingVertical: 12,
+    paddingHorizontal: 16,
+    borderRadius: 10,
+    marginBottom: 10,
+  },
+  filledBtnText: {
+    color: "white",
+    fontWeight: "700",
+    textAlign: "center",
+  },
+  // The new transparent style (formerly for Delete, now for Sign Out)
+  signOutLink: {
+    backgroundColor: "transparent",
+    paddingVertical: 10,
+    marginBottom: 20,
+  },
+  linkBtnText: {
+    color: Colors.textPrimary,
+    fontWeight: "600",
+    textAlign: "center",
+    textDecorationLine: "underline",
+  },
   versionContainer: {
-    marginTop: "auto", // Pushes to bottom of the flex container
-    paddingBottom: 20,
     alignItems: "center",
+    paddingBottom: 10,
   },
   versionText: {
     color: "#B5B3C6",
@@ -636,7 +828,7 @@ const ItemTooltip = ({ onDismiss }) => (
     <View style={styles.itemTipBox}>
       <Text style={styles.itemTipText}>
         Here's your first expense receipt! Tap it to edit, delete or see the
-        receipt image. 
+        receipt image.
       </Text>
       <TouchableOpacity onPress={onDismiss}>
         <Text style={styles.itemGotIt}>Got it</Text>
