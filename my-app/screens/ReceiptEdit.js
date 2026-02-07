@@ -1,11 +1,11 @@
-import React, { useMemo, useState, useEffect } from "react";
+import React, { useRef, useMemo, useState, useEffect } from "react";
 import {
   View,
   Text,
   TextInput,
   TouchableOpacity,
   Image,
-  StyleSheet,
+  findNodeHandle,
   FlatList,
   Alert,
   Keyboard,
@@ -32,7 +32,7 @@ import {
 } from "firebase/storage";
 import { categories_meta } from "../constants/arrays";
 import { formatDate } from "../utils/format_style";
-import TextRecognition from '@react-native-ml-kit/text-recognition';
+import TextRecognition from "@react-native-ml-kit/text-recognition";
 import * as FileSystem from "expo-file-system/legacy";
 import { extractData } from "../utils/extractors";
 import ImageViewer from "react-native-image-zoom-viewer";
@@ -60,12 +60,17 @@ export default function ReceiptDetailsScreen({ route, navigation }) {
   const [selectedDate, setSelectedDate] = useState(
     receipt?.date ? new Date(receipt.date) : new Date()
   );
-  const [selectedCategory, setSelectedCategory] = useState(receipt?.category || "");
+  const [selectedCategory, setSelectedCategory] = useState(
+    receipt?.category || ""
+  );
   const [images, setImages] = useState(
     (receipt?.images || []).map((url) => ({ uri: url }))
   );
 
-  const originalUrls = useMemo(() => new Set(receipt?.images || []), [receipt?.id]);
+  const originalUrls = useMemo(
+    () => new Set(receipt?.images || []),
+    [receipt?.id]
+  );
 
   const [open, setOpen] = useState(false);
   const [items, setItems] = useState(
@@ -91,6 +96,11 @@ export default function ReceiptDetailsScreen({ route, navigation }) {
   // ===== Fullscreen viewer =====
   const [fullScreenImage, setFullScreenImage] = useState(null);
 
+  const allCategoryItems = categories_meta.map((cat) => ({
+    label: cat.name,
+    value: cat.name,
+  }));
+
   // ===== VAT rate options from categories_meta =====
   const deriveVatRateItems = () => {
     const unique = Array.from(
@@ -104,6 +114,14 @@ export default function ReceiptDetailsScreen({ route, navigation }) {
   };
   const [vatRateOpen, setVatRateOpen] = useState(false);
   const [vatRateItems, setVatRateItems] = useState(deriveVatRateItems());
+
+  const flatListRef = useRef(null);
+
+  const scrollRef = useRef(null);
+
+  const categoryWrapperRef = useRef(null);
+
+  const [categoryY, setCategoryY] = useState(0);
 
   // ===== helpers =====
   const computeVat = (grossStr, rateStr) => {
@@ -238,7 +256,7 @@ export default function ReceiptDetailsScreen({ route, navigation }) {
       }
       // Call the ML Kit recognize method
       const result = await TextRecognition.recognize(localUri);
-      const text = result?.text || ""; 
+      const text = result?.text || "";
       const res = extractData(text);
 
       const categoryIndex =
@@ -278,7 +296,8 @@ export default function ReceiptDetailsScreen({ route, navigation }) {
     if (acceptFlags.amount && ocrResult.amount != null) {
       setAmount(String(ocrResult.amount));
       // recalc if we have a rate and user didn't override VAT manually
-      if (!vatAmountEdited && vatRate) setVatAmount(computeVat(String(ocrResult.amount), vatRate));
+      if (!vatAmountEdited && vatRate)
+        setVatAmount(computeVat(String(ocrResult.amount), vatRate));
     }
     if (acceptFlags.date && ocrResult.date) {
       const d = new Date(ocrResult.date);
@@ -300,12 +319,14 @@ export default function ReceiptDetailsScreen({ route, navigation }) {
                   (a, b) => Number(a.value) - Number(b.value)
                 );
           });
-          if (!vatAmountEdited && amount) setVatAmount(computeVat(amount, rStr));
+          if (!vatAmountEdited && amount)
+            setVatAmount(computeVat(amount, rStr));
         }
       }
     }
     if (acceptFlags.vat) {
-      if (ocrResult.vat?.value != null) setVatAmount(String(ocrResult.vat.value));
+      if (ocrResult.vat?.value != null)
+        setVatAmount(String(ocrResult.vat.value));
       if (ocrResult.vat?.rate != null) setVatRate(String(ocrResult.vat.rate));
     }
     setOcrModalVisible(false);
@@ -325,67 +346,71 @@ export default function ReceiptDetailsScreen({ route, navigation }) {
   };
 
   const pickImageOption = () => {
-  Alert.alert(
-    "Add Image",
-    "Choose an option",
-    [
-      {
-        text: "Camera",
-        onPress: async () => {
-          try {
-            if (Platform.OS === 'android') {
-              // 1. Request Camera Permission
-              const granted = await PermissionsAndroid.request(
-                PermissionsAndroid.PERMISSIONS.CAMERA,
-                {
-                  title: "Camera Permission",
-                  message: "Express Accounts needs camera access to scan receipts.",
-                  buttonPositive: "OK",
-                }
-              );
-              
-              if (granted !== PermissionsAndroid.RESULTS.GRANTED) {
-                Alert.alert("Permission Denied", "Camera access is required.");
-                return;
-              }
-            }
+    Alert.alert(
+      "Add Image",
+      "Choose an option",
+      [
+        {
+          text: "Camera",
+          onPress: async () => {
+            try {
+              if (Platform.OS === "android") {
+                // 1. Request Camera Permission
+                const granted = await PermissionsAndroid.request(
+                  PermissionsAndroid.PERMISSIONS.CAMERA,
+                  {
+                    title: "Camera Permission",
+                    message:
+                      "Express Accounts needs camera access to scan receipts.",
+                    buttonPositive: "OK",
+                  }
+                );
 
-            // 2. Launch Camera - Use a tiny timeout to ensure the Alert has fully dismissed
-            // This prevents the "Activity is not focused" error on Android
+                if (granted !== PermissionsAndroid.RESULTS.GRANTED) {
+                  Alert.alert(
+                    "Permission Denied",
+                    "Camera access is required."
+                  );
+                  return;
+                }
+              }
+
+              // 2. Launch Camera - Use a tiny timeout to ensure the Alert has fully dismissed
+              // This prevents the "Activity is not focused" error on Android
+              setTimeout(() => {
+                ImagePicker.launchCamera(
+                  { mediaType: "photo", includeBase64: true, quality: 0.9 },
+                  (res) => handleImagePicked(res) // Use arrow function to ensure context
+                );
+              }, 100);
+            } catch (err) {
+              console.warn(err);
+            }
+          },
+        },
+        {
+          text: "Gallery",
+          onPress: () => {
+            // Gallery usually doesn't need explicit PermissionsAndroid on SDK 33+
+            // because it uses the System Picker, but it's safer to wrap in a timeout.
             setTimeout(() => {
-              ImagePicker.launchCamera(
-                { mediaType: "photo", includeBase64: true, quality: 0.9 },
-                (res) => handleImagePicked(res) // Use arrow function to ensure context
+              ImagePicker.launchImageLibrary(
+                {
+                  mediaType: "photo",
+                  includeBase64: true,
+                  selectionLimit: 1,
+                  quality: 0.9,
+                },
+                (res) => handleImagePicked(res)
               );
             }, 100);
-          } catch (err) {
-            console.warn(err);
-          }
+          },
         },
-      },
-      {
-        text: "Gallery",
-        onPress: () => {
-          // Gallery usually doesn't need explicit PermissionsAndroid on SDK 33+ 
-          // because it uses the System Picker, but it's safer to wrap in a timeout.
-          setTimeout(() => {
-            ImagePicker.launchImageLibrary(
-              {
-                mediaType: "photo",
-                includeBase64: true,
-                selectionLimit: 1,
-                quality: 0.9,
-              },
-              (res) => handleImagePicked(res)
-            );
-          }, 100);
-        },
-      },
-      { text: "Cancel", style: "cancel" },
-    ],
-    { cancelable: true }
-  );
-};
+        { text: "Cancel", style: "cancel" },
+      ],
+      { cancelable: true }
+    );
+  };
 
   const handleImagePicked = async (response) => {
     try {
@@ -487,206 +512,308 @@ export default function ReceiptDetailsScreen({ route, navigation }) {
   return (
     <SafeAreaView style={ReceiptStyles.safeArea}>
       <KeyboardAwareScrollView
-        contentContainerStyle={{ flexGrow: 1 }}
+        ref={scrollRef}
+        contentContainerStyle={{ flexGrow: 1, paddingBottom: 600 }} // INCREASE THIS
         enableOnAndroid={true}
+        enableAutomaticScroll={false} // Disable auto-scroll so our manual scroll doesn't fight it
         keyboardShouldPersistTaps="handled"
+        extraScrollHeight={0}
       >
         <View style={ReceiptStyles.container}>
           <View style={ReceiptStyles.borderContainer}>
             <Text style={ReceiptStyles.header}>Edit Receipt</Text>
 
-        {/* Amount */}
-        <Text style={ReceiptStyles.label}>Amount (£)</Text>
-        <TextInput
-          style={ReceiptStyles.input}
-          value={amount}
-          keyboardType="decimal-pad"
-          onChangeText={(v) => {
-            setAmount(v);
-            if (!vatAmountEdited && v && vatRate) {
-              setVatAmount(computeVat(v, vatRate));
-            }
-          }}
-        />
-
-        {/* VAT Section */}
-<View style={ReceiptStyles.vatRow}>
-  {/* VAT Amount Column */}
-  <View style={ReceiptStyles.vatColLeft}>
-    <Text style={ReceiptStyles.label}>VAT Amount</Text>
-    <View style={ReceiptStyles.inputRow}>
-      <Text style={ReceiptStyles.vatCurrency}>£</Text>
-      <TextInput
-        style={ReceiptStyles.vatInput}
-        keyboardType="decimal-pad"
-        placeholder="0.00"
-        value={vatAmount}
-        onChangeText={(v) => {
-          setVatAmount(v);
-          const edited = v.trim().length > 0;
-          setVatAmountEdited(edited);
-          if (!edited && amount && vatRate) {
-            setVatAmount(computeVat(amount, vatRate));
-          }
-        }}
-        onBlur={() => {
-          if (!vatAmount.trim()) setVatAmountEdited(false);
-        }}
-      />
-    </View>
-  </View>
-
-{/* VAT Rate Column */}
-<View style={[ReceiptStyles.vatColRight, { zIndex: 5000, elevation: 5 }]}>
-  <Text style={ReceiptStyles.label}>Rate (%):</Text>
-  <DropDownPicker
-    open={vatRateOpen}
-    value={vatRate}
-    items={vatRateItems}
-    setOpen={setVatRateOpen}
-    setValue={(set) => setVatRate(set(vatRate))}
-    setItems={setVatRateItems}
-    placeholder="Select"
-    style={[ReceiptStyles.vatRatePicker, { backgroundColor: Colors.surface }]} // Add explicit background
-    dropDownContainerStyle={[ReceiptStyles.vatRateDropdown, { backgroundColor: Colors.surface }]} // Add explicit background
-    containerStyle={{ marginTop: 8 }}
-    zIndex={5000}
-    zIndexInverse={1000}
-    listMode="SCROLLVIEW"
-      onChangeValue={(val) => {
-        const next = val ?? "";
-        setVatRate(next);
-        // changing rate => return to auto mode & recalc if possible
-        setVatAmountEdited(false);
-        if (next && amount) {
-          setVatAmount(computeVat(amount, next));
-        }
-      }}
-    />
-  </View>
-            
-</View>
-
-        {/* Date */}
-        <Text style={ReceiptStyles.label}>Date</Text>
-        <TouchableOpacity
-          style={ReceiptStyles.dateButton}
-          onPress={() => setDatePickerVisibility(true)}
-        >
-          <Text style={ReceiptStyles.dateText}>{formatDate(selectedDate)}</Text>
-        </TouchableOpacity>
-        <DateTimePickerModal
-          isVisible={isDatePickerVisible}
-          mode="date"
-          date={selectedDate}
-          onConfirm={(date) => {
-            setSelectedDate(date);
-            setDatePickerVisibility(false);
-          }}
-          onCancel={() => setDatePickerVisibility(false)}
-        />
-
-        {/* Category */}
-        <Text style={ReceiptStyles.label}>Category</Text>
-        <DropDownPicker
-          listMode="MODAL"
-          open={open}
-          value={selectedCategory}
-          items={items}
-          setOpen={setOpen}
-          setItems={setItems}
-          setValue={(cb) => {
-            const next = cb(selectedCategory);
-            setSelectedCategory(next);
-            if (!vatRate && next) {
-              const cat = categories_meta.find((c) => c.name === next);
-              const r = cat?.vatRate;
-              if (r !== undefined && r !== null && !Number.isNaN(r)) {
-                const rStr = String(r);
-                setVatRate(rStr);
-                setVatRateItems((prev) => {
-                  const has = prev.some((it) => it.value === rStr);
-                  return has
-                    ? prev
-                    : [...prev, { label: `${r}%`, value: rStr }].sort(
-                        (a, b) => Number(a.value) - Number(b.value)
-                      );
-                });
-                if (!vatAmountEdited && amount) {
-                  setVatAmount(computeVat(amount, rStr));
+            {/* Amount */}
+            <Text style={ReceiptStyles.label}>Amount (£)</Text>
+            <TextInput
+              style={ReceiptStyles.input}
+              value={amount}
+              keyboardType="decimal-pad"
+              onChangeText={(v) => {
+                setAmount(v);
+                if (!vatAmountEdited && v && vatRate) {
+                  setVatAmount(computeVat(v, vatRate));
                 }
+              }}
+            />
+
+            {/* VAT Section */}
+            <View style={ReceiptStyles.vatRow}>
+              {/* VAT Amount Column */}
+              <View style={ReceiptStyles.vatColLeft}>
+                <Text style={ReceiptStyles.label}>VAT Amount</Text>
+                <View style={ReceiptStyles.inputRow}>
+                  <Text style={ReceiptStyles.vatCurrency}>£</Text>
+                  <TextInput
+                    style={ReceiptStyles.vatInput}
+                    keyboardType="decimal-pad"
+                    placeholder="0.00"
+                    value={vatAmount}
+                    onChangeText={(v) => {
+                      setVatAmount(v);
+                      const edited = v.trim().length > 0;
+                      setVatAmountEdited(edited);
+                      if (!edited && amount && vatRate) {
+                        setVatAmount(computeVat(amount, vatRate));
+                      }
+                    }}
+                    onBlur={() => {
+                      if (!vatAmount.trim()) setVatAmountEdited(false);
+                    }}
+                  />
+                </View>
+              </View>
+
+              {/* VAT Rate Column */}
+              <View
+                style={[
+                  ReceiptStyles.vatColRight,
+                  { zIndex: 5000, elevation: 5 },
+                ]}
+              >
+                <Text style={ReceiptStyles.label}>Rate (%):</Text>
+                <DropDownPicker
+                  open={vatRateOpen}
+                  value={vatRate}
+                  items={vatRateItems}
+                  setOpen={setVatRateOpen}
+                  setValue={(set) => setVatRate(set(vatRate))}
+                  setItems={setVatRateItems}
+                  placeholder="Select"
+                  style={[
+                    ReceiptStyles.vatRatePicker,
+                    { backgroundColor: Colors.surface },
+                  ]} // Add explicit background
+                  dropDownContainerStyle={[
+                    ReceiptStyles.vatRateDropdown,
+                    { backgroundColor: Colors.surface },
+                  ]} // Add explicit background
+                  containerStyle={{ marginTop: 8 }}
+                  zIndex={5000}
+                  zIndexInverse={1000}
+                  listMode="SCROLLVIEW"
+                  onChangeValue={(val) => {
+                    const next = val ?? "";
+                    setVatRate(next);
+                    // changing rate => return to auto mode & recalc if possible
+                    setVatAmountEdited(false);
+                    if (next && amount) {
+                      setVatAmount(computeVat(amount, next));
+                    }
+                  }}
+                />
+              </View>
+            </View>
+
+            {/* Date */}
+            <Text style={ReceiptStyles.label}>Date</Text>
+            <TouchableOpacity
+              style={ReceiptStyles.dateButton}
+              onPress={() => setDatePickerVisibility(true)}
+            >
+              <Text style={ReceiptStyles.dateText}>
+                {formatDate(selectedDate)}
+              </Text>
+            </TouchableOpacity>
+            <DateTimePickerModal
+              isVisible={isDatePickerVisible}
+              mode="date"
+              date={selectedDate}
+              onConfirm={(date) => {
+                setSelectedDate(date);
+                setDatePickerVisibility(false);
+              }}
+              onCancel={() => setDatePickerVisibility(false)}
+            />
+
+            <View
+              ref={categoryWrapperRef}
+              collapsable={false} // CRITICAL for Android measurement
+              style={{ zIndex: 1000, marginTop: 15 }}
+            >
+              {/* Category */}
+              <Text
+                style={ReceiptStyles.label}
+                onLayout={(event) => setCategoryY(event.nativeEvent.layout.y)}
+              >
+                Category:
+              </Text>
+              <DropDownPicker
+                open={open}
+                value={selectedCategory}
+                items={items}
+                setOpen={setOpen}
+                setItems={setItems}
+                searchable={true}
+                disableLocalSearch={true} // We are taking the wheel
+                // 1. Make the placeholder look like a search instruction
+                placeholder="Search categories..."
+                searchPlaceholder="Type to filter..."
+                // 2. Add an icon to the right side (optional but looks great)
+                // You can use a library like FontAwesome or a simple emoji/Text
+                ArrowDownIconComponent={() => (
+                  <Text style={{ marginRight: 10 }}>🔍</Text>
+                )}
+                ArrowUpIconComponent={() => (
+                  <Text style={{ marginRight: 10 }}>🔍</Text>
+                )}
+                showArrowIcon={true}
+                // 3. Ensure the keyboard is ready immediately
+                searchTextInputProps={{
+                  autoFocus: true,
+                  clearButtonMode: "while-editing", // iOS only, adds a 'X' to clear
+                }}
+                onChangeSearchText={(text) => {
+                  categoryWrapperRef.current.measureLayout(
+                    findNodeHandle(scrollRef.current),
+                    (x, y) =>
+                      scrollRef.current?.scrollToPosition(0, y - 50, true)
+                  );
+
+                  // ... your existing filter logic ...
+                  const query = text.toLowerCase().trim();
+                  if (!query) {
+                    setItems(allCategoryItems);
+                    return;
+                  }
+                  const filtered = allCategoryItems.filter((item) => {
+                    const categoryData = categories_meta.find(
+                      (c) => c.name === item.value
+                    );
+                    return (
+                      item.label.toLowerCase().includes(query) ||
+                      categoryData?.meta?.some((kw) =>
+                        kw.toLowerCase().includes(query)
+                      )
+                    );
+                  });
+                  setItems(filtered);
+                }}
+                // 3. Return to SCROLLVIEW mode for stability
+                listMode="SCROLLVIEW"
+                nestedScrollEnabled={true}
+                // 4. Force a Height to fix the scrolling
+                // This ensures the picker has a defined boundary so the phone knows when to scroll
+                dropDownContainerStyle={[
+                  ReceiptStyles.dropdownContainer,
+                  { position: "relative", top: 0, maxHeight: 250 },
+                ]}
+                setValue={(callback) => {
+                  // 1. Get the next value by calling the callback with the current state
+                  const next = callback(selectedCategory);
+
+                  // 2. Update your state variable
+                  setSelectedCategory(next);
+
+                  // 3. Trigger your VAT logic
+                  if (!vatRate && next) {
+                    const cat = categories_meta.find((c) => c.name === next);
+                    const r = cat?.vatRate;
+                    if (r !== undefined && r !== null && !Number.isNaN(r)) {
+                      const rStr = String(r);
+                      setVatRate(rStr);
+                      setVatRateItems((prev) => {
+                        const has = prev.some((it) => it.value === rStr);
+                        return has
+                          ? prev
+                          : [...prev, { label: `${r}%`, value: rStr }].sort(
+                              (a, b) => Number(a.value) - Number(b.value)
+                            );
+                      });
+                      if (!vatAmountEdited && amount) {
+                        setVatAmount(computeVat(amount, rStr));
+                      }
+                    }
+                  }
+                }}
+                onOpen={() => {
+                  setItems(allCategoryItems); // Reset to show everything when opened
+
+                  // Use measureLayout to find exactly where this view is inside the ScrollView
+                  categoryWrapperRef.current.measureLayout(
+                    findNodeHandle(scrollRef.current),
+                    (x, y) => {
+                      // Now 'y' is the absolute distance from the top of the list
+                      scrollRef.current?.scrollToPosition(0, y - 50, true);
+                    },
+                    (error) => console.log("Measurement failed", error)
+                  );
+                }}
+                style={ReceiptStyles.dropdown}
+                zIndex={1000}
+                zIndexInverse={3000}
+              />
+            </View>
+
+            {/* Images */}
+            <FlatList
+              data={[...images, { addButton: true }]}
+              horizontal
+              nestedScrollEnabled={true}
+              keyExtractor={(_, index) => index.toString()}
+              renderItem={({ item }) =>
+                item.addButton ? (
+                  <TouchableOpacity
+                    style={ReceiptStyles.uploadPlaceholder}
+                    onPress={pickImageOption}
+                  >
+                    <Text style={ReceiptStyles.plus}>+</Text>
+                  </TouchableOpacity>
+                ) : (
+                  <TouchableOpacity
+                    disabled={ocrLoading}
+                    onPress={() =>
+                      openOcrModal(item.uri, {
+                        autoScan: true,
+                        newSession: false,
+                      })
+                    }
+                  >
+                    <Image
+                      source={{ uri: item.uri }}
+                      style={ReceiptStyles.receiptImage}
+                    />
+                  </TouchableOpacity>
+                )
               }
-            }
-          }}
-          placeholder="Select a category"
-          style={ReceiptStyles.dropdown}
-          dropDownContainerStyle={ReceiptStyles.dropdownContainer}
-        />
+              contentContainerStyle={{ marginVertical: 20 }}
+              showsHorizontalScrollIndicator
+            />
 
-        {/* Images */}
-        <FlatList
-          data={[...images, { addButton: true }]}
-          horizontal
-          nestedScrollEnabled={true}
-          keyExtractor={(_, index) => index.toString()}
-          renderItem={({ item }) =>
-            item.addButton ? (
-              <TouchableOpacity
-                style={ReceiptStyles.uploadPlaceholder}
-                onPress={pickImageOption}
-              >
-                <Text style={ReceiptStyles.plus}>+</Text>
-              </TouchableOpacity>
-            ) : (
-              <TouchableOpacity
-                disabled={ocrLoading}
-                onPress={() =>
-                  openOcrModal(item.uri, { autoScan: true, newSession: false })
-                }
-              >
-                <Image source={{ uri: item.uri }} style={ReceiptStyles.receiptImage} />
-              </TouchableOpacity>
-            )
-          }
-          contentContainerStyle={{ marginVertical: 20 }}
-          showsHorizontalScrollIndicator
-        />
+            {/* Bottom actions */}
+            <View style={ReceiptStyles.bottomButtons}>
+              <View style={ReceiptStyles.primaryRow}>
+                <Button
+                  mode="outlined"
+                  onPress={safeNavigateToExpenses}
+                  textColor="#555"
+                  style={ReceiptStyles.actionBtn}
+                >
+                  Cancel
+                </Button>
+                <Button
+                  mode="contained"
+                  onPress={saveChanges}
+                  buttonColor="#a60d49"
+                  style={ReceiptStyles.actionBtn}
+                >
+                  Save
+                </Button>
+              </View>
 
-        {/* Bottom actions */}
-        <View style={ReceiptStyles.bottomButtons}>
-          <View style={ReceiptStyles.primaryRow}>
-            <Button
-              mode="outlined"
-              onPress={safeNavigateToExpenses}
-              textColor="#555"
-              style={ReceiptStyles.actionBtn}
-            >
-              Cancel
-            </Button>
-            <Button
-              mode="contained"
-              onPress={saveChanges}
-              buttonColor="#a60d49"
-              style={ReceiptStyles.actionBtn}
-            >
-              Save 
-            </Button>
-          </View>
-
-          <View style={ReceiptStyles.deleteRow}>
-            <Button
-              mode="outlined"
-              onPress={deleteReceipt}
-              textColor="#a60d49"
-              style={ReceiptStyles.deleteBtn}
-            >
-              Delete Receipt
-            </Button>
+              <View style={ReceiptStyles.deleteRow}>
+                <Button
+                  mode="outlined"
+                  onPress={deleteReceipt}
+                  textColor="#a60d49"
+                  style={ReceiptStyles.deleteBtn}
+                >
+                  Delete Receipt
+                </Button>
+              </View>
+            </View>
           </View>
         </View>
-          </View>
-        </View>
-
       </KeyboardAwareScrollView>
 
       {/* OCR Preview + Accept Modal */}
@@ -703,19 +830,29 @@ export default function ReceiptDetailsScreen({ route, navigation }) {
             {preview?.uri ? (
               <View style={{ alignItems: "center" }}>
                 <TouchableOpacity
-                  style={{ alignSelf: "stretch", opacity: ocrLoading ? 0.6 : 1 }}
+                  style={{
+                    alignSelf: "stretch",
+                    opacity: ocrLoading ? 0.6 : 1,
+                  }}
                   activeOpacity={0.7}
                   disabled={ocrLoading}
                   onPress={() => setFullScreenImage(preview)}
                 >
-                  <Image source={{ uri: preview.uri }} style={ReceiptStyles.modalImage} />
+                  <Image
+                    source={{ uri: preview.uri }}
+                    style={ReceiptStyles.modalImage}
+                  />
                 </TouchableOpacity>
-                {ocrLoading && <Text style={ReceiptStyles.scanningText}>Scanning…</Text>}
+                {ocrLoading && (
+                  <Text style={ReceiptStyles.scanningText}>Scanning…</Text>
+                )}
               </View>
             ) : null}
 
             {!ocrLoading && (
-              <Text style={ReceiptStyles.fullscreenHint}>Tap image to view full screen</Text>
+              <Text style={ReceiptStyles.fullscreenHint}>
+                Tap image to view full screen
+              </Text>
             )}
 
             {!ocrLoading && (
@@ -728,14 +865,22 @@ export default function ReceiptDetailsScreen({ route, navigation }) {
                     disabled={ocrResult?.amount == null}
                   />
                   <Text
-                    style={[ReceiptStyles.ocrLabel, !acceptFlags.amount && ReceiptStyles.strike]}
+                    style={[
+                      ReceiptStyles.ocrLabel,
+                      !acceptFlags.amount && ReceiptStyles.strike,
+                    ]}
                   >
                     Amount:
                   </Text>
                   <Text
-                    style={[ReceiptStyles.ocrValue, !acceptFlags.amount && ReceiptStyles.strike]}
+                    style={[
+                      ReceiptStyles.ocrValue,
+                      !acceptFlags.amount && ReceiptStyles.strike,
+                    ]}
                   >
-                    {ocrResult?.amount != null ? `£${ocrResult.amount}` : "Not detected"}
+                    {ocrResult?.amount != null
+                      ? `£${ocrResult.amount}`
+                      : "Not detected"}
                   </Text>
                 </View>
 
@@ -747,14 +892,22 @@ export default function ReceiptDetailsScreen({ route, navigation }) {
                     disabled={!ocrResult?.date}
                   />
                   <Text
-                    style={[ReceiptStyles.ocrLabel, !acceptFlags.date && ReceiptStyles.strike]}
+                    style={[
+                      ReceiptStyles.ocrLabel,
+                      !acceptFlags.date && ReceiptStyles.strike,
+                    ]}
                   >
                     Date:
                   </Text>
                   <Text
-                    style={[ReceiptStyles.ocrValue, !acceptFlags.date && ReceiptStyles.strike]}
+                    style={[
+                      ReceiptStyles.ocrValue,
+                      !acceptFlags.date && ReceiptStyles.strike,
+                    ]}
                   >
-                    {ocrResult?.date ? formatDate(new Date(ocrResult.date)) : "Not detected"}
+                    {ocrResult?.date
+                      ? formatDate(new Date(ocrResult.date))
+                      : "Not detected"}
                   </Text>
                 </View>
 
@@ -766,12 +919,18 @@ export default function ReceiptDetailsScreen({ route, navigation }) {
                     disabled={!ocrResult?.categoryName}
                   />
                   <Text
-                    style={[ReceiptStyles.ocrLabel, !acceptFlags.category && ReceiptStyles.strike]}
+                    style={[
+                      ReceiptStyles.ocrLabel,
+                      !acceptFlags.category && ReceiptStyles.strike,
+                    ]}
                   >
                     Category:
                   </Text>
                   <Text
-                    style={[ReceiptStyles.ocrValue, !acceptFlags.category && ReceiptStyles.strike]}
+                    style={[
+                      ReceiptStyles.ocrValue,
+                      !acceptFlags.category && ReceiptStyles.strike,
+                    ]}
                   >
                     {ocrResult?.categoryName ?? "Not detected"}
                   </Text>
@@ -784,15 +943,24 @@ export default function ReceiptDetailsScreen({ route, navigation }) {
                       status={acceptFlags.vat ? "checked" : "unchecked"}
                       onPress={() => toggleAccept("vat")}
                       color={Colors.accent}
-                      disabled={ocrResult?.vat?.value == null && ocrResult?.vat?.rate == null}
+                      disabled={
+                        ocrResult?.vat?.value == null &&
+                        ocrResult?.vat?.rate == null
+                      }
                     />
                     <Text
-                      style={[ReceiptStyles.ocrLabel, !acceptFlags.vat && ReceiptStyles.strike]}
+                      style={[
+                        ReceiptStyles.ocrLabel,
+                        !acceptFlags.vat && ReceiptStyles.strike,
+                      ]}
                     >
                       VAT:
                     </Text>
                     <Text
-                      style={[ReceiptStyles.ocrValue, !acceptFlags.vat && ReceiptStyles.strike]}
+                      style={[
+                        ReceiptStyles.ocrValue,
+                        !acceptFlags.vat && ReceiptStyles.strike,
+                      ]}
                     >
                       {ocrResult?.vat?.value != null
                         ? `£${ocrResult.vat.value}`
@@ -812,10 +980,18 @@ export default function ReceiptDetailsScreen({ route, navigation }) {
                       Delete Image
                     </Button>
                   )}
-                  <Button buttonColor={Colors.accent} mode="contained" onPress={handleCancelModal}>
+                  <Button
+                    buttonColor={Colors.accent}
+                    mode="contained"
+                    onPress={handleCancelModal}
+                  >
                     Cancel
                   </Button>
-                  <Button buttonColor={Colors.accent} mode="contained" onPress={applyAcceptedValues}>
+                  <Button
+                    buttonColor={Colors.accent}
+                    mode="contained"
+                    onPress={applyAcceptedValues}
+                  >
                     Accept
                   </Button>
                 </View>
