@@ -495,6 +495,23 @@ export default function ReceiptDetailsScreen({ route, navigation }) {
     }
   };
 
+    // ------- date & image picking -------
+    const showDatePicker = () => setDatePickerVisibility(true);
+    const hideDatePicker = () => {
+      setDatePickerVisibility(false);
+    };
+  
+    const handleConfirmDate = (date) => {
+      // 1. Hide the picker first
+      hideDatePicker();
+  
+      // 2. Wrap the value setting in a tiny delay to let
+      // the Android native bridge finish dismissing the modal
+      setTimeout(() => {
+        setSelectedDate(date);
+      }, 100);
+    };
+
   const deleteReceipt = async () => {
     Alert.alert("Confirm", "Are you sure you want to delete this receipt?", [
       { text: "Cancel", style: "cancel" },
@@ -606,10 +623,10 @@ export default function ReceiptDetailsScreen({ route, navigation }) {
             </View>
 
             {/* Date */}
-            <Text style={ReceiptStyles.label}>Date</Text>
+            <Text style={ReceiptStyles.label}>Date:</Text>
             <TouchableOpacity
               style={ReceiptStyles.dateButton}
-              onPress={() => setDatePickerVisibility(true)}
+              onPress={showDatePicker}
             >
               <Text style={ReceiptStyles.dateText}>
                 {formatDate(selectedDate)}
@@ -619,11 +636,8 @@ export default function ReceiptDetailsScreen({ route, navigation }) {
               isVisible={isDatePickerVisible}
               mode="date"
               date={selectedDate}
-              onConfirm={(date) => {
-                setSelectedDate(date);
-                setDatePickerVisibility(false);
-              }}
-              onCancel={() => setDatePickerVisibility(false)}
+              onConfirm={handleConfirmDate}
+              onCancel={hideDatePicker}
             />
 
             <View
