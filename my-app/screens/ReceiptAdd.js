@@ -608,93 +608,123 @@ const ReceiptAdd = ({ navigation }) => {
             <Text style={ReceiptStyles.header}>Your Receipt</Text>
 
             {/* Amount */}
-            <Text style={ReceiptStyles.label}>Amount:</Text>
-            <View style={ReceiptStyles.inputRow}>
-              <Text style={ReceiptStyles.currency}>£</Text>
-              <TextInput
-                style={ReceiptStyles.input}
-                keyboardType="decimal-pad"
-                value={amount}
-                onChangeText={(v) => {
-                  setAmount(v);
-                  // live auto-calc while typing (unless user manually edited)
-                  if (!vatAmountEdited && v && vatRate) {
-                    setVatAmount(computeVat(v, vatRate));
-                  }
-                }}
-              />
-            </View>
-
-            {/* VAT Section: labels above fields */}
-            <View
-              style={[ReceiptStyles.vatRow, { zIndex: 2000, elevation: 5 }]}
-            >
-              {/* VAT Amount Column */}
-              <View style={ReceiptStyles.vatColLeft}>
-                <Text style={ReceiptStyles.label}>VAT Amount:</Text>
-                <View style={ReceiptStyles.inputRow}>
-                  <Text style={ReceiptStyles.vatCurrency}>£</Text>
-                  <TextInput
-                    style={ReceiptStyles.vatInput}
-                    keyboardType="decimal-pad"
-                    placeholder="0.00"
-                    value={vatAmount}
-                    onChangeText={(v) => {
-                      setVatAmount(v);
-                      const edited = v.trim().length > 0;
-                      setVatAmountEdited(edited);
-                      // if cleared, return to auto mode immediately
-                      if (!edited && amount && vatRate) {
-                        setVatAmount(computeVat(amount, vatRate));
-                      }
-                    }}
-                    onBlur={() => {
-                      if (!vatAmount.trim()) setVatAmountEdited(false);
-                    }}
-                  />
-                </View>
-              </View>
-
-              {/* Rate Column */}
-              <View style={ReceiptStyles.vatColRight}>
-                <Text style={ReceiptStyles.label}>Rate (%):</Text>
-                <DropDownPicker
-                  open={vatRateOpen}
-                  value={vatRate}
-                  items={vatRateItems}
-                  setOpen={setVatRateOpen}
-                  setValue={(set) => setVatRate(set(vatRate))}
-                  setItems={setVatRateItems}
-                  placeholder="Select"
-                  style={ReceiptStyles.vatRatePicker}
-                  dropDownContainerStyle={ReceiptStyles.vatRateDropdown}
-                  containerStyle={{ marginTop: 8 }} // Move margin here for better stability
-                  zIndex={2000}
-                  zIndexInverse={2000}
-                  listMode="SCROLLVIEW"
-                  onChangeValue={(val) => {
-                    const next = val ?? "";
-                    setVatRate(next);
-                    // changing rate => return to auto mode & recalc if possible
-                    setVatAmountEdited(false);
-                    if (next && amount) {
-                      setVatAmount(computeVat(amount, next));
+            <View style={localStyles.fieldGroup}>
+              <Text style={[ReceiptStyles.label, localStyles.labelAligned]}>
+                Amount:
+              </Text>
+              <View
+                style={[
+                  ReceiptStyles.inputRow,
+                  localStyles.fieldRow,
+                  localStyles.currencyField,
+                ]}
+              >
+                <Text style={localStyles.currencyInside}>£</Text>
+                <TextInput
+                  style={[
+                    ReceiptStyles.input,
+                    localStyles.inputAligned,
+                    localStyles.inputWithCurrency,
+                  ]}
+                  keyboardType="decimal-pad"
+                  value={amount}
+                  onChangeText={(v) => {
+                    setAmount(v);
+                    // live auto-calc while typing (unless user manually edited)
+                    if (!vatAmountEdited && v && vatRate) {
+                      setVatAmount(computeVat(v, vatRate));
                     }
                   }}
                 />
               </View>
             </View>
 
+            {/* VAT Section: labels above fields */}
+            <View style={localStyles.fieldGroup}>
+              <View
+                style={[
+                  ReceiptStyles.vatRow,
+                  localStyles.vatRowAligned,
+                  { zIndex: 2000, elevation: 5 },
+                ]}
+              >
+                {/* VAT Amount Column */}
+                <View style={ReceiptStyles.vatColLeft}>
+                  <Text style={ReceiptStyles.label}>VAT Amount:</Text>
+                  <View
+                    style={[ReceiptStyles.inputRow, localStyles.currencyField]}
+                  >
+                    <Text style={localStyles.currencyInside}>£</Text>
+                    <TextInput
+                      style={[
+                        ReceiptStyles.vatInput,
+                        localStyles.vatInputWithCurrency,
+                      ]}
+                      keyboardType="decimal-pad"
+                      placeholder="0.00"
+                      placeholderTextColor={Colors.textSecondary}
+                      value={vatAmount}
+                      onChangeText={(v) => {
+                        setVatAmount(v);
+                        const edited = v.trim().length > 0;
+                        setVatAmountEdited(edited);
+                        // if cleared, return to auto mode immediately
+                        if (!edited && amount && vatRate) {
+                          setVatAmount(computeVat(amount, vatRate));
+                        }
+                      }}
+                      onBlur={() => {
+                        if (!vatAmount.trim()) setVatAmountEdited(false);
+                      }}
+                    />
+                  </View>
+                </View>
+
+                {/* Rate Column */}
+                <View style={ReceiptStyles.vatColRight}>
+                  <Text style={ReceiptStyles.label}>Rate (%):</Text>
+                  <DropDownPicker
+                    open={vatRateOpen}
+                    value={vatRate}
+                    items={vatRateItems}
+                    setOpen={setVatRateOpen}
+                    setValue={(set) => setVatRate(set(vatRate))}
+                    setItems={setVatRateItems}
+                    placeholder="Select"
+                    style={ReceiptStyles.vatRatePicker}
+                    dropDownContainerStyle={ReceiptStyles.vatRateDropdown}
+                    containerStyle={localStyles.fieldTopSpacingTight}
+                    zIndex={2000}
+                    zIndexInverse={2000}
+                    listMode="SCROLLVIEW"
+                    onChangeValue={(val) => {
+                      const next = val ?? "";
+                      setVatRate(next);
+                      // changing rate => return to auto mode & recalc if possible
+                      setVatAmountEdited(false);
+                      if (next && amount) {
+                        setVatAmount(computeVat(amount, next));
+                      }
+                    }}
+                  />
+                </View>
+              </View>
+            </View>
+
             {/* Date */}
-            <Text style={ReceiptStyles.label}>Date:</Text>
-            <TouchableOpacity
-              style={ReceiptStyles.dateButton}
-              onPress={showDatePicker}
-            >
-              <Text style={ReceiptStyles.dateText}>
-                {formatDate(selectedDate)}
+            <View style={localStyles.fieldGroup}>
+              <Text style={[ReceiptStyles.label, localStyles.labelAligned]}>
+                Date:
               </Text>
-            </TouchableOpacity>
+              <TouchableOpacity
+                style={ReceiptStyles.dateButton}
+                onPress={showDatePicker}
+              >
+                <Text style={ReceiptStyles.dateText}>
+                  {formatDate(selectedDate)}
+                </Text>
+              </TouchableOpacity>
+            </View>
             <DateTimePickerModal
               isVisible={isDatePickerVisible}
               mode="date"
@@ -706,11 +736,11 @@ const ReceiptAdd = ({ navigation }) => {
             <View
               ref={categoryWrapperRef}
               collapsable={false} // CRITICAL for Android measurement
-              style={{ zIndex: 1000, marginTop: 15 }}
+              style={[localStyles.fieldGroup, { zIndex: 1000 }]}
             >
               {/* Category */}
               <Text
-                style={ReceiptStyles.label}
+                style={[ReceiptStyles.label, localStyles.labelAligned]}
                 onLayout={(event) => setCategoryY(event.nativeEvent.layout.y)}
               >
                 Category:
@@ -816,14 +846,14 @@ const ReceiptAdd = ({ navigation }) => {
                     (error) => console.log("Measurement failed", error)
                   );
                 }}
-                style={ReceiptStyles.dropdown}
+                style={[ReceiptStyles.dropdown, localStyles.dropdownAligned]}
                 zIndex={1000}
                 zIndexInverse={3000}
               />
             </View>
 
             {/* Images Section */}
-            <View style={{ marginVertical: 20, zIndex: 1, elevation: 1 }}>
+            <View style={[localStyles.fieldGroup, { zIndex: 1, elevation: 1 }]}>
               <ScrollView
                 horizontal
                 showsHorizontalScrollIndicator={false}
@@ -1270,6 +1300,55 @@ const ReceiptAdd = ({ navigation }) => {
 };
 
 const localStyles = StyleSheet.create({
+  labelAligned: {
+    marginLeft: 10,
+  },
+  fieldRow: {
+    marginHorizontal: 10,
+  },
+  currencyAligned: {
+    marginLeft: 0,
+    marginRight: 8,
+  },
+  inputAligned: {
+    margin: 0,
+  },
+  dropdownAligned: {
+    marginHorizontal: 10,
+  },
+  vatRowAligned: {
+    marginHorizontal: 10,
+  },
+  fieldGroup: {
+    marginBottom: 16,
+  },
+  fieldTopSpacing: {
+    marginTop: 6,
+  },
+  fieldTopSpacingTight: {
+    marginTop: 0,
+  },
+  currencyField: {
+    position: "relative",
+    justifyContent: "center",
+  },
+  currencyInside: {
+    position: "absolute",
+    left: 12,
+    top: 0,
+    bottom: 0,
+    zIndex: 1,
+    fontSize: 16,
+    fontWeight: "600",
+    color: Colors.textSecondary,
+    textAlignVertical: "center",
+  },
+  inputWithCurrency: {
+    paddingLeft: 28,
+  },
+  vatInputWithCurrency: {
+    paddingLeft: 28,
+  },
   tipWrapper: {
     position: "absolute",
     // Position it roughly 110 pixels above the button's Y coordinate
