@@ -41,17 +41,17 @@ export const categories_meta = [
   },
   {
     name: "Vehicle Costs and Maintenance",
-    meta: ["parts", "MOT", "servicing", "tyre", "oil", "filter", "brake", "repair", "exhaust", "battery", "garage"],
+    meta: ["parts", "MOT", "servicing", "tyre", "oil", "filter", "brake", "repair", "exhaust", "battery", "garage", "tax"],
     vatRate: 20,
   },
   {
     name: "Vehicle Hire",
-    meta: ["avis", "europcar", "enterprise", "rental", "van hire", "hertz", "sixt"],
+    meta: ["avis", "europcar", "enterprise", "rental", "car hire", "van hire", "hertz", "sixt"],
     vatRate: 20,
   },
   {
     name: "Travel (bus, train, taxi)",
-    meta: ["rail", "train", "fare", "ticket", "single", "return", "zone", "tfl", "taxi", "uber", "bolt", "tube", "underground", "bus"],
+    meta: ["rail", "train", "fare", "ticket", "single", "return", "zone", "tfl", "taxi", "uber", "bolt", "tube", "underground", "bus", "ferry"],
     vatRate: 0,
   },
   {
@@ -99,7 +99,7 @@ export const categories_meta = [
   },
   {
     name: "Business Rental",
-    meta: ["monthly", "garage", "shop", "office", "premises", "rent", "lease", "business rates", "council tax"],
+    meta: ["monthly", "garage", "shop", "office", "premises", "rent", "lease", "business rates"],
     vatRate: 0,
   },
   {
@@ -139,7 +139,7 @@ export const categories_meta = [
   },
   {
     name: "Utilities",
-    meta: ["electric", "light", "lamp", "gas", "heat", "bulb", "led", "flourescent", "water", "utility", "power", "sewerage"],
+    meta: ["electric", "light", "lamp", "gas", "heat", "bulb", "led", "flourescent", "water", "utility", "power", "sewerage", "council tax"],
     vatRate: 5,
   },
   {
@@ -149,7 +149,7 @@ export const categories_meta = [
   },
   {
     name: "Sundry items",
-    meta: ["miscellaneous", "other", "sundry", "petty", "cash", "small", "random"],
+    meta: ["miscellaneous", "other", "sundry", "petty", "cash", "small", "random", "charity", "donations"],
     vatRate: 20,
   },
   {
