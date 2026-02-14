@@ -476,13 +476,17 @@ const ExpensesScreen = ({ navigation }) => {
             <Text style={[styles.title, { color: "#ff4444" }]}>
               Delete Account?
             </Text>
-            <Text style={{ textAlign: "center", marginVertical: 10 }}>
+            <Text style={{ textAlign: "center", marginVertical: 10, 
+              color: Colors.textPrimary 
+              }}>
               This will permanently erase all receipts and images. Please type{" "}
               <Text style={{ fontWeight: "bold" }}>DELETE</Text> to confirm.
             </Text>
 
             <TextInput
-              style={[styles.input, { width: "100%", textAlign: "center" }]}
+              style={[styles.input, { width: "100%", textAlign: "center", 
+                color: Colors.textPrimary  
+              }]}
               placeholder="Type here"
               value={confirmText}
               onChangeText={setConfirmText}
@@ -668,6 +672,13 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     alignItems: "center",
     zIndex: 999,
+  },
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: "rgba(0, 0, 0, 0.5)", // Dim the background
+    justifyContent: "center", // Center vertically
+    alignItems: "center", // Center horizontally
+    padding: 20, // Keep card away from screen edges
   },
   loadingCard: {
     backgroundColor: "white",
