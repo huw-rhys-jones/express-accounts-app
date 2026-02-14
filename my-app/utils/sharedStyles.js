@@ -310,7 +310,6 @@ export const ReceiptStyles = StyleSheet.create({
     fontSize: 16,
     fontWeight: "bold",
     color: Colors.textSecondary,
-    marginTop: 10,
     marginBottom: 6,
   },
   inputRow: {
@@ -329,7 +328,8 @@ export const ReceiptStyles = StyleSheet.create({
     padding: 10,
     flex: 1,
     fontSize: 16,
-    margin: 8,
+    height: 50,
+    margin: 0,
     color: Colors.textSecondary,
     backgroundColor: Colors.surface,
   },
@@ -363,7 +363,7 @@ export const ReceiptStyles = StyleSheet.create({
     paddingHorizontal: 12,
     fontSize: 16,
     backgroundColor: Colors.surface,
-    marginTop: 8,           // Match the picker's margin exactly
+    flex: 1,
     color: Colors.textSecondary,
   },
   vatRatePicker: {
@@ -389,15 +389,16 @@ export const ReceiptStyles = StyleSheet.create({
     borderColor: Colors.border,
     borderRadius: 5,
     padding: 10,
-    margin: 25,
-    marginRight: 36,
-    marginLeft: 44,
+    height: 50,
+    justifyContent: "center",
+    marginHorizontal: 10,
   },
-  dateText: { fontSize: 16, color: Colors.textPrimary },
+  dateText: { fontSize: 16, color: Colors.textSecondary },
 
   dropdown: {
     backgroundColor: Colors.surface,
     borderColor: Colors.border,
+    height: 50,
   },
   dropdownContainer: {
     backgroundColor: Colors.surface,
