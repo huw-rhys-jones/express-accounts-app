@@ -9,7 +9,7 @@ import {
   RefreshControl,
   Modal,
   TextInput,
-  Alert,
+  Alert
 } from "react-native";
 import { signOut, deleteUser } from "firebase/auth";
 import {
@@ -56,6 +56,41 @@ const ExpensesScreen = ({ navigation }) => {
 
   const [deleteModalVisible, setDeleteModalVisible] = useState(false);
   const [confirmText, setConfirmText] = useState("");
+
+  const [feedbackModalVisible, setFeedbackModalVisible] = useState(false);
+  const [feedbackText, setFeedbackText] = useState("");
+
+  const handleSendFeedback = async () => {
+  if (!feedbackText.trim()) {
+    Alert.alert("Empty Message", "Please enter your feedback before sending.");
+    return;
+  }
+
+  await runWithLoading("Sending feedback...", async () => {
+    try {
+      const response = await fetch('https://express-accounts-73d38.web.app/submit-feedback', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          name: displayName,
+          email: auth.currentUser?.email,
+          message: feedbackText,
+        }),
+      });
+
+      if (response.ok) {
+        Alert.alert("Success", "Thank you! Your feedback has been sent.");
+        setFeedbackModalVisible(false);
+        setFeedbackText("");
+      } else {
+        throw new Error("Server error");
+      }
+    } catch (error) {
+      console.error("Feedback Error:", error);
+      Alert.alert("Connection Error", "Could not reach the server. Please try again.");
+    }
+  });
+};
 
   const handleDeleteAccount = () => {
     // Close the side menu first so it's not in the way
@@ -444,6 +479,17 @@ const ExpensesScreen = ({ navigation }) => {
           <View style={styles.footerContainer}>
             
 
+            <TouchableOpacity
+              onPress={() => {
+                setMenuOpen(false); // Close sidebar
+                setFeedbackModalVisible(true); // Open the popup
+              }}
+              style={[styles.signOutLink, { marginBottom: 10 }]}
+            >
+              <Text style={[styles.linkBtnText, { textDecorationLine: 'none' }]}>
+                Leave Feedback
+              </Text>
+            </TouchableOpacity>
             {/* Sign Out - Now the Transparent Link */}
             <TouchableOpacity
               onPress={async () => {
@@ -469,6 +515,46 @@ const ExpensesScreen = ({ navigation }) => {
           </View>
         </View>
       </SideMenu>
+
+      {/* Feedback Modal */}
+      <Modal visible={feedbackModalVisible} transparent animationType="slide">
+        <View style={styles.modalOverlay}>
+          <View style={styles.loadingCard}>
+            <Text style={styles.title}>Send Feedback</Text>
+            <Text style={{ textAlign: "center", marginVertical: 10, color: Colors.textPrimary }}>
+              Have a suggestion or found a bug? Let us know below.
+            </Text>
+
+            <TextInput
+              style={[styles.input, { minHeight: 120, textAlignVertical: 'top', color: Colors.textPrimary  }]}
+              placeholder="Type your feedback here..."
+              placeholderTextColor="#999"
+              multiline
+              value={feedbackText}
+              onChangeText={setFeedbackText}
+            />
+
+            <View style={{ flexDirection: "row", marginTop: 20, gap: 10, width: '100%' }}>
+              <TouchableOpacity
+                onPress={() => {
+                  setFeedbackModalVisible(false);
+                  setFeedbackText("");
+                }}
+                style={[styles.signOutBtn, { backgroundColor: "#ccc", flex: 1 }]}
+              >
+                <Text style={{ color: "#000", textAlign: 'center' }}>Cancel</Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                onPress={handleSendFeedback}
+                style={[styles.signOutBtn, { flex: 1 }]}
+              >
+                <Text style={styles.signOutText}>Send</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
 
       <Modal visible={deleteModalVisible} transparent animationType="fade">
         <View style={styles.modalOverlay}>

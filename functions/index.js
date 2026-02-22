@@ -49,7 +49,7 @@ exports.submitFeedback = functions.https.onRequest((req, res) => {
     const mailOptions = {
       from: GMAIL_USER,
       to: "info@caistec.com",
-      subject: `Express Acc. Feedback - ${name}`,
+      subject: `Express Accounts Feedback - ${name}`,
       text: `${message}\n\n---\nSent from: ${email}`,
     };
 
