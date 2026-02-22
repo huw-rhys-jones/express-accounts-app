@@ -37,3 +37,28 @@ exports.submitDeletionRequest = functions.https.onRequest((req, res) => {
     });
   });
 });
+
+exports.submitFeedback = functions.https.onRequest((req, res) => {
+  cors(req, res, () => {
+    if (req.method !== "POST") {
+      return res.status(405).send("Method Not Allowed");
+    }
+
+    const { name, email, message } = req.body;
+
+    const mailOptions = {
+      from: GMAIL_USER,
+      to: "info@caistec.com",
+      subject: `Express Acc. Feedback - ${name}`,
+      text: `${message}\n\n---\nSent from: ${email}`,
+    };
+
+    transporter.sendMail(mailOptions, (error, info) => {
+      if (error) {
+        console.error("Error sending feedback email", error);
+        return res.status(500).send("Failed to send feedback");
+      }
+      return res.status(200).send("Feedback received.");
+    });
+  });
+});

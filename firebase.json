@@ -10,6 +10,10 @@
       {
         "source": "/submit-deletion-request",
         "function": "submitDeletionRequest"
+      },
+      {
+        "source": "/submit-feedback",
+        "function": "submitFeedback"
       }
     ]
   },
@@ -23,9 +27,6 @@
         "firebase-debug.log",
         "firebase-debug.*.log",
         "*.local"
-      ],
-      "predeploy": [
-        "npm --prefix \"$RESOURCE_DIR\" run lint"
       ]
     }
   ]
