@@ -61,10 +61,14 @@ const ExpensesScreen = ({ navigation }) => {
   const [feedbackText, setFeedbackText] = useState("");
 
   const handleSendFeedback = async () => {
+  // 1. Validation
   if (!feedbackText.trim()) {
     Alert.alert("Empty Message", "Please enter your feedback before sending.");
     return;
   }
+
+  // 2. Get the current user's email
+  const userEmail = auth.currentUser?.email || "Unknown User";
 
   await runWithLoading("Sending feedback...", async () => {
     try {
@@ -72,8 +76,8 @@ const ExpensesScreen = ({ navigation }) => {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          name: displayName,
-          email: auth.currentUser?.email,
+          name: displayName, // Uses the state variable you've already set
+          email: userEmail,  // The verified auth email
           message: feedbackText,
         }),
       });
