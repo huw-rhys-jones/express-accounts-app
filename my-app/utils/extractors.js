@@ -1,16 +1,51 @@
 import { months, categories_meta, TOTAL_HINT, CURRENCY_SYMS } from '../constants/arrays';
 
+export const reconstructLines = (blocks) => {
+  let allLines = [];
 
+  // Flatten blocks into a single list of lines with coordinates
+  blocks.forEach(block => {
+    block.lines.forEach(line => {
+      // Use the vertical center of the line to handle slight skews
+      const centerY = line.frame.top + (line.frame.height / 2);
+      allLines.push({
+        text: line.text,
+        y: centerY,
+        x: line.frame.left
+      });
+    });
+  });
 
-// Money like: £1,234.56  1,234.56 GBP  (1,234.56)  -£12.00  £ 12.00
-// const MONEY_RE = new RegExp(
-//   String.raw`(?<![A-Za-z])(?:£|\$|€|GBP|USD|EUR)?\s*[-(]?\d{1,3}(?:[ ,]\d{3})*(?:\.\d{2})?\)?(?!\d)\s*(?:£|\$|€|GBP|USD|EUR)?`,
-//   'ig'
-// );
+  if (allLines.length === 0) return "";
 
-// function normalizeWhitespace(s) {
-//   return s.replace(/\s+/g, ' ').trim();
-// }
+  // 1. Sort all lines by Y (top to bottom)
+  allLines.sort((a, b) => a.y - b.y);
+
+  let reconstructedText = "";
+  const Y_THRESHOLD = 15; // Pixels allowed before considering it a "new line"
+
+  let currentY = allLines[0].y;
+  let currentGroup = [];
+
+  allLines.forEach(line => {
+    if (Math.abs(line.y - currentY) > Y_THRESHOLD) {
+      // New row detected: Sort the previous row left-to-right (X)
+      currentGroup.sort((a, b) => a.x - b.x);
+      reconstructedText += currentGroup.map(g => g.text).join(" ") + "\n";
+      
+      currentGroup = [line];
+      currentY = line.y;
+    } else {
+      currentGroup.push(line);
+    }
+  });
+
+  // Handle the final group
+  currentGroup.sort((a, b) => a.x - b.x);
+  reconstructedText += currentGroup.map(g => g.text).join(" ") + "\n";
+
+  return reconstructedText;
+};
 
 function parseAmount(raw) {
   if (!raw) return null;
@@ -134,47 +169,67 @@ function extractDate(text) {
 // ---------- amount extraction ----------
 const MONEY_RE = /(?:£\s?|GBP\s?)?\d{1,6}\.\d{2}(?!\d)/g; // only amounts with decimals
 
-function extractAmount(text) {
-  const lines = normalizeWhitespace(text).split("\n").map(normalizeWhitespace);
-  const allMatches = [...text.matchAll(MONEY_RE)];
+// Inside your extractors.js
+export function extractAmount(reconstructedText) {
+  if (!reconstructedText) return null;
 
-  if (!allMatches.length) return null;
+  const lines = reconstructedText.split('\n');
+  const candidates = [];
+  const MONEY_PATTERN = /([£S$B]?\s?\d{1,6}[.,]\d{2})/gi;
 
-  const cands = allMatches
-    .map((m) => {
-      const raw = m[0];
-      const val = parseFloat(raw.replace(/[^\d.]/g, "")); // strip £, GBP, etc.
-      if (isNaN(val)) return null;
+  lines.forEach((line, index) => {
+    const matches = [...line.matchAll(MONEY_PATTERN)];
+    const progressFactor = index / lines.length; // 0.0 at top, 1.0 at bottom
 
-      const line = lines.find((ln) => ln.includes(raw)) || "";
-      let score = 1;
+    matches.forEach((m) => {
+      const val = parseFloat(m[1].replace(/[£S$B\s]/gi, "").replace(",", "."));
+      if (!isNaN(val) && val > 0) {
+        const upperLine = line.toUpperCase();
+        let score = 0;
 
-      if (/total|amount|balance|paid/i.test(line)) score += 3;
-      if (/change|vat|tax/i.test(line)) score -= 1;
+        // 1. KEYWORD SCORES
+        if (/\bTOTAL\b|\bBALANCE DUE\b|\bTO PAY\b/.test(upperLine)) score += 200;
+        if (/\bPAYMENT\b|\bSALE\b|\bAMOUNT\b/.test(upperLine)) score += 50;
+        
+        // 2. POISON FILTERS (Heavy penalties)
+        if (/VAT|TAX|NET|RATE|POINTS|WORTH|SAVINGS|CHANGE|UNIT/.test(upperLine)) {
+            score -= 150;
+        }
 
-      if (/£|gbp/i.test(raw)) score += 2;
-      else score -= 0.5;
+        // 3. POSITION BONUS (PhD Logic: Total is usually at the end)
+        // We add a bonus based on how far down the receipt the number is.
+        score += (progressFactor * 100); 
 
-      score += 0.001 * text.indexOf(raw);
+        candidates.push({ val, score, line: upperLine });
+      }
+    });
+  });
 
-      if (val > 10000 && !/total|amount|balance|paid/i.test(line)) score -= 5;
+  if (candidates.length === 0) return null;
 
-      return { val, raw, line, score };
-    })
-    .filter(Boolean);
+  // Sort by score descending
+  candidates.sort((a, b) => b.score - a.score);
 
-  if (!cands.length) return null;
+  const winner = candidates[0];
+  
+  // Debug: console.log(`Winner: ${winner.val} Score: ${winner.score} Line: ${winner.line}`);
 
-  const totalCands = cands.filter((c) => /total|amount|balance|paid/i.test(c.line));
-  const chosen = totalCands.length
-    ? totalCands.reduce((a, c) => (c.val > a.val ? c : a))
-    : cands.reduce((a, c) => (c.score > a.score ? c : a));
+  return { amount: winner.val, display: `£${winner.val.toFixed(2)}` };
+}
 
-  // always return with 2 dp
-  return { 
-    amount: Number(chosen.val.toFixed(2)), 
-    display: `£${chosen.val.toFixed(2)}` 
-  };
+// Emergency fallback if the truncation was too aggressive
+function fallbackHeuristic(text) {
+    const allMatches = [...text.matchAll(MONEY_RE)];
+    const scored = allMatches.map(m => {
+        const val = parseFloat(m[0].replace(/[^\d.]/g, ""));
+        const context = text.substring(m.index - 30, m.index + 30).toLowerCase();
+        let s = 0;
+        if (/balance due/i.test(context)) s += 1000;
+        if (/points|nectar/i.test(context)) s -= 2000; // Nuclear penalty
+        return { val, score: s };
+    });
+    const winner = scored.sort((a, b) => b.score - a.score)[0];
+    return { amount: winner.val, display: `£${winner.val.toFixed(2)}` };
 }
 
 function normalizeWhitespace(s) {

@@ -36,7 +36,7 @@ import { categories_meta } from "../constants/arrays";
 import { formatDate } from "../utils/format_style";
 import TextRecognition from "@react-native-ml-kit/text-recognition";
 import * as FileSystem from "expo-file-system/legacy";
-import { extractData } from "../utils/extractors";
+import { extractData, reconstructLines } from "../utils/extractors";
 import ImageViewer from "react-native-image-zoom-viewer";
 import { Colors, ReceiptStyles } from "../utils/sharedStyles";
 
@@ -187,10 +187,16 @@ const ReceiptAdd = ({ navigation }) => {
         }
       }
 
-      // Call the ML Kit recognize method
-      const result = await TextRecognition.recognize(localUri);
-      const text = result?.text || "";
-      const res = extractData(text);
+// 1. Perform recognition
+    const result = await TextRecognition.recognize(localUri);
+
+    const reconstructedText = reconstructLines(result.blocks || []);
+
+    // 2. RECONSTRUCT text using spatial coordinates (fixes column issue)
+    const spatiallyReconstructedText = reconstructLines(result.blocks || []);
+
+    // 3. Pass the "repaired" text to your extractor
+    const res = extractData(spatiallyReconstructedText);
 
       const categoryIndex =
         typeof res?.category === "number" ? res.category : -1;
@@ -205,7 +211,7 @@ const ReceiptAdd = ({ navigation }) => {
         vat: res?.vat ?? null,
         categoryIndex,
         categoryName,
-        raw: text,
+        raw: reconstructedText,
       });
       setAcceptFlags({
         amount: !!res?.money?.value,
