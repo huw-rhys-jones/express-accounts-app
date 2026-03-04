@@ -178,31 +178,45 @@ export function extractAmount(reconstructedText) {
   const MONEY_PATTERN = /([£S$B]?\s?\d{1,6}[.,]\d{2})/gi;
 
   lines.forEach((line, index) => {
+    console.log(line)
     const matches = [...line.matchAll(MONEY_PATTERN)];
-    const progressFactor = index / lines.length; // 0.0 at top, 1.0 at bottom
+    const progressFactor = index / lines.length;
 
-    matches.forEach((m) => {
-      const val = parseFloat(m[1].replace(/[£S$B\s]/gi, "").replace(",", "."));
-      if (!isNaN(val) && val > 0) {
-        const upperLine = line.toUpperCase();
-        let score = 0;
+    // CHANGE: Iterate through matches in REVERSE or specifically target the last one
+    // This ensures that in "TOTAL 26.38 ... £40.07", we evaluate 40.07 as the line's value.
+    if (matches.length > 0) {
+      // We'll look at all matches, but we give a "Right-Side Bonus" 
+      // because the actual price is usually on the right.
+      matches.forEach((m, matchIndex) => {
+        const val = parseFloat(m[1].replace(/[£S$B\s]/gi, "").replace(",", "."));
+        if (!isNaN(val) && val > 0) {
+          const upperLine = line.toUpperCase();
+          let score = 0;
 
-        // 1. KEYWORD SCORES
-        if (/\bTOTAL\b|\bBALANCE DUE\b|\bTO PAY\b/.test(upperLine)) score += 200;
-        if (/\bPAYMENT\b|\bSALE\b|\bAMOUNT\b/.test(upperLine)) score += 50;
-        
-        // 2. POISON FILTERS (Heavy penalties)
-        if (/VAT|TAX|NET|RATE|POINTS|WORTH|SAVINGS|CHANGE|UNIT/.test(upperLine)) {
-            score -= 150;
+          // 1. KEYWORD SCORES
+          if (/\bTOT[AL1]|\bDUE\b|\bPAY\b/i.test(upperLine)) score += 250;
+          
+          // 2. RIGHT-SIDE PRIORITY (The "Anti-Quantity" logic)
+          // If there are multiple numbers on a line, the one further to the right 
+          // is significantly more likely to be the total/subtotal.
+          if (matchIndex === matches.length - 1 && matches.length > 1) {
+            score += 50; 
+          }
+
+          // 3. POISON FILTERS
+          if (/VAT|TAX|NET|RATE|POINTS|WORTH|SAVINGS|CHANGE|UNIT|LITRE|@/.test(upperLine)) {
+              // If the line contains "LITRE" or "@", it's likely an item line, 
+              // but the Total line might have been merged. 
+              // We penalize slightly less if "TOTAL" is also present.
+              score -= /TOT[AL1]/.test(upperLine) ? 50 : 150;
+          }
+
+          score += (progressFactor * 100); 
+
+          candidates.push({ val, score, line: upperLine });
         }
-
-        // 3. POSITION BONUS (PhD Logic: Total is usually at the end)
-        // We add a bonus based on how far down the receipt the number is.
-        score += (progressFactor * 100); 
-
-        candidates.push({ val, score, line: upperLine });
-      }
-    });
+      });
+    }
   });
 
   if (candidates.length === 0) return null;
