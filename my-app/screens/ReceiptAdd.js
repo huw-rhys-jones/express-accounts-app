@@ -987,7 +987,7 @@ const ReceiptAdd = ({ navigation }) => {
                   <Text style={ReceiptStyles.ocrLabel}>Amount:</Text>
                   <Text style={ReceiptStyles.ocrValue}>
                     {ocrResult?.amount != null
-                      ? `£${ocrResult.amount}`
+                      ? `£${Number(ocrResult.amount).toFixed(2)}`
                       : "Not detected"}
                   </Text>
                 </View>

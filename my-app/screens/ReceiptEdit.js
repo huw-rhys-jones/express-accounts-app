@@ -735,7 +735,7 @@ export default function ReceiptDetailsScreen({ route, navigation }) {
                     ]}
                   >
                     {ocrResult?.amount != null
-                      ? `£${ocrResult.amount}`
+                      ? `£${Number(ocrResult.amount).toFixed(2)}`
                       : "Not detected"}
                   </Text>
                 </View>
