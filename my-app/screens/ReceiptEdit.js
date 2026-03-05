@@ -32,11 +32,10 @@ import {
 } from "firebase/storage";
 import { categories_meta } from "../constants/arrays";
 import { formatDate } from "../utils/format_style";
-import TextRecognition from "@react-native-ml-kit/text-recognition";
-import * as FileSystem from "expo-file-system/legacy";
 import { extractData } from "../utils/extractors";
 import ImageViewer from "react-native-image-zoom-viewer";
 import { Colors, ReceiptStyles } from "../utils/sharedStyles";
+import { useReceiptOcr } from "../utils/ocrHelpers";
 
 export default function ReceiptDetailsScreen({ route, navigation }) {
   const { receipt } = route.params;
@@ -80,19 +79,38 @@ export default function ReceiptDetailsScreen({ route, navigation }) {
 
   const [isUploading, setIsUploading] = useState(false);
 
-  // ===== OCR preview modal state =====
-  const [ocrModalVisible, setOcrModalVisible] = useState(false);
-  const [preview, setPreview] = useState(null);
-  const [ocrLoading, setOcrLoading] = useState(false);
-  const [ocrResult, setOcrResult] = useState(null);
-  const [acceptFlags, setAcceptFlags] = useState({
-    amount: false,
-    date: false,
-    category: false,
-    vat: false,
-  });
-  const [isNewImageSession, setIsNewImageSession] = useState(false);
+  // VAT helper used by hook as well as local logic
+  const computeVat = (grossStr, rateStr) => {
+    const gross = parseFloat(grossStr);
+    const rate = parseFloat(rateStr);
+    if (!isFinite(gross) || !isFinite(rate)) return "";
+    const net = gross / (1 + rate / 100);
+    const vat = gross - net;
+    return vat.toFixed(2);
+  };
 
+  // OCR state and helpers provided by shared hook
+  const {
+    preview,
+    ocrResult,
+    acceptFlags,
+    ocrLoading,
+    ocrModalVisible,
+    isNewImageSession,
+    ensureFileFromAsset,
+    openOcrModal,
+    runOcr,
+    toggleAccept,
+    applyAcceptedValues,
+    deleteCurrentImage,
+    handleCancelModal,
+    handleImagePicked,
+    setOcrModalVisible,
+    setPreview,
+    setOcrResult,
+    setAcceptFlags,
+    setIsNewImageSession,
+  } = useReceiptOcr({ computeVat });
   // ===== Fullscreen viewer =====
   const [fullScreenImage, setFullScreenImage] = useState(null);
 
@@ -124,15 +142,7 @@ export default function ReceiptDetailsScreen({ route, navigation }) {
   const [categoryY, setCategoryY] = useState(0);
 
   // ===== helpers =====
-  const computeVat = (grossStr, rateStr) => {
-    const gross = parseFloat(grossStr);
-    const rate = parseFloat(rateStr);
-    if (!isFinite(gross) || !isFinite(rate)) return "";
-    const net = gross / (1 + rate / 100);
-    const vat = gross - net;
-    return vat.toFixed(2);
-  };
-
+  // computeVat defined earlier to satisfy hook dependency
   // Auto-calc VAT when amount/rate present but vatAmount not manually overridden
   useEffect(() => {
     if (!vatAmountEdited && amount && vatRate) {
@@ -187,164 +197,9 @@ export default function ReceiptDetailsScreen({ route, navigation }) {
     });
   };
 
-  // ===== Ensure local file for OCR =====
-  const ensureFileFromAsset = async (asset) => {
-    const { base64, fileName, uri } = asset || {};
-    const ext =
-      (fileName && fileName.includes(".") && "." + fileName.split(".").pop()) ||
-      ".jpg";
-    const dest = FileSystem.cacheDirectory + `ocr-${Date.now()}${ext}`;
+  // OCR utilities are provided by the hook; no local helper needed here.
 
-    if (base64) {
-      await FileSystem.writeAsStringAsync(dest, base64, {
-        encoding: FileSystem.EncodingType.Base64,
-      });
-      return dest;
-    }
-
-    if (uri) {
-      try {
-        if (/^(file|content):\/\//i.test(uri)) {
-          await FileSystem.copyAsync({ from: uri, to: dest });
-          return dest;
-        }
-        if (/^https?:\/\//i.test(uri)) {
-          const { uri: localUri } = await FileSystem.downloadAsync(uri, dest);
-          return localUri;
-        }
-      } catch (e) {
-        const res = await fetch(uri);
-        const blob = await res.blob();
-        const buf = await blob.arrayBuffer();
-        const b64 = Buffer.from(buf).toString("base64");
-        await FileSystem.writeAsStringAsync(dest, b64, {
-          encoding: FileSystem.EncodingType.Base64,
-        });
-        return dest;
-      }
-    }
-
-    throw new Error("No usable uri/base64 on asset for OCR");
-  };
-
-  // ===== OCR helpers =====
-  const openOcrModal = async (uri, { autoScan, newSession }) => {
-    setPreview({ uri });
-    setOcrResult(null);
-    setAcceptFlags({ amount: false, date: false, category: false, vat: false });
-    setIsNewImageSession(!!newSession);
-    setOcrModalVisible(true);
-
-    if (autoScan) {
-      await runOcr(uri);
-    }
-  };
-
-  const runOcr = async (uriOrLocal) => {
-    try {
-      setOcrLoading(true);
-      let localUri = uriOrLocal;
-      if (!/^(file|content):\/\//i.test(uriOrLocal)) {
-        const dest = FileSystem.cacheDirectory + `ocr-${Date.now()}.jpg`;
-        try {
-          await FileSystem.copyAsync({ from: uriOrLocal, to: dest });
-          localUri = dest;
-        } catch {
-          const { uri: dl } = await FileSystem.downloadAsync(uriOrLocal, dest);
-          localUri = dl;
-        }
-      }
-      // Call the ML Kit recognize method
-      const result = await TextRecognition.recognize(localUri);
-      const text = result?.text || "";
-      const res = extractData(text);
-
-      const categoryIndex =
-        typeof res?.category === "number" ? res.category : -1;
-      const categoryName =
-        categoryIndex >= 0 && categories_meta[categoryIndex]
-          ? categories_meta[categoryIndex].name
-          : null;
-
-      setOcrResult({
-        amount: res?.money?.value ?? null,
-        date: res?.date ?? null,
-        vat: res?.vat ?? null, // keep for parity (might not be used if your extractor doesn't return VAT)
-        categoryIndex,
-        categoryName,
-        raw: text,
-      });
-      setAcceptFlags({
-        amount: !!res?.money?.value,
-        date: !!res?.date,
-        category: categoryIndex >= 0,
-        vat: !!res?.vat?.value || !!res?.vat?.rate,
-      });
-    } catch (e) {
-      console.error("❌ OCR error:", e);
-      setOcrResult(null);
-    } finally {
-      setOcrLoading(false);
-    }
-  };
-
-  const toggleAccept = (key) =>
-    setAcceptFlags((prev) => ({ ...prev, [key]: !prev[key] }));
-
-  const applyAcceptedValues = () => {
-    if (!ocrResult) return;
-    if (acceptFlags.amount && ocrResult.amount != null) {
-      setAmount(String(ocrResult.amount));
-      // recalc if we have a rate and user didn't override VAT manually
-      if (!vatAmountEdited && vatRate)
-        setVatAmount(computeVat(String(ocrResult.amount), vatRate));
-    }
-    if (acceptFlags.date && ocrResult.date) {
-      const d = new Date(ocrResult.date);
-      if (!isNaN(d.getTime())) setSelectedDate(d);
-    }
-    if (acceptFlags.category && ocrResult.categoryName) {
-      setSelectedCategory(ocrResult.categoryName);
-      // if rate blank, seed from category default
-      if (!vatRate && typeof ocrResult.categoryIndex === "number") {
-        const catRate = categories_meta[ocrResult.categoryIndex]?.vatRate ?? "";
-        if (catRate !== "") {
-          const rStr = String(catRate);
-          setVatRate(rStr);
-          setVatRateItems((prev) => {
-            const has = prev.some((it) => it.value === rStr);
-            return has
-              ? prev
-              : [...prev, { label: `${catRate}%`, value: rStr }].sort(
-                  (a, b) => Number(a.value) - Number(b.value)
-                );
-          });
-          if (!vatAmountEdited && amount)
-            setVatAmount(computeVat(amount, rStr));
-        }
-      }
-    }
-    if (acceptFlags.vat) {
-      if (ocrResult.vat?.value != null)
-        setVatAmount(String(ocrResult.vat.value));
-      if (ocrResult.vat?.rate != null) setVatRate(String(ocrResult.vat.rate));
-    }
-    setOcrModalVisible(false);
-  };
-
-  const deleteCurrentImage = () => {
-    if (!preview?.uri) return;
-    setImages((prev) => prev.filter((img) => img.uri !== preview.uri));
-    setOcrModalVisible(false);
-  };
-
-  const handleCancelModal = () => {
-    if (isNewImageSession && preview?.uri) {
-      setImages((prev) => prev.filter((img) => img.uri !== preview.uri));
-    }
-    setOcrModalVisible(false);
-  };
-
+  // handleCancelModal provided by hook
   const pickImageOption = () => {
     Alert.alert(
       "Add Image",
@@ -380,7 +235,7 @@ export default function ReceiptDetailsScreen({ route, navigation }) {
               setTimeout(() => {
                 ImagePicker.launchCamera(
                   { mediaType: "photo", includeBase64: true, quality: 0.9 },
-                  (res) => handleImagePicked(res) // Use arrow function to ensure context
+                  (res) => handleImagePickedWrapper(res)
                 );
               }, 100);
             } catch (err) {
@@ -401,7 +256,7 @@ export default function ReceiptDetailsScreen({ route, navigation }) {
                   selectionLimit: 1,
                   quality: 0.9,
                 },
-                (res) => handleImagePicked(res)
+                (res) => handleImagePickedWrapper(res)
               );
             }, 100);
           },
@@ -412,22 +267,9 @@ export default function ReceiptDetailsScreen({ route, navigation }) {
     );
   };
 
-  const handleImagePicked = async (response) => {
-    try {
-      if (response?.didCancel || !response?.assets?.length) return;
-
-      const first = response.assets[0];
-      const filePath = await ensureFileFromAsset(first);
-
-      const newImages = response.assets.map((asset, idx) => ({
-        uri: idx === 0 ? filePath : asset.uri,
-      }));
-      setImages((prev) => [...prev, ...newImages]);
-
-      await openOcrModal(filePath, { autoScan: true, newSession: true });
-    } catch (e) {
-      console.error("❌ handleImagePicked error:", e);
-    }
+  // wrapper that delegates to hook version
+  const handleImagePickedWrapper = (response) => {
+    handleImagePicked(response, setImages);
   };
 
   // ===== SAVE CHANGES =====
@@ -835,7 +677,7 @@ export default function ReceiptDetailsScreen({ route, navigation }) {
         visible={ocrModalVisible}
         transparent
         animationType="slide"
-        onRequestClose={() => setOcrModalVisible(false)}
+        onRequestClose={() => handleCancelModal(setImages)}
       >
         <View style={ReceiptStyles.modalOverlay}>
           <View style={[ReceiptStyles.modalContent, { maxHeight: "90%" }]}>
@@ -988,7 +830,7 @@ export default function ReceiptDetailsScreen({ route, navigation }) {
                   {!isNewImageSession && (
                     <Button
                       mode="outlined"
-                      onPress={deleteCurrentImage}
+                      onPress={() => deleteCurrentImage(setImages)}
                       textColor="#a60d49"
                     >
                       Delete Image
@@ -997,14 +839,26 @@ export default function ReceiptDetailsScreen({ route, navigation }) {
                   <Button
                     buttonColor={Colors.accent}
                     mode="contained"
-                    onPress={handleCancelModal}
+                    onPress={() => handleCancelModal(setImages)}
                   >
                     Cancel
                   </Button>
                   <Button
                     buttonColor={Colors.accent}
                     mode="contained"
-                    onPress={applyAcceptedValues}
+                    onPress={() =>
+                      applyAcceptedValues({
+                        setAmount,
+                        setVatAmount,
+                        setVatRate,
+                        setSelectedDate,
+                        setSelectedCategory,
+                        vatAmountEdited,
+                        amount,
+                        vatRate,
+                        setVatRateItems,
+                      })
+                    }
                   >
                     Accept
                   </Button>

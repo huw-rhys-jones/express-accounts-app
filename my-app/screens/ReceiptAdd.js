@@ -34,9 +34,8 @@ import {
 import { getStorage, ref, uploadBytes, getDownloadURL } from "firebase/storage";
 import { categories_meta } from "../constants/arrays";
 import { formatDate } from "../utils/format_style";
-import TextRecognition from "@react-native-ml-kit/text-recognition";
-import * as FileSystem from "expo-file-system/legacy";
 import { extractData, reconstructLines } from "../utils/extractors";
+import { useReceiptOcr } from "../utils/ocrHelpers";
 import ImageViewer from "react-native-image-zoom-viewer";
 import { Colors, ReceiptStyles } from "../utils/sharedStyles";
 
@@ -59,18 +58,8 @@ const ReceiptAdd = ({ navigation }) => {
   const [showConfirmLeaveModal, setShowConfirmLeaveModal] = useState(false);
   const [showConfirmModal, setShowConfirmModal] = useState(false);
 
-  // OCR modal state
-  const [ocrModalVisible, setOcrModalVisible] = useState(false);
-  const [preview, setPreview] = useState(null);
-  const [ocrLoading, setOcrLoading] = useState(false);
-  const [ocrResult, setOcrResult] = useState(null);
-  const [acceptFlags, setAcceptFlags] = useState({
-    amount: false,
-    date: false,
-    category: false,
-    vat: false,
-  });
-  const [isNewImageSession, setIsNewImageSession] = useState(false);
+  // OCR modal state and helpers will be provided by useReceiptOcr
+  // (hook invocation inserted later).
 
   const [isUploading, setIsUploading] = useState(false);
 
@@ -110,44 +99,7 @@ const ReceiptAdd = ({ navigation }) => {
   const [categoryY, setCategoryY] = useState(0);
 
   // ------- helpers -------
-  const ensureFileFromAsset = async (asset) => {
-    const { base64, fileName, uri } = asset || {};
-    const ext =
-      (fileName && fileName.includes(".") && "." + fileName.split(".").pop()) ||
-      ".jpg";
-    const dest = FileSystem.cacheDirectory + `ocr-${Date.now()}${ext}`;
-
-    if (base64) {
-      await FileSystem.writeAsStringAsync(dest, base64, {
-        encoding: FileSystem.EncodingType.Base64,
-      });
-      return dest;
-    }
-
-    if (uri) {
-      try {
-        if (/^(file|content):\/\//i.test(uri)) {
-          await FileSystem.copyAsync({ from: uri, to: dest });
-          return dest;
-        }
-        if (/^https?:\/\//i.test(uri)) {
-          const { uri: localUri } = await FileSystem.downloadAsync(uri, dest);
-          return localUri;
-        }
-      } catch (e) {
-        const res = await fetch(uri);
-        const blob = await res.blob();
-        const buf = await blob.arrayBuffer();
-        const b64 = Buffer.from(buf).toString("base64");
-        await FileSystem.writeAsStringAsync(dest, b64, {
-          encoding: FileSystem.EncodingType.Base64,
-        });
-        return dest;
-      }
-    }
-
-    throw new Error("No uri/base64 on asset for OCR");
-  };
+  // ensureFileFromAsset is now provided by the OCR hook; no local copy needed.
 
   const computeVat = (grossStr, rateStr) => {
     const gross = parseFloat(grossStr);
@@ -158,132 +110,36 @@ const ReceiptAdd = ({ navigation }) => {
     return vat.toFixed(2);
   };
 
-  const openOcrModal = async (
-    uri,
-    { autoScan = true, newSession = false } = {}
-  ) => {
-    setPreview({ uri });
-    setOcrResult(null);
-    setAcceptFlags({ amount: false, date: false, category: false, vat: false });
-    setIsNewImageSession(!!newSession);
-    setOcrModalVisible(true);
-    if (autoScan) {
-      await runOcr(uri);
-    }
-  };
+  // create OCR hook after computeVat so the function is available
+  const {
+    preview,
+    ocrResult,
+    acceptFlags,
+    ocrLoading,
+    ocrModalVisible,
+    isNewImageSession,
+    ensureFileFromAsset,
+    openOcrModal,
+    runOcr,
+    toggleAccept,
+    applyAcceptedValues,
+    deleteCurrentImage,
+    handleCancelModal,
+    handleImagePicked,
+    setOcrModalVisible,
+    setPreview,
+    setOcrResult,
+    setAcceptFlags,
+    setIsNewImageSession,
+  } = useReceiptOcr({ computeVat });
 
-  const runOcr = async (uriOrLocal) => {
-    try {
-      setOcrLoading(true);
-      let localUri = uriOrLocal;
-      if (!/^(file|content):\/\//i.test(uriOrLocal)) {
-        const dest = FileSystem.cacheDirectory + `ocr-${Date.now()}.jpg`;
-        try {
-          await FileSystem.copyAsync({ from: uriOrLocal, to: dest });
-          localUri = dest;
-        } catch {
-          const { uri: dl } = await FileSystem.downloadAsync(uriOrLocal, dest);
-          localUri = dl;
-        }
-      }
+  // runOcr handled by hook; no local implementation needed.
 
-// 1. Perform recognition
-    const result = await TextRecognition.recognize(localUri);
 
-    const reconstructedText = reconstructLines(result.blocks || []);
-
-    // 2. RECONSTRUCT text using spatial coordinates (fixes column issue)
-    const spatiallyReconstructedText = reconstructLines(result.blocks || []);
-
-    // 3. Pass the "repaired" text to your extractor
-    const res = extractData(spatiallyReconstructedText);
-
-      const categoryIndex =
-        typeof res?.category === "number" ? res.category : -1;
-      const categoryName =
-        categoryIndex >= 0 && categories_meta[categoryIndex]
-          ? categories_meta[categoryIndex].name
-          : null;
-
-      setOcrResult({
-        amount: res?.money?.value ?? null,
-        date: res?.date ?? null,
-        vat: res?.vat ?? null,
-        categoryIndex,
-        categoryName,
-        raw: reconstructedText,
-      });
-      setAcceptFlags({
-        amount: !!res?.money?.value,
-        date: !!res?.date,
-        category: categoryIndex >= 0,
-        vat: !!res?.vat?.value || !!res?.vat?.rate,
-      });
-    } catch (e) {
-      console.error("❌ OCR error:", e);
-      setOcrResult(null);
-    } finally {
-      setOcrLoading(false);
-    }
-  };
-
-  const toggleAccept = (key) =>
-    setAcceptFlags((prev) => ({ ...prev, [key]: !prev[key] }));
-
-  const deleteCurrentImage = () => {
-    if (!preview?.uri) return;
-    setImages((prev) => prev.filter((img) => img.uri !== preview.uri));
-    setOcrModalVisible(false);
-    setReturnToOcrAfterFullscreen(false);
-  };
-
-  const applyAcceptedValues = () => {
-    if (!ocrResult) return;
-    if (acceptFlags.amount && ocrResult.amount != null) {
-      setAmount(String(ocrResult.amount));
-    }
-    if (acceptFlags.date && ocrResult.date) {
-      const d = new Date(ocrResult.date);
-      if (!isNaN(d.getTime())) setSelectedDate(d);
-    }
-    if (acceptFlags.category && ocrResult.categoryName) {
-      setSelectedCategory(ocrResult.categoryName);
-      if (!(ocrResult.vat && ocrResult.vat.rate)) {
-        const catRate = categories_meta[ocrResult.categoryIndex]?.vatRate ?? "";
-        if (catRate !== "") {
-          const rStr = String(catRate);
-          setVatRate(rStr);
-          setVatRateItems((prev) => {
-            const has = prev.some((it) => it.value === rStr);
-            return has
-              ? prev
-              : [...prev, { label: `${catRate}%`, value: rStr }].sort(
-                  (a, b) => Number(a.value) - Number(b.value)
-                );
-          });
-          if (!vatAmountEdited && amount) {
-            setVatAmount(computeVat(amount, rStr));
-          }
-        }
-      }
-    }
-    if (acceptFlags.vat) {
-      if (ocrResult.vat?.value != null)
-        setVatAmount(String(ocrResult.vat.value));
-      if (ocrResult.vat?.rate != null) setVatRate(String(ocrResult.vat.rate));
-    }
-    setOcrModalVisible(false);
-    setReturnToOcrAfterFullscreen(false);
-  };
-
-  const handleCancelModal = () => {
-    if (isNewImageSession && preview?.uri) {
-      setImages((prev) => prev.filter((img) => img.uri !== preview.uri));
-    }
-    setOcrModalVisible(false);
-    setReturnToOcrAfterFullscreen(false);
-  };
-
+  // OCR helpers (deleteCurrentImage, applyAcceptedValues, toggleAccept,
+  // handleCancelModal) are supplied by the useReceiptOcr hook above; they
+  // are invoked from the UI where needed and are passed the appropriate
+  // setters and state values at that time.
   // ------- effects -------
   useEffect(() => {
     if (flatListRef.current) {
@@ -306,7 +162,7 @@ const ReceiptAdd = ({ navigation }) => {
       "hardwareBackPress",
       () => {
         if (ocrModalVisible) {
-          handleCancelModal();
+          handleCancelModal(setImages);
           return true;
         }
         if (showSuccess) {
@@ -546,7 +402,7 @@ const ReceiptAdd = ({ navigation }) => {
             // Launch camera only after permission is confirmed
             ImagePicker.launchCamera(
               { mediaType: "photo", includeBase64: true, quality: 0.9 },
-              handleImagePicked
+              handleImagePickedWrapper
             );
           },
         },
@@ -560,7 +416,7 @@ const ReceiptAdd = ({ navigation }) => {
                 selectionLimit: 1,
                 quality: 0.9,
               },
-              handleImagePicked
+              handleImagePickedWrapper
             ),
         },
         { text: "Cancel", style: "cancel" },
@@ -569,22 +425,9 @@ const ReceiptAdd = ({ navigation }) => {
     );
   };
 
-  const handleImagePicked = async (response) => {
-    try {
-      if (response?.didCancel || !response?.assets?.length) return;
-
-      const first = response.assets[0];
-      const filePath = await ensureFileFromAsset(first);
-
-      const newImages = response.assets.map((asset, idx) => ({
-        uri: idx === 0 ? filePath : asset.uri,
-      }));
-      setImages((prev) => [...prev, ...newImages]);
-
-      await openOcrModal(filePath, { autoScan: true, newSession: true });
-    } catch (e) {
-      console.error("❌ OCR error:", e);
-    }
+  // use hook-supplied image handler
+  const handleImagePickedWrapper = (response) => {
+    handleImagePicked(response, setImages);
   };
 
   const renderImage = ({ item }) => (
@@ -1089,7 +932,7 @@ const ReceiptAdd = ({ navigation }) => {
         visible={ocrModalVisible}
         transparent
         animationType="slide"
-        onRequestClose={handleCancelModal}
+        onRequestClose={() => handleCancelModal(setImages)}
       >
         <View style={ReceiptStyles.modalOverlay}>
           <View style={[ReceiptStyles.modalContent, { maxHeight: "90%" }]}>
@@ -1203,7 +1046,7 @@ const ReceiptAdd = ({ navigation }) => {
                   {!isNewImageSession && (
                     <Button
                       mode="outlined"
-                      onPress={deleteCurrentImage}
+                      onPress={() => deleteCurrentImage(setImages)}
                       textColor={Colors.accent}
                     >
                       Delete Image
@@ -1212,14 +1055,26 @@ const ReceiptAdd = ({ navigation }) => {
                   <Button
                     buttonColor={Colors.accent}
                     mode="contained"
-                    onPress={handleCancelModal}
+                    onPress={() => handleCancelModal(setImages)}
                   >
                     Cancel
                   </Button>
                   <Button
                     buttonColor={Colors.accent}
                     mode="contained"
-                    onPress={applyAcceptedValues}
+                    onPress={() =>
+                      applyAcceptedValues({
+                        setAmount,
+                        setVatAmount,
+                        setVatRate,
+                        setSelectedDate,
+                        setSelectedCategory,
+                        vatAmountEdited,
+                        amount,
+                        vatRate,
+                        setVatRateItems,
+                      })
+                    }
                   >
                     Accept
                   </Button>
