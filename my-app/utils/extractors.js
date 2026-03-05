@@ -175,42 +175,47 @@ export function extractAmount(reconstructedText) {
 
   const lines = reconstructedText.split('\n');
   const candidates = [];
-  const MONEY_PATTERN = /([£S$B]?\s?\d{1,6}[.,]\d{2})/gi;
+  
+  // This regex allows for an optional space after the decimal point
+  // to catch common OCR errors like "14. 49" or "S12. 90"
+  const FORGIVING_MONEY = /([£S$B]?\s?\d{1,6}[.,]\s?\d{2})/gi;
 
   lines.forEach((line, index) => {
-    console.log(line)
-    const matches = [...line.matchAll(MONEY_PATTERN)];
-    const progressFactor = index / lines.length;
+    const matches = [...line.matchAll(FORGIVING_MONEY)];
+    const progressFactor = index / lines.length; // 0.0 at top, 1.0 at bottom
 
-    // CHANGE: Iterate through matches in REVERSE or specifically target the last one
-    // This ensures that in "TOTAL 26.38 ... £40.07", we evaluate 40.07 as the line's value.
     if (matches.length > 0) {
-      // We'll look at all matches, but we give a "Right-Side Bonus" 
-      // because the actual price is usually on the right.
       matches.forEach((m, matchIndex) => {
+        // Clean the value: remove currency symbols/OCR noise and spaces
         const val = parseFloat(m[1].replace(/[£S$B\s]/gi, "").replace(",", "."));
+        
         if (!isNaN(val) && val > 0) {
           const upperLine = line.toUpperCase();
           let score = 0;
 
           // 1. KEYWORD SCORES
-          if (/\bTOT[AL1]|\bDUE\b|\bPAY\b/i.test(upperLine)) score += 250;
+          // Uses word boundaries (\b) to avoid matching "included" as "pay"
+          // and handles fuzzy "Tota1" OCR errors.
+          if (/\bTOT[AL1]|\bDUE\b|\bPAY\b/i.test(upperLine)) {
+            score += 250;
+          }
           
-          // 2. RIGHT-SIDE PRIORITY (The "Anti-Quantity" logic)
-          // If there are multiple numbers on a line, the one further to the right 
-          // is significantly more likely to be the total/subtotal.
+          // 2. RIGHT-SIDE PRIORITY
+          // On lines with multiple numbers (Qty @ Price | Total), the right-most is the winner.
           if (matchIndex === matches.length - 1 && matches.length > 1) {
             score += 50; 
           }
 
           // 3. POISON FILTERS
+          // Heavy penalties for VAT and sub-totals to prevent them from winning.
           if (/VAT|TAX|NET|RATE|POINTS|WORTH|SAVINGS|CHANGE|UNIT|LITRE|@/.test(upperLine)) {
-              // If the line contains "LITRE" or "@", it's likely an item line, 
-              // but the Total line might have been merged. 
-              // We penalize slightly less if "TOTAL" is also present.
-              score -= /TOT[AL1]/.test(upperLine) ? 50 : 150;
+              const isVatLine = /VAT|TAX|NET/.test(upperLine);
+              // Nuke VAT lines (-300) so they can't beat a TOTAL line higher up
+              score -= isVatLine ? 300 : (/\bTOT[AL1]/.test(upperLine) ? 50 : 150);
           }
 
+          // 4. POSITION BONUS
+          // Slight bias for numbers lower in the receipt.
           score += (progressFactor * 100); 
 
           candidates.push({ val, score, line: upperLine });
@@ -226,9 +231,11 @@ export function extractAmount(reconstructedText) {
 
   const winner = candidates[0];
   
-  // Debug: console.log(`Winner: ${winner.val} Score: ${winner.score} Line: ${winner.line}`);
-
-  return { amount: winner.val, display: `£${winner.val.toFixed(2)}` };
+  // Return amount and formatted display string
+  return { 
+    amount: winner.val, 
+    display: `£${winner.val.toFixed(2)}` 
+  };
 }
 
 // Emergency fallback if the truncation was too aggressive
