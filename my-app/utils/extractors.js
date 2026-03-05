@@ -1,4 +1,4 @@
-import { months, categories_meta, TOTAL_HINT, CURRENCY_SYMS } from '../constants/arrays';
+import { months, categories_meta, TOTAL_HINT, CURRENCY_SYMS } from '../constants/arrays.js';
 
 export const reconstructLines = (blocks) => {
   let allLines = [];
