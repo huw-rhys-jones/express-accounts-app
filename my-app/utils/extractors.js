@@ -85,11 +85,11 @@ const DATE_PATTERNS = [
   /\b(20\d{2})[\/.\-](\d{1,2})[\/.\-](\d{1,2})\b/g,
   // 12 Mar 2025 / 12 March 2025 / Mar 12, 2025
   new RegExp(
-    String.raw`\b(\d{1,2})\s+(${months.join('|')})\.?,?\s+(20\d{2})\b`,
+    String.raw`\b(\d{1,2})(?:st|nd|rd|th)?\s+(${months.join('|')})\.?,?\s+(20\d{2})\b`,
     'ig'
   ),
   new RegExp(
-    String.raw`\b(${months.join('|')})\.?\s+(\d{1,2}),?\s+(20\d{2})\b`,
+    String.raw`\b(${months.join('|')})\.?\s+(\d{1,2})(?:st|nd|rd|th)?,?\s+(20\d{2})\b`,
     'ig'
   ),
 ];
@@ -109,7 +109,18 @@ function toISODate(y, mIdx1based, d) {
 }
 
 function extractDate(text) {
-  const lines = normalizeWhitespace(text).split('\n').map(normalizeWhitespace);
+  if (!text) return null;
+
+  // Keep line boundaries for contextual scoring
+  const lines = text.split('\n').map(normalizeWhitespace).filter(Boolean);
+
+  // OCR cleanup for date matching:
+  // - "1April 2025" -> "1 April 2025"
+  // - "31st" / "2nd" / "3rd" / "4th" -> "31" / "2" / "3" / "4"
+  const monthAlternation = months.join('|');
+  const textForDate = text
+    .replace(new RegExp(`(\\d)(${monthAlternation})`, 'ig'), '$1 $2')
+    .replace(/\b(\d{1,2})(st|nd|rd|th)\b/ig, '$1');
 
   const candidates = [];
 
@@ -117,7 +128,7 @@ function extractDate(text) {
   for (const pat of DATE_PATTERNS) {
     pat.lastIndex = 0; // reset
     let m;
-    while ((m = pat.exec(text)) !== null) {
+    while ((m = pat.exec(textForDate)) !== null) {
       let iso = null;
 
       if (pat === DATE_PATTERNS[0]) {
@@ -155,8 +166,8 @@ function extractDate(text) {
       if (!iso) continue;
 
       // score: prefer lines with date keywords; prefer not-in-future; slight bias to earlier lines
-      const idx = text.lastIndexOf(m[0]);
-      const line = lines.find(ln => ln.includes(m[0])) || '';
+      const normalizedMatch = normalizeWhitespace(m[0]).toLowerCase();
+      const line = lines.find(ln => ln.toLowerCase().includes(normalizedMatch)) || '';
       const today = new Date();
       const dt = new Date(iso);
       let score = 1;
@@ -252,6 +263,10 @@ export function extractAmount(reconstructedText) {
   const uniqueValues = [...new Set(candidates.map(c => c.val))].sort((a, b) => a - b);
   const median = uniqueValues[Math.floor(uniqueValues.length / 2)] || 0;
   const largest = uniqueValues[uniqueValues.length - 1] || 0;
+  const strongestRepeatedValue = [...valueLines.entries()]
+    .filter(([, set]) => set.size >= 2)
+    .map(([value]) => parseFloat(value))
+    .sort((a, b) => b - a)[0] || 0;
 
   candidates.forEach(candidate => {
     let score = 0;
@@ -283,6 +298,16 @@ export function extractAmount(reconstructedText) {
     if (isSubtotalContext) score -= 190;
     if (isVatContext) score -= 260;
     if (isPaymentContext) score -= 140;
+
+    // Guardrail: tiny TOTAL values are often OCR-picked VAT/fee amounts, not payable totals
+    if (
+      isTotalContext &&
+      candidate.val < 8 &&
+      strongestRepeatedValue >= 10 &&
+      candidate.val < strongestRepeatedValue * 0.65
+    ) {
+      score -= 520;
+    }
 
     if (totalLine >= 0 && candidate.lineIndex >= totalLine) {
       const distance = candidate.lineIndex - totalLine;
@@ -419,25 +444,7 @@ export function extractAmount(reconstructedText) {
     return b.lineIndex - a.lineIndex;
   });
 
-  // DEBUG: Show top candidates
-  console.log('=== AMOUNT EXTRACTION DEBUG ===');
-  console.log('Top candidates (sorted by score):');
-  candidates.slice(0, 8).forEach((c, i) => {
-    const freq = (valueLines.get(c.val.toFixed(2)) || new Set()).size;
-    const freqStr = freq > 1 ? ` (appears ${freq}x)` : '';
-    const nearPayment = hasNear(c.lineIndex, /\bCASH\b|\bCHANGE\b|\bTENDER\b|\bPAID\b|\bCARD\b/, 1);
-    const paymentTag = nearPayment ? ' [NEAR_PAYMENT]' : '';
-    console.log(`  ${i+1}. £${c.val.toFixed(2)} | Score: ${c.score} | Line ${c.lineIndex}: "${c.upperLine}"${freqStr}${paymentTag}`);
-  });
-  
-  // DEBUG: Show TOTAL keyword location
-  if (totalLine >= 0) {
-    console.log(`TOTAL keyword found at line ${totalLine}`);
-  }
-
   const winner = candidates[0];
-  console.log(`WINNER: £${winner.val.toFixed(2)} (score=${winner.score})`);
-  console.log('================================');
 
   return {
     amount: winner.val,
