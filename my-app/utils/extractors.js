@@ -178,7 +178,7 @@ function extractDate(text) {
 // ---------- amount extraction ----------
 // ---------- amount extraction ----------
 // ---------- amount extraction ----------
-const MONEY_RE = /(?:£\s?|GBP\s?)?[0-9]{1,6}\.[0-9]{2}(?!\d)/g; // only amounts with decimals
+const MONEY_RE = /(?:£\s?|GBP\s*)?[0-9]{1,6}\.[0-9]{2}(?!\d)/g; // only amounts with decimals
 
 // Inside your extractors.js
 export function extractAmount(reconstructedText) {
@@ -197,7 +197,7 @@ export function extractAmount(reconstructedText) {
   const candidates = [];
 
   // Require a non-alphanumeric boundary before the amount to avoid matches like "9306U261.67"
-  const FORGIVING_MONEY = /(?:^|[^A-Z0-9])([£S$€¥ECT]?\s?\d{1,6}[.,]\s?\d{2})(?!\d)/gi;
+  const FORGIVING_MONEY = /(?:^|[^A-Z0-9])((?:GBP|[£S$€¥ECT])?\s?\d{1,6}[.,]\s?\d{2})(?!\d)/gi;
 
   const hasNear = (lineIndex, regex, radius = 1) => {
     for (let i = Math.max(0, lineIndex - radius); i <= Math.min(lineData.length - 1, lineIndex + radius); i++) {
@@ -215,7 +215,7 @@ export function extractAmount(reconstructedText) {
 
     matches.forEach((match) => {
       const raw = match[1];
-      const normalized = raw.replace(/[£S$€¥ECT\s]/gi, "").replace(",", ".");
+      const normalized = raw.replace(/GBP/gi, "").replace(/[£S$€¥ECT\s]/gi, "").replace(",", ".");
       const val = parseFloat(normalized);
       if (Number.isNaN(val) || val <= 0 || val > 100000) return;
       const valueKey = val.toFixed(2);
@@ -265,9 +265,10 @@ export function extractAmount(reconstructedText) {
       || hasNear(candidate.lineIndex, /\bSUBTOTAL\b|\bDISCOUNT\b|\bREFUND\b|\bTIPS?\b/, 1);
     const isVatContext = /\bVAT\b|\bTAX\b/.test(line)
       || (hasNear(candidate.lineIndex, /\bVAT\b|\bTAX\b/, 1) && !isTotalContext);
-    const isPaymentContext = (hasNear(candidate.lineIndex, /\bCASH\b|\bCHANGE\b|\bTENDER\b|\bCARD\s+PAYMENT\b|\bAUTHORI[ZS]ED\b|\bAPPROVED\b|\bMASTERCARD\b|\bVISA\b|\bAID\b/, 1)
+    const isPaymentContext = (hasNear(candidate.lineIndex, /\bCASH\b|\bCHANGE\b|\bTENDER\b|\bCARD\s+PAYMENT\b|\bAUTHORI[ZS]ED\b|\bAPPROVED\b|\bMASTERCARD\b|\bVISA\b|\bAID\b|\bDEBIT\b|\bSALE\b/, 1)
       || /\bAMOUNT\s+PAID\b/.test(line))
       && !/\bAMOUNT\s+DUE\b|\bBALANCE\s+DUE\b/.test(line);
+    const isItemLine = /\bKID\b|\bSTEAK\b|\bCHICKEN\b|\bCOOKIE\b|\bSALAD\b|\bWINE\b|\bRUMP\b|\bPRAWN\b|\bAVOCADO\b|\bMOZZARELLA\b|\bTOMATO\b|\bSAUCE\b|\bMEAL\b|\bBAG\s+CHARGE\b/.test(line);
 
     if (candidate.hasCurrency) score += 25;
     if (candidate.val < 1) score -= 40;
@@ -281,7 +282,7 @@ export function extractAmount(reconstructedText) {
     if (isTotalContext) score += 260;
     if (isSubtotalContext) score -= 190;
     if (isVatContext) score -= 260;
-    if (isPaymentContext) score -= 220;
+    if (isPaymentContext) score -= 140;
 
     if (totalLine >= 0 && candidate.lineIndex >= totalLine) {
       const distance = candidate.lineIndex - totalLine;
@@ -304,9 +305,15 @@ export function extractAmount(reconstructedText) {
       const idxs = [...(valueLines.get(key) || new Set())].sort((a, b) => a - b);
       const span = idxs[1] - idxs[0];
       if (!isVatContext && !isPaymentContext) {
-        if (span <= 4) score += 220;
-        else if (span <= 12) score += 130;
-        else score += 60;
+        if (candidate.val < 10 && !isTotalContext) {
+          if (span <= 4) score += 70;
+          else if (span <= 12) score += 40;
+          else score += 20;
+        } else {
+          if (span <= 4) score += 220;
+          else if (span <= 12) score += 130;
+          else score += 60;
+        }
       }
     } else if (uniqueLineCount >= 3 && uniqueLineCount <= 6) {
       if (!isVatContext) score += 50;
@@ -316,6 +323,16 @@ export function extractAmount(reconstructedText) {
       if (largest >= (median || 1) * 2.8) score += 220;
       else if (largest >= (median || 1) * 2.0) score += 130;
       else score += 60;
+    }
+
+    // Strong boost for values tied to explicit TOTAL/SALE/DEBIT lines around the total section
+    if ((/\bTOTAL\b|\bTOTAT\b|\bTOTA1\b|\bAMOUNT\s+DUE\b/.test(line) || /\bSALE\b|\bDEBIT\b/.test(line)) && candidate.val >= 10) {
+      score += 170;
+    }
+
+    // Small repeated item prices should not beat large final totals near the total line
+    if (candidate.val < 10 && uniqueLineCount >= 2 && isItemLine && totalLine >= 0 && candidate.lineIndex <= totalLine) {
+      score -= 120;
     }
 
     candidate.score = score;
@@ -372,12 +389,12 @@ export function extractAmount(reconstructedText) {
       const diff = bigCandidate.val - smallCandidate.val;
       if (diff < 90 || diff > 300) return;
 
-      const paymentLike = /\bSALE\b|\bDEBIT\b|\bCARD\b|\bVISA\b|\bMASTERCARD\b|\bAMOUNT\b/.test(smallCandidate.upperLine)
+      const paymentLike = /\bSALE\b|\bDEBIT\b|\bCARD\b|\bVISA\b|\bMASTERCARD\b|\bAMOUNT\b|\bTOTAL\b/.test(smallCandidate.upperLine)
         || hasNear(smallCandidate.lineIndex, /\bSALE\b|\bDEBIT\b|\bCARD\b|\bVISA\b|\bMASTERCARD\b|\bAMOUNT\b/, 1);
       if (!paymentLike) return;
 
       bigCandidate.score -= 260;
-      smallCandidate.score += 260;
+      smallCandidate.score += 320;
     });
   });
 
