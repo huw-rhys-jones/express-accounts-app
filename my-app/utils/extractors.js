@@ -11,7 +11,8 @@ export const reconstructLines = (blocks) => {
       allLines.push({
         text: line.text,
         y: centerY,
-        x: line.frame.left
+        x: line.frame.left,
+        h: line.frame.height || 0
       });
     });
   });
@@ -21,8 +22,18 @@ export const reconstructLines = (blocks) => {
   // 1. Sort all lines by Y (top to bottom)
   allLines.sort((a, b) => a.y - b.y);
 
+  const heights = allLines
+    .map(l => l.h)
+    .filter(h => Number.isFinite(h) && h > 0)
+    .sort((a, b) => a - b);
+  const medianHeight = heights.length
+    ? heights[Math.floor(heights.length / 2)]
+    : 20;
+
+  // Adaptive threshold avoids merging unrelated rows on dense receipts
+  const Y_THRESHOLD = Math.max(14, Math.min(30, Math.round(medianHeight * 0.95)));
+
   let reconstructedText = "";
-  const Y_THRESHOLD = 50; // Increased to 50 pixels to group items on the same line (e.g., "Total" and "£17.28")
 
   let currentY = allLines[0].y;
   let currentGroup = [];
@@ -167,7 +178,7 @@ function extractDate(text) {
 // ---------- amount extraction ----------
 // ---------- amount extraction ----------
 // ---------- amount extraction ----------
-const MONEY_RE = /(?:£\s?|GBP\s?)?\d{1,6}\.\d{2}(?!\d)/g; // only amounts with decimals
+const MONEY_RE = /(?:£\s?|GBP\s?)?[0-9]{1,6}\.[0-9]{2}(?!\d)/g; // only amounts with decimals
 
 // Inside your extractors.js
 export function extractAmount(reconstructedText) {
@@ -186,7 +197,7 @@ export function extractAmount(reconstructedText) {
   const candidates = [];
 
   // Require a non-alphanumeric boundary before the amount to avoid matches like "9306U261.67"
-  const FORGIVING_MONEY = /(?:^|[^A-Z0-9])([£S$€¥]?\s?\d{1,6}[.,]\s?\d{2})(?!\d)/gi;
+  const FORGIVING_MONEY = /(?:^|[^A-Z0-9])([£S$€¥ECT]?\s?\d{1,6}[.,]\s?\d{2})(?!\d)/gi;
 
   const hasNear = (lineIndex, regex, radius = 1) => {
     for (let i = Math.max(0, lineIndex - radius); i <= Math.min(lineData.length - 1, lineIndex + radius); i++) {
@@ -199,11 +210,17 @@ export function extractAmount(reconstructedText) {
     const matches = [...line.matchAll(FORGIVING_MONEY)];
     if (!matches.length) return;
 
+    // Prevent duplicate same-value hits from the same line inflating repetition
+    const seenValueInLine = new Set();
+
     matches.forEach((match) => {
       const raw = match[1];
-      const normalized = raw.replace(/[£S$€¥\s]/gi, "").replace(",", ".");
+      const normalized = raw.replace(/[£S$€¥ECT\s]/gi, "").replace(",", ".");
       const val = parseFloat(normalized);
       if (Number.isNaN(val) || val <= 0 || val > 100000) return;
+      const valueKey = val.toFixed(2);
+      if (seenValueInLine.has(valueKey)) return;
+      seenValueInLine.add(valueKey);
 
       const upperLine = lineData[lineIndex];
       const hasCurrency = /[£S$€¥]/i.test(raw);
@@ -220,138 +237,167 @@ export function extractAmount(reconstructedText) {
 
   if (!candidates.length) return null;
 
-  const receiptHasChangeContext = lineData.some(l => /\bCHANGE\b|\bCASH\b/.test(l));
+  const totalLine = lineData.findIndex(
+    l => /\bTOTAL\b|\bTOTAT\b|\bTOTA1\b|\bAMOUNT\s+DUE\b|\bBALANCE\s+DUE\b/.test(l) && !/\bSUBTOTAL\b/.test(l)
+  );
 
-  // Anchor lines ordered by confidence
-  const anchors = [];
-  lineData.forEach((line, index) => {
-    if (/\bAMOUNT\s+DUE\b|\bBALANCE\s+DUE\b/.test(line)) {
-      anchors.push({ lineIndex: index, weight: 520 });
-      return;
-    }
-    if (/\bDEPOSIT\s+AMOUNT\b|\bGRAND\s+TOTAL\b|\bTOTAL\s+GBP\b/.test(line)) {
-      anchors.push({ lineIndex: index, weight: 500 });
-      return;
-    }
-    if (/\bTOTAL\b|\bTOTAT\b|\bTOTA1\b/.test(line) && !/\bSUBTOTAL\b/.test(line)) {
-      anchors.push({ lineIndex: index, weight: 360 });
-      return;
-    }
-    if (/\bBALANCE\b|\bPAYABLE\b/.test(line)) {
-      anchors.push({ lineIndex: index, weight: 300 });
-    }
-  });
-
-  const valueFrequency = new Map();
+  const valueLines = new Map();
   candidates.forEach(c => {
     const key = c.val.toFixed(2);
-    valueFrequency.set(key, (valueFrequency.get(key) || 0) + 1);
+    const set = valueLines.get(key) || new Set();
+    set.add(c.lineIndex);
+    valueLines.set(key, set);
   });
+
+  const uniqueValues = [...new Set(candidates.map(c => c.val))].sort((a, b) => a - b);
+  const median = uniqueValues[Math.floor(uniqueValues.length / 2)] || 0;
+  const largest = uniqueValues[uniqueValues.length - 1] || 0;
 
   candidates.forEach(candidate => {
     let score = 0;
+    const line = candidate.upperLine;
+    const key = candidate.val.toFixed(2);
+    const uniqueLineCount = (valueLines.get(key) || new Set()).size;
 
-    if (candidate.hasCurrency) score += 20;
-    if (candidate.val < 1) score -= 60;
-    else if (candidate.val < 5) score -= 20;
+    const isTotalContext = /\bTOTAL\b|\bTOTAT\b|\bTOTA1\b|\bAMOUNT\s+DUE\b|\bBALANCE\s+DUE\b|\bGRAND\s+TOTAL\b/.test(line)
+      || hasNear(candidate.lineIndex, /\bAMOUNT\s+DUE\b|\bBALANCE\s+DUE\b|\bGRAND\s+TOTAL\b/, 1);
+    const isSubtotalContext = /\bSUBTOTAL\b|\bDISCOUNT\b|\bREFUND\b|\bTIPS?\b/.test(line)
+      || hasNear(candidate.lineIndex, /\bSUBTOTAL\b|\bDISCOUNT\b|\bREFUND\b|\bTIPS?\b/, 1);
+    const isVatContext = /\bVAT\b|\bTAX\b/.test(line)
+      || (hasNear(candidate.lineIndex, /\bVAT\b|\bTAX\b/, 1) && !isTotalContext);
+    const isPaymentContext = (hasNear(candidate.lineIndex, /\bCASH\b|\bCHANGE\b|\bTENDER\b|\bCARD\s+PAYMENT\b|\bAUTHORI[ZS]ED\b|\bAPPROVED\b|\bMASTERCARD\b|\bVISA\b|\bAID\b/, 1)
+      || /\bAMOUNT\s+PAID\b/.test(line))
+      && !/\bAMOUNT\s+DUE\b|\bBALANCE\s+DUE\b/.test(line);
 
-    if (receiptHasChangeContext && Math.abs(candidate.val - Math.round(candidate.val)) < 0.001) {
-      score -= 70;
+    if (candidate.hasCurrency) score += 25;
+    if (candidate.val < 1) score -= 40;
+    else if (candidate.val < 3) score -= 15;
+
+    // Date fragments (e.g. 12.09 from 12.09.2024) are not totals
+    if (/\bDATE\b|\bTIME\b/.test(line) && /\d{1,2}[./-]\d{1,2}[./-]\d{2,4}/.test(line) && candidate.val <= 31.99) {
+      score -= 260;
     }
 
-    if (hasNear(candidate.lineIndex, /\bVAT\b|\bTAX\b/, 1) && !hasNear(candidate.lineIndex, /\bTOTAL\b|\bDUE\b/, 2)) {
-      score -= 300;
-    }
-    if (hasNear(candidate.lineIndex, /\bSUBTOTAL\b/, 2)) score -= 120;
-    if (hasNear(candidate.lineIndex, /\bDISCOUNT\b|\bREFUND\b/, 1)) score -= 180;
-    if (hasNear(candidate.lineIndex, /\bCHANGE\b|\bCASH\b|\bTENDER\b/, 2)) score -= 240;
-    if (hasNear(candidate.lineIndex, /\bINVOICE\s+DATE\b|\bDUE\s+DATE\b/, 2)) score -= 240;
+    if (isTotalContext) score += 260;
+    if (isSubtotalContext) score -= 190;
+    if (isVatContext) score -= 260;
+    if (isPaymentContext) score -= 220;
 
-    let bestAnchorBoost = 0;
-    let bestAnchorDistance = Infinity;
-    anchors.forEach(anchor => {
-      if (candidate.lineIndex > anchor.lineIndex) {  // Changed >= to > (must be AFTER anchor)
-        const distance = candidate.lineIndex - anchor.lineIndex;
-        if (distance <= 35) {
-          const anchorBoost = anchor.weight - distance * 8;  // Increased from 4 to 8
-          if (anchorBoost > bestAnchorBoost) {
-            bestAnchorBoost = anchorBoost;
-            bestAnchorDistance = distance;
-          }
-        }
+    if (totalLine >= 0 && candidate.lineIndex >= totalLine) {
+      const distance = candidate.lineIndex - totalLine;
+      if (distance <= 3) score += 140;
+      else if (distance <= 12) score += 80;
+      else if (distance <= 24) score += 35;
+    }
+
+    // If the line has multiple amounts and is total-like, largest on that line is usually the payable total
+    if (isTotalContext) {
+      const lineAmounts = candidates.filter(c => c.lineIndex === candidate.lineIndex).map(c => c.val);
+      if (lineAmounts.length >= 2) {
+        const lineMax = Math.max(...lineAmounts);
+        if (Math.abs(candidate.val - lineMax) < 0.001) score += 190;
+        else score -= 180;
       }
-    });
-    
-    // Small amounts very close to TOTAL are likely item prices, not the total
-    if (bestAnchorDistance !== Infinity && bestAnchorDistance <= 3 && candidate.val < 3.5) {
-      bestAnchorBoost -= 200;
     }
-    
-    score += bestAnchorBoost;
 
-    const freq = valueFrequency.get(candidate.val.toFixed(2)) || 1;
-    if (freq >= 2) {
-      // Repeated totals get strong boost, but cap it for very high repetition (likely item prices)
-      const repeatBonus = freq >= 5 ? 100 : 140 + Math.min(freq - 2, 2) * 20;
-      score += repeatBonus;
+    if (uniqueLineCount === 2) {
+      const idxs = [...(valueLines.get(key) || new Set())].sort((a, b) => a - b);
+      const span = idxs[1] - idxs[0];
+      if (!isVatContext && !isPaymentContext) {
+        if (span <= 4) score += 220;
+        else if (span <= 12) score += 130;
+        else score += 60;
+      }
+    } else if (uniqueLineCount >= 3 && uniqueLineCount <= 6) {
+      if (!isVatContext) score += 50;
+    }
+
+    if (candidate.val === largest && largest > 10) {
+      if (largest >= (median || 1) * 2.8) score += 220;
+      else if (largest >= (median || 1) * 2.0) score += 130;
+      else score += 60;
     }
 
     candidate.score = score;
   });
 
-  // Sum heuristic: if A + B ≈ C in nearby lines, C is likely total
-  for (let i = 0; i < candidates.length; i++) {
-    const c = candidates[i];
-    for (let j = 0; j < candidates.length; j++) {
-      if (j === i) continue;
-      for (let k = j + 1; k < candidates.length; k++) {
-        if (k === i) continue;
-        const a = candidates[j];
-        const b = candidates[k];
-        if (a.val >= c.val || b.val >= c.val) continue;
-        const nearLines = Math.abs(a.lineIndex - c.lineIndex) <= 6 && Math.abs(b.lineIndex - c.lineIndex) <= 6;
-        if (!nearLines) continue;
+  // Cash/change relation: TOTAL + CHANGE ~= PAID. Boost TOTAL and penalize PAID.
+  const valueMap = new Map();
+  candidates.forEach(c => {
+    const key = c.val.toFixed(2);
+    if (!valueMap.has(key)) valueMap.set(key, []);
+    valueMap.get(key).push(c);
+  });
 
-        if (Math.abs((a.val + b.val) - c.val) <= 0.06) {
-          c.score += 140;
-        }
+  const values = [...valueMap.keys()].map(v => parseFloat(v));
+  for (let i = 0; i < values.length; i++) {
+    for (let j = 0; j < values.length; j++) {
+      for (let k = 0; k < values.length; k++) {
+        const totalVal = values[i];
+        const changeVal = values[j];
+        const paidVal = values[k];
+        if (totalVal <= 0 || changeVal <= 0 || paidVal <= 0) continue;
+        if (totalVal >= paidVal || changeVal >= paidVal) continue;
+        if (Math.abs((totalVal + changeVal) - paidVal) > 0.06) continue;
+
+        const totalCandidates = valueMap.get(totalVal.toFixed(2)) || [];
+        const changeCandidates = valueMap.get(changeVal.toFixed(2)) || [];
+        const paidCandidates = valueMap.get(paidVal.toFixed(2)) || [];
+
+        const hasChangeContext = changeCandidates.some(c =>
+          /\bCHANGE\b/.test(c.upperLine) || hasNear(c.lineIndex, /\bCHANGE\b/, 1)
+        );
+        const hasPaidContext = paidCandidates.some(c =>
+          /\bCASH\b|\bTENDER\b|\bCARD\b|\bPAID\b/.test(c.upperLine) || hasNear(c.lineIndex, /\bCASH\b|\bTENDER\b|\bCARD\b|\bPAID\b/, 1)
+        );
+        if (!hasChangeContext && !hasPaidContext) continue;
+
+        totalCandidates.forEach(c => { c.score += 260; });
+        paidCandidates.forEach(c => { c.score -= 220; });
+        changeCandidates.forEach(c => { c.score -= 110; });
       }
     }
   }
 
-  // Cash/change relation: PAID ≈ TOTAL + CHANGE. Penalize PAID and boost TOTAL.
-  if (receiptHasChangeContext) {
-    for (let p = 0; p < candidates.length; p++) {
-      for (let t = 0; t < candidates.length; t++) {
-        if (t === p) continue;
-        if (candidates[t].val >= candidates[p].val) continue;
-        for (let ch = 0; ch < candidates.length; ch++) {
-          if (ch === p || ch === t) continue;
-          const changeVal = candidates[ch].val;
-          if (changeVal <= 0 || changeVal >= candidates[t].val * 0.5) continue;
+  // OCR leading-digit artifact: "254.73" on TOTAL with "54.73" on SALE/CARD line
+  candidates.forEach(bigCandidate => {
+    if (bigCandidate.val < 100 || !/\bTOTAL\b|\bTOTAT\b|\bTOTA1\b/.test(bigCandidate.upperLine)) return;
 
-          if (Math.abs((candidates[t].val + changeVal) - candidates[p].val) <= 0.06) {
-            candidates[p].score -= 180;
-            candidates[t].score += 120;
-          }
-        }
-      }
+    const cents = Math.round((bigCandidate.val % 1) * 100);
+    candidates.forEach(smallCandidate => {
+      if (smallCandidate.val >= bigCandidate.val) return;
+      const smallCents = Math.round((smallCandidate.val % 1) * 100);
+      if (cents !== smallCents) return;
+
+      const diff = bigCandidate.val - smallCandidate.val;
+      if (diff < 90 || diff > 300) return;
+
+      const paymentLike = /\bSALE\b|\bDEBIT\b|\bCARD\b|\bVISA\b|\bMASTERCARD\b|\bAMOUNT\b/.test(smallCandidate.upperLine)
+        || hasNear(smallCandidate.lineIndex, /\bSALE\b|\bDEBIT\b|\bCARD\b|\bVISA\b|\bMASTERCARD\b|\bAMOUNT\b/, 1);
+      if (!paymentLike) return;
+
+      bigCandidate.score -= 260;
+      smallCandidate.score += 260;
+    });
+  });
+
+  // Guardrail: suspiciously small totals compared with nearby repeated amounts
+  const repeatedValues = [...valueLines.entries()]
+    .filter(([, set]) => set.size >= 2)
+    .map(([val]) => parseFloat(val));
+  const strongestRepeated = repeatedValues.length ? Math.max(...repeatedValues) : 0;
+  candidates.forEach(c => {
+    const inStrongTotalContext = /\bTOTAL\b|\bTOTAT\b|\bTOTA1\b|\bAMOUNT\s+DUE\b|\bBALANCE\s+DUE\b/.test(c.upperLine);
+    if (!inStrongTotalContext || strongestRepeated <= 0) return;
+    if (c.val < strongestRepeated * 0.45 && c.val < 8) {
+      c.score -= 220;
     }
-  }
-
-  // Boost the largest amount if it's significantly larger than the median
-  const sortedVals = [...candidates].map(c => c.val).sort((a, b) => a - b);
-  const median = sortedVals[Math.floor(sortedVals.length / 2)];
-  const largestCandidate = candidates.reduce((max, c) => c.val > max.val ? c : max);
-  
-  if (largestCandidate.val > median * 3 && largestCandidate.val > 15) {
-    largestCandidate.score += 80;
-  }
+  });
 
   candidates.sort((a, b) => {
     if (b.score !== a.score) return b.score - a.score;
-    const freqA = valueFrequency.get(a.val.toFixed(2)) || 1;
-    const freqB = valueFrequency.get(b.val.toFixed(2)) || 1;
+    const freqA = (valueLines.get(a.val.toFixed(2)) || new Set()).size;
+    const freqB = (valueLines.get(b.val.toFixed(2)) || new Set()).size;
     if (freqB !== freqA) return freqB - freqA;
     return b.lineIndex - a.lineIndex;
   });
@@ -360,17 +406,16 @@ export function extractAmount(reconstructedText) {
   console.log('=== AMOUNT EXTRACTION DEBUG ===');
   console.log('Top candidates (sorted by score):');
   candidates.slice(0, 8).forEach((c, i) => {
-    const freq = valueFrequency.get(c.val.toFixed(2)) || 1;
+    const freq = (valueLines.get(c.val.toFixed(2)) || new Set()).size;
     const freqStr = freq > 1 ? ` (appears ${freq}x)` : '';
-    console.log(`  ${i+1}. £${c.val.toFixed(2)} | Score: ${c.score} | Line ${c.lineIndex}: "${c.upperLine}"${freqStr}`);
+    const nearPayment = hasNear(c.lineIndex, /\bCASH\b|\bCHANGE\b|\bTENDER\b|\bPAID\b|\bCARD\b/, 1);
+    const paymentTag = nearPayment ? ' [NEAR_PAYMENT]' : '';
+    console.log(`  ${i+1}. £${c.val.toFixed(2)} | Score: ${c.score} | Line ${c.lineIndex}: "${c.upperLine}"${freqStr}${paymentTag}`);
   });
   
-  // DEBUG: Show anchor lines
-  if (anchors.length > 0) {
-    console.log('Anchors found:');
-    anchors.forEach(a => {
-      console.log(`  Line ${a.lineIndex}: "${lineData[a.lineIndex]}" (weight=${a.weight})`);
-    });
+  // DEBUG: Show TOTAL keyword location
+  if (totalLine >= 0) {
+    console.log(`TOTAL keyword found at line ${totalLine}`);
   }
 
   const winner = candidates[0];

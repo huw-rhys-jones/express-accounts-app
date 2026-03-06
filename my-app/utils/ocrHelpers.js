@@ -2,7 +2,7 @@ import { useState } from 'react';
 import * as FileSystem from 'expo-file-system/legacy';
 import TextRecognition from '@react-native-ml-kit/text-recognition';
 import { categories_meta } from '../constants/arrays';
-import { extractData } from './extractors';
+import { extractData, reconstructLines } from './extractors';
 
 /**
  * Hook that encapsulates OCR modal state and helper functions used by both
@@ -92,8 +92,9 @@ export function useReceiptOcr({ computeVat }) {
         }
       }
       const result = await TextRecognition.recognize(localUri);
-      const text = result?.text || '';
-      // Pass the full result with text for extraction
+      const reconstructedText = reconstructLines(result?.blocks || []);
+      const text = reconstructedText || result?.text || '';
+      // Prefer block-reconstructed text for extraction, fallback to raw OCR text
       const res = extractData(text);
 
       const categoryIndex =
