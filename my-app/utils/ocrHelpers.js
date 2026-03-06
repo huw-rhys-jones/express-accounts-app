@@ -93,6 +93,7 @@ export function useReceiptOcr({ computeVat }) {
       }
       const result = await TextRecognition.recognize(localUri);
       const text = result?.text || '';
+      // Pass the full result with text for extraction
       const res = extractData(text);
 
       const categoryIndex =

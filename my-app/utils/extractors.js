@@ -22,7 +22,7 @@ export const reconstructLines = (blocks) => {
   allLines.sort((a, b) => a.y - b.y);
 
   let reconstructedText = "";
-  const Y_THRESHOLD = 15; // Pixels allowed before considering it a "new line"
+  const Y_THRESHOLD = 50; // Increased to 50 pixels to group items on the same line (e.g., "Total" and "£17.28")
 
   let currentY = allLines[0].y;
   let currentGroup = [];
@@ -176,9 +176,15 @@ export function extractAmount(reconstructedText) {
   const lines = reconstructedText.split('\n');
   const candidates = [];
   
-  // This regex allows for an optional space after the decimal point
-  // to catch common OCR errors like "14. 49" or "S12. 90"
-  const FORGIVING_MONEY = /([£S$B]?\s?\d{1,6}[.,]\s?\d{2})/gi;
+  // DEBUG: Show all reconstructed lines
+  console.log('=== RECEIPT TEXT RECONSTRUCTION ===');
+  lines.forEach((line, i) => {
+    console.log(`  Line ${i}: "${line}"`);
+  });
+  console.log('====================================');
+  
+  // Only match amounts with explicit currency symbols to avoid matching postcodes/dates
+  const FORGIVING_MONEY = /([£S$€¥])\s?\d{1,6}[.,]\s?\d{2}/gi;
 
   lines.forEach((line, index) => {
     const matches = [...line.matchAll(FORGIVING_MONEY)];
@@ -187,38 +193,60 @@ export function extractAmount(reconstructedText) {
     if (matches.length > 0) {
       matches.forEach((m, matchIndex) => {
         // Clean the value: remove currency symbols/OCR noise and spaces
-        const val = parseFloat(m[1].replace(/[£S$B\s]/gi, "").replace(",", "."));
+        const val = parseFloat(m[0].replace(/[£S$€¥\s]/gi, "").replace(",", "."));
         
         if (!isNaN(val) && val > 0) {
           const upperLine = line.toUpperCase();
+          
+          // Look at context: check current line + previous 2 lines for keywords
+          let contextLines = [];
+          for (let i = Math.max(0, index - 2); i <= index; i++) {
+            contextLines.push(lines[i].toUpperCase());
+          }
+          const contextStr = contextLines.join(" ");
+          
+          // Also check the NEXT line for context (amount might be followed by keyword)
+          let nextLineStr = index + 1 < lines.length ? lines[index + 1].toUpperCase() : "";
+          
           let score = 0;
 
-          // 1. KEYWORD SCORES
-          // Uses word boundaries (\b) to avoid matching "included" as "pay"
-          // and handles fuzzy "Tota1" OCR errors.
-          if (/\bTOT[AL1]|\bDUE\b|\bPAY\b/i.test(upperLine)) {
+          // 1. KEYWORD SCORES - check in context (current + previous 2 lines)
+          if (/\bSUBTOT[AL1]/.test(contextStr)) {
+            score += 50;
+          }
+          else if (/\bTOT[AL1]\b/.test(contextStr)) {
+            score += 600; // TOTAL found in recent context
+          }
+          else if (/\bDUE\b/.test(contextStr)) {
+            score += 400;
+          }
+          else if (/\bPAY\b/.test(contextStr)) {
             score += 250;
           }
           
           // 2. RIGHT-SIDE PRIORITY
-          // On lines with multiple numbers (Qty @ Price | Total), the right-most is the winner.
           if (matchIndex === matches.length - 1 && matches.length > 1) {
             score += 50; 
           }
 
-          // 3. POISON FILTERS
-          // Heavy penalties for VAT and sub-totals to prevent them from winning.
-          if (/VAT|TAX|NET|RATE|POINTS|WORTH|SAVINGS|CHANGE|UNIT|LITRE|@/.test(upperLine)) {
-              const isVatLine = /VAT|TAX|NET/.test(upperLine);
-              // Nuke VAT lines (-300) so they can't beat a TOTAL line higher up
-              score -= isVatLine ? 300 : (/\bTOT[AL1]/.test(upperLine) ? 50 : 150);
+          // 3. POISON FILTERS - check current line + next line
+          if (/\bVAT\b|\bTAX\b/.test(upperLine)) {
+            score -= 1000;
+          }
+          // Penalize if CASH, CHANGE, DISCOUNT, REFUND appear on this line or the next
+          else if (/\bCASH\b|\bCHANGE\b|\bDISCOUNT\b|\bREFUND\b/.test(upperLine + " " + nextLineStr)) {
+            score -= 800;
+          }
+          else if (/NET|RATE|POINTS|WORTH|SAVINGS|UNIT|LITRE|@/.test(upperLine)) {
+            score -= 300;
           }
 
-          // 4. POSITION BONUS
-          // Slight bias for numbers lower in the receipt.
-          score += (progressFactor * 100); 
+          // 4. HEURISTIC: Small amounts (< £5) are likely VAT/tax, not the total
+          if (score === 0 && val < 5) {
+            score -= 200;
+          }
 
-          candidates.push({ val, score, line: upperLine });
+          candidates.push({ val, score, line: upperLine, lineIndex: index });
         }
       });
     }
@@ -229,7 +257,119 @@ export function extractAmount(reconstructedText) {
   // Sort by score descending
   candidates.sort((a, b) => b.score - a.score);
 
+  // If all top candidates have score 0 (no keywords), apply different logic:
+  // Look for amount IMMEDIATELY after TOTAL keyword (next 1-3 lines)
+  if (candidates[0].score === 0) {
+    let totalLine = -1;
+    
+    // Find the LAST line with TOTAL or DUE (not SUBTOTAL)
+    for (let i = lines.length - 1; i >= 0; i--) {
+      const upperLine = lines[i].toUpperCase();
+      const isTotal = /\bTOTAL\b|\bDUE\b/.test(upperLine);
+      const isSubtotal = /\bSUBTOTAL\b/.test(upperLine);
+      if (isTotal && !isSubtotal) {
+        totalLine = i;
+        break;
+      }
+    }
+    
+    console.log(`DEBUG: Final TOTAL line: ${totalLine}`);
+    
+    if (totalLine >= 0) {
+      // STRATEGY: Find the receipt total by looking between key section markers
+      
+      // First: Look in immediate next 1-3 lines for an amount
+      for (let offset = 1; offset <= 3; offset++) {
+        if (totalLine + offset < lines.length) {
+          const candidate = candidates.find(c => c.lineIndex === totalLine + offset);
+          if (candidate) {
+            console.log(`DEBUG: Found amount ${offset} lines immediately after TOTAL: £${candidate.val.toFixed(2)}`);
+            return { 
+              amount: candidate.val, 
+              display: `£${candidate.val.toFixed(2)}` 
+            };
+          }
+        }
+      }
+      
+      // Second: Find CHANGE/CASH line (marks end of bill section)
+      let changeLine = lines.length;
+      for (let i = totalLine + 1; i < lines.length; i++) {
+        const upper = lines[i].toUpperCase();
+        if (/\bCHANGE\b|\bCALL TOTAL\b|\bPAID|\bPAYMENT/.test(upper)) {
+          changeLine = i;
+          console.log(`DEBUG: Found CHANGE at line ${i}: "${lines[i]}"`);
+          break;
+        }
+      }
+      
+      // Third: Look for the LARGEST amount between TOTAL and CHANGE
+      let bestAmount = null;
+      candidates.forEach(c => {
+        if (c.lineIndex > totalLine && c.lineIndex < changeLine && c.score >= -300) {
+          console.log(`DEBUG: Amount between TOTAL and CHANGE: £${c.val.toFixed(2)} at line ${c.lineIndex}`);
+          if (!bestAmount || c.val > bestAmount.val) {
+            bestAmount = c;
+          }
+        }
+      });
+      
+      if (bestAmount) {
+        console.log(`DEBUG: Selected: £${bestAmount.val.toFixed(2)} (largest between TOTAL and CHANGE)`);
+        return { 
+          amount: bestAmount.val, 
+          display: `£${bestAmount.val.toFixed(2)}` 
+        };
+      }
+      
+      // Fourth: If no amount between TOTAL and CHANGE, look for amounts RIGHT AFTER TOTAL
+      // Prioritize proximity to TOTAL keyword over size
+      bestAmount = null;
+      let bestScore = -Infinity;
+      
+      candidates.forEach(c => {
+        if (c.lineIndex > totalLine && c.score >= -300) {
+          const distance = c.lineIndex - totalLine;
+          // Score: favor close amounts strongly, but also consider value
+          // Close amounts (distance 1-5) get high score boost
+          let proximityScore = 100 - (distance * 5);  // -5 per line distance
+          let valueScore = c.val;
+          let finalScore = proximityScore + (valueScore * 0.1);  // Value as tiebreaker
+          
+          if (finalScore > bestScore) {
+            bestScore = finalScore;
+            bestAmount = c;
+          }
+        }
+      });
+      
+      if (bestAmount) {
+        const distance = bestAmount.lineIndex - totalLine;
+        console.log(`DEBUG: Selected amount after TOTAL (proximity-weighted): £${bestAmount.val.toFixed(2)} (distance ${distance})`);
+        return { 
+          amount: bestAmount.val, 
+          display: `£${bestAmount.val.toFixed(2)}` 
+        };
+      }
+    }
+  }
+
+  // Normal case: sort by score
+  candidates.sort((a, b) => {
+    if (b.score !== a.score) return b.score - a.score;
+    return b.lineIndex - a.lineIndex;
+  });
+
+  // DEBUG: Log all candidates sorted by score
+  console.log('=== AMOUNT EXTRACTION DEBUG ===');
+  console.log('All candidates (sorted by score):');
+  candidates.slice(0, 5).forEach((c, i) => {
+    console.log(`  ${i+1}. £${c.val.toFixed(2)} | Score: ${c.score} | Line: "${c.line}"`);
+  });
+
   const winner = candidates[0];
+  console.log(`WINNER: £${winner.val.toFixed(2)} from line: "${winner.line}"`);
+  console.log('================================');
   
   // Return amount and formatted display string
   return { 
