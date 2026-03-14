@@ -5,6 +5,7 @@ import {
   TextInput,
   TouchableOpacity,
   Image,
+  ScrollView,
   findNodeHandle,
   FlatList,
   Alert,
@@ -14,6 +15,7 @@ import {
   ActivityIndicator,
   Platform,
   PermissionsAndroid,
+  StyleSheet,
 } from "react-native";
 import { KeyboardAwareScrollView } from "react-native-keyboard-aware-scroll-view";
 import { SafeAreaView } from "react-native-safe-area-context";
@@ -21,8 +23,8 @@ import { Button, Checkbox } from "react-native-paper";
 import DateTimePickerModal from "react-native-modal-datetime-picker";
 import DropDownPicker from "react-native-dropdown-picker";
 import * as ImagePicker from "react-native-image-picker";
-import { db } from "../firebaseConfig";
-import { doc, updateDoc, deleteDoc } from "firebase/firestore";
+import { db, auth } from "../firebaseConfig";
+import { doc, updateDoc, deleteDoc, getDoc, setDoc } from "firebase/firestore";
 import {
   getStorage,
   ref,
@@ -78,6 +80,7 @@ export default function ReceiptDetailsScreen({ route, navigation }) {
   const [isDatePickerVisible, setDatePickerVisibility] = useState(false);
 
   const [isUploading, setIsUploading] = useState(false);
+  const [showOcrCheckboxTip, setShowOcrCheckboxTip] = useState(false);
 
   // VAT helper used by hook as well as local logic
   const computeVat = (grossStr, rateStr) => {
@@ -174,6 +177,50 @@ export default function ReceiptDetailsScreen({ route, navigation }) {
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  const dismissOcrCheckboxTip = async () => {
+    setShowOcrCheckboxTip(false);
+    const user = auth.currentUser;
+    if (!user) return;
+
+    try {
+      const userRef = doc(db, "users", user.uid);
+      await setDoc(userRef, { hasSeenOcrCheckboxTip: true }, { merge: true });
+    } catch (error) {
+      console.log("Error updating OCR checkbox tooltip status:", error);
+    }
+  };
+
+  useEffect(() => {
+    if (!ocrModalVisible || ocrLoading) return;
+
+    let isActive = true;
+
+    const checkOcrCheckboxTipStatus = async () => {
+      const user = auth.currentUser;
+      if (!user) {
+        if (isActive) setShowOcrCheckboxTip(true);
+        return;
+      }
+
+      try {
+        const userRef = doc(db, "users", user.uid);
+        const userSnap = await getDoc(userRef);
+        if (isActive) {
+          setShowOcrCheckboxTip(!userSnap.data()?.hasSeenOcrCheckboxTip);
+        }
+      } catch (error) {
+        console.log("Error fetching OCR checkbox tooltip status:", error);
+        if (isActive) setShowOcrCheckboxTip(true);
+      }
+    };
+
+    checkOcrCheckboxTipStatus();
+
+    return () => {
+      isActive = false;
+    };
+  }, [ocrModalVisible, ocrLoading]);
 
   // ✅ Safe navigate back
   const safeNavigateToExpenses = () => {
@@ -375,7 +422,7 @@ export default function ReceiptDetailsScreen({ route, navigation }) {
         contentContainerStyle={{ flexGrow: 1, paddingBottom: 600 }} // INCREASE THIS
         enableOnAndroid={true}
         enableAutomaticScroll={false} // Disable auto-scroll so our manual scroll doesn't fight it
-        keyboardShouldPersistTaps="handled"
+        keyboardShouldPersistTaps="always"
         extraScrollHeight={0}
       >
         <View style={ReceiptStyles.container}>
@@ -383,97 +430,125 @@ export default function ReceiptDetailsScreen({ route, navigation }) {
             <Text style={ReceiptStyles.header}>Edit Receipt</Text>
 
             {/* Amount */}
-            <Text style={ReceiptStyles.label}>Amount (£)</Text>
-            <TextInput
-              style={ReceiptStyles.input}
-              value={amount}
-              keyboardType="decimal-pad"
-              onChangeText={(v) => {
-                setAmount(v);
-                if (!vatAmountEdited && v && vatRate) {
-                  setVatAmount(computeVat(v, vatRate));
-                }
-              }}
-            />
-
-            {/* VAT Section */}
-            <View style={ReceiptStyles.vatRow}>
-              {/* VAT Amount Column */}
-              <View style={ReceiptStyles.vatColLeft}>
-                <Text style={ReceiptStyles.label}>VAT Amount</Text>
-                <View style={ReceiptStyles.inputRow}>
-                  <Text style={ReceiptStyles.vatCurrency}>£</Text>
-                  <TextInput
-                    style={ReceiptStyles.vatInput}
-                    keyboardType="decimal-pad"
-                    placeholder="0.00"
-                    value={vatAmount}
-                    onChangeText={(v) => {
-                      setVatAmount(v);
-                      const edited = v.trim().length > 0;
-                      setVatAmountEdited(edited);
-                      if (!edited && amount && vatRate) {
-                        setVatAmount(computeVat(amount, vatRate));
-                      }
-                    }}
-                    onBlur={() => {
-                      if (!vatAmount.trim()) setVatAmountEdited(false);
-                    }}
-                  />
-                </View>
-              </View>
-
-              {/* VAT Rate Column */}
+            <View style={localStyles.fieldGroup}>
+              <Text style={[ReceiptStyles.label, localStyles.labelAligned]}>
+                Amount:
+              </Text>
               <View
                 style={[
-                  ReceiptStyles.vatColRight,
-                  { zIndex: 5000, elevation: 5 },
+                  ReceiptStyles.inputRow,
+                  localStyles.fieldRow,
+                  localStyles.currencyField,
                 ]}
               >
-                <Text style={ReceiptStyles.label}>Rate (%):</Text>
-                <DropDownPicker
-                  open={vatRateOpen}
-                  value={vatRate}
-                  items={vatRateItems}
-                  setOpen={setVatRateOpen}
-                  setValue={(set) => setVatRate(set(vatRate))}
-                  setItems={setVatRateItems}
-                  placeholder="Select"
+                <View style={localStyles.currencyWrapper}>
+                  <Text style={localStyles.currencyInside}>£</Text>
+                </View>
+                <TextInput
                   style={[
-                    ReceiptStyles.vatRatePicker,
-                    { backgroundColor: Colors.surface },
-                  ]} // Add explicit background
-                  dropDownContainerStyle={[
-                    ReceiptStyles.vatRateDropdown,
-                    { backgroundColor: Colors.surface },
-                  ]} // Add explicit background
-                  containerStyle={{ marginTop: 8 }}
-                  zIndex={5000}
-                  zIndexInverse={1000}
-                  listMode="SCROLLVIEW"
-                  onChangeValue={(val) => {
-                    const next = val ?? "";
-                    setVatRate(next);
-                    // changing rate => return to auto mode & recalc if possible
-                    setVatAmountEdited(false);
-                    if (next && amount) {
-                      setVatAmount(computeVat(amount, next));
+                    ReceiptStyles.input,
+                    localStyles.inputAligned,
+                    localStyles.inputWithCurrency,
+                  ]}
+                  keyboardType="decimal-pad"
+                  value={amount}
+                  onChangeText={(v) => {
+                    setAmount(v);
+                    if (!vatAmountEdited && v && vatRate) {
+                      setVatAmount(computeVat(v, vatRate));
                     }
                   }}
                 />
               </View>
             </View>
 
+            {/* VAT Section: labels above fields */}
+            <View style={localStyles.fieldGroup}>
+              <View
+                style={[
+                  ReceiptStyles.vatRow,
+                  localStyles.vatRowAligned,
+                  { zIndex: 2000, elevation: 5 },
+                ]}
+              >
+                {/* VAT Amount Column */}
+                <View style={ReceiptStyles.vatColLeft}>
+                  <Text style={ReceiptStyles.label}>VAT Amount:</Text>
+                  <View
+                    style={[ReceiptStyles.inputRow, localStyles.currencyField]}
+                  >
+                    <View style={localStyles.currencyWrapper}>
+                      <Text style={localStyles.currencyInside}>£</Text>
+                    </View>
+                    <TextInput
+                      style={[
+                        ReceiptStyles.vatInput,
+                        localStyles.vatInputWithCurrency,
+                      ]}
+                      keyboardType="decimal-pad"
+                      placeholder="0.00"
+                      placeholderTextColor={Colors.textSecondary}
+                      value={vatAmount}
+                      onChangeText={(v) => {
+                        setVatAmount(v);
+                        const edited = v.trim().length > 0;
+                        setVatAmountEdited(edited);
+                        if (!edited && amount && vatRate) {
+                          setVatAmount(computeVat(amount, vatRate));
+                        }
+                      }}
+                      onBlur={() => {
+                        if (!vatAmount.trim()) setVatAmountEdited(false);
+                      }}
+                    />
+                  </View>
+                </View>
+
+                {/* Rate Column */}
+                <View style={ReceiptStyles.vatColRight}>
+                  <Text style={ReceiptStyles.label}>Rate (%):</Text>
+                  <DropDownPicker
+                    open={vatRateOpen}
+                    value={vatRate}
+                    items={vatRateItems}
+                    setOpen={setVatRateOpen}
+                    setValue={(set) => setVatRate(set(vatRate))}
+                    setItems={setVatRateItems}
+                    placeholder="Select"
+                    style={ReceiptStyles.vatRatePicker}
+                    dropDownContainerStyle={ReceiptStyles.vatRateDropdown}
+                    containerStyle={localStyles.fieldTopSpacingTight}
+                    zIndex={2000}
+                    zIndexInverse={2000}
+                    listMode="SCROLLVIEW"
+                    scrollViewProps={{ keyboardShouldPersistTaps: "always" }}
+                    onChangeValue={(val) => {
+                      const next = val ?? "";
+                      setVatRate(next);
+                      setVatAmountEdited(false);
+                      if (next && amount) {
+                        setVatAmount(computeVat(amount, next));
+                      }
+                    }}
+                  />
+                </View>
+              </View>
+            </View>
+
             {/* Date */}
-            <Text style={ReceiptStyles.label}>Date:</Text>
-            <TouchableOpacity
-              style={ReceiptStyles.dateButton}
-              onPress={showDatePicker}
-            >
-              <Text style={ReceiptStyles.dateText}>
-                {formatDate(selectedDate)}
+            <View style={localStyles.fieldGroup}>
+              <Text style={[ReceiptStyles.label, localStyles.labelAligned]}>
+                Date:
               </Text>
-            </TouchableOpacity>
+              <TouchableOpacity
+                style={ReceiptStyles.dateButton}
+                onPress={showDatePicker}
+              >
+                <Text style={ReceiptStyles.dateText}>
+                  {formatDate(selectedDate)}
+                </Text>
+              </TouchableOpacity>
+            </View>
             <DateTimePickerModal
               isVisible={isDatePickerVisible}
               mode="date"
@@ -485,11 +560,11 @@ export default function ReceiptDetailsScreen({ route, navigation }) {
             <View
               ref={categoryWrapperRef}
               collapsable={false} // CRITICAL for Android measurement
-              style={{ zIndex: 1000, marginTop: 15 }}
+              style={[localStyles.fieldGroup, { zIndex: 1000 }]}
             >
               {/* Category */}
               <Text
-                style={ReceiptStyles.label}
+                style={[ReceiptStyles.label, localStyles.labelAligned]}
                 onLayout={(event) => setCategoryY(event.nativeEvent.layout.y)}
               >
                 Category:
@@ -547,6 +622,7 @@ export default function ReceiptDetailsScreen({ route, navigation }) {
                 }}
                 // 3. Return to SCROLLVIEW mode for stability
                 listMode="SCROLLVIEW"
+                scrollViewProps={{ keyboardShouldPersistTaps: "always" }}
                 nestedScrollEnabled={true}
                 // 4. Force a Height to fix the scrolling
                 // This ensures the picker has a defined boundary so the phone knows when to scroll
@@ -595,7 +671,7 @@ export default function ReceiptDetailsScreen({ route, navigation }) {
                     (error) => console.log("Measurement failed", error)
                   );
                 }}
-                style={ReceiptStyles.dropdown}
+                style={[ReceiptStyles.dropdown, localStyles.dropdownAligned]}
                 zIndex={1000}
                 zIndexInverse={3000}
               />
@@ -683,6 +759,12 @@ export default function ReceiptDetailsScreen({ route, navigation }) {
           <View style={[ReceiptStyles.modalContent, { maxHeight: "90%" }]}>
             <Text style={ReceiptStyles.modalTitle}>Receipt Preview</Text>
 
+            <ScrollView
+              showsVerticalScrollIndicator
+              keyboardShouldPersistTaps="handled"
+              contentContainerStyle={{ paddingBottom: 12 }}
+            >
+
             {preview?.uri ? (
               <View style={{ alignItems: "center" }}>
                 <TouchableOpacity
@@ -709,6 +791,21 @@ export default function ReceiptDetailsScreen({ route, navigation }) {
               <Text style={ReceiptStyles.fullscreenHint}>
                 Tap image to view full screen
               </Text>
+            )}
+
+            {!ocrLoading && showOcrCheckboxTip && (
+              <View style={localStyles.ocrTipWrapper}>
+                <View style={localStyles.ocrTipBox}>
+                  <Text style={localStyles.ocrTipText}>
+                    You can edit these values in the next screen. Uncheck
+                    any you immediately disagree with.
+                  </Text>
+                  <TouchableOpacity onPress={dismissOcrCheckboxTip}>
+                    <Text style={localStyles.ocrTipDismiss}>Got it</Text>
+                  </TouchableOpacity>
+                </View>
+                <View style={localStyles.ocrTipArrow} />
+              </View>
             )}
 
             {!ocrLoading && (
@@ -865,6 +962,7 @@ export default function ReceiptDetailsScreen({ route, navigation }) {
                 </View>
               </>
             )}
+            </ScrollView>
           </View>
         </View>
       </Modal>
@@ -911,3 +1009,88 @@ export default function ReceiptDetailsScreen({ route, navigation }) {
     </SafeAreaView>
   );
 }
+
+const localStyles = StyleSheet.create({
+  labelAligned: {
+    marginLeft: 10,
+  },
+  fieldRow: {
+    marginHorizontal: 10,
+  },
+  inputAligned: {
+    margin: 0,
+  },
+  dropdownAligned: {
+    marginHorizontal: 10,
+  },
+  vatRowAligned: {
+    marginHorizontal: 10,
+  },
+  fieldGroup: {
+    marginBottom: 16,
+  },
+  fieldTopSpacingTight: {
+    marginTop: 0,
+  },
+  currencyField: {
+    position: "relative",
+  },
+  currencyWrapper: {
+    position: "absolute",
+    left: 0,
+    top: 0,
+    bottom: 0,
+    width: 40,
+    zIndex: 1,
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  currencyInside: {
+    fontSize: 16,
+    fontWeight: "600",
+    color: Colors.textSecondary,
+  },
+  inputWithCurrency: {
+    paddingLeft: 28,
+  },
+  vatInputWithCurrency: {
+    paddingLeft: 28,
+  },
+  ocrTipWrapper: {
+    marginTop: 10,
+    marginBottom: 4,
+    alignItems: "stretch",
+  },
+  ocrTipBox: {
+    backgroundColor: "#F0D1FF",
+    borderRadius: 12,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    width: "100%",
+  },
+  ocrTipText: {
+    color: "#4A148C",
+    fontSize: 13,
+    lineHeight: 18,
+    textAlign: "left",
+  },
+  ocrTipDismiss: {
+    marginTop: 6,
+    textAlign: "right",
+    color: "#4A148C",
+    fontWeight: "700",
+    fontSize: 12,
+  },
+  ocrTipArrow: {
+    alignSelf: "flex-start",
+    marginLeft: 28,
+    width: 0,
+    height: 0,
+    borderLeftWidth: 9,
+    borderRightWidth: 9,
+    borderTopWidth: 11,
+    borderLeftColor: "transparent",
+    borderRightColor: "transparent",
+    borderTopColor: "#F0D1FF",
+  },
+});

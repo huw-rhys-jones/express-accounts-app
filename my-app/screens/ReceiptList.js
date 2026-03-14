@@ -342,7 +342,7 @@ const ExpensesScreen = ({ navigation }) => {
         <View
           style={[
             styles.listContainer,
-            { width: "95%", marginTop: 0, marginBottom: 5 },
+            { width: "98%", marginTop: 0, marginBottom: 5 },
           ]}
         >
           <TouchableOpacity
@@ -670,7 +670,7 @@ const styles = StyleSheet.create({
   listContainer: {
     marginTop: 10,
     borderRadius: 10,
-    padding: 8,
+    padding: 6,
     backgroundColor: Colors.textPrimary,
     width: "100%",
   },

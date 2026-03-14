@@ -50,6 +50,7 @@ const ReceiptAdd = ({ navigation }) => {
   const [selectedCategory, setSelectedCategory] = useState(null);
   const [vatAmountEdited, setVatAmountEdited] = useState(false);
   const [showTip, setShowTip] = useState(false);
+  const [showOcrCheckboxTip, setShowOcrCheckboxTip] = useState(false);
   const [tipPosition, setTipPosition] = useState({ x: 0, y: 0 });
 
   // success + confirm modals
@@ -243,6 +244,50 @@ const ReceiptAdd = ({ navigation }) => {
       }
     }
   };
+
+  const dismissOcrCheckboxTip = async () => {
+    setShowOcrCheckboxTip(false);
+    const user = auth.currentUser;
+    if (!user) return;
+
+    try {
+      const userRef = doc(db, "users", user.uid);
+      await setDoc(userRef, { hasSeenOcrCheckboxTip: true }, { merge: true });
+    } catch (error) {
+      console.log("Error updating OCR checkbox tooltip status:", error);
+    }
+  };
+
+  useEffect(() => {
+    if (!ocrModalVisible || ocrLoading) return;
+
+    let isActive = true;
+
+    const checkOcrCheckboxTipStatus = async () => {
+      const user = auth.currentUser;
+      if (!user) {
+        if (isActive) setShowOcrCheckboxTip(true);
+        return;
+      }
+
+      try {
+        const userRef = doc(db, "users", user.uid);
+        const userSnap = await getDoc(userRef);
+        if (isActive) {
+          setShowOcrCheckboxTip(!userSnap.data()?.hasSeenOcrCheckboxTip);
+        }
+      } catch (error) {
+        console.log("Error fetching OCR checkbox tooltip status:", error);
+        if (isActive) setShowOcrCheckboxTip(true);
+      }
+    };
+
+    checkOcrCheckboxTipStatus();
+
+    return () => {
+      isActive = false;
+    };
+  }, [ocrModalVisible, ocrLoading]);
 
   // ------- save helpers -------
   const calculateVatFromRate = () => {
@@ -449,7 +494,7 @@ const ReceiptAdd = ({ navigation }) => {
         contentContainerStyle={{ flexGrow: 1, paddingBottom: 600 }} // INCREASE THIS
         enableOnAndroid={true}
         enableAutomaticScroll={false} // Disable auto-scroll so our manual scroll doesn't fight it
-        keyboardShouldPersistTaps="handled"
+        keyboardShouldPersistTaps="always"
         extraScrollHeight={0}
       >
         <View style={ReceiptStyles.container}>
@@ -468,7 +513,9 @@ const ReceiptAdd = ({ navigation }) => {
                   localStyles.currencyField,
                 ]}
               >
-                <Text style={localStyles.currencyInside}>£</Text>
+                <View style={localStyles.currencyWrapper}>
+                  <Text style={localStyles.currencyInside}>£</Text>
+                </View>
                 <TextInput
                   style={[
                     ReceiptStyles.input,
@@ -503,7 +550,9 @@ const ReceiptAdd = ({ navigation }) => {
                   <View
                     style={[ReceiptStyles.inputRow, localStyles.currencyField]}
                   >
-                    <Text style={localStyles.currencyInside}>£</Text>
+                    <View style={localStyles.currencyWrapper}>
+                      <Text style={localStyles.currencyInside}>£</Text>
+                    </View>
                     <TextInput
                       style={[
                         ReceiptStyles.vatInput,
@@ -546,6 +595,7 @@ const ReceiptAdd = ({ navigation }) => {
                     zIndex={2000}
                     zIndexInverse={2000}
                     listMode="SCROLLVIEW"
+                    scrollViewProps={{ keyboardShouldPersistTaps: "always" }}
                     onChangeValue={(val) => {
                       const next = val ?? "";
                       setVatRate(next);
@@ -647,6 +697,7 @@ const ReceiptAdd = ({ navigation }) => {
                 }}
                 // 3. Return to SCROLLVIEW mode for stability
                 listMode="SCROLLVIEW"
+                scrollViewProps={{ keyboardShouldPersistTaps: "always" }}
                 nestedScrollEnabled={true}
                 // 4. Force a Height to fix the scrolling
                 // This ensures the picker has a defined boundary so the phone knows when to scroll
@@ -938,6 +989,12 @@ const ReceiptAdd = ({ navigation }) => {
           <View style={[ReceiptStyles.modalContent, { maxHeight: "90%" }]}>
             <Text style={ReceiptStyles.modalTitle}>Receipt Preview</Text>
 
+            <ScrollView
+              showsVerticalScrollIndicator
+              keyboardShouldPersistTaps="handled"
+              contentContainerStyle={{ paddingBottom: 12 }}
+            >
+
             {preview?.uri ? (
               <View style={{ alignItems: "center" }}>
                 <TouchableOpacity
@@ -972,6 +1029,21 @@ const ReceiptAdd = ({ navigation }) => {
               <Text style={ReceiptStyles.fullscreenHint}>
                 Tap image to view full screen
               </Text>
+            )}
+
+            {!ocrLoading && showOcrCheckboxTip && (
+              <View style={localStyles.ocrTipWrapper}>
+                <View style={localStyles.ocrTipBox}>
+                  <Text style={localStyles.ocrTipText}>
+                    You can edit these values in the next screen. Uncheck
+                    any you immediately disagree with.
+                  </Text>
+                  <TouchableOpacity onPress={dismissOcrCheckboxTip}>
+                    <Text style={localStyles.ocrTipDismiss}>Got it</Text>
+                  </TouchableOpacity>
+                </View>
+                <View style={localStyles.ocrTipArrow} />
+              </View>
             )}
 
             {!ocrLoading && (
@@ -1081,6 +1153,7 @@ const ReceiptAdd = ({ navigation }) => {
                 </View>
               </>
             )}
+            </ScrollView>
           </View>
         </View>
       </Modal>
@@ -1191,24 +1264,64 @@ const localStyles = StyleSheet.create({
   },
   currencyField: {
     position: "relative",
-    justifyContent: "center",
   },
-  currencyInside: {
+  currencyWrapper: {
     position: "absolute",
-    left: 12,
+    left: 0,
     top: 0,
     bottom: 0,
+    width: 40,
     zIndex: 1,
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  currencyInside: {
     fontSize: 16,
     fontWeight: "600",
     color: Colors.textSecondary,
-    textAlignVertical: "center",
   },
   inputWithCurrency: {
     paddingLeft: 28,
   },
   vatInputWithCurrency: {
     paddingLeft: 28,
+  },
+  ocrTipWrapper: {
+    marginTop: 10,
+    marginBottom: 4,
+    alignItems: "stretch",
+  },
+  ocrTipBox: {
+    backgroundColor: "#F0D1FF",
+    borderRadius: 12,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    width: "100%",
+  },
+  ocrTipText: {
+    color: "#4A148C",
+    fontSize: 13,
+    lineHeight: 18,
+    textAlign: "left",
+  },
+  ocrTipDismiss: {
+    marginTop: 6,
+    textAlign: "right",
+    color: "#4A148C",
+    fontWeight: "700",
+    fontSize: 12,
+  },
+  ocrTipArrow: {
+    alignSelf: "flex-start",
+    marginLeft: 28,
+    width: 0,
+    height: 0,
+    borderLeftWidth: 9,
+    borderRightWidth: 9,
+    borderTopWidth: 11,
+    borderLeftColor: "transparent",
+    borderRightColor: "transparent",
+    borderTopColor: "#F0D1FF",
   },
   tipWrapper: {
     position: "absolute",
