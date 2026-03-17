@@ -205,6 +205,18 @@ const LoginScreen = ({ navigation }) => {
           passwordTrimmed
         );
 
+        // Upsert name + email into Firestore so the accountant portal shows real names
+        const signedInUser = userCredential.user;
+        await setDoc(
+          doc(db, "users", signedInUser.uid),
+          {
+            ...(signedInUser.displayName ? { name: signedInUser.displayName } : {}),
+            email: signedInUser.email,
+            updatedAt: serverTimestamp(),
+          },
+          { merge: true }
+        );
+
          navigation.reset({
           index: 0,
           routes: [

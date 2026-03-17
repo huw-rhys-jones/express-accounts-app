@@ -199,6 +199,25 @@
     .chip.yellow { background: var(--yellow); color: #3a2a00; }
     .chip.blue { background: var(--blue); }
 
+    .controls {
+      margin: 12px 30px 6px;
+      display: grid;
+      grid-template-columns: 1.1fr 1fr 0.9fr 0.9fr;
+      gap: 10px;
+    }
+
+    .controls input,
+    .controls select {
+      width: 100%;
+      border: 1px solid var(--outline);
+      border-radius: 10px;
+      padding: 10px 12px;
+      font-size: 0.95rem;
+      color: var(--ink);
+      background: #fff;
+      font-family: inherit;
+    }
+
     .board {
       padding: 22px 30px 30px;
       display: grid;
@@ -304,6 +323,7 @@
       body { padding: 16px; }
       .dash-top,
       .legend,
+      .controls,
       .board,
       .statusline {
         margin-left: 14px;
@@ -312,6 +332,7 @@
         padding-right: 14px;
       }
       .dash-top { padding-top: 20px; padding-bottom: 20px; }
+      .controls { grid-template-columns: 1fr; }
       .board { padding-top: 12px; padding-bottom: 16px; }
       .statusline { margin-bottom: 16px; }
       .login-head,
@@ -320,11 +341,12 @@
   </style>
   <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-app-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-auth-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore-compat.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
   <script src="/__/firebase/init.js"></script>
   <script>
-    // Now, 'firebase' is already initialized!
     const auth = firebase.auth();
+    const db = firebase.firestore();
   </script>
 </head>
 <body>
@@ -364,6 +386,25 @@
         <span class="chip blue">Blue: No new uploads</span>
       </div>
 
+      <div class="controls">
+        <input id="searchInput" type="text" placeholder="Search name or email" />
+        <select id="sortSelect">
+          <option value="name-asc">Sort: Name (A-Z)</option>
+          <option value="name-desc">Sort: Name (Z-A)</option>
+          <option value="recent-desc">Sort: Most recent uploads</option>
+          <option value="recent-asc">Sort: Oldest uploads</option>
+          <option value="receipts-desc">Sort: Most receipts</option>
+          <option value="receipts-asc">Sort: Fewest receipts</option>
+        </select>
+        <input id="minReceiptsInput" type="number" min="0" step="1" placeholder="Min receipts" />
+        <select id="recentUploadFilter">
+          <option value="0">Any upload date</option>
+          <option value="7">Uploaded last 7 days</option>
+          <option value="30">Uploaded last 30 days</option>
+          <option value="90">Uploaded last 90 days</option>
+        </select>
+      </div>
+
       <div id="clientBoard" class="board"></div>
       <div id="statusLine" class="statusline">Select a client tile to export their receipt data.</div>
     </section>
@@ -391,62 +432,52 @@
     const ALLOWED_EMAILS = ["info@caistec.com"];
     const LAST_LOGIN_KEY = "clientPortalLastLogin";
 
-    const users = [
-      {
-        id: "u1",
-        name: "Adele Sparks Ltd",
-        notifyAccountant: true,
-        receipts: [
-          { amount: 120.45, vatRate: 20, date: "2026-03-11", category: "Office Supplies", loggedAt: "2026-03-11T10:12:00" },
-          { amount: 88.99, vatRate: 20, date: "2026-03-13", category: "Travel", loggedAt: "2026-03-13T15:48:00" },
-          { amount: 45.0, vatRate: 5, date: "2026-03-14", category: "Meals", loggedAt: "2026-03-14T08:14:00" }
-        ]
-      },
-      {
-        id: "u2",
-        name: "Oakway Plumbing",
-        notifyAccountant: false,
-        receipts: [
-          { amount: 285.8, vatRate: 20, date: "2026-03-02", category: "Fuel", loggedAt: "2026-03-02T09:20:00" },
-          { amount: 64.2, vatRate: 20, date: "2026-03-12", category: "Tools", loggedAt: "2026-03-12T17:41:00" }
-        ]
-      },
-      {
-        id: "u3",
-        name: "Northside Bakery",
-        notifyAccountant: false,
-        receipts: [
-          { amount: 33.6, vatRate: 5, date: "2026-02-17", category: "Packaging", loggedAt: "2026-02-17T11:01:00" },
-          { amount: 74.5, vatRate: 5, date: "2026-02-23", category: "Ingredients", loggedAt: "2026-02-23T07:33:00" }
-        ]
-      },
-      {
-        id: "u4",
-        name: "Brightline Fitness",
-        notifyAccountant: true,
-        receipts: [
-          { amount: 510.0, vatRate: 20, date: "2026-03-07", category: "Equipment", loggedAt: "2026-03-07T13:09:00" },
-          { amount: 129.2, vatRate: 20, date: "2026-03-10", category: "Utilities", loggedAt: "2026-03-10T18:27:00" }
-        ]
-      },
-      {
-        id: "u5",
-        name: "Fenwick Creative",
-        notifyAccountant: false,
-        receipts: [
-          { amount: 15.0, vatRate: 0, date: "2026-01-20", category: "Software", loggedAt: "2026-01-20T09:30:00" }
-        ]
-      },
-      {
-        id: "u6",
-        name: "Willow Tutors",
-        notifyAccountant: false,
-        receipts: [
-          { amount: 92.0, vatRate: 20, date: "2026-03-15", category: "Internet", loggedAt: "2026-03-15T06:48:00" },
-          { amount: 40.75, vatRate: 20, date: "2026-03-15", category: "Office Supplies", loggedAt: "2026-03-15T09:03:00" }
-        ]
+    let liveUsers = [];
+
+    async function loadRealData() {
+      try {
+        const receiptsSnapshot = await db.collection("receipts").get();
+        const receiptsByUser = {};
+        receiptsSnapshot.forEach((doc) => {
+          const data = doc.data();
+          const uid = data.userId;
+          if (!uid) return;
+          if (!receiptsByUser[uid]) receiptsByUser[uid] = [];
+          receiptsByUser[uid].push({ id: doc.id, ...data });
+        });
+
+        const userIds = Object.keys(receiptsByUser);
+        const profileSnaps = await Promise.all(
+          userIds.map((uid) => db.collection("users").doc(uid).get())
+        );
+
+        return userIds.map((uid, i) => {
+          const profile = profileSnaps[i].exists ? profileSnaps[i].data() : {};
+          const receipts = receiptsByUser[uid].map((r) => {
+            const createdDate = r.createdAt ? r.createdAt.toDate() : null;
+            return {
+              amount: Number(r.amount) || 0,
+              vatRate: r.vatRate != null ? Number(r.vatRate) : 0,
+              vatAmount: r.vatAmount != null ? Number(r.vatAmount) : null,
+              date: r.date ? r.date.split("T")[0] : "",
+              category: r.category || "Uncategorized",
+              loggedAt: createdDate ? createdDate.toISOString() : (r.date || ""),
+            };
+          });
+          return {
+            id: uid,
+            name: profile.name || profile.displayName || profile.email || ("Unknown user (" + uid.slice(0, 6) + ")"),
+            email: profile.email || null,
+            notifyAccountant: profile.notifyAccountant || false,
+            receipts,
+          };
+        });
+      } catch (error) {
+        console.error("Firestore load error:", error);
+        statusLine.textContent = "Error loading data: " + error.message;
+        return [];
       }
-    ];
+    }
 
     const loginSection = document.getElementById("loginSection");
     const dashboardSection = document.getElementById("dashboardSection");
@@ -513,10 +544,16 @@
       selectedUser = null;
     }
 
-    function renderBoard() {
+    async function renderBoard() {
+      clientBoard.innerHTML = '<p style="padding: 0 8px; color: #4f6780; grid-column: 1/-1;">Loading client data…</p>';
+      liveUsers = await loadRealData();
+      if (liveUsers.length === 0) {
+        clientBoard.innerHTML = '<p style="padding: 0 8px; color: #4f6780; grid-column: 1/-1;">No client data found.</p>';
+        return;
+      }
       clientBoard.innerHTML = "";
 
-      users.forEach((user, index) => {
+      liveUsers.forEach((user, index) => {
         const status = getClientStatus(user, previousLoginDate);
         const button = document.createElement("button");
         button.type = "button";
@@ -526,6 +563,7 @@
         const uploadsCount = user.receipts.length;
         button.innerHTML =
           "<strong>" + user.name + "</strong>" +
+          (user.email ? "<small style='opacity:0.8'>" + user.email + "</small>" : "") +
           "<small>" + status.label + "</small>" +
           "<small>Receipts: " + uploadsCount + "</small>";
 

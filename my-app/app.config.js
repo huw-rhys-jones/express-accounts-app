@@ -1,12 +1,20 @@
 import 'dotenv/config';
 
+const { version: appVersion } = require("./package.json");
+
+const [major = 0, minor = 0, patch = 0] = String(appVersion)
+  .split(".")
+  .map((part) => Number.parseInt(part, 10) || 0);
+
+const numericBuild = major * 10000 + minor * 100 + patch;
+
 export default ({ config }) => ({
   ...config,
 
   name: "Express Accounts",
   slug: "express-accounts",
   scheme: "com.caistec.expressaccounts",
-  version: "1.1.2",
+  version: appVersion,
   orientation: "portrait",
   icon: "./assets/icon.png",
   userInterfaceStyle: "light",
@@ -22,7 +30,7 @@ export default ({ config }) => ({
   ios: {
     supportsTablet: false,
     bundleIdentifier: "com.caistec.expressaccounts",
-    buildNumber: "15",
+    buildNumber: String(numericBuild),
     googleServicesFile: "./GoogleService-Info.plist",
     usesAppleSignIn: true,
     infoPlist: {
@@ -37,7 +45,7 @@ export default ({ config }) => ({
 
   android: {
     package: "com.caistec.expressaccounts",
-    versionCode: 15,
+    versionCode: numericBuild,
     adaptiveIcon: {
       foregroundImage: "./assets/adaptive-icon.png",
       backgroundColor: "#ffffff"

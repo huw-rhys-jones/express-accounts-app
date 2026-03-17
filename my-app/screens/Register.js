@@ -12,8 +12,9 @@ import {
   TouchableWithoutFeedback,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
-import { auth } from "../firebaseConfig";
+import { auth, db } from "../firebaseConfig";
 import { createUserWithEmailAndPassword, updateProfile } from "firebase/auth";
+import { doc, setDoc, serverTimestamp } from "firebase/firestore";
 import { Ionicons } from "@expo/vector-icons";
 import { KeyboardAwareScrollView } from "react-native-keyboard-aware-scroll-view";
 import { Colors, AuthStyles } from "../utils/sharedStyles";
@@ -104,6 +105,13 @@ const SignUpScreen = ({ navigation }) => {
       if (nameTrimmed) {
         await updateProfile(cred.user, { displayName: nameTrimmed });
       }
+
+      // Persist name to Firestore so the accountant portal can display it
+      await setDoc(
+        doc(db, "users", cred.user.uid),
+        { name: nameTrimmed, email: emailTrimmed, createdAt: serverTimestamp() },
+        { merge: true }
+      );
 
       // Navigate in with a clean stack
       navigation.reset({

@@ -20,6 +20,7 @@ import {
   doc,
   getDoc,
   setDoc,
+  serverTimestamp,
   deleteDoc, // Add this
   writeBatch,
 } from "firebase/firestore";
@@ -30,6 +31,7 @@ import { StatusBar, Platform } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import Constants from "expo-constants";
 import { Colors } from "../utils/sharedStyles";
+import appPackage from "../package.json";
 import {
   getStorage,
   ref as storageRef,
@@ -38,7 +40,7 @@ import {
 } from "firebase/storage";
 
 // Inside your component
-const appVersion = Constants.expoConfig?.version;
+const appVersion = appPackage?.version || Constants.expoConfig?.version || "unknown";
 
 const ExpensesScreen = ({ navigation }) => {
   const [displayName, setDisplayName] = useState("User");
@@ -59,6 +61,7 @@ const ExpensesScreen = ({ navigation }) => {
 
   const [feedbackModalVisible, setFeedbackModalVisible] = useState(false);
   const [feedbackText, setFeedbackText] = useState("");
+  const [showNotifyTip, setShowNotifyTip] = useState(false);
 
   const handleSendFeedback = async () => {
   // 1. Validation
@@ -228,6 +231,77 @@ const ExpensesScreen = ({ navigation }) => {
     }
   };
 
+  const markNotifyTipSeen = useCallback(async () => {
+    const user = auth.currentUser;
+    if (!user) return;
+    try {
+      await setDoc(
+        doc(db, "users", user.uid),
+        { hasSeenNotifyAccountantTip: true, updatedAt: serverTimestamp() },
+        { merge: true }
+      );
+    } catch (error) {
+      console.log("Error marking notify tooltip seen:", error);
+    }
+  }, []);
+
+  const dismissNotifyTip = useCallback(async () => {
+    setShowNotifyTip(false);
+    await markNotifyTipSeen();
+  }, [markNotifyTipSeen]);
+
+  const closeMenu = useCallback(() => {
+    if (showNotifyTip) {
+      dismissNotifyTip();
+    }
+    setMenuOpen(false);
+  }, [dismissNotifyTip, showNotifyTip]);
+
+  useEffect(() => {
+    if (!menuOpen) {
+      return;
+    }
+
+    const checkNotifyTipStatus = async () => {
+      const user = auth.currentUser;
+      if (!user) return;
+      try {
+        const userRef = doc(db, "users", user.uid);
+        const userSnap = await getDoc(userRef);
+        if (!userSnap.data()?.hasSeenNotifyAccountantTip) {
+          setShowNotifyTip(true);
+        }
+      } catch (error) {
+        console.log("Error fetching notify tooltip status:", error);
+      }
+    };
+
+    checkNotifyTipStatus();
+  }, [menuOpen]);
+
+  const handleNotifyAccountant = async () => {
+    const user = auth.currentUser;
+    if (!user) return;
+
+    await runWithLoading("Sending notify request…", async () => {
+      await setDoc(
+        doc(db, "users", user.uid),
+        {
+          notifyAccountant: true,
+          notifyAccountantAt: serverTimestamp(),
+          updatedAt: serverTimestamp(),
+          ...(user.displayName ? { name: user.displayName } : {}),
+          ...(user.email ? { email: user.email } : {}),
+        },
+        { merge: true }
+      );
+    });
+
+    setMenuOpen(false);
+    setShowNotifyTip(false);
+    Alert.alert("Accountant Notified", "Your accountant has been notified that your receipts are ready for processing.");
+  };
+
   const runWithLoading = async (text, fn) => {
     setLoadingText(text);
     setLoading(true);
@@ -248,6 +322,12 @@ const ExpensesScreen = ({ navigation }) => {
         return;
       }
       setDisplayName(user.displayName || "User");
+
+      // Sync name + email to Firestore so the accountant portal shows real names
+      const profileUpdate = { email: user.email, updatedAt: serverTimestamp() };
+      if (user.displayName) profileUpdate.name = user.displayName;
+      setDoc(doc(db, "users", user.uid), profileUpdate, { merge: true }).catch(() => {});
+
 
       const q = query(
         collection(db, "receipts"),
@@ -469,7 +549,7 @@ const ExpensesScreen = ({ navigation }) => {
       )}
 
       {/* Slide-in side menu */}
-      <SideMenu open={menuOpen} onClose={() => setMenuOpen(false)}>
+      <SideMenu open={menuOpen} onClose={closeMenu}>
         <View style={{ flex: 1 }}>
           {/* Top Section */}
           <Text style={styles.menuTitle}>Menu</Text>
@@ -481,11 +561,27 @@ const ExpensesScreen = ({ navigation }) => {
 
           {/* Bottom Section */}
           <View style={styles.footerContainer}>
-            
+            <TouchableOpacity
+              onPress={handleNotifyAccountant}
+              style={styles.notifyBtnFilled}
+            >
+              <Text style={styles.filledBtnText}>Notify Accountant</Text>
+            </TouchableOpacity>
+
+            {showNotifyTip ? (
+              <View style={styles.notifyTipBox}>
+                <Text style={styles.notifyTipText}>
+                  Notify your accountant that your receipts are ready for processing
+                </Text>
+                <TouchableOpacity onPress={dismissNotifyTip}>
+                  <Text style={styles.notifyTipOkay}>Okay</Text>
+                </TouchableOpacity>
+              </View>
+            ) : null}
 
             <TouchableOpacity
               onPress={() => {
-                setMenuOpen(false); // Close sidebar
+                closeMenu(); // Close sidebar
                 setFeedbackModalVisible(true); // Open the popup
               }}
               style={[styles.signOutLink, { marginBottom: 10 }]}
@@ -497,7 +593,7 @@ const ExpensesScreen = ({ navigation }) => {
             {/* Sign Out - Now the Transparent Link */}
             <TouchableOpacity
               onPress={async () => {
-                setMenuOpen(false);
+                closeMenu();
                 await handleLogout();
               }}
               style={styles.signOutLink}
@@ -851,6 +947,33 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     borderRadius: 10,
     marginBottom: 10,
+  },
+  notifyBtnFilled: {
+    backgroundColor: "#2e86de",
+    paddingVertical: 12,
+    paddingHorizontal: 16,
+    borderRadius: 10,
+    marginBottom: 10,
+  },
+  notifyTipBox: {
+    backgroundColor: "#FFF3CD",
+    borderColor: "#F5C451",
+    borderWidth: 1,
+    borderRadius: 8,
+    padding: 10,
+    marginBottom: 10,
+  },
+  notifyTipText: {
+    color: "#5C4100",
+    fontSize: 13,
+    lineHeight: 18,
+  },
+  notifyTipOkay: {
+    color: "#5C4100",
+    fontWeight: "700",
+    textAlign: "right",
+    textDecorationLine: "underline",
+    marginTop: 8,
   },
   filledBtnText: {
     color: "white",
