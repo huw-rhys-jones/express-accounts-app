@@ -1,0 +1,696 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Express Accounts - Client Portal Mock</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;600;700&family=DM+Sans:wght@400;500;700&display=swap" rel="stylesheet" />
+  <style>
+    :root {
+      --ink: #12243a;
+      --text: #17324d;
+      --surface: #f5f8fc;
+      --card: #ffffff;
+      --outline: rgba(18, 36, 58, 0.12);
+      --accent: #ff6d00;
+      --green: #27b05e;
+      --yellow: #f5bf00;
+      --blue: #2e86de;
+      --shadow: 0 20px 40px rgba(18, 36, 58, 0.12);
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      min-height: 100vh;
+      color: var(--text);
+      font-family: "DM Sans", sans-serif;
+      background:
+        radial-gradient(circle at 20% 0%, rgba(255, 109, 0, 0.2) 0%, rgba(255, 109, 0, 0) 40%),
+        radial-gradient(circle at 85% 20%, rgba(46, 134, 222, 0.2) 0%, rgba(46, 134, 222, 0) 35%),
+        linear-gradient(165deg, #f7f9fd 0%, #edf3fb 100%);
+      padding: 24px;
+    }
+
+    .shell {
+      max-width: 1100px;
+      margin: 0 auto;
+      position: relative;
+    }
+
+    .panel {
+      background: var(--card);
+      border: 1px solid var(--outline);
+      box-shadow: var(--shadow);
+      border-radius: 24px;
+      overflow: hidden;
+    }
+
+    .login-wrap {
+      max-width: 520px;
+      margin: 8vh auto 0;
+      animation: rise 0.55s ease-out;
+    }
+
+    .login-head {
+      padding: 34px 34px 18px;
+      background: linear-gradient(135deg, #0f2742, #1f4e79);
+      color: #fff;
+    }
+
+    .login-head h1 {
+      margin: 0;
+      font-family: "Space Grotesk", sans-serif;
+      letter-spacing: 0.2px;
+      font-size: 2rem;
+    }
+
+    .login-head p {
+      margin: 8px 0 0;
+      color: rgba(255, 255, 255, 0.88);
+    }
+
+    .login-body {
+      padding: 24px 34px 34px;
+    }
+
+    label {
+      font-weight: 700;
+      font-size: 0.95rem;
+    }
+
+    input[type="password"],
+    input[type="date"] {
+      width: 100%;
+      border: 1px solid var(--outline);
+      border-radius: 12px;
+      padding: 12px;
+      margin-top: 8px;
+      font-size: 1rem;
+      font-family: inherit;
+      color: var(--ink);
+      background: #fff;
+    }
+
+    .hint {
+      font-size: 0.86rem;
+      margin-top: 10px;
+      color: #667e97;
+    }
+
+    .actions {
+      margin-top: 18px;
+      display: flex;
+      gap: 10px;
+      flex-wrap: wrap;
+    }
+
+    button {
+      border: 0;
+      border-radius: 12px;
+      padding: 11px 16px;
+      font-family: "Space Grotesk", sans-serif;
+      font-size: 0.96rem;
+      cursor: pointer;
+      transition: transform 0.15s ease, opacity 0.15s ease;
+    }
+
+    button:hover {
+      transform: translateY(-1px);
+    }
+
+    button:disabled {
+      opacity: 0.45;
+      cursor: not-allowed;
+      transform: none;
+    }
+
+    .btn-primary {
+      background: var(--accent);
+      color: #fff;
+      font-weight: 700;
+    }
+
+    .btn-secondary {
+      background: #eef4fb;
+      color: #264d73;
+      border: 1px solid #d4e2f0;
+      font-weight: 600;
+    }
+
+    .error {
+      min-height: 18px;
+      margin-top: 10px;
+      color: #b3261e;
+      font-weight: 500;
+      font-size: 0.9rem;
+    }
+
+    .dashboard {
+      display: none;
+      animation: rise 0.55s ease-out;
+    }
+
+    .dash-top {
+      padding: 26px 30px;
+      background: #fff;
+      border-bottom: 1px solid var(--outline);
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 12px;
+      flex-wrap: wrap;
+    }
+
+    .dash-top h2 {
+      margin: 0;
+      font-family: "Space Grotesk", sans-serif;
+      color: var(--ink);
+      font-size: 1.6rem;
+    }
+
+    .subtext {
+      margin-top: 8px;
+      color: #4f6780;
+    }
+
+    .legend {
+      display: flex;
+      gap: 10px;
+      flex-wrap: wrap;
+      margin: 18px 30px 2px;
+    }
+
+    .chip {
+      border-radius: 999px;
+      padding: 7px 11px;
+      color: #fff;
+      font-size: 0.82rem;
+      font-weight: 700;
+      letter-spacing: 0.1px;
+    }
+
+    .chip.green { background: var(--green); }
+    .chip.yellow { background: var(--yellow); color: #3a2a00; }
+    .chip.blue { background: var(--blue); }
+
+    .board {
+      padding: 22px 30px 30px;
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(190px, 1fr));
+      gap: 14px;
+    }
+
+    .client-card {
+      border: 0;
+      border-radius: 16px;
+      color: #fff;
+      text-align: left;
+      padding: 16px;
+      min-height: 120px;
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+      box-shadow: inset 0 0 0 2px rgba(255, 255, 255, 0.12);
+      transform: translateY(8px);
+      opacity: 0;
+      animation: popIn 0.4s ease forwards;
+    }
+
+    .client-card strong {
+      font-family: "Space Grotesk", sans-serif;
+      font-size: 1.02rem;
+      line-height: 1.2;
+    }
+
+    .client-card small {
+      font-size: 0.8rem;
+      opacity: 0.93;
+    }
+
+    .client-card.green { background: linear-gradient(135deg, #1f9e52, #2ec66a); }
+    .client-card.yellow { background: linear-gradient(135deg, #f4c400, #f6d53f); color: #3f2f00; }
+    .client-card.blue { background: linear-gradient(135deg, #2e86de, #51a4f6); }
+
+    .statusline {
+      margin: 0 30px 26px;
+      padding: 14px 16px;
+      border-radius: 12px;
+      background: #edf4fb;
+      color: #21476d;
+      min-height: 50px;
+      border: 1px solid #d3e1f0;
+    }
+
+    .modal-backdrop {
+      display: none;
+      position: fixed;
+      inset: 0;
+      background: rgba(10, 22, 38, 0.48);
+      backdrop-filter: blur(2px);
+      align-items: center;
+      justify-content: center;
+      z-index: 50;
+      padding: 18px;
+    }
+
+    .modal {
+      width: min(500px, 100%);
+      background: #fff;
+      border-radius: 18px;
+      border: 1px solid var(--outline);
+      box-shadow: var(--shadow);
+      overflow: hidden;
+      animation: rise 0.26s ease-out;
+    }
+
+    .modal-head {
+      padding: 18px 20px;
+      background: #f0f5fb;
+      border-bottom: 1px solid #d8e4f0;
+      font-family: "Space Grotesk", sans-serif;
+      color: #17324d;
+      font-weight: 700;
+    }
+
+    .modal-body {
+      padding: 18px 20px 20px;
+      display: grid;
+      gap: 12px;
+    }
+
+    .modal-actions {
+      display: flex;
+      justify-content: flex-end;
+      gap: 8px;
+      margin-top: 4px;
+    }
+
+    @keyframes rise {
+      from { opacity: 0; transform: translateY(10px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+
+    @keyframes popIn {
+      to { opacity: 1; transform: translateY(0); }
+    }
+
+    @media (max-width: 640px) {
+      body { padding: 16px; }
+      .dash-top,
+      .legend,
+      .board,
+      .statusline {
+        margin-left: 14px;
+        margin-right: 14px;
+        padding-left: 14px;
+        padding-right: 14px;
+      }
+      .dash-top { padding-top: 20px; padding-bottom: 20px; }
+      .board { padding-top: 12px; padding-bottom: 16px; }
+      .statusline { margin-bottom: 16px; }
+      .login-head,
+      .login-body { padding-left: 20px; padding-right: 20px; }
+    }
+  </style>
+  <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-auth-compat.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+  <script src="/__/firebase/init.js"></script>
+  <script>
+    // Now, 'firebase' is already initialized!
+    const auth = firebase.auth();
+  </script>
+</head>
+<body>
+  <div class="shell">
+    <section id="loginSection" class="panel login-wrap">
+      <div class="login-head">
+        <h1>Client Data Console</h1>
+        <p>Portal.</p>
+      </div>
+      <div class="login-body">
+        <label for="emailInput">Account Email</label>
+        <input id="emailInput" type="email" placeholder="you@example.com" style="width: 100%; border: 1px solid var(--outline); border-radius: 12px; padding: 12px; margin-top: 8px; margin-bottom: 12px; font-family: inherit;" />
+
+        <label for="passwordInput">Password</label>
+        <input id="passwordInput" type="password" placeholder="Enter your password" />
+        
+        <p class="hint">Access restricted to authorized accountant emails.</p>
+        <div class="actions">
+            <button id="loginBtn" class="btn-primary" type="button">Log in</button>
+        </div>
+        <div id="loginError" class="error"></div>
+      </div>
+    </section>
+
+    <section id="dashboardSection" class="panel dashboard">
+      <div class="dash-top">
+        <div>
+          <h2>Client Activity Board</h2>
+          <div id="loginInfo" class="subtext"></div>
+        </div>
+        <button id="logOutBtn" type="button" class="btn-secondary">Log out</button>
+      </div>
+
+      <div class="legend">
+        <span class="chip green">Green: Notify Accountant</span>
+        <span class="chip yellow">Yellow: New uploads since last login</span>
+        <span class="chip blue">Blue: No new uploads</span>
+      </div>
+
+      <div id="clientBoard" class="board"></div>
+      <div id="statusLine" class="statusline">Select a client tile to export their receipt data.</div>
+    </section>
+  </div>
+
+  <div id="dateModal" class="modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="modalTitle">
+    <div class="modal">
+      <div id="modalTitle" class="modal-head">Choose export date range</div>
+      <div class="modal-body">
+        <label for="startDate">Start date</label>
+        <input id="startDate" type="date" />
+
+        <label for="endDate">End date</label>
+        <input id="endDate" type="date" />
+
+        <div class="modal-actions">
+          <button id="cancelDateBtn" type="button" class="btn-secondary">Cancel</button>
+          <button id="confirmDateBtn" type="button" class="btn-primary">Download Excel</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    const ALLOWED_EMAILS = ["info@caistec.com"];
+    const LAST_LOGIN_KEY = "clientPortalLastLogin";
+
+    const users = [
+      {
+        id: "u1",
+        name: "Adele Sparks Ltd",
+        notifyAccountant: true,
+        receipts: [
+          { amount: 120.45, vatRate: 20, date: "2026-03-11", category: "Office Supplies", loggedAt: "2026-03-11T10:12:00" },
+          { amount: 88.99, vatRate: 20, date: "2026-03-13", category: "Travel", loggedAt: "2026-03-13T15:48:00" },
+          { amount: 45.0, vatRate: 5, date: "2026-03-14", category: "Meals", loggedAt: "2026-03-14T08:14:00" }
+        ]
+      },
+      {
+        id: "u2",
+        name: "Oakway Plumbing",
+        notifyAccountant: false,
+        receipts: [
+          { amount: 285.8, vatRate: 20, date: "2026-03-02", category: "Fuel", loggedAt: "2026-03-02T09:20:00" },
+          { amount: 64.2, vatRate: 20, date: "2026-03-12", category: "Tools", loggedAt: "2026-03-12T17:41:00" }
+        ]
+      },
+      {
+        id: "u3",
+        name: "Northside Bakery",
+        notifyAccountant: false,
+        receipts: [
+          { amount: 33.6, vatRate: 5, date: "2026-02-17", category: "Packaging", loggedAt: "2026-02-17T11:01:00" },
+          { amount: 74.5, vatRate: 5, date: "2026-02-23", category: "Ingredients", loggedAt: "2026-02-23T07:33:00" }
+        ]
+      },
+      {
+        id: "u4",
+        name: "Brightline Fitness",
+        notifyAccountant: true,
+        receipts: [
+          { amount: 510.0, vatRate: 20, date: "2026-03-07", category: "Equipment", loggedAt: "2026-03-07T13:09:00" },
+          { amount: 129.2, vatRate: 20, date: "2026-03-10", category: "Utilities", loggedAt: "2026-03-10T18:27:00" }
+        ]
+      },
+      {
+        id: "u5",
+        name: "Fenwick Creative",
+        notifyAccountant: false,
+        receipts: [
+          { amount: 15.0, vatRate: 0, date: "2026-01-20", category: "Software", loggedAt: "2026-01-20T09:30:00" }
+        ]
+      },
+      {
+        id: "u6",
+        name: "Willow Tutors",
+        notifyAccountant: false,
+        receipts: [
+          { amount: 92.0, vatRate: 20, date: "2026-03-15", category: "Internet", loggedAt: "2026-03-15T06:48:00" },
+          { amount: 40.75, vatRate: 20, date: "2026-03-15", category: "Office Supplies", loggedAt: "2026-03-15T09:03:00" }
+        ]
+      }
+    ];
+
+    const loginSection = document.getElementById("loginSection");
+    const dashboardSection = document.getElementById("dashboardSection");
+    const passwordInput = document.getElementById("passwordInput");
+    const loginBtn = document.getElementById("loginBtn");
+    const loginError = document.getElementById("loginError");
+    const clientBoard = document.getElementById("clientBoard");
+    const loginInfo = document.getElementById("loginInfo");
+    const statusLine = document.getElementById("statusLine");
+    const logOutBtn = document.getElementById("logOutBtn");
+
+    const dateModal = document.getElementById("dateModal");
+    const startDateInput = document.getElementById("startDate");
+    const endDateInput = document.getElementById("endDate");
+    const cancelDateBtn = document.getElementById("cancelDateBtn");
+    const confirmDateBtn = document.getElementById("confirmDateBtn");
+
+    let previousLoginDate = null;
+    let currentLoginDate = null;
+    let selectedUser = null;
+
+    function toMoney(value) {
+      return Number(value).toFixed(2);
+    }
+
+    function toDateTimeString(isoString) {
+      const d = new Date(isoString);
+      return d.toLocaleString();
+    }
+
+    function hasNewUploadsSince(user, loginDate) {
+      if (!loginDate) {
+        return user.receipts.length > 0;
+      }
+      const loginMs = loginDate.getTime();
+      return user.receipts.some((receipt) => new Date(receipt.loggedAt).getTime() > loginMs);
+    }
+
+    function getClientStatus(user, loginDate) {
+      if (user.notifyAccountant) {
+        return { key: "green", label: "Notify Accountant" };
+      }
+      if (hasNewUploadsSince(user, loginDate)) {
+        return { key: "yellow", label: "New Uploads" };
+      }
+      return { key: "blue", label: "No New Uploads" };
+    }
+
+    function openDateModal(user) {
+      selectedUser = user;
+      const today = new Date();
+      const thirtyDaysAgo = new Date(today);
+      thirtyDaysAgo.setDate(today.getDate() - 30);
+
+      startDateInput.value = thirtyDaysAgo.toISOString().split("T")[0];
+      endDateInput.value = today.toISOString().split("T")[0];
+
+      document.getElementById("modalTitle").textContent = "Export receipts for " + user.name;
+      dateModal.style.display = "flex";
+    }
+
+    function closeDateModal() {
+      dateModal.style.display = "none";
+      selectedUser = null;
+    }
+
+    function renderBoard() {
+      clientBoard.innerHTML = "";
+
+      users.forEach((user, index) => {
+        const status = getClientStatus(user, previousLoginDate);
+        const button = document.createElement("button");
+        button.type = "button";
+        button.className = "client-card " + status.key;
+        button.style.animationDelay = (index * 0.04) + "s";
+
+        const uploadsCount = user.receipts.length;
+        button.innerHTML =
+          "<strong>" + user.name + "</strong>" +
+          "<small>" + status.label + "</small>" +
+          "<small>Receipts: " + uploadsCount + "</small>";
+
+        button.addEventListener("click", () => openDateModal(user));
+        clientBoard.appendChild(button);
+      });
+    }
+
+    function buildWorkbookRows(user, filteredReceipts) {
+      const rows = filteredReceipts.map((receipt) => {
+        const vatAmount = (receipt.amount * receipt.vatRate) / (100 + receipt.vatRate || 1);
+        return [
+          toMoney(receipt.amount),
+          toMoney(vatAmount),
+          receipt.vatRate + "%",
+          receipt.date,
+          receipt.category,
+          toDateTimeString(receipt.loggedAt)
+        ];
+      });
+
+      const totalAmount = filteredReceipts.reduce((sum, item) => sum + Number(item.amount), 0);
+      const totalVat = filteredReceipts.reduce((sum, item) => {
+        const vatAmount = (item.amount * item.vatRate) / (100 + item.vatRate || 1);
+        return sum + vatAmount;
+      }, 0);
+
+      const header = ["Amount", "VAT Amount", "VAT Rate", "Date", "Category", "Logged At"];
+      const aoa = [header, ...rows, [], ["Summary", ""], ["Total Amount", toMoney(totalAmount)], ["Total VAT Amount", toMoney(totalVat)]];
+
+      if (rows.length === 0) {
+        aoa.splice(1, 0, ["No receipts found for this date range.", "", "", "", "", ""]);
+      }
+
+      return aoa;
+    }
+
+    function downloadUserData(user, startDate, endDate) {
+      const filtered = user.receipts.filter((receipt) => {
+        return receipt.date >= startDate && receipt.date <= endDate;
+      });
+
+      const aoa = buildWorkbookRows(user, filtered);
+      const worksheet = XLSX.utils.aoa_to_sheet(aoa);
+      const workbook = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(workbook, worksheet, "Receipts");
+
+      const safeName = user.name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/(^-|-$)/g, "");
+      const fileName = safeName + "-" + startDate + "-to-" + endDate + ".xlsx";
+
+      XLSX.writeFile(workbook, fileName);
+
+      statusLine.textContent = "Downloaded " + filtered.length + " receipts for " + user.name + " (" + startDate + " to " + endDate + ").";
+    }
+
+    async function attemptLogin() {
+  const email = document.getElementById("emailInput").value.trim();
+  const password = document.getElementById("passwordInput").value;
+
+  if (!email || !password) {
+    loginError.textContent = "Enter both email and password.";
+    return;
+  }
+
+  // 1. Client-side check: Is this email even on our list?
+  if (!ALLOWED_EMAILS.includes(email.toLowerCase())) {
+    loginError.textContent = "Access Denied: This email is not authorized.";
+    return;
+  }
+
+  loginBtn.disabled = true;
+  loginError.textContent = "Signing in...";
+
+  try {
+    // 2. Real Firebase Auth check
+    const userCredential = await auth.signInWithEmailAndPassword(email, password);
+    const user = userCredential.user;
+
+    // 3. Setup the dashboard session
+    loginError.textContent = "";
+    startAuthenticatedSession(user);
+
+  } catch (error) {
+    loginError.textContent = "Login failed: " + error.message;
+    loginBtn.disabled = false;
+  }
+}
+
+function startAuthenticatedSession(user) {
+  const lastLoginKey = LAST_LOGIN_KEY + "_" + user.uid;
+  const storedLastLogin = localStorage.getItem(lastLoginKey);
+  
+  previousLoginDate = storedLastLogin ? new Date(storedLastLogin) : null;
+  currentLoginDate = new Date();
+  localStorage.setItem(lastLoginKey, currentLoginDate.toISOString());
+
+  loginSection.style.display = "none";
+  dashboardSection.style.display = "block";
+  loginInfo.textContent = "Signed in as " + user.email;
+
+  renderBoard();
+}
+
+    loginBtn.addEventListener("click", attemptLogin);
+    passwordInput.addEventListener("keydown", (event) => {
+      if (event.key === "Enter") {
+        attemptLogin();
+      }
+    });
+
+    cancelDateBtn.addEventListener("click", closeDateModal);
+
+    confirmDateBtn.addEventListener("click", () => {
+      if (!selectedUser) {
+        return;
+      }
+
+      const startDate = startDateInput.value;
+      const endDate = endDateInput.value;
+      if (!startDate || !endDate) {
+        statusLine.textContent = "Please choose both start and end dates before exporting.";
+        return;
+      }
+      if (startDate > endDate) {
+        statusLine.textContent = "Start date must be earlier than or equal to end date.";
+        return;
+      }
+
+      downloadUserData(selectedUser, startDate, endDate);
+      closeDateModal();
+    });
+
+    logOutBtn.addEventListener("click", () => {
+      dashboardSection.style.display = "none";
+      loginSection.style.display = "block";
+      passwordInput.value = "";
+      statusLine.textContent = "Select a client tile to export their receipt data.";
+    });
+
+    dateModal.addEventListener("click", (event) => {
+      if (event.target === dateModal) {
+        closeDateModal();
+      }
+    });
+
+    // Add this at the very end of your script
+auth.onAuthStateChanged((user) => {
+  if (user && ALLOWED_EMAILS.includes(user.email.toLowerCase())) {
+    startAuthenticatedSession(user);
+  } else {
+    // If not logged in or not authorized, show login screen
+    dashboardSection.style.display = "none";
+    loginSection.style.display = "block";
+  }
+});
+
+// Update your logout button logic to actually sign out of Firebase
+logOutBtn.addEventListener("click", () => {
+  auth.signOut().then(() => {
+    dashboardSection.style.display = "none";
+    loginSection.style.display = "block";
+    passwordInput.value = "";
+    document.getElementById("emailInput").value = "";
+  });
+});
+  </script>
+</body>
+</html>
