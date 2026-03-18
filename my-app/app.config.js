@@ -8,7 +8,9 @@ const [major = 0, minor = 0, patch = 0] = String(appVersion)
 
 const numericBuild = major * 10000 + minor * 100 + patch;
 
-export default () => ({
+export default ({ config }) => ({
+  ...config,
+
   name: "Express Accounts",
   slug: "express-accounts",
   scheme: "com.caistec.expressaccounts",
