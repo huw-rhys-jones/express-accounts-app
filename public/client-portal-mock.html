@@ -421,6 +421,7 @@
         <input id="endDate" type="date" />
 
         <div class="modal-actions">
+          <button id="resetNotifyBtn" type="button" class="btn-secondary" style="display:none">Mark As Processed</button>
           <button id="cancelDateBtn" type="button" class="btn-secondary">Cancel</button>
           <button id="confirmDateBtn" type="button" class="btn-primary">Download Excel</button>
         </div>
@@ -430,57 +431,10 @@
 
   <script>
     const ALLOWED_EMAILS = ["info@caistec.com"];
-    const LAST_LOGIN_KEY = "clientPortalLastLogin";
-
-    let liveUsers = [];
-
-    async function loadRealData() {
-      try {
-        const receiptsSnapshot = await db.collection("receipts").get();
-        const receiptsByUser = {};
-        receiptsSnapshot.forEach((doc) => {
-          const data = doc.data();
-          const uid = data.userId;
-          if (!uid) return;
-          if (!receiptsByUser[uid]) receiptsByUser[uid] = [];
-          receiptsByUser[uid].push({ id: doc.id, ...data });
-        });
-
-        const userIds = Object.keys(receiptsByUser);
-        const profileSnaps = await Promise.all(
-          userIds.map((uid) => db.collection("users").doc(uid).get())
-        );
-
-        return userIds.map((uid, i) => {
-          const profile = profileSnaps[i].exists ? profileSnaps[i].data() : {};
-          const receipts = receiptsByUser[uid].map((r) => {
-            const createdDate = r.createdAt ? r.createdAt.toDate() : null;
-            return {
-              amount: Number(r.amount) || 0,
-              vatRate: r.vatRate != null ? Number(r.vatRate) : 0,
-              vatAmount: r.vatAmount != null ? Number(r.vatAmount) : null,
-              date: r.date ? r.date.split("T")[0] : "",
-              category: r.category || "Uncategorized",
-              loggedAt: createdDate ? createdDate.toISOString() : (r.date || ""),
-            };
-          });
-          return {
-            id: uid,
-            name: profile.name || profile.displayName || profile.email || ("Unknown user (" + uid.slice(0, 6) + ")"),
-            email: profile.email || null,
-            notifyAccountant: profile.notifyAccountant || false,
-            receipts,
-          };
-        });
-      } catch (error) {
-        console.error("Firestore load error:", error);
-        statusLine.textContent = "Error loading data: " + error.message;
-        return [];
-      }
-    }
 
     const loginSection = document.getElementById("loginSection");
     const dashboardSection = document.getElementById("dashboardSection");
+    const emailInput = document.getElementById("emailInput");
     const passwordInput = document.getElementById("passwordInput");
     const loginBtn = document.getElementById("loginBtn");
     const loginError = document.getElementById("loginError");
@@ -489,14 +443,21 @@
     const statusLine = document.getElementById("statusLine");
     const logOutBtn = document.getElementById("logOutBtn");
 
+    const searchInput = document.getElementById("searchInput");
+    const sortSelect = document.getElementById("sortSelect");
+    const minReceiptsInput = document.getElementById("minReceiptsInput");
+    const recentUploadFilter = document.getElementById("recentUploadFilter");
+
     const dateModal = document.getElementById("dateModal");
     const startDateInput = document.getElementById("startDate");
     const endDateInput = document.getElementById("endDate");
     const cancelDateBtn = document.getElementById("cancelDateBtn");
     const confirmDateBtn = document.getElementById("confirmDateBtn");
+    const resetNotifyBtn = document.getElementById("resetNotifyBtn");
 
+    let currentAccountant = null;
     let previousLoginDate = null;
-    let currentLoginDate = null;
+    let liveUsers = [];
     let selectedUser = null;
 
     function toMoney(value) {
@@ -508,12 +469,17 @@
       return d.toLocaleString();
     }
 
+    function userLatestUploadMs(user) {
+      const times = user.receipts
+        .map((r) => new Date(r.loggedAt).getTime())
+        .filter((ms) => Number.isFinite(ms));
+      if (times.length === 0) return 0;
+      return Math.max(...times);
+    }
+
     function hasNewUploadsSince(user, loginDate) {
-      if (!loginDate) {
-        return user.receipts.length > 0;
-      }
-      const loginMs = loginDate.getTime();
-      return user.receipts.some((receipt) => new Date(receipt.loggedAt).getTime() > loginMs);
+      if (!loginDate) return user.receipts.length > 0;
+      return userLatestUploadMs(user) > loginDate.getTime();
     }
 
     function getClientStatus(user, loginDate) {
@@ -526,6 +492,129 @@
       return { key: "blue", label: "No New Uploads" };
     }
 
+    async function loadRealData() {
+      try {
+        const [receiptsSnapshot, usersSnapshot] = await Promise.all([
+          db.collection("receipts").get(),
+          db.collection("users").get(),
+        ]);
+
+        const profilesById = {};
+        usersSnapshot.forEach((snap) => {
+          profilesById[snap.id] = snap.data() || {};
+        });
+
+        const receiptsByUser = {};
+        receiptsSnapshot.forEach((snap) => {
+          const data = snap.data();
+          const uid = data.userId;
+          if (!uid) return;
+          if (!receiptsByUser[uid]) receiptsByUser[uid] = [];
+
+          const createdDate = data.createdAt ? data.createdAt.toDate() : null;
+          receiptsByUser[uid].push({
+            id: snap.id,
+            amount: Number(data.amount) || 0,
+            vatRate: data.vatRate != null ? Number(data.vatRate) : 0,
+            vatAmount: data.vatAmount != null ? Number(data.vatAmount) : null,
+            date: data.date ? String(data.date).split("T")[0] : "",
+            category: data.category || "Uncategorized",
+            loggedAt: createdDate ? createdDate.toISOString() : (data.date || ""),
+          });
+        });
+
+        const userIds = Array.from(new Set([
+          ...Object.keys(receiptsByUser),
+          ...Object.keys(profilesById),
+        ]));
+
+        return userIds.map((uid) => {
+          const profile = profilesById[uid] || {};
+          return {
+            id: uid,
+            name: profile.name || profile.displayName || profile.email || ("Unknown user (" + uid.slice(0, 6) + ")"),
+            email: profile.email || null,
+            notifyAccountant: profile.notifyAccountant || false,
+            receipts: receiptsByUser[uid] || [],
+          };
+        });
+      } catch (error) {
+        console.error("Firestore load error:", error);
+        statusLine.textContent = "Error loading data: " + error.message;
+        return [];
+      }
+    }
+
+    function applyFiltersAndSort(users) {
+      const text = (searchInput.value || "").trim().toLowerCase();
+      const minReceipts = Number(minReceiptsInput.value || 0);
+      const recentDays = Number(recentUploadFilter.value || 0);
+      const nowMs = Date.now();
+
+      let filtered = users.filter((user) => {
+        const nameMatch = user.name.toLowerCase().includes(text);
+        const emailMatch = (user.email || "").toLowerCase().includes(text);
+        const receiptsCount = user.receipts.length;
+
+        if (text && !nameMatch && !emailMatch) return false;
+        if (Number.isFinite(minReceipts) && receiptsCount < minReceipts) return false;
+
+        if (recentDays > 0) {
+          const latestMs = userLatestUploadMs(user);
+          if (!latestMs) return false;
+          const maxAgeMs = recentDays * 24 * 60 * 60 * 1000;
+          if (nowMs - latestMs > maxAgeMs) return false;
+        }
+
+        return true;
+      });
+
+      const mode = sortSelect.value || "name-asc";
+      filtered.sort((a, b) => {
+        if (mode === "name-asc") return a.name.localeCompare(b.name, undefined, { sensitivity: "base" });
+        if (mode === "name-desc") return b.name.localeCompare(a.name, undefined, { sensitivity: "base" });
+        if (mode === "recent-desc") return userLatestUploadMs(b) - userLatestUploadMs(a);
+        if (mode === "recent-asc") return userLatestUploadMs(a) - userLatestUploadMs(b);
+        if (mode === "receipts-desc") return b.receipts.length - a.receipts.length;
+        if (mode === "receipts-asc") return a.receipts.length - b.receipts.length;
+        return 0;
+      });
+
+      return filtered;
+    }
+
+    function renderBoardFromCurrentData() {
+      const visibleUsers = applyFiltersAndSort(liveUsers);
+      if (visibleUsers.length === 0) {
+        clientBoard.innerHTML = '<p style="padding: 0 8px; color: #4f6780; grid-column: 1/-1;">No users match the current filters.</p>';
+        return;
+      }
+
+      clientBoard.innerHTML = "";
+      visibleUsers.forEach((user, index) => {
+        const status = getClientStatus(user, previousLoginDate);
+        const button = document.createElement("button");
+        button.type = "button";
+        button.className = "client-card " + status.key;
+        button.style.animationDelay = (index * 0.04) + "s";
+
+        button.innerHTML =
+          "<strong>" + user.name + "</strong>" +
+          (user.email ? "<small style='opacity:0.8'>" + user.email + "</small>" : "") +
+          "<small>" + status.label + "</small>" +
+          "<small>Receipts: " + user.receipts.length + "</small>";
+
+        button.addEventListener("click", () => openDateModal(user));
+        clientBoard.appendChild(button);
+      });
+    }
+
+    async function reloadAndRenderBoard() {
+      clientBoard.innerHTML = '<p style="padding: 0 8px; color: #4f6780; grid-column: 1/-1;">Loading client data…</p>';
+      liveUsers = await loadRealData();
+      renderBoardFromCurrentData();
+    }
+
     function openDateModal(user) {
       selectedUser = user;
       const today = new Date();
@@ -534,6 +623,7 @@
 
       startDateInput.value = thirtyDaysAgo.toISOString().split("T")[0];
       endDateInput.value = today.toISOString().split("T")[0];
+      resetNotifyBtn.style.display = user.notifyAccountant ? "inline-block" : "none";
 
       document.getElementById("modalTitle").textContent = "Export receipts for " + user.name;
       dateModal.style.display = "flex";
@@ -542,34 +632,24 @@
     function closeDateModal() {
       dateModal.style.display = "none";
       selectedUser = null;
+      resetNotifyBtn.style.display = "none";
     }
 
-    async function renderBoard() {
-      clientBoard.innerHTML = '<p style="padding: 0 8px; color: #4f6780; grid-column: 1/-1;">Loading client data…</p>';
-      liveUsers = await loadRealData();
-      if (liveUsers.length === 0) {
-        clientBoard.innerHTML = '<p style="padding: 0 8px; color: #4f6780; grid-column: 1/-1;">No client data found.</p>';
-        return;
-      }
-      clientBoard.innerHTML = "";
+    async function markNotifyAsProcessed() {
+      if (!selectedUser) return;
+      await db.collection("users").doc(selectedUser.id).set(
+        {
+          notifyAccountant: false,
+          notifyAccountantAt: null,
+          updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
+        },
+        { merge: true }
+      );
 
-      liveUsers.forEach((user, index) => {
-        const status = getClientStatus(user, previousLoginDate);
-        const button = document.createElement("button");
-        button.type = "button";
-        button.className = "client-card " + status.key;
-        button.style.animationDelay = (index * 0.04) + "s";
-
-        const uploadsCount = user.receipts.length;
-        button.innerHTML =
-          "<strong>" + user.name + "</strong>" +
-          (user.email ? "<small style='opacity:0.8'>" + user.email + "</small>" : "") +
-          "<small>" + status.label + "</small>" +
-          "<small>Receipts: " + uploadsCount + "</small>";
-
-        button.addEventListener("click", () => openDateModal(user));
-        clientBoard.appendChild(button);
-      });
+      selectedUser.notifyAccountant = false;
+      resetNotifyBtn.style.display = "none";
+      renderBoardFromCurrentData();
+      statusLine.textContent = "Marked " + selectedUser.name + " as not notifying accountant.";
     }
 
     function buildWorkbookRows(user, filteredReceipts) {
@@ -593,19 +673,14 @@
 
       const header = ["Amount", "VAT Amount", "VAT Rate", "Date", "Category", "Logged At"];
       const aoa = [header, ...rows, [], ["Summary", ""], ["Total Amount", toMoney(totalAmount)], ["Total VAT Amount", toMoney(totalVat)]];
-
       if (rows.length === 0) {
         aoa.splice(1, 0, ["No receipts found for this date range.", "", "", "", "", ""]);
       }
-
       return aoa;
     }
 
     function downloadUserData(user, startDate, endDate) {
-      const filtered = user.receipts.filter((receipt) => {
-        return receipt.date >= startDate && receipt.date <= endDate;
-      });
-
+      const filtered = user.receipts.filter((receipt) => receipt.date >= startDate && receipt.date <= endDate);
       const aoa = buildWorkbookRows(user, filtered);
       const worksheet = XLSX.utils.aoa_to_sheet(aoa);
       const workbook = XLSX.utils.book_new();
@@ -613,74 +688,93 @@
 
       const safeName = user.name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/(^-|-$)/g, "");
       const fileName = safeName + "-" + startDate + "-to-" + endDate + ".xlsx";
-
       XLSX.writeFile(workbook, fileName);
 
       statusLine.textContent = "Downloaded " + filtered.length + " receipts for " + user.name + " (" + startDate + " to " + endDate + ").";
     }
 
     async function attemptLogin() {
-  const email = document.getElementById("emailInput").value.trim();
-  const password = document.getElementById("passwordInput").value;
-
-  if (!email || !password) {
-    loginError.textContent = "Enter both email and password.";
-    return;
-  }
-
-  // 1. Client-side check: Is this email even on our list?
-  if (!ALLOWED_EMAILS.includes(email.toLowerCase())) {
-    loginError.textContent = "Access Denied: This email is not authorized.";
-    return;
-  }
-
-  loginBtn.disabled = true;
-  loginError.textContent = "Signing in...";
-
-  try {
-    // 2. Real Firebase Auth check
-    const userCredential = await auth.signInWithEmailAndPassword(email, password);
-    const user = userCredential.user;
-
-    // 3. Setup the dashboard session
-    loginError.textContent = "";
-    startAuthenticatedSession(user);
-
-  } catch (error) {
-    loginError.textContent = "Login failed: " + error.message;
-    loginBtn.disabled = false;
-  }
-}
-
-function startAuthenticatedSession(user) {
-  const lastLoginKey = LAST_LOGIN_KEY + "_" + user.uid;
-  const storedLastLogin = localStorage.getItem(lastLoginKey);
-  
-  previousLoginDate = storedLastLogin ? new Date(storedLastLogin) : null;
-  currentLoginDate = new Date();
-  localStorage.setItem(lastLoginKey, currentLoginDate.toISOString());
-
-  loginSection.style.display = "none";
-  dashboardSection.style.display = "block";
-  loginInfo.textContent = "Signed in as " + user.email;
-
-  renderBoard();
-}
-
-    loginBtn.addEventListener("click", attemptLogin);
-    passwordInput.addEventListener("keydown", (event) => {
-      if (event.key === "Enter") {
-        attemptLogin();
+      const email = emailInput.value.trim().toLowerCase();
+      const password = passwordInput.value;
+      if (!email || !password) {
+        loginError.textContent = "Enter both email and password.";
+        return;
       }
-    });
-
-    cancelDateBtn.addEventListener("click", closeDateModal);
-
-    confirmDateBtn.addEventListener("click", () => {
-      if (!selectedUser) {
+      if (!ALLOWED_EMAILS.includes(email)) {
+        loginError.textContent = "Access denied: this email is not authorized.";
         return;
       }
 
+      loginBtn.disabled = true;
+      loginError.textContent = "Signing in...";
+      try {
+        await auth.signInWithEmailAndPassword(email, password);
+        loginError.textContent = "";
+      } catch (error) {
+        loginError.textContent = "Login failed: " + error.message;
+      } finally {
+        loginBtn.disabled = false;
+      }
+    }
+
+    async function startAuthenticatedSession(user) {
+      currentAccountant = user;
+      const userRef = db.collection("users").doc(user.uid);
+      const snap = await userRef.get();
+      const data = snap.exists ? snap.data() : {};
+      const ts = data && data.portalLastLoginAt ? data.portalLastLoginAt : null;
+      previousLoginDate = ts && ts.toDate ? ts.toDate() : null;
+
+      await userRef.set(
+        {
+          email: user.email || null,
+          name: user.displayName || (data && data.name) || null,
+          portalLastLoginAt: firebase.firestore.FieldValue.serverTimestamp(),
+          updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
+        },
+        { merge: true }
+      );
+
+      loginSection.style.display = "none";
+      dashboardSection.style.display = "block";
+      loginInfo.textContent = previousLoginDate
+        ? "Signed in as " + user.email + " | Previous login: " + previousLoginDate.toLocaleString()
+        : "Signed in as " + user.email + " | First portal login";
+
+      await reloadAndRenderBoard();
+    }
+
+    function resetToLoginScreen() {
+      dashboardSection.style.display = "none";
+      loginSection.style.display = "block";
+      passwordInput.value = "";
+      statusLine.textContent = "Select a client tile to export their receipt data.";
+      closeDateModal();
+      liveUsers = [];
+      currentAccountant = null;
+      previousLoginDate = null;
+    }
+
+    loginBtn.addEventListener("click", attemptLogin);
+    emailInput.addEventListener("keydown", (event) => {
+      if (event.key === "Enter") attemptLogin();
+    });
+    passwordInput.addEventListener("keydown", (event) => {
+      if (event.key === "Enter") attemptLogin();
+    });
+
+    [searchInput, sortSelect, minReceiptsInput, recentUploadFilter].forEach((el) => {
+      el.addEventListener("input", renderBoardFromCurrentData);
+      el.addEventListener("change", renderBoardFromCurrentData);
+    });
+
+    cancelDateBtn.addEventListener("click", closeDateModal);
+    resetNotifyBtn.addEventListener("click", async () => {
+      await markNotifyAsProcessed();
+    });
+
+    confirmDateBtn.addEventListener("click", () => {
+      if (!selectedUser) return;
       const startDate = startDateInput.value;
       const endDate = endDateInput.value;
       if (!startDate || !endDate) {
@@ -691,44 +785,34 @@ function startAuthenticatedSession(user) {
         statusLine.textContent = "Start date must be earlier than or equal to end date.";
         return;
       }
-
       downloadUserData(selectedUser, startDate, endDate);
       closeDateModal();
     });
 
-    logOutBtn.addEventListener("click", () => {
-      dashboardSection.style.display = "none";
-      loginSection.style.display = "block";
-      passwordInput.value = "";
-      statusLine.textContent = "Select a client tile to export their receipt data.";
+    logOutBtn.addEventListener("click", async () => {
+      await auth.signOut();
+      resetToLoginScreen();
+      emailInput.value = "";
     });
 
     dateModal.addEventListener("click", (event) => {
-      if (event.target === dateModal) {
-        closeDateModal();
-      }
+      if (event.target === dateModal) closeDateModal();
     });
 
-    // Add this at the very end of your script
-auth.onAuthStateChanged((user) => {
-  if (user && ALLOWED_EMAILS.includes(user.email.toLowerCase())) {
-    startAuthenticatedSession(user);
-  } else {
-    // If not logged in or not authorized, show login screen
-    dashboardSection.style.display = "none";
-    loginSection.style.display = "block";
-  }
-});
-
-// Update your logout button logic to actually sign out of Firebase
-logOutBtn.addEventListener("click", () => {
-  auth.signOut().then(() => {
-    dashboardSection.style.display = "none";
-    loginSection.style.display = "block";
-    passwordInput.value = "";
-    document.getElementById("emailInput").value = "";
-  });
-});
+    auth.onAuthStateChanged(async (user) => {
+      if (!user) {
+        resetToLoginScreen();
+        return;
+      }
+      if (!ALLOWED_EMAILS.includes((user.email || "").toLowerCase())) {
+        await auth.signOut();
+        loginError.textContent = "Access denied: this email is not authorized.";
+        resetToLoginScreen();
+        return;
+      }
+      loginError.textContent = "";
+      await startAuthenticatedSession(user);
+    });
   </script>
 </body>
 </html>

@@ -22,10 +22,10 @@ service cloud.firestore {
       allow update, delete: if isOwner(resource.data.userId);
     }
 
-    // User profiles: each user owns their own; accountants can read all.
+    // User profiles: each user owns their own; accountants can read/update for portal workflows.
     match /users/{userId} {
       allow read, write: if isOwner(userId);
-      allow read: if isAccountant();
+      allow read, update: if isAccountant();
     }
   }
 }
