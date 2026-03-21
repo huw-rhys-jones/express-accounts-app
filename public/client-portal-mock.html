@@ -15,7 +15,8 @@
       --card: #ffffff;
       --outline: rgba(18, 36, 58, 0.12);
       --accent: #ff6d00;
-      --green: #27b05e;
+      --notify-red: #b42318;
+      --success-green: #1f7a3f;
       --yellow: #f5bf00;
       --blue: #2e86de;
       --shadow: 0 20px 40px rgba(18, 36, 58, 0.12);
@@ -143,6 +144,13 @@
       font-weight: 600;
     }
 
+    .btn-success {
+      background: var(--success-green);
+      color: #fff;
+      border: 1px solid #176332;
+      font-weight: 700;
+    }
+
     .error {
       min-height: 18px;
       margin-top: 10px;
@@ -195,7 +203,7 @@
       letter-spacing: 0.1px;
     }
 
-    .chip.green { background: var(--green); }
+    .chip.red { background: var(--notify-red); }
     .chip.yellow { background: var(--yellow); color: #3a2a00; }
     .chip.blue { background: var(--blue); }
 
@@ -252,7 +260,7 @@
       opacity: 0.93;
     }
 
-    .client-card.green { background: linear-gradient(135deg, #1f9e52, #2ec66a); }
+    .client-card.red { background: linear-gradient(135deg, #9f1f15, #c93426); }
     .client-card.yellow { background: linear-gradient(135deg, #f4c400, #f6d53f); color: #3f2f00; }
     .client-card.blue { background: linear-gradient(135deg, #2e86de, #51a4f6); }
 
@@ -344,6 +352,7 @@
   <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore-compat.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
   <script src="/__/firebase/init.js"></script>
+  <script src="/utils/taxQuarter.js"></script>
   <script>
     const auth = firebase.auth();
     const db = firebase.firestore();
@@ -381,7 +390,7 @@
       </div>
 
       <div class="legend">
-        <span class="chip green">Green: Notify Accountant</span>
+        <span class="chip red">Red: Notify Accountant</span>
         <span class="chip yellow">Yellow: New uploads since last login</span>
         <span class="chip blue">Blue: No new uploads</span>
       </div>
@@ -421,7 +430,7 @@
         <input id="endDate" type="date" />
 
         <div class="modal-actions">
-          <button id="resetNotifyBtn" type="button" class="btn-secondary" style="display:none">Mark As Processed</button>
+          <button id="resetNotifyBtn" type="button" class="btn-success" style="display:none">Mark As Processed</button>
           <button id="cancelDateBtn" type="button" class="btn-secondary">Cancel</button>
           <button id="confirmDateBtn" type="button" class="btn-primary">Download Excel</button>
         </div>
@@ -464,6 +473,16 @@
       return Number(value).toFixed(2);
     }
 
+    function toPence(value) {
+      const amount = Number(value);
+      if (!Number.isFinite(amount)) return 0;
+      return Math.round(amount * 100);
+    }
+
+    function fromPence(pence) {
+      return (Number(pence) || 0) / 100;
+    }
+
     function toDateTimeString(isoString) {
       const d = new Date(isoString);
       return d.toLocaleString();
@@ -484,7 +503,7 @@
 
     function getClientStatus(user, loginDate) {
       if (user.notifyAccountant) {
-        return { key: "green", label: "Notify Accountant" };
+        return { key: "red", label: "Notify Accountant" };
       }
       if (hasNewUploadsSince(user, loginDate)) {
         return { key: "yellow", label: "New Uploads" };
@@ -617,12 +636,13 @@
 
     function openDateModal(user) {
       selectedUser = user;
-      const today = new Date();
-      const thirtyDaysAgo = new Date(today);
-      thirtyDaysAgo.setDate(today.getDate() - 30);
-
-      startDateInput.value = thirtyDaysAgo.toISOString().split("T")[0];
-      endDateInput.value = today.toISOString().split("T")[0];
+      // Use UK MTD quarter defaults (tax year starts 6 April) and keep dates in local time.
+      const range = UkTaxQuarter.getDefaultExportDateRange(new Date());
+      startDateInput.value = range.startDateYmd;
+      startDateInput.max = range.quarterEndDateYmd;
+      endDateInput.value = range.endDateYmd;
+      endDateInput.min = range.startDateYmd;
+      endDateInput.max = range.quarterEndDateYmd;
       resetNotifyBtn.style.display = user.notifyAccountant ? "inline-block" : "none";
 
       document.getElementById("modalTitle").textContent = "Export receipts for " + user.name;
@@ -652,9 +672,31 @@
       statusLine.textContent = "Marked " + selectedUser.name + " as not notifying accountant.";
     }
 
+    function calculateReceiptTotalsByCategory(receipts) {
+      return receipts.reduce(
+        (acc, item) => {
+          const category = (item.category || "Uncategorized").trim() || "Uncategorized";
+          const amountPence = toPence(item.amount);
+          const vatAmount = Number.isFinite(Number(item.vatAmount))
+            ? Number(item.vatAmount)
+            : ((Number(item.amount) || 0) * (Number(item.vatRate) || 0)) /
+              (100 + (Number(item.vatRate) || 0) || 1);
+
+          acc.overallPence += amountPence;
+          acc.totalVatPence += toPence(vatAmount);
+          acc.byCategoryPence[category] = (acc.byCategoryPence[category] || 0) + amountPence;
+          return acc;
+        },
+        { overallPence: 0, totalVatPence: 0, byCategoryPence: {} }
+      );
+    }
+
     function buildWorkbookRows(user, filteredReceipts) {
       const rows = filteredReceipts.map((receipt) => {
-        const vatAmount = (receipt.amount * receipt.vatRate) / (100 + receipt.vatRate || 1);
+        const vatAmount = Number.isFinite(Number(receipt.vatAmount))
+          ? Number(receipt.vatAmount)
+          : ((Number(receipt.amount) || 0) * (Number(receipt.vatRate) || 0)) /
+            (100 + (Number(receipt.vatRate) || 0) || 1);
         return [
           toMoney(receipt.amount),
           toMoney(vatAmount),
@@ -665,14 +707,27 @@
         ];
       });
 
-      const totalAmount = filteredReceipts.reduce((sum, item) => sum + Number(item.amount), 0);
-      const totalVat = filteredReceipts.reduce((sum, item) => {
-        const vatAmount = (item.amount * item.vatRate) / (100 + item.vatRate || 1);
-        return sum + vatAmount;
-      }, 0);
+      const totals = calculateReceiptTotalsByCategory(filteredReceipts);
+
+      const categorySummaryRows = Object.entries(totals.byCategoryPence)
+        .sort(([a], [b]) => a.localeCompare(b, undefined, { sensitivity: "base" }))
+        .map(([categoryName, amountPence]) => [
+          "Category: " + categoryName,
+          toMoney(fromPence(amountPence)),
+        ]);
 
       const header = ["Amount", "VAT Amount", "VAT Rate", "Date", "Category", "Logged At"];
-      const aoa = [header, ...rows, [], ["Summary", ""], ["Total Amount", toMoney(totalAmount)], ["Total VAT Amount", toMoney(totalVat)]];
+      const aoa = [
+        header,
+        ...rows,
+        [],
+        ["Summary", ""],
+        ["Total Amount", toMoney(fromPence(totals.overallPence))],
+        ["Total VAT Amount", toMoney(fromPence(totals.totalVatPence))],
+        ["", ""],
+        ["Totals by Category", ""],
+        ...categorySummaryRows,
+      ];
       if (rows.length === 0) {
         aoa.splice(1, 0, ["No receipts found for this date range.", "", "", "", "", ""]);
       }
@@ -769,6 +824,13 @@
     });
 
     cancelDateBtn.addEventListener("click", closeDateModal);
+    startDateInput.addEventListener("change", () => {
+      if (!startDateInput.value) return;
+      endDateInput.min = startDateInput.value;
+      if (endDateInput.value && endDateInput.value < startDateInput.value) {
+        endDateInput.value = startDateInput.value;
+      }
+    });
     resetNotifyBtn.addEventListener("click", async () => {
       await markNotifyAsProcessed();
     });

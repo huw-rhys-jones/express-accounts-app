@@ -949,7 +949,7 @@ const styles = StyleSheet.create({
     marginBottom: 10,
   },
   notifyBtnFilled: {
-    backgroundColor: "#2e86de",
+    backgroundColor: Colors.actionDanger,
     paddingVertical: 12,
     paddingHorizontal: 16,
     borderRadius: 10,
