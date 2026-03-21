@@ -1,47 +1,193 @@
-import { StatusBar } from 'expo-status-bar';
-import { StyleSheet, Text, View } from 'react-native';
-import HomeScreen from './screens/first'
-import SecondScreen from './screens/second'
-import ReceiptScreen from './screens/third'
-import SignUpScreen from './screens/fourth'
-import SignInScreen from './screens/logIn'
-import IncomeScreen from './screens/income'
-import ExpensesScreen from './screens/expenses'
-import ScanScreen from './screens/scan'
-import Receipts2Screen from './screens/receipts2'
-import ReceiptConfirmationScreen from './screens/receiptConfirmation'
+import React, { useEffect, useState } from "react";
+import { NavigationContainer } from "@react-navigation/native";
+import { createStackNavigator } from "@react-navigation/stack";
+import { createBottomTabNavigator } from "@react-navigation/bottom-tabs";
+import { View, Text, TouchableOpacity, StyleSheet, Platform } from "react-native";
+import { onAuthStateChanged } from "firebase/auth";
+import { auth } from "./firebaseConfig";
+import SignUpScreen from "./screens/Register";
+import SignInScreen from "./screens/LogIn";
+import IncomeScreen from "./screens/Income";
+import ExpensesScreen from "./screens/ReceiptList";
+import ScanScreen from "./screens/Scan";
+import ReceiptAdd from "./screens/ReceiptAdd";
+import ReceiptDetailsScreen from "./screens/ReceiptEdit";
+import SummaryScreen from "./screens/SummaryScreen";
+import * as WebBrowser from "expo-web-browser";
+import { MD3LightTheme, PaperProvider } from 'react-native-paper';
+import { useSafeAreaInsets, SafeAreaProvider } from 'react-native-safe-area-context';
 
-
-import { NavigationContainer } from '@react-navigation/native';
-import { createStackNavigator } from '@react-navigation/stack';
+WebBrowser.maybeCompleteAuthSession();
 
 const Stack = createStackNavigator();
+const Tab = createBottomTabNavigator();
 
-export default function App() {
+// Create a custom theme based on the Light Theme
+const theme = {
+  ...MD3LightTheme,
+  // You can force specific colors here if needed
+  colors: {
+    ...MD3LightTheme.colors,
+    primary: 'tomato',
+    secondary: 'yellow',
+  },
+};
+
+// 🔧 Global flag to disable swipe when modal is open
+export let modalOpen = false;
+export const setModalOpen = (isOpen) => {
+  modalOpen = isOpen;
+};
+
+// ---------------- Custom Tab Bar ----------------
+function CustomTabBar({ state, descriptors, navigation }) {
+  const insets = useSafeAreaInsets();
+
   return (
-    <NavigationContainer>
-      <Stack.Navigator initialRouteName="Scan">
-        <Stack.Screen name="Home" component={HomeScreen} />
-        <Stack.Screen name="Details" component={SecondScreen} />
-        <Stack.Screen name="Receipts" component={ReceiptScreen} />
-        <Stack.Screen name="SignUp" component={SignUpScreen} />
-        <Stack.Screen name="SignIn" component={SignInScreen} />
-        <Stack.Screen name="Income" component={IncomeScreen} />
-        <Stack.Screen name="Expenses" component={ExpensesScreen} />
-        <Stack.Screen name="Scan" component={ScanScreen} />
-        <Stack.Screen name="Receipts2" component={Receipts2Screen} />
-        <Stack.Screen name="Receipt" component={Receipts2Screen} />
-        <Stack.Screen name="ReceiptConfirmation" component={ReceiptConfirmationScreen} />
-      </Stack.Navigator>
-    </NavigationContainer>
+    <View style={[
+      styles.tabBar, 
+      { paddingBottom: Math.max(insets.bottom, 15) } // Automatically handles buttons/home bars
+    ]}>
+      {state.routes.map((route, index) => {
+        const { options } = descriptors[route.key];
+        const label =
+          options.tabBarLabel !== undefined
+            ? options.tabBarLabel
+            : options.title !== undefined
+            ? options.title
+            : route.name;
+
+        const isFocused = state.index === index;
+
+        const onPress = () => {
+          const event = navigation.emit({
+            type: "tabPress",
+            target: route.key,
+            canPreventDefault: true,
+          });
+
+          if (!isFocused && !event.defaultPrevented) {
+            navigation.navigate(route.name);
+          }
+        };
+
+        return (
+          <TouchableOpacity
+            key={route.key}
+            accessibilityRole="button"
+            onPress={onPress}
+            style={styles.tabItem}
+          >
+            <Text style={[styles.tabText, isFocused && styles.activeTab]}>
+              {label}
+            </Text>
+          </TouchableOpacity>
+        );
+      })}
+
+      {/* Floating Add Button */}
+      {/* <TouchableOpacity
+        style={styles.floatingButton}
+        onPress={() => navigation.navigate("Receipt")}
+      >
+        <Text style={styles.plusText}>+</Text>
+      </TouchableOpacity> */}
+    </View>
   );
 }
 
+// ---------------- Tabs ----------------
+function AppTabs() {
+  return (
+    <Tab.Navigator
+      tabBar={(props) => <CustomTabBar {...props} />}
+      screenOptions={{
+        headerShown: false,
+        // Disable swipe gestures when a modal is open
+        swipeEnabled: !modalOpen,
+      }}
+    >
+      <Tab.Screen
+        name="Expenses"
+        component={ExpensesScreen}
+        options={{ tabBarLabel: "Receipts" }}
+      />
+      <Tab.Screen
+        name="Summary"
+        component={SummaryScreen}
+        options={{ tabBarLabel: "Summary" }}
+      />
+    </Tab.Navigator>
+  );
+}
+
+// ---------------- Main App ----------------
+export default function App() {
+  const [user, setUser] = useState(null);
+  const [checkingAuth, setCheckingAuth] = useState(true);
+
+  useEffect(() => {
+    const unsubscribe = onAuthStateChanged(auth, (user) => {
+      setUser(user);
+      setCheckingAuth(false);
+    });
+
+    return unsubscribe;
+  }, []);
+
+  if (checkingAuth) return null;
+
+  return (
+    /* Wrap everything in PaperProvider to fix the text color issue */
+    <PaperProvider theme={theme}>
+      <NavigationContainer>
+        <Stack.Navigator
+          initialRouteName={user ? "MainTabs" : "SignIn"}
+          screenOptions={{ headerShown: false }}
+        >
+          <Stack.Screen name="SignUp" component={SignUpScreen} />
+          <Stack.Screen name="SignIn" component={SignInScreen} />
+          <Stack.Screen name="Income" component={IncomeScreen} />
+          <Stack.Screen name="MainTabs" component={AppTabs} />
+          <Stack.Screen name="Scan" component={ScanScreen} />
+          <Stack.Screen name="Receipt" component={ReceiptAdd} />
+          <Stack.Screen name="ReceiptDetails" component={ReceiptDetailsScreen} />
+        </Stack.Navigator>
+      </NavigationContainer>
+    </PaperProvider>
+  );
+}
+
+// ---------------- Styles ----------------
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: '#fff',
-    alignItems: 'center',
-    justifyContent: 'center',
+  tabBar: {
+    flexDirection: "row",
+    // height: 70,
+    backgroundColor: "#B5B3C6",
+    alignItems: "center",
+    justifyContent: "space-around",
+    paddingBottom: Platform.OS === 'android' ? 60 : 0,
+    paddingTop: 10,
   },
+  tabItem: { flex: 1, alignItems: "center" },
+  tabText: { color: "#7B7B7B", fontSize: 14 },
+  activeTab: { fontWeight: "bold", color: "#1C1C4E" },
+  floatingButton: {
+    position: "absolute",
+    bottom: 20,
+    alignSelf: "center",
+    backgroundColor: "#a60d49",
+    width: 60,
+    height: 60,
+    borderRadius: 30,
+    justifyContent: "center",
+    alignItems: "center",
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 5,
+    elevation: 5,
+    zIndex: 10,
+  },
+  plusText: { color: "#fff", fontSize: 32, fontWeight: "bold" },
 });

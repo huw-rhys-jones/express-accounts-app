@@ -1,0 +1,20 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Request Data Deletion</title>
+</head>
+<body>
+  <h1>Request Data Deletion</h1>
+  <form method="POST" action="/submit-deletion-request">
+    <label>Email address:</label><br />
+    <input type="email" name="email" required /><br /><br />
+
+    <label>Optional message:</label><br />
+    <textarea name="message" rows="5" cols="30"></textarea><br /><br />
+
+    <button type="submit">Submit Request</button>
+  </form>
+</body>
+</html>
