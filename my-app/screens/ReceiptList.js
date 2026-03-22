@@ -58,6 +58,8 @@ const appVersion = appPackage?.version || Constants.expoConfig?.version || "unkn
 
 const ExpensesScreen = ({ navigation }) => {
   const [displayName, setDisplayName] = useState("User");
+  const [verifiedName, setVerifiedName] = useState("");
+  const [verificationStatus, setVerificationStatus] = useState("");
   const [receipts, setReceipts] = useState([]);
   const [loading, setLoading] = useState(true);
   const [loadingText, setLoadingText] = useState(null);
@@ -432,6 +434,8 @@ const ExpensesScreen = ({ navigation }) => {
         userId: user.uid,
         rawCode: referralCode,
       });
+      setVerifiedName(result.verifiedName);
+      setVerificationStatus("verified");
       triggerHaptic("success").catch(() => {});
       Alert.alert(
         "Verified",
@@ -503,14 +507,22 @@ const ExpensesScreen = ({ navigation }) => {
       if (!user) {
         setReceipts([]);
         setDisplayName("User");
+        setVerifiedName("");
+        setVerificationStatus("");
         return;
       }
       setDisplayName(user.displayName || "User");
 
+      const userProfileRef = doc(db, "users", user.uid);
+      const userProfileSnap = await getDoc(userProfileRef);
+      const userProfile = userProfileSnap.exists() ? userProfileSnap.data() || {} : {};
+      setVerifiedName(String(userProfile.verifiedName || ""));
+      setVerificationStatus(String(userProfile.verificationStatus || ""));
+
       // Sync name + email to Firestore so the accountant portal shows real names
       const profileUpdate = { email: user.email, updatedAt: serverTimestamp() };
       if (user.displayName) profileUpdate.name = user.displayName;
-      setDoc(doc(db, "users", user.uid), profileUpdate, { merge: true }).catch(() => {});
+      setDoc(userProfileRef, profileUpdate, { merge: true }).catch(() => {});
 
 
       const q = query(
@@ -755,6 +767,12 @@ const ExpensesScreen = ({ navigation }) => {
               </TouchableOpacity>
             </View>
             <Text style={styles.userEmail}>{auth.currentUser?.email}</Text>
+            {verificationStatus === "verified" && verifiedName ? (
+              <>
+                <Text style={styles.userEmail}>{verifiedName}</Text>
+                <Text style={styles.userEmail}>(verified user)</Text>
+              </>
+            ) : null}
           </View>
 
           {/* Settings Button */}
@@ -791,9 +809,19 @@ const ExpensesScreen = ({ navigation }) => {
                 setReferralCode("");
                 setReferralCodeModalVisible(true);
               }}
-              style={styles.referralBtn}
+              style={[
+                styles.referralBtn,
+                verificationStatus === "verified" ? styles.disabledActionButton : null,
+              ]}
             >
-              <Text style={styles.filledBtnText}>Enter Client Code</Text>
+              <Text
+                style={[
+                  styles.filledBtnText,
+                  verificationStatus === "verified" ? styles.disabledActionButtonText : null,
+                ]}
+              >
+                Enter Client Code
+              </Text>
             </TouchableOpacity>
 
             {/* Sign Out Button - Red */}
@@ -954,6 +982,12 @@ const ExpensesScreen = ({ navigation }) => {
             <Text style={{ textAlign: "center", marginVertical: 10, color: Colors.textPrimary }}>
               Enter your verification code to link your account to your accountant.
             </Text>
+
+            {verificationStatus === "verified" ? (
+              <Text style={styles.verificationWarningText}>
+                This account is already verified{verifiedName ? ` as ${verifiedName}` : ""}. Entering another code may overwrite that link.
+              </Text>
+            ) : null}
 
             <TextInput
               style={[styles.input, { color: Colors.textPrimary }]}
@@ -1362,6 +1396,19 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     borderRadius: 10,
     alignItems: "center",
+  },
+  disabledActionButton: {
+    backgroundColor: "#b9bcc8",
+  },
+  disabledActionButtonText: {
+    color: "#f5f6f8",
+  },
+  verificationWarningText: {
+    color: Colors.accent,
+    fontSize: 13,
+    lineHeight: 18,
+    textAlign: "center",
+    marginBottom: 10,
   },
   settingsModalCard: {
     width: "100%",
