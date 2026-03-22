@@ -8,8 +8,6 @@ export const Colors = {
   textSecondary: "#333",
   textMuted: "#555",
   accent: "#a60d49",
-  actionDanger: "#B3261E",
-  actionSuccess: "#1E7E34",
   border: "#ccc",
   inputBg: "#C4C4C4",
 };
