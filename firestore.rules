@@ -6,7 +6,7 @@ service cloud.firestore {
     // Keep this list in sync with ALLOWED_EMAILS in client-portal-mock.html.
     function isAccountant() {
       return request.auth != null &&
-             request.auth.token.email in ["info@caistec.com"];
+             request.auth.token.email in ["info@caistec.com", "info@expressaccounts.biz", "kitty_lapue@hotmail.co.uk"];
     }
 
     // Helper: the caller owns the document (matches their Firebase Auth UID).
@@ -26,6 +26,13 @@ service cloud.firestore {
     match /users/{userId} {
       allow read, write: if isOwner(userId);
       allow read, update: if isAccountant();
+    }
+
+    // Verification codes: accountants manage the catalog; authenticated users can validate a single code.
+    match /VerificationCodes/{codeId} {
+      allow get: if request.auth != null;
+      allow list: if isAccountant();
+      allow create, update, delete: if isAccountant();
     }
   }
 }

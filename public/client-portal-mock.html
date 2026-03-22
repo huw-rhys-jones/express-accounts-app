@@ -187,6 +187,34 @@
       color: #4f6780;
     }
 
+    .tabbar {
+      display: flex;
+      gap: 10px;
+      padding: 18px 30px 0;
+      background: #fff;
+    }
+
+    .tab-button {
+      background: #eef4fb;
+      color: #36597c;
+      border: 1px solid #d4e2f0;
+      font-weight: 700;
+    }
+
+    .tab-button.active {
+      background: #153453;
+      color: #fff;
+      border-color: #153453;
+    }
+
+    .tab-panel {
+      display: none;
+    }
+
+    .tab-panel.active {
+      display: block;
+    }
+
     .legend {
       display: flex;
       gap: 10px;
@@ -231,7 +259,7 @@
     .controls {
       margin: 12px 30px 6px;
       display: grid;
-      grid-template-columns: 1.1fr 1fr 0.9fr 0.9fr;
+      grid-template-columns: 1.1fr 1fr 0.9fr 0.9fr 1fr;
       gap: 10px;
     }
 
@@ -252,6 +280,95 @@
       display: grid;
       grid-template-columns: repeat(auto-fill, minmax(190px, 1fr));
       gap: 14px;
+    }
+
+    .card-title-row {
+      display: flex;
+      gap: 8px;
+      align-items: flex-start;
+      justify-content: space-between;
+    }
+
+    .verified-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      border-radius: 999px;
+      padding: 3px 8px;
+      font-size: 0.72rem;
+      font-weight: 700;
+      background: rgba(255, 255, 255, 0.18);
+      border: 1px solid rgba(255, 255, 255, 0.34);
+      white-space: nowrap;
+    }
+
+    .management-panel {
+      padding: 18px 30px 30px;
+    }
+
+    .split-layout {
+      display: grid;
+      grid-template-columns: 1fr 1.25fr;
+      gap: 16px;
+      align-items: start;
+    }
+
+    .stack {
+      display: grid;
+      gap: 10px;
+    }
+
+    textarea,
+    input[type="email"],
+    input[type="text"],
+    input[type="number"],
+    input[type="file"],
+    select {
+      width: 100%;
+      border: 1px solid var(--outline);
+      border-radius: 12px;
+      padding: 12px;
+      font-size: 0.95rem;
+      font-family: inherit;
+      color: var(--ink);
+      background: #fff;
+    }
+
+    textarea {
+      resize: vertical;
+      min-height: 140px;
+    }
+
+    .table-wrap {
+      margin-top: 18px;
+      overflow-x: auto;
+      border: 1px solid #d7e4f0;
+      border-radius: 14px;
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      background: #fff;
+    }
+
+    th,
+    td {
+      padding: 12px 14px;
+      border-bottom: 1px solid #e4edf5;
+      text-align: left;
+      font-size: 0.92rem;
+    }
+
+    th {
+      background: #f4f8fc;
+      color: #234468;
+      font-family: "Space Grotesk", sans-serif;
+    }
+
+    .empty-cell {
+      color: #60768f;
+      text-align: center;
     }
 
     .client-card {
@@ -352,10 +469,12 @@
     @media (max-width: 640px) {
       body { padding: 16px; }
       .dash-top,
+      .tabbar,
       .legend,
       .controls,
       .board,
-      .statusline {
+      .statusline,
+      .management-panel {
         margin-left: 14px;
         margin-right: 14px;
         padding-left: 14px;
@@ -363,6 +482,7 @@
       }
       .dash-top { padding-top: 20px; padding-bottom: 20px; }
       .controls { grid-template-columns: 1fr; }
+      .split-layout { grid-template-columns: 1fr; }
       .board { padding-top: 12px; padding-bottom: 16px; }
       .statusline { margin-bottom: 16px; }
       .login-head,
@@ -375,6 +495,7 @@
   <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
   <script src="/__/firebase/init.js"></script>
   <script src="/utils/taxQuarter.js"></script>
+  <script src="/utils/clientVerification.js"></script>
   <script>
     const auth = firebase.auth();
     const db = firebase.firestore();
@@ -411,6 +532,13 @@
         <button id="logOutBtn" type="button" class="btn-secondary">Log out</button>
       </div>
 
+      <div class="tabbar">
+        <button id="activityTabBtn" type="button" class="tab-button active">Client Activity</button>
+        <button id="managementTabBtn" type="button" class="tab-button">Client Management</button>
+      </div>
+
+      <div id="activityTabPanel" class="tab-panel active">
+
       <div class="legend">
         <button type="button" class="chip red" data-status-filter="red">Red: Notify Accountant</button>
         <button type="button" class="chip yellow" data-status-filter="yellow">Yellow: New uploads since last login</button>
@@ -435,10 +563,54 @@
           <option value="30">Uploaded last 30 days</option>
           <option value="90">Uploaded last 90 days</option>
         </select>
+        <select id="verificationScopeSelect">
+          <option value="verified-only">Verified clients only</option>
+          <option value="all-users">All users</option>
+          <option value="general-only">General app users only</option>
+        </select>
       </div>
 
       <div id="clientBoard" class="board"></div>
       <div id="statusLine" class="statusline">Select a client tile to export their receipt data.</div>
+      </div>
+
+      <div id="managementTabPanel" class="tab-panel">
+        <div class="management-panel">
+          <div class="split-layout">
+            <div class="stack">
+              <label for="verificationCsvInput">Upload CSV</label>
+              <input id="verificationCsvInput" type="file" accept=".csv,text/csv" />
+              <p class="hint" style="margin-top:0">The first column in each CSV row is treated as the client name.</p>
+            </div>
+            <div class="stack">
+              <label for="bulkNamesInput">Enter names separated by semicolons</label>
+              <textarea id="bulkNamesInput" placeholder="Jane Smith; John Patel; Example Ltd"></textarea>
+              <p class="hint" style="margin-top:0">CSV names and typed names are combined and deduplicated before code generation.</p>
+            </div>
+          </div>
+          <div class="actions">
+            <button id="generateCodesBtn" type="button" class="btn-primary">Generate Client Codes</button>
+            <button id="clearManagementBtn" type="button" class="btn-secondary">Clear</button>
+          </div>
+          <div id="managementStatus" class="statusline">Generate verification codes for active clients here.</div>
+          <div class="table-wrap">
+            <table id="generatedCodesTable">
+              <thead>
+                <tr>
+                  <th>Client name</th>
+                  <th>Client code</th>
+                  <th>Status</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td colspan="3" class="empty-cell">No codes generated yet.</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
     </section>
   </div>
 
@@ -474,12 +646,23 @@
     const loginInfo = document.getElementById("loginInfo");
     const statusLine = document.getElementById("statusLine");
     const logOutBtn = document.getElementById("logOutBtn");
+    const activityTabBtn = document.getElementById("activityTabBtn");
+    const managementTabBtn = document.getElementById("managementTabBtn");
+    const activityTabPanel = document.getElementById("activityTabPanel");
+    const managementTabPanel = document.getElementById("managementTabPanel");
 
     const searchInput = document.getElementById("searchInput");
     const sortSelect = document.getElementById("sortSelect");
     const minReceiptsInput = document.getElementById("minReceiptsInput");
     const recentUploadFilter = document.getElementById("recentUploadFilter");
+    const verificationScopeSelect = document.getElementById("verificationScopeSelect");
     const statusFilterButtons = Array.from(document.querySelectorAll("[data-status-filter]"));
+    const verificationCsvInput = document.getElementById("verificationCsvInput");
+    const bulkNamesInput = document.getElementById("bulkNamesInput");
+    const generateCodesBtn = document.getElementById("generateCodesBtn");
+    const clearManagementBtn = document.getElementById("clearManagementBtn");
+    const managementStatus = document.getElementById("managementStatus");
+    const generatedCodesTableBody = document.querySelector("#generatedCodesTable tbody");
 
     const dateModal = document.getElementById("dateModal");
     const startDateInput = document.getElementById("startDate");
@@ -493,6 +676,7 @@
     let liveUsers = [];
     let selectedUser = null;
     const activeStatusFilters = new Set();
+    let currentTab = "activity";
 
     function toMoney(value) {
       return Number(value).toFixed(2);
@@ -546,6 +730,15 @@
       return { key: "blue", label: "No New Uploads" };
     }
 
+    function setActiveTab(tabName) {
+      currentTab = tabName;
+      const showingManagement = tabName === "management";
+      activityTabBtn.classList.toggle("active", !showingManagement);
+      managementTabBtn.classList.toggle("active", showingManagement);
+      activityTabPanel.classList.toggle("active", !showingManagement);
+      managementTabPanel.classList.toggle("active", showingManagement);
+    }
+
     function updateStatusFilterButtonState() {
       statusFilterButtons.forEach((button) => {
         const key = button.dataset.statusFilter;
@@ -591,12 +784,18 @@
 
         return userIds.map((uid) => {
           const profile = profilesById[uid] || {};
+          const baseName = profile.name || profile.displayName || profile.email || ("Unknown user (" + uid.slice(0, 6) + ")");
+          const verifiedName = profile.verifiedName || null;
+          const isVerified = profile.verificationStatus === "verified";
           return {
             id: uid,
-            name: profile.name || profile.displayName || profile.email || ("Unknown user (" + uid.slice(0, 6) + ")"),
+            name: verifiedName || baseName,
+            originalName: baseName,
+            verifiedName,
+            isVerified,
             email: profile.email || null,
             notifyAccountant: profile.notifyAccountant || false,
-              processedAt: toJsDate(profile.processedAt),
+            processedAt: toJsDate(profile.processedAt),
             receipts: receiptsByUser[uid] || [],
           };
         });
@@ -611,6 +810,7 @@
       const text = (searchInput.value || "").trim().toLowerCase();
       const minReceipts = Number(minReceiptsInput.value || 0);
       const recentDays = Number(recentUploadFilter.value || 0);
+      const verificationScope = verificationScopeSelect.value || "verified-only";
       const nowMs = Date.now();
 
       let filtered = users.filter((user) => {
@@ -620,6 +820,8 @@
         const receiptsCount = user.receipts.length;
 
         if (text && !nameMatch && !emailMatch) return false;
+        if (verificationScope === "verified-only" && !user.isVerified) return false;
+        if (verificationScope === "general-only" && user.isVerified) return false;
         if (Number.isFinite(minReceipts) && receiptsCount < minReceipts) return false;
         if (activeStatusFilters.size > 0 && !activeStatusFilters.has(status.key)) return false;
 
@@ -661,9 +863,12 @@
         button.type = "button";
         button.className = "client-card " + status.key;
         button.style.animationDelay = (index * 0.04) + "s";
+        const verifiedBadge = user.isVerified
+          ? "<span class='verified-badge'>★ Verified</span>"
+          : "";
 
         button.innerHTML =
-          "<strong>" + user.name + "</strong>" +
+          "<div class='card-title-row'><strong>" + user.name + "</strong>" + verifiedBadge + "</div>" +
           (user.email ? "<small style='opacity:0.8'>" + user.email + "</small>" : "") +
           "<small>" + status.label + "</small>" +
           "<small>Receipts: " + user.receipts.length + "</small>";
@@ -677,6 +882,110 @@
       clientBoard.innerHTML = '<p style="padding: 0 8px; color: #4f6780; grid-column: 1/-1;">Loading client data…</p>';
       liveUsers = await loadRealData();
       renderBoardFromCurrentData();
+    }
+
+    function renderGeneratedCodesTable(rows) {
+      if (!rows.length) {
+        generatedCodesTableBody.innerHTML = '<tr><td colspan="3" class="empty-cell">No codes generated yet.</td></tr>';
+        return;
+      }
+
+      generatedCodesTableBody.innerHTML = rows
+        .map((row) => (
+          "<tr>" +
+            "<td>" + row.name + "</td>" +
+            "<td><strong>" + row.code + "</strong></td>" +
+            "<td>" + row.status + "</td>" +
+          "</tr>"
+        ))
+        .join("");
+    }
+
+    function readTextFile(file) {
+      return new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(String(reader.result || ""));
+        reader.onerror = () => reject(new Error("Could not read the CSV file."));
+        reader.readAsText(file);
+      });
+    }
+
+    async function collectVerificationNames() {
+      const csvFile = verificationCsvInput.files && verificationCsvInput.files[0];
+      const csvNames = csvFile
+        ? ClientVerification.parseCsvNames(await readTextFile(csvFile))
+        : [];
+      const typedNames = ClientVerification.parseDelimitedNames(bulkNamesInput.value);
+      const combined = [...typedNames, ...csvNames];
+      const seen = new Set();
+
+      return combined.filter((name) => {
+        const key = name.toLowerCase();
+        if (seen.has(key)) return false;
+        seen.add(key);
+        return true;
+      });
+    }
+
+    async function generateUniqueClientCode() {
+      for (let attempt = 0; attempt < 30; attempt += 1) {
+        const code = ClientVerification.generateClientCode();
+        const existing = await db.collection("VerificationCodes").doc(code).get();
+        if (!existing.exists) {
+          return code;
+        }
+      }
+      throw new Error("Could not generate a unique client code. Please try again.");
+    }
+
+    async function generateVerificationCodes() {
+      if (!currentAccountant) {
+        managementStatus.textContent = "You must be signed in to generate client codes.";
+        return;
+      }
+
+      generateCodesBtn.disabled = true;
+      managementStatus.textContent = "Generating verification codes…";
+
+      try {
+        const names = await collectVerificationNames();
+        if (!names.length) {
+          managementStatus.textContent = "Add at least one client name via CSV or semicolon-separated text.";
+          renderGeneratedCodesTable([]);
+          return;
+        }
+
+        const rows = [];
+        for (const name of names) {
+          const code = await generateUniqueClientCode();
+          await db.collection("VerificationCodes").doc(code).set({
+            code,
+            accountantSubmittedName: name,
+            createdAt: firebase.firestore.FieldValue.serverTimestamp(),
+            createdByUid: currentAccountant.uid,
+            createdByEmail: currentAccountant.email || null,
+            usedBy: null,
+            usedAt: null,
+            verificationStatus: "available",
+          }, { merge: true });
+          rows.push({ name, code, status: "Created" });
+        }
+
+        renderGeneratedCodesTable(rows);
+        managementStatus.textContent = "Generated " + rows.length + " verification code(s).";
+      } catch (error) {
+        console.error("Code generation error:", error);
+        managementStatus.textContent = "Code generation failed: " + error.message;
+      } finally {
+        generateCodesBtn.disabled = false;
+      }
+    }
+
+    function clearManagementInputs() {
+      bulkNamesInput.value = "";
+      verificationCsvInput.value = "";
+      managementStatus.textContent = "Generate verification codes for active clients here.";
+      renderGeneratedCodesTable([]);
     }
 
     function openDateModal(user) {
@@ -856,6 +1165,7 @@
         ? "Signed in as " + user.email + " | Previous login: " + previousLoginDate.toLocaleString()
         : "Signed in as " + user.email + " | First portal login";
 
+      setActiveTab(currentTab);
       await reloadAndRenderBoard();
     }
 
@@ -870,6 +1180,8 @@
       previousLoginDate = null;
       activeStatusFilters.clear();
       updateStatusFilterButtonState();
+      setActiveTab("activity");
+      clearManagementInputs();
     }
 
     loginBtn.addEventListener("click", attemptLogin);
@@ -880,10 +1192,15 @@
       if (event.key === "Enter") attemptLogin();
     });
 
-    [searchInput, sortSelect, minReceiptsInput, recentUploadFilter].forEach((el) => {
+    [searchInput, sortSelect, minReceiptsInput, recentUploadFilter, verificationScopeSelect].forEach((el) => {
       el.addEventListener("input", renderBoardFromCurrentData);
       el.addEventListener("change", renderBoardFromCurrentData);
     });
+
+    activityTabBtn.addEventListener("click", () => setActiveTab("activity"));
+    managementTabBtn.addEventListener("click", () => setActiveTab("management"));
+    generateCodesBtn.addEventListener("click", generateVerificationCodes);
+    clearManagementBtn.addEventListener("click", clearManagementInputs);
 
     cancelDateBtn.addEventListener("click", closeDateModal);
     startDateInput.addEventListener("change", () => {

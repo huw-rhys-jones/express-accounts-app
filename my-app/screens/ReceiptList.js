@@ -51,6 +51,7 @@ import {
   triggerHaptic,
 } from "../utils/haptics";
 import { getReceiptFilterKey, setReceiptFilterKey } from "../utils/appSettings";
+import { verifyClientCode } from "../utils/verificationCodes";
 
 // Inside your component
 const appVersion = appPackage?.version || Constants.expoConfig?.version || "unknown";
@@ -416,7 +417,7 @@ const ExpensesScreen = ({ navigation }) => {
 
   const handleSubmitReferralCode = async () => {
     if (!referralCode.trim()) {
-      Alert.alert("Invalid Code", "Please enter a referral code.");
+      Alert.alert("Invalid Code", "Please enter a client code.");
       return;
     }
 
@@ -426,18 +427,21 @@ const ExpensesScreen = ({ navigation }) => {
     triggerHaptic("selection").catch(() => {});
 
     try {
-      await setDoc(
-        doc(db, "users", user.uid),
-        { referralCode: referralCode.trim() },
-        { merge: true }
-      );
+      const result = await verifyClientCode({
+        db,
+        userId: user.uid,
+        rawCode: referralCode,
+      });
       triggerHaptic("success").catch(() => {});
-      Alert.alert("Success", "Referral code saved!");
+      Alert.alert(
+        "Verified",
+        `Code accepted. Your account is now verified as ${result.verifiedName}.`
+      );
       setReferralCodeModalVisible(false);
       setReferralCode("");
     } catch (error) {
-      console.error("Error saving referral code:", error);
-      Alert.alert("Error", "Could not save referral code. Please try again.");
+      console.error("Error verifying referral code:", error);
+      Alert.alert("Verification Failed", error.message || "Could not verify that code. Please try again.");
     }
   };
 
@@ -617,8 +621,12 @@ const ExpensesScreen = ({ navigation }) => {
             </Text>
 
             <View style={{ flex: 1, alignItems: "flex-start", marginLeft: 25 }}>
-              <Text style={styles.receiptCategory}>
-                {String(item.category).split(" ").join("\n")}
+              <Text
+                style={styles.receiptCategory}
+                numberOfLines={1}
+                ellipsizeMode="tail"
+              >
+                {String(item.category || "")}
               </Text>
             </View>
 
@@ -777,7 +785,7 @@ const ExpensesScreen = ({ navigation }) => {
 
           {/* Bottom Section */}
           <View style={styles.footerContainer}>
-            {/* Enter Referral Code Button - Green */}
+            {/* Enter Client Code Button - Green */}
             <TouchableOpacity
               onPress={() => {
                 setReferralCode("");
@@ -785,7 +793,7 @@ const ExpensesScreen = ({ navigation }) => {
               }}
               style={styles.referralBtn}
             >
-              <Text style={styles.filledBtnText}>Enter Referral Code</Text>
+              <Text style={styles.filledBtnText}>Enter Client Code</Text>
             </TouchableOpacity>
 
             {/* Sign Out Button - Red */}
@@ -933,7 +941,7 @@ const ExpensesScreen = ({ navigation }) => {
         </View>
       </Modal>
 
-      {/* Referral Code Modal */}
+      {/* Client Code Modal */}
       <Modal
         visible={referralCodeModalVisible}
         transparent
@@ -942,14 +950,14 @@ const ExpensesScreen = ({ navigation }) => {
       >
         <View style={styles.modalOverlay}>
           <View style={styles.loadingCard}>
-            <Text style={styles.title}>Enter Referral Code</Text>
+            <Text style={styles.title}>Enter Client Code</Text>
             <Text style={{ textAlign: "center", marginVertical: 10, color: Colors.textPrimary }}>
-              Enter your referral code to track your referrals.
+              Enter your verification code to link your account to your accountant.
             </Text>
 
             <TextInput
               style={[styles.input, { color: Colors.textPrimary }]}
-              placeholder="Referral code"
+              placeholder="Client code"
               placeholderTextColor="#999"
               value={referralCode}
               onChangeText={setReferralCode}
@@ -1192,7 +1200,12 @@ const styles = StyleSheet.create({
     minHeight: 60,
   },
   receiptDate: { fontSize: 14, color: "#555" },
-  receiptCategory: { fontSize: 16, fontWeight: "500", color: "#000" },
+  receiptCategory: {
+    fontSize: 16,
+    fontWeight: "500",
+    color: "#000",
+    width: "100%",
+  },
   receiptAmount: { fontSize: 16, fontWeight: "bold", color: Colors.accent },
 
   floatingButton: {
