@@ -13,7 +13,7 @@ import {
   Linking,
   Switch,
 } from "react-native";
-import { signOut, deleteUser } from "firebase/auth";
+import { signOut, deleteUser, updateProfile } from "firebase/auth";
 import {
   collection,
   query,
@@ -453,7 +453,7 @@ const ExpensesScreen = ({ navigation }) => {
     triggerHaptic("selection").catch(() => {});
 
     try {
-      await user.updateProfile({ displayName: newName.trim() });
+      await updateProfile(user, { displayName: newName.trim() });
       await setDoc(
         doc(db, "users", user.uid),
         { name: newName.trim() },
@@ -754,9 +754,8 @@ const ExpensesScreen = ({ navigation }) => {
             <Text style={styles.settingsMenuBtnText}>Settings</Text>
           </TouchableOpacity>
 
-          {/* Middle Section: Action Buttons */}
+          {/* Middle Section: Notify Accountant */}
           <View style={{ marginTop: 20 }}>
-            {/* Notify Accountant Button */}
             <TouchableOpacity
               onPress={handleNotifyAccountant}
               style={styles.notifyBtnFilled}
@@ -774,43 +773,30 @@ const ExpensesScreen = ({ navigation }) => {
                 </TouchableOpacity>
               </View>
             ) : null}
+          </View>
 
-            {/* Enter Referral Code Button */}
+          {/* Bottom Section */}
+          <View style={styles.footerContainer}>
+            {/* Enter Referral Code Button - Green */}
             <TouchableOpacity
               onPress={() => {
                 setReferralCode("");
                 setReferralCodeModalVisible(true);
               }}
-              style={[styles.notifyBtnFilled, { marginTop: 12 }]}
+              style={styles.referralBtn}
             >
               <Text style={styles.filledBtnText}>Enter Referral Code</Text>
             </TouchableOpacity>
 
-            {/* Leave Feedback Button */}
-            <TouchableOpacity
-              onPress={() => {
-                closeMenu();
-                setFeedbackModalVisible(true);
-              }}
-              style={[styles.signOutLink, { marginTop: 16 }]}
-            >
-              <Text style={[styles.linkBtnText, { textDecorationLine: 'none' }]}>
-                Leave Feedback
-              </Text>
-            </TouchableOpacity>
-          </View>
-
-          {/* Bottom Section */}
-          <View style={styles.footerContainer}>
             {/* Sign Out Button - Red */}
             <TouchableOpacity
               onPress={async () => {
                 closeMenu();
                 await handleLogout();
               }}
-              style={styles.redButton}
+              style={[styles.redButton, { marginTop: 10 }]}
             >
-              <Text style={styles.redButtonText}>Sign out</Text>
+              <Text style={styles.redButtonText}>Sign Out</Text>
             </TouchableOpacity>
 
             {/* Delete Account Button - Red */}
@@ -819,6 +805,19 @@ const ExpensesScreen = ({ navigation }) => {
               style={[styles.redButton, { marginTop: 10 }]}
             >
               <Text style={styles.redButtonText}>Delete Account</Text>
+            </TouchableOpacity>
+
+            {/* Leave Feedback */}
+            <TouchableOpacity
+              onPress={() => {
+                closeMenu();
+                setFeedbackModalVisible(true);
+              }}
+              style={[styles.signOutLink, { marginTop: 12, marginBottom: 0 }]}
+            >
+              <Text style={[styles.linkBtnText, { textDecorationLine: 'none' }]}>
+                Leave Feedback
+              </Text>
             </TouchableOpacity>
 
             {/* Version and Privacy Policy */}
@@ -1343,6 +1342,13 @@ const styles = StyleSheet.create({
     color: "white",
     fontWeight: "700",
     textAlign: "center",
+  },
+  referralBtn: {
+    backgroundColor: "#27ae60",
+    paddingVertical: 14,
+    paddingHorizontal: 16,
+    borderRadius: 10,
+    alignItems: "center",
   },
   settingsModalCard: {
     width: "100%",
