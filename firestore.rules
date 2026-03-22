@@ -1,0 +1,31 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Accountant emails that can read all data in this project.
+    // Keep this list in sync with ALLOWED_EMAILS in client-portal-mock.html.
+    function isAccountant() {
+      return request.auth != null &&
+             request.auth.token.email in ["info@caistec.com"];
+    }
+
+    // Helper: the caller owns the document (matches their Firebase Auth UID).
+    function isOwner(userId) {
+      return request.auth != null && request.auth.uid == userId;
+    }
+
+    // Receipts: each user owns their own; accountants can read all.
+    match /receipts/{receiptId} {
+      allow read: if isOwner(resource.data.userId) || isAccountant();
+      allow create: if request.auth != null &&
+                       request.resource.data.userId == request.auth.uid;
+      allow update, delete: if isOwner(resource.data.userId);
+    }
+
+    // User profiles: each user owns their own; accountants can read/update for portal workflows.
+    match /users/{userId} {
+      allow read, write: if isOwner(userId);
+      allow read, update: if isAccountant();
+    }
+  }
+}

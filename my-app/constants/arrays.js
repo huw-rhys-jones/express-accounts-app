@@ -32,26 +32,25 @@ export const currencies_full = [
   
 export const months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
 
-
 export const categories_meta = [
   {
     name: "Fuel",
-    meta: ["fuel", "filling", "petrol", "diesel", "unleaded", "pump", "gas station", "shell", "bp", "texaco"],
+    meta: ["fuel", "filling", "petrol", "diesel", "unleaded", "pump", "gas station", "shell", "bp", "texaco", "applegreen"],
     vatRate: 20,
   },
   {
     name: "Vehicle Costs and Maintenance",
-    meta: ["parts", "MOT", "servicing", "tyre", "oil", "filter", "brake", "repair", "exhaust", "battery", "garage"],
+    meta: ["parts", "MOT", "servicing", "tyre", "oil", "filter", "brake", "repair", "exhaust", "battery", "garage", "halfords", "motors"],
     vatRate: 20,
   },
   {
     name: "Vehicle Hire",
-    meta: ["avis", "europcar", "enterprise", "rental", "van hire", "hertz", "sixt"],
+    meta: ["avis", "europcar", "enterprise", "rental", "car hire", "van hire", "hertz", "sixt"],
     vatRate: 20,
   },
   {
     name: "Travel (bus, train, taxi)",
-    meta: ["rail", "train", "fare", "ticket", "single", "return", "zone", "tfl", "taxi", "uber", "bolt", "tube", "underground", "bus"],
+    meta: ["rail", "train", "fare", "ticket", "single", "return", "zone", "tfl", "taxi", "uber", "bolt", "tube", "underground", "bus", "ferry"],
     vatRate: 0,
   },
   {
@@ -75,27 +74,29 @@ export const categories_meta = [
   },
   {
     name: "Plant & Machinery Hire",
-    meta: ["machine", "plant", "digger", "excavator", "generator", "hss", "speedy", "hire"],
+    meta: ["machine", "plant", "digger", "excavator", "generator", "hss", "speedy", "hire", "skip"],
     vatRate: 20,
   },
   {
     name: "Materials",
     meta: [
-      "nail", "screw", "consumable", "paint", "cement", "wood", "metal",
-      "plastic", "slate", "stone", "sand", "B&Q", "lamanate", "floor",
-      "deck", "plaster", "glue", "adhesive", "nuts", "bolts", "washer", "carpet", "timber", "brick"
+      "nail", "screw", "consumable", "paint", "cement", "wood", "metal", "plastic", 
+      "slate", "stone", "sand", "B&Q", "lamanate", "floor", "deck", "plaster", 
+      "glue", "adhesive", "nuts", "bolts", "washer", "carpet", "timber", "brick", 
+      "phc", "wickes", "lbs", "travis perkins", "plumbpoint", "screwfix", "trade uk", 
+      "howdens", "lliw", "plumbfix", "ja daly", "national plastics", "toolstation", "total plumbing"
     ],
     vatRate: 20,
   },
   {
     name: "Tools and Equipment",
-    meta: ["hammer", "saw", "driver", "drill", "power tool", "wrench", "toolbox", "ladder"],
+    meta: ["hammer", "saw", "driver", "drill", "power tool", "wrench", "toolbox", "ladder", "cns", "planet tools", "boots", "safety", "glasses"],
     vatRate: 20,
   },
   {
     name: "Client Entertaining",
     meta: ["hospitality", "client", "entertainment", "dinner", "drinks", "event", "tickets", "theatre"],
-    vatRate: 0, // In the UK, Client Entertaining is usually not VAT recoverable
+    vatRate: 0, // Usually not VAT recoverable in the UK
   },
   {
     name: "Business Rental",
@@ -124,7 +125,7 @@ export const categories_meta = [
   },
   {
     name: "Training costs",
-    meta: ["course", "exam", "tuition", "certification", "workshop", "seminar", "degree"],
+    meta: ["course", "exam", "tuition", "certification", "workshop", "seminar", "degree", "ndt", "training"],
     vatRate: 0,
   },
   {
@@ -144,17 +145,17 @@ export const categories_meta = [
   },
   {
     name: "Cleaning and Upkeep",
-    meta: ["clean", "wash", "detol", "bleach", "soap", "sanitizer", "janitorial", "window", "hygiene"],
+    meta: ["clean", "wash", "detol", "bleach", "soap", "sanitizer", "janitorial", "window", "hygiene", "gloves"],
     vatRate: 20,
   },
   {
     name: "Sundry items",
-    meta: ["miscellaneous", "other", "sundry", "petty", "cash", "small", "random"],
+    meta: ["miscellaneous", "other", "sundry", "petty", "cash", "small", "random", "charity", "donations"],
     vatRate: 20,
   },
   {
     name: "Postage",
-    meta: ["stamps", "courier", "delivery", "postage", "envelope", "package", "royal mail", "dpd", "fedex", "ups"],
+    meta: ["stamps", "courier", "delivery", "postage", "envelope", "package", "royal mail", "dpd", "fedex", "ups", "evri"],
     vatRate: 20,
   },
   {

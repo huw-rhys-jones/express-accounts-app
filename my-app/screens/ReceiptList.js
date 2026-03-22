@@ -10,8 +10,10 @@ import {
   Modal,
   TextInput,
   Alert,
+  Linking,
+  Switch,
 } from "react-native";
-import { signOut, deleteUser } from "firebase/auth";
+import { signOut, deleteUser, updateProfile } from "firebase/auth";
 import {
   collection,
   query,
@@ -20,6 +22,7 @@ import {
   doc,
   getDoc,
   setDoc,
+  serverTimestamp,
   deleteDoc, // Add this
   writeBatch,
 } from "firebase/firestore";
@@ -30,15 +33,27 @@ import { StatusBar, Platform } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import Constants from "expo-constants";
 import { Colors } from "../utils/sharedStyles";
+import appPackage from "../package.json";
+import DropDownPicker from "react-native-dropdown-picker";
 import {
   getStorage,
   ref as storageRef,
   listAll,
   deleteObject,
 } from "firebase/storage";
+import {
+  buildFinancialFilterOptions,
+  filterReceiptsByDateRange,
+} from "../utils/financialPeriods";
+import {
+  getHapticsEnabled,
+  setHapticsEnabled,
+  triggerHaptic,
+} from "../utils/haptics";
+import { getReceiptFilterKey, setReceiptFilterKey } from "../utils/appSettings";
 
 // Inside your component
-const appVersion = Constants.expoConfig?.version;
+const appVersion = appPackage?.version || Constants.expoConfig?.version || "unknown";
 
 const ExpensesScreen = ({ navigation }) => {
   const [displayName, setDisplayName] = useState("User");
@@ -56,6 +71,55 @@ const ExpensesScreen = ({ navigation }) => {
 
   const [deleteModalVisible, setDeleteModalVisible] = useState(false);
   const [confirmText, setConfirmText] = useState("");
+
+  const [feedbackModalVisible, setFeedbackModalVisible] = useState(false);
+  const [feedbackText, setFeedbackText] = useState("");
+  const [showNotifyTip, setShowNotifyTip] = useState(false);
+  const [hapticsEnabled, setHapticsEnabledState] = useState(true);
+  const [settingsModalVisible, setSettingsModalVisible] = useState(false);
+  const [filterOpen, setFilterOpen] = useState(false);
+  const [activeFilterKey, setActiveFilterKey] = useState("current-quarter");
+  const [filterItems, setFilterItems] = useState([]);
+  const [referralCodeModalVisible, setReferralCodeModalVisible] = useState(false);
+  const [referralCode, setReferralCode] = useState("");
+  const [nameChangeModalVisible, setNameChangeModalVisible] = useState(false);
+  const [newName, setNewName] = useState(displayName);
+
+  const handleSendFeedback = async () => {
+  // 1. Validation
+  if (!feedbackText.trim()) {
+    Alert.alert("Empty Message", "Please enter your feedback before sending.");
+    return;
+  }
+
+  // 2. Get the current user's email
+  const userEmail = auth.currentUser?.email || "Unknown User";
+
+  await runWithLoading("Sending feedback...", async () => {
+    try {
+      const response = await fetch('https://express-accounts-73d38.web.app/submit-feedback', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          name: displayName, // Uses the state variable you've already set
+          email: userEmail,  // The verified auth email
+          message: feedbackText,
+        }),
+      });
+
+      if (response.ok) {
+        Alert.alert("Success", "Thank you! Your feedback has been sent.");
+        setFeedbackModalVisible(false);
+        setFeedbackText("");
+      } else {
+        throw new Error("Server error");
+      }
+    } catch (error) {
+      console.error("Feedback Error:", error);
+      Alert.alert("Connection Error", "Could not reach the server. Please try again.");
+    }
+  });
+};
 
   const handleDeleteAccount = () => {
     // Close the side menu first so it's not in the way
@@ -129,8 +193,55 @@ const ExpensesScreen = ({ navigation }) => {
     }
   };
 
+  const filterOptions = useMemo(
+    () => buildFinancialFilterOptions(receipts, new Date()),
+    [receipts]
+  );
+
+  const activeFilter = useMemo(
+    () => filterOptions.find((option) => option.key === activeFilterKey) || filterOptions[0],
+    [activeFilterKey, filterOptions]
+  );
+
+  useEffect(() => {
+    if (!activeFilter && filterOptions[0]) {
+      setActiveFilterKey(filterOptions[0].key);
+    }
+  }, [activeFilter, filterOptions]);
+
+  useEffect(() => {
+    setFilterItems(
+      filterOptions.map((option) => ({ label: option.label, value: option.key }))
+    );
+  }, [filterOptions]);
+
+  useEffect(() => {
+    if (filterOptions.length === 0) {
+      return;
+    }
+
+    const hasActiveOption = filterOptions.some(
+      (option) => option.key === activeFilterKey
+    );
+
+    if (!hasActiveOption) {
+      const fallbackKey = filterOptions[0].key;
+      setActiveFilterKey(fallbackKey);
+      setReceiptFilterKey(fallbackKey).catch(() => {});
+    }
+  }, [activeFilterKey, filterOptions]);
+
+  const filteredReceipts = useMemo(() => {
+    if (!activeFilter) return receipts;
+    return filterReceiptsByDateRange(
+      receipts,
+      activeFilter.startDate,
+      activeFilter.endDate
+    );
+  }, [activeFilter, receipts]);
+
   const sortedReceipts = useMemo(() => {
-    const data = [...receipts];
+    const data = [...filteredReceipts];
     data.sort((a, b) => {
       let av,
         bv,
@@ -153,7 +264,27 @@ const ExpensesScreen = ({ navigation }) => {
       return sortDir === "asc" ? cmp : -cmp;
     });
     return data;
-  }, [receipts, sortKey, sortDir]);
+  }, [filteredReceipts, sortKey, sortDir]);
+
+  useEffect(() => {
+    getHapticsEnabled()
+      .then(setHapticsEnabledState)
+      .catch(() => setHapticsEnabledState(true));
+
+    getReceiptFilterKey()
+      .then(setActiveFilterKey)
+      .catch(() => setActiveFilterKey("current-quarter"));
+  }, []);
+
+  useEffect(() => {
+    const unsubscribeFocus = navigation.addListener("focus", () => {
+      getReceiptFilterKey()
+        .then(setActiveFilterKey)
+        .catch(() => setActiveFilterKey("current-quarter"));
+    });
+
+    return unsubscribeFocus;
+  }, [navigation]);
 
   // Check Firebase for "seen" status
   useEffect(() => {
@@ -189,6 +320,168 @@ const ExpensesScreen = ({ navigation }) => {
     }
   };
 
+  const markNotifyTipSeen = useCallback(async () => {
+    const user = auth.currentUser;
+    if (!user) return;
+    try {
+      await setDoc(
+        doc(db, "users", user.uid),
+        { hasSeenNotifyAccountantTip: true, updatedAt: serverTimestamp() },
+        { merge: true }
+      );
+    } catch (error) {
+      console.log("Error marking notify tooltip seen:", error);
+    }
+  }, []);
+
+  const dismissNotifyTip = useCallback(async () => {
+    setShowNotifyTip(false);
+    await markNotifyTipSeen();
+  }, [markNotifyTipSeen]);
+
+  const closeMenu = useCallback(() => {
+    if (showNotifyTip) {
+      dismissNotifyTip();
+    }
+    setMenuOpen(false);
+  }, [dismissNotifyTip, showNotifyTip]);
+
+  useEffect(() => {
+    if (!menuOpen) {
+      return;
+    }
+
+    const checkNotifyTipStatus = async () => {
+      const user = auth.currentUser;
+      if (!user) return;
+      try {
+        const userRef = doc(db, "users", user.uid);
+        const userSnap = await getDoc(userRef);
+        if (!userSnap.data()?.hasSeenNotifyAccountantTip) {
+          setShowNotifyTip(true);
+        }
+      } catch (error) {
+        console.log("Error fetching notify tooltip status:", error);
+      }
+    };
+
+    checkNotifyTipStatus();
+  }, [menuOpen]);
+
+  const handleNotifyAccountant = async () => {
+    const user = auth.currentUser;
+    if (!user) return;
+
+    triggerHaptic("selection").catch(() => {});
+
+    await runWithLoading("Sending notify request…", async () => {
+      await setDoc(
+        doc(db, "users", user.uid),
+        {
+          notifyAccountant: true,
+          notifyAccountantAt: serverTimestamp(),
+          updatedAt: serverTimestamp(),
+          ...(user.displayName ? { name: user.displayName } : {}),
+          ...(user.email ? { email: user.email } : {}),
+        },
+        { merge: true }
+      );
+    });
+
+    setMenuOpen(false);
+    setShowNotifyTip(false);
+    triggerHaptic("success").catch(() => {});
+    Alert.alert("Accountant Notified", "Your accountant has been notified that your receipts are ready for processing.");
+  };
+
+  const handleOpenPrivacyPolicy = useCallback(async () => {
+    triggerHaptic("selection").catch(() => {});
+    const url = "https://caistec.com/privacy-policy.html";
+    const canOpen = await Linking.canOpenURL(url);
+    if (!canOpen) {
+      Alert.alert("Unable to open link", "Could not open Privacy Policy.");
+      return;
+    }
+    await Linking.openURL(url);
+  }, []);
+
+  const toggleHapticsSetting = useCallback(async () => {
+    const next = !hapticsEnabled;
+    setHapticsEnabledState(next);
+    await setHapticsEnabled(next);
+    if (next) {
+      triggerHaptic("selection").catch(() => {});
+    }
+  }, [hapticsEnabled]);
+
+  const handleSubmitReferralCode = async () => {
+    if (!referralCode.trim()) {
+      Alert.alert("Invalid Code", "Please enter a referral code.");
+      return;
+    }
+
+    const user = auth.currentUser;
+    if (!user) return;
+
+    triggerHaptic("selection").catch(() => {});
+
+    try {
+      await setDoc(
+        doc(db, "users", user.uid),
+        { referralCode: referralCode.trim() },
+        { merge: true }
+      );
+      triggerHaptic("success").catch(() => {});
+      Alert.alert("Success", "Referral code saved!");
+      setReferralCodeModalVisible(false);
+      setReferralCode("");
+    } catch (error) {
+      console.error("Error saving referral code:", error);
+      Alert.alert("Error", "Could not save referral code. Please try again.");
+    }
+  };
+
+  const handleSubmitNameChange = async () => {
+    if (!newName.trim()) {
+      Alert.alert("Invalid Name", "Please enter a name.");
+      return;
+    }
+
+    const user = auth.currentUser;
+    if (!user) return;
+
+    triggerHaptic("selection").catch(() => {});
+
+    try {
+      await updateProfile(user, { displayName: newName.trim() });
+      await setDoc(
+        doc(db, "users", user.uid),
+        { name: newName.trim() },
+        { merge: true }
+      );
+      setDisplayName(newName.trim());
+      triggerHaptic("success").catch(() => {});
+      Alert.alert("Success", "Name updated!");
+      setNameChangeModalVisible(false);
+    } catch (error) {
+      console.error("Error updating name:", error);
+      Alert.alert("Error", "Could not update name. Please try again.");
+    }
+  };
+
+  const handleOpenSettings = useCallback(() => {
+    closeMenu();
+    requestAnimationFrame(() => setSettingsModalVisible(true));
+  }, [closeMenu]);
+
+  const handleFilterSelection = useCallback(
+    async (nextKey) => {
+      setActiveFilterKey(nextKey);
+      await setReceiptFilterKey(nextKey);
+    },
+    []
+  );
+
   const runWithLoading = async (text, fn) => {
     setLoadingText(text);
     setLoading(true);
@@ -209,6 +502,12 @@ const ExpensesScreen = ({ navigation }) => {
         return;
       }
       setDisplayName(user.displayName || "User");
+
+      // Sync name + email to Firestore so the accountant portal shows real names
+      const profileUpdate = { email: user.email, updatedAt: serverTimestamp() };
+      if (user.displayName) profileUpdate.name = user.displayName;
+      setDoc(doc(db, "users", user.uid), profileUpdate, { merge: true }).catch(() => {});
+
 
       const q = query(
         collection(db, "receipts"),
@@ -244,6 +543,7 @@ const ExpensesScreen = ({ navigation }) => {
   }, [fetchReceipts]);
 
   const handleLogout = async () => {
+    triggerHaptic("selection").catch(() => {});
     await runWithLoading("Signing out…", async () => {
       await signOut(auth);
       navigation.replace("SignIn");
@@ -303,7 +603,7 @@ const ExpensesScreen = ({ navigation }) => {
         <View
           style={[
             styles.listContainer,
-            { width: "95%", marginTop: 0, marginBottom: 5 },
+            { width: "98%", marginTop: 0, marginBottom: 5 },
           ]}
         >
           <TouchableOpacity
@@ -386,7 +686,7 @@ const ExpensesScreen = ({ navigation }) => {
 
         {/* Header row OUTSIDE the FlatList to avoid Android sticky bug */}
         {hasReceipts ? (
-          <View style={{ marginTop: 10, marginBottom: 8 }}>
+          <View style={{ marginTop: 28, marginBottom: 8 }}>
             {renderHeaderRow()}
           </View>
         ) : null}
@@ -430,45 +730,291 @@ const ExpensesScreen = ({ navigation }) => {
       )}
 
       {/* Slide-in side menu */}
-      <SideMenu open={menuOpen} onClose={() => setMenuOpen(false)}>
+      <SideMenu open={menuOpen} onClose={closeMenu}>
         <View style={{ flex: 1 }}>
-          {/* Top Section */}
-          <Text style={styles.menuTitle}>Menu</Text>
-
+          {/* Top Section: Name, Email, Settings Button */}
           <View style={styles.userInfo}>
-            <Text style={styles.userEmail}>{displayName}</Text>
+            <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}>
+              <Text style={styles.userEmail}>{displayName}</Text>
+              <TouchableOpacity
+                onPress={() => {
+                  setNewName(displayName);
+                  setNameChangeModalVisible(true);
+                }}
+                style={{ paddingLeft: 8 }}
+              >
+                <Text style={{ fontSize: 14 }}>✏️</Text>
+              </TouchableOpacity>
+            </View>
             <Text style={styles.userEmail}>{auth.currentUser?.email}</Text>
+          </View>
+
+          {/* Settings Button */}
+          <TouchableOpacity onPress={handleOpenSettings} style={styles.settingsMenuBtn}>
+            <Text style={styles.settingsMenuBtnText}>Settings</Text>
+          </TouchableOpacity>
+
+          {/* Middle Section: Notify Accountant */}
+          <View style={{ marginTop: 20 }}>
+            <TouchableOpacity
+              onPress={handleNotifyAccountant}
+              style={styles.notifyBtnFilled}
+            >
+              <Text style={styles.filledBtnText}>Notify Accountant</Text>
+            </TouchableOpacity>
+
+            {showNotifyTip ? (
+              <View style={styles.notifyTipBox}>
+                <Text style={styles.notifyTipText}>
+                  Notify your accountant that your receipts are ready for processing
+                </Text>
+                <TouchableOpacity onPress={dismissNotifyTip}>
+                  <Text style={styles.notifyTipOkay}>Okay</Text>
+                </TouchableOpacity>
+              </View>
+            ) : null}
           </View>
 
           {/* Bottom Section */}
           <View style={styles.footerContainer}>
-            
+            {/* Enter Referral Code Button - Green */}
+            <TouchableOpacity
+              onPress={() => {
+                setReferralCode("");
+                setReferralCodeModalVisible(true);
+              }}
+              style={styles.referralBtn}
+            >
+              <Text style={styles.filledBtnText}>Enter Referral Code</Text>
+            </TouchableOpacity>
 
-            {/* Sign Out - Now the Transparent Link */}
+            {/* Sign Out Button - Red */}
             <TouchableOpacity
               onPress={async () => {
-                setMenuOpen(false);
+                closeMenu();
                 await handleLogout();
               }}
-              style={styles.signOutLink}
+              style={[styles.redButton, { marginTop: 10 }]}
             >
-              <Text style={styles.linkBtnText}>Sign out</Text>
+              <Text style={styles.redButtonText}>Sign Out</Text>
             </TouchableOpacity>
 
-            {/* Delete Account - Now the Filled Button */}
+            {/* Delete Account Button - Red */}
             <TouchableOpacity
               onPress={handleDeleteAccount}
-              style={styles.deleteBtnFilled}
+              style={[styles.redButton, { marginTop: 10 }]}
             >
-              <Text style={styles.filledBtnText}>Delete Account</Text>
+              <Text style={styles.redButtonText}>Delete Account</Text>
             </TouchableOpacity>
 
+            {/* Leave Feedback */}
+            <TouchableOpacity
+              onPress={() => {
+                closeMenu();
+                setFeedbackModalVisible(true);
+              }}
+              style={[styles.signOutLink, { marginTop: 12, marginBottom: 0 }]}
+            >
+              <Text style={[styles.linkBtnText, { textDecorationLine: 'none' }]}>
+                Leave Feedback
+              </Text>
+            </TouchableOpacity>
+
+            {/* Version and Privacy Policy */}
             <View style={styles.versionContainer}>
               <Text style={styles.versionText}>Version {appVersion}</Text>
+              <Text style={styles.versionText}> · </Text>
+              <TouchableOpacity onPress={handleOpenPrivacyPolicy}>
+                <Text style={[styles.versionText, { textDecorationLine: "underline", color: Colors.accent }]}>
+                  Privacy Policy
+                </Text>
+              </TouchableOpacity>
             </View>
           </View>
         </View>
       </SideMenu>
+
+      {/* Feedback Modal */}
+      <Modal visible={feedbackModalVisible} transparent animationType="slide">
+        <View style={styles.modalOverlay}>
+          <View style={styles.loadingCard}>
+            <Text style={styles.title}>Send Feedback</Text>
+            <Text style={{ textAlign: "center", marginVertical: 10, color: Colors.textPrimary }}>
+              Have a suggestion or found a bug? Let us know below.
+            </Text>
+
+            <TextInput
+              style={[styles.input, { minHeight: 120, textAlignVertical: 'top', color: Colors.textPrimary  }]}
+              placeholder="Type your feedback here..."
+              placeholderTextColor="#999"
+              multiline
+              value={feedbackText}
+              onChangeText={setFeedbackText}
+            />
+
+            <View style={{ flexDirection: "row", marginTop: 20, gap: 10, width: '100%' }}>
+              <TouchableOpacity
+                onPress={() => {
+                  setFeedbackModalVisible(false);
+                  setFeedbackText("");
+                }}
+                style={[styles.signOutBtn, { backgroundColor: "#ccc", flex: 1 }]}
+              >
+                <Text style={{ color: "#000", textAlign: 'center' }}>Cancel</Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                onPress={handleSendFeedback}
+                style={[styles.signOutBtn, { flex: 1 }]}
+              >
+                <Text style={styles.signOutText}>Send</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
+
+      <Modal
+        visible={settingsModalVisible}
+        transparent
+        animationType="slide"
+        onRequestClose={() => {
+          setSettingsModalVisible(false);
+          setFilterOpen(false);
+        }}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={[styles.loadingCard, styles.settingsModalCard]}>
+            <Text style={styles.title}>Settings</Text>
+
+            <View style={styles.settingsRow}>
+              <Text style={styles.settingsLabel}>Haptic feedback</Text>
+              <Switch
+                value={hapticsEnabled}
+                onValueChange={toggleHapticsSetting}
+                trackColor={{ false: "#c8cad2", true: "#f0b5ca" }}
+                thumbColor={hapticsEnabled ? Colors.accent : "#f4f3f4"}
+              />
+            </View>
+
+            {filterOptions.length > 0 ? (
+              <View style={styles.settingsFilterSection}>
+                <Text style={styles.settingsLabel}>Filter by quarter or year</Text>
+                <DropDownPicker
+                  open={filterOpen}
+                  value={activeFilterKey}
+                  items={filterItems}
+                  setOpen={setFilterOpen}
+                  setValue={(callback) => {
+                    const nextKey = callback(activeFilterKey);
+                    handleFilterSelection(nextKey).catch(() => {});
+                    return nextKey;
+                  }}
+                  setItems={setFilterItems}
+                  listMode="SCROLLVIEW"
+                  style={styles.filterDropdown}
+                  dropDownContainerStyle={styles.filterDropdownContainer}
+                  zIndex={3000}
+                  zIndexInverse={1000}
+                />
+              </View>
+            ) : null}
+
+            <TouchableOpacity
+              onPress={() => {
+                setSettingsModalVisible(false);
+                setFilterOpen(false);
+              }}
+              style={[styles.signOutBtn, { width: "100%" }]}
+            >
+              <Text style={styles.signOutText}>Done</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
+
+      {/* Referral Code Modal */}
+      <Modal
+        visible={referralCodeModalVisible}
+        transparent
+        animationType="slide"
+        onRequestClose={() => setReferralCodeModalVisible(false)}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={styles.loadingCard}>
+            <Text style={styles.title}>Enter Referral Code</Text>
+            <Text style={{ textAlign: "center", marginVertical: 10, color: Colors.textPrimary }}>
+              Enter your referral code to track your referrals.
+            </Text>
+
+            <TextInput
+              style={[styles.input, { color: Colors.textPrimary }]}
+              placeholder="Referral code"
+              placeholderTextColor="#999"
+              value={referralCode}
+              onChangeText={setReferralCode}
+              autoCapitalize="none"
+            />
+
+            <View style={{ flexDirection: "row", marginTop: 20, gap: 10, width: "100%" }}>
+              <TouchableOpacity
+                onPress={() => setReferralCodeModalVisible(false)}
+                style={[styles.signOutBtn, { backgroundColor: "#ccc", flex: 1 }]}
+              >
+                <Text style={{ color: "#000", textAlign: "center" }}>Cancel</Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                onPress={handleSubmitReferralCode}
+                style={[styles.signOutBtn, { flex: 1 }]}
+              >
+                <Text style={styles.signOutText}>Submit</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
+
+      {/* Name Change Modal */}
+      <Modal
+        visible={nameChangeModalVisible}
+        transparent
+        animationType="slide"
+        onRequestClose={() => setNameChangeModalVisible(false)}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={styles.loadingCard}>
+            <Text style={styles.title}>Change Your Name</Text>
+            <Text style={{ textAlign: "center", marginVertical: 10, color: Colors.textPrimary }}>
+              Enter your new name.
+            </Text>
+
+            <TextInput
+              style={[styles.input, { color: Colors.textPrimary }]}
+              placeholder="New name"
+              placeholderTextColor="#999"
+              value={newName}
+              onChangeText={setNewName}
+            />
+
+            <View style={{ flexDirection: "row", marginTop: 20, gap: 10, width: "100%" }}>
+              <TouchableOpacity
+                onPress={() => setNameChangeModalVisible(false)}
+                style={[styles.signOutBtn, { backgroundColor: "#ccc", flex: 1 }]}
+              >
+                <Text style={{ color: "#000", textAlign: "center" }}>Cancel</Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                onPress={handleSubmitNameChange}
+                style={[styles.signOutBtn, { flex: 1 }]}
+              >
+                <Text style={styles.signOutText}>Accept</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
 
       <Modal visible={deleteModalVisible} transparent animationType="fade">
         <View style={styles.modalOverlay}>
@@ -476,13 +1022,17 @@ const ExpensesScreen = ({ navigation }) => {
             <Text style={[styles.title, { color: "#ff4444" }]}>
               Delete Account?
             </Text>
-            <Text style={{ textAlign: "center", marginVertical: 10 }}>
+            <Text style={{ textAlign: "center", marginVertical: 10, 
+              color: Colors.textPrimary 
+              }}>
               This will permanently erase all receipts and images. Please type{" "}
               <Text style={{ fontWeight: "bold" }}>DELETE</Text> to confirm.
             </Text>
 
             <TextInput
-              style={[styles.input, { width: "100%", textAlign: "center" }]}
+              style={[styles.input, { width: "100%", textAlign: "center", 
+                color: Colors.textPrimary  
+              }]}
               placeholder="Type here"
               value={confirmText}
               onChangeText={setConfirmText}
@@ -546,6 +1096,13 @@ const styles = StyleSheet.create({
     marginTop: 14,
     textAlign: "center",
   },
+  filterDropdown: {
+    borderColor: Colors.border,
+    borderRadius: 10,
+  },
+  filterDropdownContainer: {
+    borderColor: Colors.border,
+  },
   description: {
     fontSize: 16,
     color: Colors.textPrimary,
@@ -576,7 +1133,7 @@ const styles = StyleSheet.create({
   listContainer: {
     marginTop: 10,
     borderRadius: 10,
-    padding: 8,
+    padding: 6,
     backgroundColor: Colors.textPrimary,
     width: "100%",
   },
@@ -669,6 +1226,13 @@ const styles = StyleSheet.create({
     alignItems: "center",
     zIndex: 999,
   },
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: "rgba(0, 0, 0, 0.5)", // Dim the background
+    justifyContent: "center", // Center vertically
+    alignItems: "center", // Center horizontally
+    padding: 20, // Keep card away from screen edges
+  },
   loadingCard: {
     backgroundColor: "white",
     paddingVertical: 20,
@@ -743,6 +1307,60 @@ const styles = StyleSheet.create({
     marginTop: "auto",
     paddingBottom: 10,
   },
+  settingsRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    marginBottom: 12,
+    width: "100%",
+  },
+  settingsLabel: {
+    color: Colors.textPrimary,
+    fontSize: 14,
+  },
+  settingsMenuBtn: {
+    backgroundColor: "#9999AA",
+    paddingVertical: 14,
+    paddingHorizontal: 16,
+    borderRadius: 10,
+    marginTop: 16,
+    alignItems: "center",
+  },
+  settingsMenuBtnText: {
+    color: "white",
+    fontWeight: "700",
+    textAlign: "center",
+  },
+  redButton: {
+    backgroundColor: Colors.accent,
+    paddingVertical: 14,
+    paddingHorizontal: 16,
+    borderRadius: 10,
+    alignItems: "center",
+  },
+  redButtonText: {
+    color: "white",
+    fontWeight: "700",
+    textAlign: "center",
+  },
+  referralBtn: {
+    backgroundColor: "#27ae60",
+    paddingVertical: 14,
+    paddingHorizontal: 16,
+    borderRadius: 10,
+    alignItems: "center",
+  },
+  settingsModalCard: {
+    width: "100%",
+    maxWidth: 420,
+    alignItems: "stretch",
+  },
+  settingsFilterSection: {
+    width: "100%",
+    marginTop: 8,
+    marginBottom: 20,
+    zIndex: 3000,
+  },
   // The new filled style (formerly for Sign Out, now for Delete)
   deleteBtnFilled: {
     backgroundColor: Colors.accent, // Red for destruction
@@ -750,6 +1368,33 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     borderRadius: 10,
     marginBottom: 10,
+  },
+  notifyBtnFilled: {
+    backgroundColor: "#2e86de",
+    paddingVertical: 12,
+    paddingHorizontal: 16,
+    borderRadius: 10,
+    marginBottom: 10,
+  },
+  notifyTipBox: {
+    backgroundColor: "#FFF3CD",
+    borderColor: "#F5C451",
+    borderWidth: 1,
+    borderRadius: 8,
+    padding: 10,
+    marginBottom: 10,
+  },
+  notifyTipText: {
+    color: "#5C4100",
+    fontSize: 13,
+    lineHeight: 18,
+  },
+  notifyTipOkay: {
+    color: "#5C4100",
+    fontWeight: "700",
+    textAlign: "right",
+    textDecorationLine: "underline",
+    marginTop: 8,
   },
   filledBtnText: {
     color: "white",
@@ -769,7 +1414,10 @@ const styles = StyleSheet.create({
     textDecorationLine: "underline",
   },
   versionContainer: {
+    flexDirection: "row",
     alignItems: "center",
+    justifyContent: "center",
+    paddingTop: 20,
     paddingBottom: 10,
   },
   versionText: {

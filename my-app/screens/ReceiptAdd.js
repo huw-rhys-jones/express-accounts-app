@@ -30,15 +30,19 @@ import {
   addDoc,
   collection,
   serverTimestamp,
+  query,
+  where,
+  getDocs,
 } from "firebase/firestore";
 import { getStorage, ref, uploadBytes, getDownloadURL } from "firebase/storage";
 import { categories_meta } from "../constants/arrays";
 import { formatDate } from "../utils/format_style";
-import TextRecognition from "@react-native-ml-kit/text-recognition";
-import * as FileSystem from "expo-file-system/legacy";
-import { extractData } from "../utils/extractors";
+import { extractData, reconstructLines } from "../utils/extractors";
+import { useReceiptOcr } from "../utils/ocrHelpers";
 import ImageViewer from "react-native-image-zoom-viewer";
 import { Colors, ReceiptStyles } from "../utils/sharedStyles";
+import { getCurrentYearAprilSix, startOfDayLocal } from "../utils/financialPeriods";
+import { triggerHaptic } from "../utils/haptics";
 
 const ReceiptAdd = ({ navigation }) => {
   const [amount, setAmount] = useState("");
@@ -51,6 +55,7 @@ const ReceiptAdd = ({ navigation }) => {
   const [selectedCategory, setSelectedCategory] = useState(null);
   const [vatAmountEdited, setVatAmountEdited] = useState(false);
   const [showTip, setShowTip] = useState(false);
+  const [showOcrCheckboxTip, setShowOcrCheckboxTip] = useState(false);
   const [tipPosition, setTipPosition] = useState({ x: 0, y: 0 });
 
   // success + confirm modals
@@ -58,19 +63,11 @@ const ReceiptAdd = ({ navigation }) => {
   const [showConfirmReset, setConfirmReset] = useState(false);
   const [showConfirmLeaveModal, setShowConfirmLeaveModal] = useState(false);
   const [showConfirmModal, setShowConfirmModal] = useState(false);
+  const [showDuplicateModal, setShowDuplicateModal] = useState(false);
+  const [duplicateReceiptDate, setDuplicateReceiptDate] = useState(null);
 
-  // OCR modal state
-  const [ocrModalVisible, setOcrModalVisible] = useState(false);
-  const [preview, setPreview] = useState(null);
-  const [ocrLoading, setOcrLoading] = useState(false);
-  const [ocrResult, setOcrResult] = useState(null);
-  const [acceptFlags, setAcceptFlags] = useState({
-    amount: false,
-    date: false,
-    category: false,
-    vat: false,
-  });
-  const [isNewImageSession, setIsNewImageSession] = useState(false);
+  // OCR modal state and helpers will be provided by useReceiptOcr
+  // (hook invocation inserted later).
 
   const [isUploading, setIsUploading] = useState(false);
 
@@ -110,44 +107,7 @@ const ReceiptAdd = ({ navigation }) => {
   const [categoryY, setCategoryY] = useState(0);
 
   // ------- helpers -------
-  const ensureFileFromAsset = async (asset) => {
-    const { base64, fileName, uri } = asset || {};
-    const ext =
-      (fileName && fileName.includes(".") && "." + fileName.split(".").pop()) ||
-      ".jpg";
-    const dest = FileSystem.cacheDirectory + `ocr-${Date.now()}${ext}`;
-
-    if (base64) {
-      await FileSystem.writeAsStringAsync(dest, base64, {
-        encoding: FileSystem.EncodingType.Base64,
-      });
-      return dest;
-    }
-
-    if (uri) {
-      try {
-        if (/^(file|content):\/\//i.test(uri)) {
-          await FileSystem.copyAsync({ from: uri, to: dest });
-          return dest;
-        }
-        if (/^https?:\/\//i.test(uri)) {
-          const { uri: localUri } = await FileSystem.downloadAsync(uri, dest);
-          return localUri;
-        }
-      } catch (e) {
-        const res = await fetch(uri);
-        const blob = await res.blob();
-        const buf = await blob.arrayBuffer();
-        const b64 = Buffer.from(buf).toString("base64");
-        await FileSystem.writeAsStringAsync(dest, b64, {
-          encoding: FileSystem.EncodingType.Base64,
-        });
-        return dest;
-      }
-    }
-
-    throw new Error("No uri/base64 on asset for OCR");
-  };
+  // ensureFileFromAsset is now provided by the OCR hook; no local copy needed.
 
   const computeVat = (grossStr, rateStr) => {
     const gross = parseFloat(grossStr);
@@ -158,126 +118,36 @@ const ReceiptAdd = ({ navigation }) => {
     return vat.toFixed(2);
   };
 
-  const openOcrModal = async (
-    uri,
-    { autoScan = true, newSession = false } = {}
-  ) => {
-    setPreview({ uri });
-    setOcrResult(null);
-    setAcceptFlags({ amount: false, date: false, category: false, vat: false });
-    setIsNewImageSession(!!newSession);
-    setOcrModalVisible(true);
-    if (autoScan) {
-      await runOcr(uri);
-    }
-  };
+  // create OCR hook after computeVat so the function is available
+  const {
+    preview,
+    ocrResult,
+    acceptFlags,
+    ocrLoading,
+    ocrModalVisible,
+    isNewImageSession,
+    ensureFileFromAsset,
+    openOcrModal,
+    runOcr,
+    toggleAccept,
+    applyAcceptedValues,
+    deleteCurrentImage,
+    handleCancelModal,
+    handleImagePicked,
+    setOcrModalVisible,
+    setPreview,
+    setOcrResult,
+    setAcceptFlags,
+    setIsNewImageSession,
+  } = useReceiptOcr({ computeVat });
 
-  const runOcr = async (uriOrLocal) => {
-    try {
-      setOcrLoading(true);
-      let localUri = uriOrLocal;
-      if (!/^(file|content):\/\//i.test(uriOrLocal)) {
-        const dest = FileSystem.cacheDirectory + `ocr-${Date.now()}.jpg`;
-        try {
-          await FileSystem.copyAsync({ from: uriOrLocal, to: dest });
-          localUri = dest;
-        } catch {
-          const { uri: dl } = await FileSystem.downloadAsync(uriOrLocal, dest);
-          localUri = dl;
-        }
-      }
+  // runOcr handled by hook; no local implementation needed.
 
-      // Call the ML Kit recognize method
-      const result = await TextRecognition.recognize(localUri);
-      const text = result?.text || "";
-      const res = extractData(text);
 
-      const categoryIndex =
-        typeof res?.category === "number" ? res.category : -1;
-      const categoryName =
-        categoryIndex >= 0 && categories_meta[categoryIndex]
-          ? categories_meta[categoryIndex].name
-          : null;
-
-      setOcrResult({
-        amount: res?.money?.value ?? null,
-        date: res?.date ?? null,
-        vat: res?.vat ?? null,
-        categoryIndex,
-        categoryName,
-        raw: text,
-      });
-      setAcceptFlags({
-        amount: !!res?.money?.value,
-        date: !!res?.date,
-        category: categoryIndex >= 0,
-        vat: !!res?.vat?.value || !!res?.vat?.rate,
-      });
-    } catch (e) {
-      console.error("❌ OCR error:", e);
-      setOcrResult(null);
-    } finally {
-      setOcrLoading(false);
-    }
-  };
-
-  const toggleAccept = (key) =>
-    setAcceptFlags((prev) => ({ ...prev, [key]: !prev[key] }));
-
-  const deleteCurrentImage = () => {
-    if (!preview?.uri) return;
-    setImages((prev) => prev.filter((img) => img.uri !== preview.uri));
-    setOcrModalVisible(false);
-    setReturnToOcrAfterFullscreen(false);
-  };
-
-  const applyAcceptedValues = () => {
-    if (!ocrResult) return;
-    if (acceptFlags.amount && ocrResult.amount != null) {
-      setAmount(String(ocrResult.amount));
-    }
-    if (acceptFlags.date && ocrResult.date) {
-      const d = new Date(ocrResult.date);
-      if (!isNaN(d.getTime())) setSelectedDate(d);
-    }
-    if (acceptFlags.category && ocrResult.categoryName) {
-      setSelectedCategory(ocrResult.categoryName);
-      if (!(ocrResult.vat && ocrResult.vat.rate)) {
-        const catRate = categories_meta[ocrResult.categoryIndex]?.vatRate ?? "";
-        if (catRate !== "") {
-          const rStr = String(catRate);
-          setVatRate(rStr);
-          setVatRateItems((prev) => {
-            const has = prev.some((it) => it.value === rStr);
-            return has
-              ? prev
-              : [...prev, { label: `${catRate}%`, value: rStr }].sort(
-                  (a, b) => Number(a.value) - Number(b.value)
-                );
-          });
-          if (!vatAmountEdited && amount) {
-            setVatAmount(computeVat(amount, rStr));
-          }
-        }
-      }
-    }
-    if (acceptFlags.vat) {
-      if (ocrResult.vat?.value != null)
-        setVatAmount(String(ocrResult.vat.value));
-      if (ocrResult.vat?.rate != null) setVatRate(String(ocrResult.vat.rate));
-    }
-    setOcrModalVisible(false);
-    setReturnToOcrAfterFullscreen(false);
-  };
-
-  const handleCancelModal = () => {
-    if (isNewImageSession && preview?.uri) {
-      setImages((prev) => prev.filter((img) => img.uri !== preview.uri));
-    }
-    setOcrModalVisible(false);
-    setReturnToOcrAfterFullscreen(false);
-  };
-
+  // OCR helpers (deleteCurrentImage, applyAcceptedValues, toggleAccept,
+  // handleCancelModal) are supplied by the useReceiptOcr hook above; they
+  // are invoked from the UI where needed and are passed the appropriate
+  // setters and state values at that time.
   // ------- effects -------
   useEffect(() => {
     if (flatListRef.current) {
@@ -300,7 +170,7 @@ const ReceiptAdd = ({ navigation }) => {
       "hardwareBackPress",
       () => {
         if (ocrModalVisible) {
-          handleCancelModal();
+          handleCancelModal(setImages);
           return true;
         }
         if (showSuccess) {
@@ -382,6 +252,50 @@ const ReceiptAdd = ({ navigation }) => {
     }
   };
 
+  const dismissOcrCheckboxTip = async () => {
+    setShowOcrCheckboxTip(false);
+    const user = auth.currentUser;
+    if (!user) return;
+
+    try {
+      const userRef = doc(db, "users", user.uid);
+      await setDoc(userRef, { hasSeenOcrCheckboxTip: true }, { merge: true });
+    } catch (error) {
+      console.log("Error updating OCR checkbox tooltip status:", error);
+    }
+  };
+
+  useEffect(() => {
+    if (!ocrModalVisible || ocrLoading) return;
+
+    let isActive = true;
+
+    const checkOcrCheckboxTipStatus = async () => {
+      const user = auth.currentUser;
+      if (!user) {
+        if (isActive) setShowOcrCheckboxTip(true);
+        return;
+      }
+
+      try {
+        const userRef = doc(db, "users", user.uid);
+        const userSnap = await getDoc(userRef);
+        if (isActive) {
+          setShowOcrCheckboxTip(!userSnap.data()?.hasSeenOcrCheckboxTip);
+        }
+      } catch (error) {
+        console.log("Error fetching OCR checkbox tooltip status:", error);
+        if (isActive) setShowOcrCheckboxTip(true);
+      }
+    };
+
+    checkOcrCheckboxTipStatus();
+
+    return () => {
+      isActive = false;
+    };
+  }, [ocrModalVisible, ocrLoading]);
+
   // ------- save helpers -------
   const calculateVatFromRate = () => {
     if (!amount || !vatRate) return "";
@@ -393,7 +307,60 @@ const ReceiptAdd = ({ navigation }) => {
     return vat.toFixed(2);
   };
 
-  const handleSavePress = () => {
+  const toMoneyKey = (value) => {
+    const numeric = Number(value);
+    if (!Number.isFinite(numeric)) return "0.00";
+    return numeric.toFixed(2);
+  };
+
+  const toDateKey = (value) => {
+    const d = new Date(value);
+    if (Number.isNaN(d.getTime())) return "";
+    const local = startOfDayLocal(d);
+    const yyyy = local.getFullYear();
+    const mm = String(local.getMonth() + 1).padStart(2, "0");
+    const dd = String(local.getDate()).padStart(2, "0");
+    return `${yyyy}-${mm}-${dd}`;
+  };
+
+  const findDuplicateReceipt = async () => {
+    const user = auth.currentUser;
+    if (!user) return null;
+
+    const expectedVat = vatAmount ? vatAmount : calculateVatFromRate();
+    const current = {
+      amount: toMoneyKey(amount),
+      vatAmount: toMoneyKey(expectedVat),
+      category: String(selectedCategory || "").trim().toLowerCase(),
+      date: toDateKey(selectedDate),
+    };
+
+    const q = query(collection(db, "receipts"), where("userId", "==", user.uid));
+    const snapshot = await getDocs(q);
+
+    for (const receiptDoc of snapshot.docs) {
+      const data = receiptDoc.data() || {};
+      const candidate = {
+        amount: toMoneyKey(data.amount),
+        vatAmount: toMoneyKey(data.vatAmount),
+        category: String(data.category || "").trim().toLowerCase(),
+        date: toDateKey(data.date),
+      };
+
+      if (
+        current.amount === candidate.amount &&
+        current.vatAmount === candidate.vatAmount &&
+        current.category === candidate.category &&
+        current.date === candidate.date
+      ) {
+        return data;
+      }
+    }
+
+    return null;
+  };
+
+  const handleSavePress = async () => {
     if (
       !amount ||
       isNaN(parseFloat(amount)) ||
@@ -403,6 +370,20 @@ const ReceiptAdd = ({ navigation }) => {
       Alert.alert("Invalid Input", "Please fill in all fields correctly.");
       return;
     }
+
+    triggerHaptic("selection").catch(() => {});
+
+    try {
+      const duplicate = await findDuplicateReceipt();
+      if (duplicate) {
+        setDuplicateReceiptDate(duplicate.date ? new Date(duplicate.date) : null);
+        setShowDuplicateModal(true);
+        return;
+      }
+    } catch (error) {
+      console.error("Duplicate check failed", error);
+    }
+
     setShowConfirmModal(true);
   };
 
@@ -435,6 +416,7 @@ const ReceiptAdd = ({ navigation }) => {
 
       // 5) Yield one frame, then show success modal
       await new Promise((resolve) => requestAnimationFrame(resolve));
+      triggerHaptic("success").catch(() => {});
       setShowSuccess(true);
     } catch (err) {
       console.error("Upload failed:", err);
@@ -510,6 +492,14 @@ const ReceiptAdd = ({ navigation }) => {
     // the Android native bridge finish dismissing the modal
     setTimeout(() => {
       setSelectedDate(date);
+
+      const previousFinancialYearThreshold = getCurrentYearAprilSix(new Date());
+      if (date < previousFinancialYearThreshold) {
+        Alert.alert(
+          "Check date",
+          "This date appears to be in a previous financial year. Please verify your selection."
+        );
+      }
     }, 100);
   };
 
@@ -540,7 +530,7 @@ const ReceiptAdd = ({ navigation }) => {
             // Launch camera only after permission is confirmed
             ImagePicker.launchCamera(
               { mediaType: "photo", includeBase64: true, quality: 0.9 },
-              handleImagePicked
+              handleImagePickedWrapper
             );
           },
         },
@@ -554,7 +544,7 @@ const ReceiptAdd = ({ navigation }) => {
                 selectionLimit: 1,
                 quality: 0.9,
               },
-              handleImagePicked
+              handleImagePickedWrapper
             ),
         },
         { text: "Cancel", style: "cancel" },
@@ -563,22 +553,9 @@ const ReceiptAdd = ({ navigation }) => {
     );
   };
 
-  const handleImagePicked = async (response) => {
-    try {
-      if (response?.didCancel || !response?.assets?.length) return;
-
-      const first = response.assets[0];
-      const filePath = await ensureFileFromAsset(first);
-
-      const newImages = response.assets.map((asset, idx) => ({
-        uri: idx === 0 ? filePath : asset.uri,
-      }));
-      setImages((prev) => [...prev, ...newImages]);
-
-      await openOcrModal(filePath, { autoScan: true, newSession: true });
-    } catch (e) {
-      console.error("❌ OCR error:", e);
-    }
+  // use hook-supplied image handler
+  const handleImagePickedWrapper = (response) => {
+    handleImagePicked(response, setImages);
   };
 
   const renderImage = ({ item }) => (
@@ -600,7 +577,7 @@ const ReceiptAdd = ({ navigation }) => {
         contentContainerStyle={{ flexGrow: 1, paddingBottom: 600 }} // INCREASE THIS
         enableOnAndroid={true}
         enableAutomaticScroll={false} // Disable auto-scroll so our manual scroll doesn't fight it
-        keyboardShouldPersistTaps="handled"
+        keyboardShouldPersistTaps="always"
         extraScrollHeight={0}
       >
         <View style={ReceiptStyles.container}>
@@ -619,7 +596,9 @@ const ReceiptAdd = ({ navigation }) => {
                   localStyles.currencyField,
                 ]}
               >
-                <Text style={localStyles.currencyInside}>£</Text>
+                <View style={localStyles.currencyWrapper}>
+                  <Text style={localStyles.currencyInside}>£</Text>
+                </View>
                 <TextInput
                   style={[
                     ReceiptStyles.input,
@@ -654,7 +633,9 @@ const ReceiptAdd = ({ navigation }) => {
                   <View
                     style={[ReceiptStyles.inputRow, localStyles.currencyField]}
                   >
-                    <Text style={localStyles.currencyInside}>£</Text>
+                    <View style={localStyles.currencyWrapper}>
+                      <Text style={localStyles.currencyInside}>£</Text>
+                    </View>
                     <TextInput
                       style={[
                         ReceiptStyles.vatInput,
@@ -697,6 +678,7 @@ const ReceiptAdd = ({ navigation }) => {
                     zIndex={2000}
                     zIndexInverse={2000}
                     listMode="SCROLLVIEW"
+                    scrollViewProps={{ keyboardShouldPersistTaps: "always" }}
                     onChangeValue={(val) => {
                       const next = val ?? "";
                       setVatRate(next);
@@ -729,6 +711,7 @@ const ReceiptAdd = ({ navigation }) => {
               isVisible={isDatePickerVisible}
               mode="date"
               date={selectedDate}
+              maximumDate={new Date()}
               onConfirm={handleConfirmDate}
               onCancel={hideDatePicker}
             />
@@ -798,6 +781,7 @@ const ReceiptAdd = ({ navigation }) => {
                 }}
                 // 3. Return to SCROLLVIEW mode for stability
                 listMode="SCROLLVIEW"
+                scrollViewProps={{ keyboardShouldPersistTaps: "always" }}
                 nestedScrollEnabled={true}
                 // 4. Force a Height to fix the scrolling
                 // This ensures the picker has a defined boundary so the phone knows when to scroll
@@ -972,6 +956,38 @@ const ReceiptAdd = ({ navigation }) => {
         </View>
       </Modal>
 
+      <Modal
+        visible={showDuplicateModal}
+        transparent
+        animationType="slide"
+        onRequestClose={() => setShowDuplicateModal(false)}
+      >
+        <View style={ReceiptStyles.modalOverlay}>
+          <View style={ReceiptStyles.modalContent}>
+            <Text style={ReceiptStyles.modalTitle}>Possible Duplicate</Text>
+            <Text style={ReceiptStyles.modalDetailText}>
+              Are you sure? A similar receipt was already submitted on{" "}
+              {duplicateReceiptDate ? formatDate(duplicateReceiptDate) : "this date"}.
+            </Text>
+            <View style={ReceiptStyles.modalButtons}>
+              <RNButton
+                title="Cancel"
+                onPress={() => setShowDuplicateModal(false)}
+                color="black"
+              />
+              <RNButton
+                title="Continue"
+                onPress={() => {
+                  setShowDuplicateModal(false);
+                  setShowConfirmModal(true);
+                }}
+                color="#a60d49"
+              />
+            </View>
+          </View>
+        </View>
+      </Modal>
+
       {/* ✅ Success Modal (was missing) */}
       <Modal
         visible={showSuccess}
@@ -1083,11 +1099,17 @@ const ReceiptAdd = ({ navigation }) => {
         visible={ocrModalVisible}
         transparent
         animationType="slide"
-        onRequestClose={handleCancelModal}
+        onRequestClose={() => handleCancelModal(setImages)}
       >
         <View style={ReceiptStyles.modalOverlay}>
           <View style={[ReceiptStyles.modalContent, { maxHeight: "90%" }]}>
             <Text style={ReceiptStyles.modalTitle}>Receipt Preview</Text>
+
+            <ScrollView
+              showsVerticalScrollIndicator
+              keyboardShouldPersistTaps="handled"
+              contentContainerStyle={{ paddingBottom: 12 }}
+            >
 
             {preview?.uri ? (
               <View style={{ alignItems: "center" }}>
@@ -1125,6 +1147,21 @@ const ReceiptAdd = ({ navigation }) => {
               </Text>
             )}
 
+            {!ocrLoading && showOcrCheckboxTip && (
+              <View style={localStyles.ocrTipWrapper}>
+                <View style={localStyles.ocrTipBox}>
+                  <Text style={localStyles.ocrTipText}>
+                    You can edit these values in the next screen. Uncheck
+                    any you immediately disagree with.
+                  </Text>
+                  <TouchableOpacity onPress={dismissOcrCheckboxTip}>
+                    <Text style={localStyles.ocrTipDismiss}>Got it</Text>
+                  </TouchableOpacity>
+                </View>
+                <View style={localStyles.ocrTipArrow} />
+              </View>
+            )}
+
             {!ocrLoading && (
               <>
                 {/* Amount */}
@@ -1138,7 +1175,7 @@ const ReceiptAdd = ({ navigation }) => {
                   <Text style={ReceiptStyles.ocrLabel}>Amount:</Text>
                   <Text style={ReceiptStyles.ocrValue}>
                     {ocrResult?.amount != null
-                      ? `£${ocrResult.amount}`
+                      ? `£${Number(ocrResult.amount).toFixed(2)}`
                       : "Not detected"}
                   </Text>
                 </View>
@@ -1197,7 +1234,7 @@ const ReceiptAdd = ({ navigation }) => {
                   {!isNewImageSession && (
                     <Button
                       mode="outlined"
-                      onPress={deleteCurrentImage}
+                      onPress={() => deleteCurrentImage(setImages)}
                       textColor={Colors.accent}
                     >
                       Delete Image
@@ -1206,20 +1243,33 @@ const ReceiptAdd = ({ navigation }) => {
                   <Button
                     buttonColor={Colors.accent}
                     mode="contained"
-                    onPress={handleCancelModal}
+                    onPress={() => handleCancelModal(setImages)}
                   >
                     Cancel
                   </Button>
                   <Button
                     buttonColor={Colors.accent}
                     mode="contained"
-                    onPress={applyAcceptedValues}
+                    onPress={() =>
+                      applyAcceptedValues({
+                        setAmount,
+                        setVatAmount,
+                        setVatRate,
+                        setSelectedDate,
+                        setSelectedCategory,
+                        vatAmountEdited,
+                        amount,
+                        vatRate,
+                        setVatRateItems,
+                      })
+                    }
                   >
                     Accept
                   </Button>
                 </View>
               </>
             )}
+            </ScrollView>
           </View>
         </View>
       </Modal>
@@ -1330,24 +1380,64 @@ const localStyles = StyleSheet.create({
   },
   currencyField: {
     position: "relative",
-    justifyContent: "center",
   },
-  currencyInside: {
+  currencyWrapper: {
     position: "absolute",
-    left: 12,
+    left: 0,
     top: 0,
     bottom: 0,
+    width: 40,
     zIndex: 1,
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  currencyInside: {
     fontSize: 16,
     fontWeight: "600",
     color: Colors.textSecondary,
-    textAlignVertical: "center",
   },
   inputWithCurrency: {
     paddingLeft: 28,
   },
   vatInputWithCurrency: {
     paddingLeft: 28,
+  },
+  ocrTipWrapper: {
+    marginTop: 10,
+    marginBottom: 4,
+    alignItems: "stretch",
+  },
+  ocrTipBox: {
+    backgroundColor: "#F0D1FF",
+    borderRadius: 12,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    width: "100%",
+  },
+  ocrTipText: {
+    color: "#4A148C",
+    fontSize: 13,
+    lineHeight: 18,
+    textAlign: "left",
+  },
+  ocrTipDismiss: {
+    marginTop: 6,
+    textAlign: "right",
+    color: "#4A148C",
+    fontWeight: "700",
+    fontSize: 12,
+  },
+  ocrTipArrow: {
+    alignSelf: "flex-start",
+    marginLeft: 28,
+    width: 0,
+    height: 0,
+    borderLeftWidth: 9,
+    borderRightWidth: 9,
+    borderTopWidth: 11,
+    borderLeftColor: "transparent",
+    borderRightColor: "transparent",
+    borderTopColor: "#F0D1FF",
   },
   tipWrapper: {
     position: "absolute",

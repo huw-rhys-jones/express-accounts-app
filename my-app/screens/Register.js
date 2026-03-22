@@ -10,15 +10,19 @@ import {
   Alert,
   Keyboard,
   TouchableWithoutFeedback,
+  Linking,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
-import { auth } from "../firebaseConfig";
+import { auth, db } from "../firebaseConfig";
 import { createUserWithEmailAndPassword, updateProfile } from "firebase/auth";
+import { doc, setDoc, serverTimestamp } from "firebase/firestore";
 import { Ionicons } from "@expo/vector-icons";
 import { KeyboardAwareScrollView } from "react-native-keyboard-aware-scroll-view";
 import { Colors, AuthStyles } from "../utils/sharedStyles";
+import { triggerHaptic } from "../utils/haptics";
 
 const looksLikeEmail = (s) => /\S+@\S+\.\S+/.test(String(s || "").trim());
+const PRIVACY_URL = "https://caistec.com/privacy-policy.html";
 
 const SignUpScreen = ({ navigation }) => {
   const [name, setName] = useState("");
@@ -28,6 +32,7 @@ const SignUpScreen = ({ navigation }) => {
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirm, setShowConfirm] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [privacyAccepted, setPrivacyAccepted] = useState(false);
 
   // refs for keyboard navigation
   const emailRef = useRef(null);
@@ -50,7 +55,13 @@ const SignUpScreen = ({ navigation }) => {
   const emailOk = looksLikeEmail(email);
   const nameOk = (name || "").trim().length > 0;
 
-  const canSubmit = nameOk && emailOk && allRulesOk && passwordsMatch && !loading;
+  const canSubmit =
+    nameOk &&
+    emailOk &&
+    allRulesOk &&
+    passwordsMatch &&
+    privacyAccepted &&
+    !loading;
 
   const showRegistrationError = (code, fallback) => {
     let msg = "Could not create your account. Please try again.";
@@ -91,6 +102,13 @@ const SignUpScreen = ({ navigation }) => {
         );
       if (!passwordsMatch)
         return Alert.alert("Sign Up", "Passwords do not match.");
+      if (!privacyAccepted)
+        return Alert.alert(
+          "Privacy Policy",
+          "Please accept the Privacy Policy before creating your account."
+        );
+
+      triggerHaptic("selection").catch(() => {});
 
       setLoading(true);
 
@@ -104,6 +122,15 @@ const SignUpScreen = ({ navigation }) => {
       if (nameTrimmed) {
         await updateProfile(cred.user, { displayName: nameTrimmed });
       }
+
+      // Persist name to Firestore so the accountant portal can display it
+      await setDoc(
+        doc(db, "users", cred.user.uid),
+        { name: nameTrimmed, email: emailTrimmed, createdAt: serverTimestamp() },
+        { merge: true }
+      );
+
+      triggerHaptic("success").catch(() => {});
 
       // Navigate in with a clean stack
       navigation.reset({
@@ -282,6 +309,33 @@ const SignUpScreen = ({ navigation }) => {
                   text="Passwords match"
                 />
               </View>
+
+              <TouchableOpacity
+                onPress={() => setPrivacyAccepted((value) => !value)}
+                style={{
+                  flexDirection: "row",
+                  alignItems: "center",
+                  marginTop: 8,
+                  marginBottom: 8,
+                }}
+              >
+                <Ionicons
+                  name={privacyAccepted ? "checkbox" : "square-outline"}
+                  size={22}
+                  color={Colors.accent}
+                  style={{ marginRight: 8 }}
+                />
+                <Text style={{ color: Colors.textPrimary, flex: 1 }}>
+                  I have read and agree to the{" "}
+                  <Text
+                    style={{ color: Colors.accent, textDecorationLine: "underline" }}
+                    onPress={() => Linking.openURL(PRIVACY_URL)}
+                  >
+                    Privacy Policy
+                  </Text>
+                  .
+                </Text>
+              </TouchableOpacity>
 
               <TouchableOpacity
                 style={[AuthStyles.button, !canSubmit && { opacity: 0.6 }]}

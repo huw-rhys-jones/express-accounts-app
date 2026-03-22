@@ -285,7 +285,7 @@ export const ReceiptStyles = StyleSheet.create({
     backgroundColor: Colors.background,
   },
   container: {
-    padding: 12,
+    padding: 6,
     backgroundColor: Colors.background,
     flex: 1,
     alignItems: "center",
@@ -296,7 +296,7 @@ export const ReceiptStyles = StyleSheet.create({
     borderColor: Colors.background,
     borderRadius: 35,
     padding: 20,
-    width: "90%",
+    width: "95%",
     backgroundColor: Colors.surface,
   },
   header: {

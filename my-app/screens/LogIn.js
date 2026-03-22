@@ -10,6 +10,7 @@ import {
   ActivityIndicator,
   Modal,
   Alert,
+  Linking,
 } from "react-native";
 import {
   signInWithEmailAndPassword,
@@ -27,6 +28,7 @@ import { GoogleLogo } from "../utils/format_style";
 import { Ionicons } from "@expo/vector-icons";
 import { KeyboardAwareScrollView } from "react-native-keyboard-aware-scroll-view";
 import { Colors, AuthStyles } from "../utils/sharedStyles";
+import { triggerHaptic } from "../utils/haptics";
 
 WebBrowser.maybeCompleteAuthSession();
 
@@ -53,6 +55,7 @@ if (Platform.OS === "android") {
 }
 
 const looksLikeEmail = (s) => /\S+@\S+\.\S+/.test(String(s || "").trim());
+const PRIVACY_URL = "https://caistec.com/privacy-policy.html";
 
 const LoginScreen = ({ navigation }) => {
   const [email, setEmail] = useState("");
@@ -66,6 +69,45 @@ const LoginScreen = ({ navigation }) => {
   const [forgotVisible, setForgotVisible] = useState(false);
   const [resetEmail, setResetEmail] = useState("");
   const [sendingReset, setSendingReset] = useState(false);
+
+  // Feedback state
+  const [feedbackVisible, setFeedbackVisible] = useState(false);
+  const [feedbackText, setFeedbackText] = useState("");
+
+  const handleSendFeedback = async () => {
+    const senderEmail = (email || "").trim();
+
+    if (!senderEmail || !looksLikeEmail(senderEmail)) {
+      return Alert.alert("Email Required", "Please provide a valid email so we can get back to you.");
+    }
+    if (!feedbackText.trim()) {
+      return Alert.alert("Message Required", "Please enter your message.");
+    }
+
+    await runWithLoading("Sending...", async () => {
+      try {
+        const response = await fetch('https://express-accounts-73d38.web.app/submit-feedback', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            name: "Login Screen Support Request",
+            email: senderEmail, // This sends the email from the text box
+            message: feedbackText,
+          }),
+        });
+
+        if (response.ok) {
+          Alert.alert("Sent", "We have received your message and will contact you at " + senderEmail);
+          setFeedbackVisible(false);
+          setFeedbackText("");
+        } else {
+          throw new Error();
+        }
+      } catch (error) {
+        Alert.alert("Error", "Could not send message. Check your connection.");
+      }
+    });
+  };
 
   // Helper to show/hide the loader around any async flow
   const runWithLoading = async (text, fn) => {
@@ -160,11 +202,27 @@ const LoginScreen = ({ navigation }) => {
       }
 
       await runWithLoading("Signing you in…", async () => {
+        triggerHaptic("selection").catch(() => {});
+
         const userCredential = await signInWithEmailAndPassword(
           auth,
           emailTrimmed,
           passwordTrimmed
         );
+
+        // Upsert name + email into Firestore so the accountant portal shows real names
+        const signedInUser = userCredential.user;
+        await setDoc(
+          doc(db, "users", signedInUser.uid),
+          {
+            ...(signedInUser.displayName ? { name: signedInUser.displayName } : {}),
+            email: signedInUser.email,
+            updatedAt: serverTimestamp(),
+          },
+          { merge: true }
+        );
+
+        triggerHaptic("success").catch(() => {});
 
          navigation.reset({
           index: 0,
@@ -186,6 +244,8 @@ const LoginScreen = ({ navigation }) => {
   const onAppleButtonPress = async () => {
     try {
       await runWithLoading("Signing in with Apple…", async () => {
+        triggerHaptic("selection").catch(() => {});
+
         const rawNonce = Math.random().toString(36).substring(2, 10);
         const hashedNonce = await Crypto.digestStringAsync(
           Crypto.CryptoDigestAlgorithm.SHA256,
@@ -238,6 +298,8 @@ const LoginScreen = ({ navigation }) => {
           { merge: true }
         );
 
+        triggerHaptic("success").catch(() => {});
+
          navigation.reset({
           index: 0,
           routes: [
@@ -261,6 +323,7 @@ const LoginScreen = ({ navigation }) => {
   const onGooglePress = async () => {
     try {
       await runWithLoading("Signing in with Google…", async () => {
+        triggerHaptic("selection").catch(() => {});
         if (!request) return;
         await promptAsync();
       });
@@ -410,6 +473,24 @@ const LoginScreen = ({ navigation }) => {
             />
           )}
 
+          <Text
+            style={{
+              marginTop: 12,
+              textAlign: "center",
+              color: Colors.textMuted,
+              fontSize: 13,
+            }}
+          >
+            By continuing with email, Google, or Apple, you agree to our{" "}
+            <Text
+              style={{ color: Colors.accent, textDecorationLine: "underline" }}
+              onPress={() => Linking.openURL(PRIVACY_URL)}
+            >
+              Privacy Policy
+            </Text>
+            .
+          </Text>
+
           {/* Secondary actions */}
           <View style={AuthStyles.linksRow}>
             <TouchableOpacity onPress={() => navigation.navigate("SignUp")}>
@@ -418,6 +499,14 @@ const LoginScreen = ({ navigation }) => {
 
             <TouchableOpacity onPress={openForgot}>
               <Text style={AuthStyles.forgotPassword}>Forgot Password?</Text>
+            </TouchableOpacity>
+          </View>
+
+          <View style={[AuthStyles.linksRow, { justifyContent: 'center', marginTop: 25 }]}>
+            <TouchableOpacity onPress={() => setFeedbackVisible(true)}>
+              <Text style={[AuthStyles.forgotPassword, { color: Colors.accent }]}>
+                Need help? Contact Support
+              </Text>
             </TouchableOpacity>
           </View>
         </View>
@@ -478,6 +567,58 @@ const LoginScreen = ({ navigation }) => {
                   { flex: 1, backgroundColor: "#EEE" },
                 ]}
                 onPress={() => setForgotVisible(false)}
+              >
+                <Text style={[AuthStyles.googleButtonText, { marginRight: 0 }]}>
+                  Cancel
+                </Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
+
+      {/* Support / Feedback Modal */}
+      {/* Updated Support / Feedback Modal */}
+      <Modal visible={feedbackVisible} transparent animationType="slide">
+        <View style={AuthStyles.loadingOverlay}>
+          <View style={AuthStyles.loadingCard}>
+            <Text style={[AuthStyles.loadingText, { marginBottom: 10 }]}>
+              Contact Support
+            </Text>
+            
+            {/* Email Field - so you know who to reply to */}
+            <TextInput
+              style={[AuthStyles.input, { width: '100%', marginBottom: 10 }]}
+              placeholder="Your email address"
+              placeholderTextColor="#AAA"
+              keyboardType="email-address"
+              autoCapitalize="none"
+              value={email} // This links it to the email state you already have!
+              onChangeText={setEmail}
+            />
+
+            <TextInput
+              style={[AuthStyles.input, { minHeight: 120, textAlignVertical: 'top', width: '100%' }]}
+              placeholder="Tell us what's wrong..."
+              placeholderTextColor="#AAA"
+              multiline
+              value={feedbackText}
+              onChangeText={setFeedbackText}
+            />
+            
+            <View style={{ flexDirection: "row", gap: 10, marginTop: 15 }}>
+              <TouchableOpacity
+                style={[AuthStyles.loginButton, { flex: 1 }]}
+                onPress={handleSendFeedback}
+              >
+                <Text style={AuthStyles.loginButtonText}>Send</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[AuthStyles.googleButton, { flex: 1, backgroundColor: "#EEE" }]}
+                onPress={() => {
+                  setFeedbackVisible(false);
+                  setFeedbackText("");
+                }}
               >
                 <Text style={[AuthStyles.googleButtonText, { marginRight: 0 }]}>
                   Cancel

@@ -1,0 +1,818 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Express Accounts - Client Portal Mock</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;600;700&family=DM+Sans:wght@400;500;700&display=swap" rel="stylesheet" />
+  <style>
+    :root {
+      --ink: #12243a;
+      --text: #17324d;
+      --surface: #f5f8fc;
+      --card: #ffffff;
+      --outline: rgba(18, 36, 58, 0.12);
+      --accent: #ff6d00;
+      --green: #27b05e;
+      --yellow: #f5bf00;
+      --blue: #2e86de;
+      --shadow: 0 20px 40px rgba(18, 36, 58, 0.12);
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      min-height: 100vh;
+      color: var(--text);
+      font-family: "DM Sans", sans-serif;
+      background:
+        radial-gradient(circle at 20% 0%, rgba(255, 109, 0, 0.2) 0%, rgba(255, 109, 0, 0) 40%),
+        radial-gradient(circle at 85% 20%, rgba(46, 134, 222, 0.2) 0%, rgba(46, 134, 222, 0) 35%),
+        linear-gradient(165deg, #f7f9fd 0%, #edf3fb 100%);
+      padding: 24px;
+    }
+
+    .shell {
+      max-width: 1100px;
+      margin: 0 auto;
+      position: relative;
+    }
+
+    .panel {
+      background: var(--card);
+      border: 1px solid var(--outline);
+      box-shadow: var(--shadow);
+      border-radius: 24px;
+      overflow: hidden;
+    }
+
+    .login-wrap {
+      max-width: 520px;
+      margin: 8vh auto 0;
+      animation: rise 0.55s ease-out;
+    }
+
+    .login-head {
+      padding: 34px 34px 18px;
+      background: linear-gradient(135deg, #0f2742, #1f4e79);
+      color: #fff;
+    }
+
+    .login-head h1 {
+      margin: 0;
+      font-family: "Space Grotesk", sans-serif;
+      letter-spacing: 0.2px;
+      font-size: 2rem;
+    }
+
+    .login-head p {
+      margin: 8px 0 0;
+      color: rgba(255, 255, 255, 0.88);
+    }
+
+    .login-body {
+      padding: 24px 34px 34px;
+    }
+
+    label {
+      font-weight: 700;
+      font-size: 0.95rem;
+    }
+
+    input[type="password"],
+    input[type="date"] {
+      width: 100%;
+      border: 1px solid var(--outline);
+      border-radius: 12px;
+      padding: 12px;
+      margin-top: 8px;
+      font-size: 1rem;
+      font-family: inherit;
+      color: var(--ink);
+      background: #fff;
+    }
+
+    .hint {
+      font-size: 0.86rem;
+      margin-top: 10px;
+      color: #667e97;
+    }
+
+    .actions {
+      margin-top: 18px;
+      display: flex;
+      gap: 10px;
+      flex-wrap: wrap;
+    }
+
+    button {
+      border: 0;
+      border-radius: 12px;
+      padding: 11px 16px;
+      font-family: "Space Grotesk", sans-serif;
+      font-size: 0.96rem;
+      cursor: pointer;
+      transition: transform 0.15s ease, opacity 0.15s ease;
+    }
+
+    button:hover {
+      transform: translateY(-1px);
+    }
+
+    button:disabled {
+      opacity: 0.45;
+      cursor: not-allowed;
+      transform: none;
+    }
+
+    .btn-primary {
+      background: var(--accent);
+      color: #fff;
+      font-weight: 700;
+    }
+
+    .btn-secondary {
+      background: #eef4fb;
+      color: #264d73;
+      border: 1px solid #d4e2f0;
+      font-weight: 600;
+    }
+
+    .error {
+      min-height: 18px;
+      margin-top: 10px;
+      color: #b3261e;
+      font-weight: 500;
+      font-size: 0.9rem;
+    }
+
+    .dashboard {
+      display: none;
+      animation: rise 0.55s ease-out;
+    }
+
+    .dash-top {
+      padding: 26px 30px;
+      background: #fff;
+      border-bottom: 1px solid var(--outline);
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 12px;
+      flex-wrap: wrap;
+    }
+
+    .dash-top h2 {
+      margin: 0;
+      font-family: "Space Grotesk", sans-serif;
+      color: var(--ink);
+      font-size: 1.6rem;
+    }
+
+    .subtext {
+      margin-top: 8px;
+      color: #4f6780;
+    }
+
+    .legend {
+      display: flex;
+      gap: 10px;
+      flex-wrap: wrap;
+      margin: 18px 30px 2px;
+    }
+
+    .chip {
+      border-radius: 999px;
+      padding: 7px 11px;
+      color: #fff;
+      font-size: 0.82rem;
+      font-weight: 700;
+      letter-spacing: 0.1px;
+    }
+
+    .chip.green { background: var(--green); }
+    .chip.yellow { background: var(--yellow); color: #3a2a00; }
+    .chip.blue { background: var(--blue); }
+
+    .controls {
+      margin: 12px 30px 6px;
+      display: grid;
+      grid-template-columns: 1.1fr 1fr 0.9fr 0.9fr;
+      gap: 10px;
+    }
+
+    .controls input,
+    .controls select {
+      width: 100%;
+      border: 1px solid var(--outline);
+      border-radius: 10px;
+      padding: 10px 12px;
+      font-size: 0.95rem;
+      color: var(--ink);
+      background: #fff;
+      font-family: inherit;
+    }
+
+    .board {
+      padding: 22px 30px 30px;
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(190px, 1fr));
+      gap: 14px;
+    }
+
+    .client-card {
+      border: 0;
+      border-radius: 16px;
+      color: #fff;
+      text-align: left;
+      padding: 16px;
+      min-height: 120px;
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+      box-shadow: inset 0 0 0 2px rgba(255, 255, 255, 0.12);
+      transform: translateY(8px);
+      opacity: 0;
+      animation: popIn 0.4s ease forwards;
+    }
+
+    .client-card strong {
+      font-family: "Space Grotesk", sans-serif;
+      font-size: 1.02rem;
+      line-height: 1.2;
+    }
+
+    .client-card small {
+      font-size: 0.8rem;
+      opacity: 0.93;
+    }
+
+    .client-card.green { background: linear-gradient(135deg, #1f9e52, #2ec66a); }
+    .client-card.yellow { background: linear-gradient(135deg, #f4c400, #f6d53f); color: #3f2f00; }
+    .client-card.blue { background: linear-gradient(135deg, #2e86de, #51a4f6); }
+
+    .statusline {
+      margin: 0 30px 26px;
+      padding: 14px 16px;
+      border-radius: 12px;
+      background: #edf4fb;
+      color: #21476d;
+      min-height: 50px;
+      border: 1px solid #d3e1f0;
+    }
+
+    .modal-backdrop {
+      display: none;
+      position: fixed;
+      inset: 0;
+      background: rgba(10, 22, 38, 0.48);
+      backdrop-filter: blur(2px);
+      align-items: center;
+      justify-content: center;
+      z-index: 50;
+      padding: 18px;
+    }
+
+    .modal {
+      width: min(500px, 100%);
+      background: #fff;
+      border-radius: 18px;
+      border: 1px solid var(--outline);
+      box-shadow: var(--shadow);
+      overflow: hidden;
+      animation: rise 0.26s ease-out;
+    }
+
+    .modal-head {
+      padding: 18px 20px;
+      background: #f0f5fb;
+      border-bottom: 1px solid #d8e4f0;
+      font-family: "Space Grotesk", sans-serif;
+      color: #17324d;
+      font-weight: 700;
+    }
+
+    .modal-body {
+      padding: 18px 20px 20px;
+      display: grid;
+      gap: 12px;
+    }
+
+    .modal-actions {
+      display: flex;
+      justify-content: flex-end;
+      gap: 8px;
+      margin-top: 4px;
+    }
+
+    @keyframes rise {
+      from { opacity: 0; transform: translateY(10px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+
+    @keyframes popIn {
+      to { opacity: 1; transform: translateY(0); }
+    }
+
+    @media (max-width: 640px) {
+      body { padding: 16px; }
+      .dash-top,
+      .legend,
+      .controls,
+      .board,
+      .statusline {
+        margin-left: 14px;
+        margin-right: 14px;
+        padding-left: 14px;
+        padding-right: 14px;
+      }
+      .dash-top { padding-top: 20px; padding-bottom: 20px; }
+      .controls { grid-template-columns: 1fr; }
+      .board { padding-top: 12px; padding-bottom: 16px; }
+      .statusline { margin-bottom: 16px; }
+      .login-head,
+      .login-body { padding-left: 20px; padding-right: 20px; }
+    }
+  </style>
+  <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-auth-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore-compat.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+  <script src="/__/firebase/init.js"></script>
+  <script>
+    const auth = firebase.auth();
+    const db = firebase.firestore();
+  </script>
+</head>
+<body>
+  <div class="shell">
+    <section id="loginSection" class="panel login-wrap">
+      <div class="login-head">
+        <h1>Client Data Console</h1>
+        <p>Portal.</p>
+      </div>
+      <div class="login-body">
+        <label for="emailInput">Account Email</label>
+        <input id="emailInput" type="email" placeholder="you@example.com" style="width: 100%; border: 1px solid var(--outline); border-radius: 12px; padding: 12px; margin-top: 8px; margin-bottom: 12px; font-family: inherit;" />
+
+        <label for="passwordInput">Password</label>
+        <input id="passwordInput" type="password" placeholder="Enter your password" />
+        
+        <p class="hint">Access restricted to authorized accountant emails.</p>
+        <div class="actions">
+            <button id="loginBtn" class="btn-primary" type="button">Log in</button>
+        </div>
+        <div id="loginError" class="error"></div>
+      </div>
+    </section>
+
+    <section id="dashboardSection" class="panel dashboard">
+      <div class="dash-top">
+        <div>
+          <h2>Client Activity Board</h2>
+          <div id="loginInfo" class="subtext"></div>
+        </div>
+        <button id="logOutBtn" type="button" class="btn-secondary">Log out</button>
+      </div>
+
+      <div class="legend">
+        <span class="chip green">Green: Notify Accountant</span>
+        <span class="chip yellow">Yellow: New uploads since last login</span>
+        <span class="chip blue">Blue: No new uploads</span>
+      </div>
+
+      <div class="controls">
+        <input id="searchInput" type="text" placeholder="Search name or email" />
+        <select id="sortSelect">
+          <option value="name-asc">Sort: Name (A-Z)</option>
+          <option value="name-desc">Sort: Name (Z-A)</option>
+          <option value="recent-desc">Sort: Most recent uploads</option>
+          <option value="recent-asc">Sort: Oldest uploads</option>
+          <option value="receipts-desc">Sort: Most receipts</option>
+          <option value="receipts-asc">Sort: Fewest receipts</option>
+        </select>
+        <input id="minReceiptsInput" type="number" min="0" step="1" placeholder="Min receipts" />
+        <select id="recentUploadFilter">
+          <option value="0">Any upload date</option>
+          <option value="7">Uploaded last 7 days</option>
+          <option value="30">Uploaded last 30 days</option>
+          <option value="90">Uploaded last 90 days</option>
+        </select>
+      </div>
+
+      <div id="clientBoard" class="board"></div>
+      <div id="statusLine" class="statusline">Select a client tile to export their receipt data.</div>
+    </section>
+  </div>
+
+  <div id="dateModal" class="modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="modalTitle">
+    <div class="modal">
+      <div id="modalTitle" class="modal-head">Choose export date range</div>
+      <div class="modal-body">
+        <label for="startDate">Start date</label>
+        <input id="startDate" type="date" />
+
+        <label for="endDate">End date</label>
+        <input id="endDate" type="date" />
+
+        <div class="modal-actions">
+          <button id="resetNotifyBtn" type="button" class="btn-secondary" style="display:none">Mark As Processed</button>
+          <button id="cancelDateBtn" type="button" class="btn-secondary">Cancel</button>
+          <button id="confirmDateBtn" type="button" class="btn-primary">Download Excel</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    const ALLOWED_EMAILS = ["info@caistec.com", "info@expressaccounts.biz", "kitty_lapue@hotmail.co.uk"];
+
+    const loginSection = document.getElementById("loginSection");
+    const dashboardSection = document.getElementById("dashboardSection");
+    const emailInput = document.getElementById("emailInput");
+    const passwordInput = document.getElementById("passwordInput");
+    const loginBtn = document.getElementById("loginBtn");
+    const loginError = document.getElementById("loginError");
+    const clientBoard = document.getElementById("clientBoard");
+    const loginInfo = document.getElementById("loginInfo");
+    const statusLine = document.getElementById("statusLine");
+    const logOutBtn = document.getElementById("logOutBtn");
+
+    const searchInput = document.getElementById("searchInput");
+    const sortSelect = document.getElementById("sortSelect");
+    const minReceiptsInput = document.getElementById("minReceiptsInput");
+    const recentUploadFilter = document.getElementById("recentUploadFilter");
+
+    const dateModal = document.getElementById("dateModal");
+    const startDateInput = document.getElementById("startDate");
+    const endDateInput = document.getElementById("endDate");
+    const cancelDateBtn = document.getElementById("cancelDateBtn");
+    const confirmDateBtn = document.getElementById("confirmDateBtn");
+    const resetNotifyBtn = document.getElementById("resetNotifyBtn");
+
+    let currentAccountant = null;
+    let previousLoginDate = null;
+    let liveUsers = [];
+    let selectedUser = null;
+
+    function toMoney(value) {
+      return Number(value).toFixed(2);
+    }
+
+    function toDateTimeString(isoString) {
+      const d = new Date(isoString);
+      return d.toLocaleString();
+    }
+
+    function userLatestUploadMs(user) {
+      const times = user.receipts
+        .map((r) => new Date(r.loggedAt).getTime())
+        .filter((ms) => Number.isFinite(ms));
+      if (times.length === 0) return 0;
+      return Math.max(...times);
+    }
+
+    function hasNewUploadsSince(user, loginDate) {
+      if (!loginDate) return user.receipts.length > 0;
+      return userLatestUploadMs(user) > loginDate.getTime();
+    }
+
+    function getClientStatus(user, loginDate) {
+      if (user.notifyAccountant) {
+        return { key: "green", label: "Notify Accountant" };
+      }
+      if (hasNewUploadsSince(user, loginDate)) {
+        return { key: "yellow", label: "New Uploads" };
+      }
+      return { key: "blue", label: "No New Uploads" };
+    }
+
+    async function loadRealData() {
+      try {
+        const [receiptsSnapshot, usersSnapshot] = await Promise.all([
+          db.collection("receipts").get(),
+          db.collection("users").get(),
+        ]);
+
+        const profilesById = {};
+        usersSnapshot.forEach((snap) => {
+          profilesById[snap.id] = snap.data() || {};
+        });
+
+        const receiptsByUser = {};
+        receiptsSnapshot.forEach((snap) => {
+          const data = snap.data();
+          const uid = data.userId;
+          if (!uid) return;
+          if (!receiptsByUser[uid]) receiptsByUser[uid] = [];
+
+          const createdDate = data.createdAt ? data.createdAt.toDate() : null;
+          receiptsByUser[uid].push({
+            id: snap.id,
+            amount: Number(data.amount) || 0,
+            vatRate: data.vatRate != null ? Number(data.vatRate) : 0,
+            vatAmount: data.vatAmount != null ? Number(data.vatAmount) : null,
+            date: data.date ? String(data.date).split("T")[0] : "",
+            category: data.category || "Uncategorized",
+            loggedAt: createdDate ? createdDate.toISOString() : (data.date || ""),
+          });
+        });
+
+        const userIds = Array.from(new Set([
+          ...Object.keys(receiptsByUser),
+          ...Object.keys(profilesById),
+        ]));
+
+        return userIds.map((uid) => {
+          const profile = profilesById[uid] || {};
+          return {
+            id: uid,
+            name: profile.name || profile.displayName || profile.email || ("Unknown user (" + uid.slice(0, 6) + ")"),
+            email: profile.email || null,
+            notifyAccountant: profile.notifyAccountant || false,
+            receipts: receiptsByUser[uid] || [],
+          };
+        });
+      } catch (error) {
+        console.error("Firestore load error:", error);
+        statusLine.textContent = "Error loading data: " + error.message;
+        return [];
+      }
+    }
+
+    function applyFiltersAndSort(users) {
+      const text = (searchInput.value || "").trim().toLowerCase();
+      const minReceipts = Number(minReceiptsInput.value || 0);
+      const recentDays = Number(recentUploadFilter.value || 0);
+      const nowMs = Date.now();
+
+      let filtered = users.filter((user) => {
+        const nameMatch = user.name.toLowerCase().includes(text);
+        const emailMatch = (user.email || "").toLowerCase().includes(text);
+        const receiptsCount = user.receipts.length;
+
+        if (text && !nameMatch && !emailMatch) return false;
+        if (Number.isFinite(minReceipts) && receiptsCount < minReceipts) return false;
+
+        if (recentDays > 0) {
+          const latestMs = userLatestUploadMs(user);
+          if (!latestMs) return false;
+          const maxAgeMs = recentDays * 24 * 60 * 60 * 1000;
+          if (nowMs - latestMs > maxAgeMs) return false;
+        }
+
+        return true;
+      });
+
+      const mode = sortSelect.value || "name-asc";
+      filtered.sort((a, b) => {
+        if (mode === "name-asc") return a.name.localeCompare(b.name, undefined, { sensitivity: "base" });
+        if (mode === "name-desc") return b.name.localeCompare(a.name, undefined, { sensitivity: "base" });
+        if (mode === "recent-desc") return userLatestUploadMs(b) - userLatestUploadMs(a);
+        if (mode === "recent-asc") return userLatestUploadMs(a) - userLatestUploadMs(b);
+        if (mode === "receipts-desc") return b.receipts.length - a.receipts.length;
+        if (mode === "receipts-asc") return a.receipts.length - b.receipts.length;
+        return 0;
+      });
+
+      return filtered;
+    }
+
+    function renderBoardFromCurrentData() {
+      const visibleUsers = applyFiltersAndSort(liveUsers);
+      if (visibleUsers.length === 0) {
+        clientBoard.innerHTML = '<p style="padding: 0 8px; color: #4f6780; grid-column: 1/-1;">No users match the current filters.</p>';
+        return;
+      }
+
+      clientBoard.innerHTML = "";
+      visibleUsers.forEach((user, index) => {
+        const status = getClientStatus(user, previousLoginDate);
+        const button = document.createElement("button");
+        button.type = "button";
+        button.className = "client-card " + status.key;
+        button.style.animationDelay = (index * 0.04) + "s";
+
+        button.innerHTML =
+          "<strong>" + user.name + "</strong>" +
+          (user.email ? "<small style='opacity:0.8'>" + user.email + "</small>" : "") +
+          "<small>" + status.label + "</small>" +
+          "<small>Receipts: " + user.receipts.length + "</small>";
+
+        button.addEventListener("click", () => openDateModal(user));
+        clientBoard.appendChild(button);
+      });
+    }
+
+    async function reloadAndRenderBoard() {
+      clientBoard.innerHTML = '<p style="padding: 0 8px; color: #4f6780; grid-column: 1/-1;">Loading client data…</p>';
+      liveUsers = await loadRealData();
+      renderBoardFromCurrentData();
+    }
+
+    function openDateModal(user) {
+      selectedUser = user;
+      const today = new Date();
+      const thirtyDaysAgo = new Date(today);
+      thirtyDaysAgo.setDate(today.getDate() - 30);
+
+      startDateInput.value = thirtyDaysAgo.toISOString().split("T")[0];
+      endDateInput.value = today.toISOString().split("T")[0];
+      resetNotifyBtn.style.display = user.notifyAccountant ? "inline-block" : "none";
+
+      document.getElementById("modalTitle").textContent = "Export receipts for " + user.name;
+      dateModal.style.display = "flex";
+    }
+
+    function closeDateModal() {
+      dateModal.style.display = "none";
+      selectedUser = null;
+      resetNotifyBtn.style.display = "none";
+    }
+
+    async function markNotifyAsProcessed() {
+      if (!selectedUser) return;
+      await db.collection("users").doc(selectedUser.id).set(
+        {
+          notifyAccountant: false,
+          notifyAccountantAt: null,
+          updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
+        },
+        { merge: true }
+      );
+
+      selectedUser.notifyAccountant = false;
+      resetNotifyBtn.style.display = "none";
+      renderBoardFromCurrentData();
+      statusLine.textContent = "Marked " + selectedUser.name + " as not notifying accountant.";
+    }
+
+    function buildWorkbookRows(user, filteredReceipts) {
+      const rows = filteredReceipts.map((receipt) => {
+        const vatAmount = (receipt.amount * receipt.vatRate) / (100 + receipt.vatRate || 1);
+        return [
+          toMoney(receipt.amount),
+          toMoney(vatAmount),
+          receipt.vatRate + "%",
+          receipt.date,
+          receipt.category,
+          toDateTimeString(receipt.loggedAt)
+        ];
+      });
+
+      const totalAmount = filteredReceipts.reduce((sum, item) => sum + Number(item.amount), 0);
+      const totalVat = filteredReceipts.reduce((sum, item) => {
+        const vatAmount = (item.amount * item.vatRate) / (100 + item.vatRate || 1);
+        return sum + vatAmount;
+      }, 0);
+
+      const header = ["Amount", "VAT Amount", "VAT Rate", "Date", "Category", "Logged At"];
+      const aoa = [header, ...rows, [], ["Summary", ""], ["Total Amount", toMoney(totalAmount)], ["Total VAT Amount", toMoney(totalVat)]];
+      if (rows.length === 0) {
+        aoa.splice(1, 0, ["No receipts found for this date range.", "", "", "", "", ""]);
+      }
+      return aoa;
+    }
+
+    function downloadUserData(user, startDate, endDate) {
+      const filtered = user.receipts.filter((receipt) => receipt.date >= startDate && receipt.date <= endDate);
+      const aoa = buildWorkbookRows(user, filtered);
+      const worksheet = XLSX.utils.aoa_to_sheet(aoa);
+      const workbook = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(workbook, worksheet, "Receipts");
+
+      const safeName = user.name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/(^-|-$)/g, "");
+      const fileName = safeName + "-" + startDate + "-to-" + endDate + ".xlsx";
+      XLSX.writeFile(workbook, fileName);
+
+      statusLine.textContent = "Downloaded " + filtered.length + " receipts for " + user.name + " (" + startDate + " to " + endDate + ").";
+    }
+
+    async function attemptLogin() {
+      const email = emailInput.value.trim().toLowerCase();
+      const password = passwordInput.value;
+      if (!email || !password) {
+        loginError.textContent = "Enter both email and password.";
+        return;
+      }
+      if (!ALLOWED_EMAILS.includes(email)) {
+        loginError.textContent = "Access denied: this email is not authorized.";
+        return;
+      }
+
+      loginBtn.disabled = true;
+      loginError.textContent = "Signing in...";
+      try {
+        await auth.signInWithEmailAndPassword(email, password);
+        loginError.textContent = "";
+      } catch (error) {
+        loginError.textContent = "Login failed: " + error.message;
+      } finally {
+        loginBtn.disabled = false;
+      }
+    }
+
+    async function startAuthenticatedSession(user) {
+      currentAccountant = user;
+      const userRef = db.collection("users").doc(user.uid);
+      const snap = await userRef.get();
+      const data = snap.exists ? snap.data() : {};
+      const ts = data && data.portalLastLoginAt ? data.portalLastLoginAt : null;
+      previousLoginDate = ts && ts.toDate ? ts.toDate() : null;
+
+      await userRef.set(
+        {
+          email: user.email || null,
+          name: user.displayName || (data && data.name) || null,
+          portalLastLoginAt: firebase.firestore.FieldValue.serverTimestamp(),
+          updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
+        },
+        { merge: true }
+      );
+
+      loginSection.style.display = "none";
+      dashboardSection.style.display = "block";
+      loginInfo.textContent = previousLoginDate
+        ? "Signed in as " + user.email + " | Previous login: " + previousLoginDate.toLocaleString()
+        : "Signed in as " + user.email + " | First portal login";
+
+      await reloadAndRenderBoard();
+    }
+
+    function resetToLoginScreen() {
+      dashboardSection.style.display = "none";
+      loginSection.style.display = "block";
+      passwordInput.value = "";
+      statusLine.textContent = "Select a client tile to export their receipt data.";
+      closeDateModal();
+      liveUsers = [];
+      currentAccountant = null;
+      previousLoginDate = null;
+    }
+
+    loginBtn.addEventListener("click", attemptLogin);
+    emailInput.addEventListener("keydown", (event) => {
+      if (event.key === "Enter") attemptLogin();
+    });
+    passwordInput.addEventListener("keydown", (event) => {
+      if (event.key === "Enter") attemptLogin();
+    });
+
+    [searchInput, sortSelect, minReceiptsInput, recentUploadFilter].forEach((el) => {
+      el.addEventListener("input", renderBoardFromCurrentData);
+      el.addEventListener("change", renderBoardFromCurrentData);
+    });
+
+    cancelDateBtn.addEventListener("click", closeDateModal);
+    resetNotifyBtn.addEventListener("click", async () => {
+      await markNotifyAsProcessed();
+    });
+
+    confirmDateBtn.addEventListener("click", () => {
+      if (!selectedUser) return;
+      const startDate = startDateInput.value;
+      const endDate = endDateInput.value;
+      if (!startDate || !endDate) {
+        statusLine.textContent = "Please choose both start and end dates before exporting.";
+        return;
+      }
+      if (startDate > endDate) {
+        statusLine.textContent = "Start date must be earlier than or equal to end date.";
+        return;
+      }
+      downloadUserData(selectedUser, startDate, endDate);
+      closeDateModal();
+    });
+
+    logOutBtn.addEventListener("click", async () => {
+      await auth.signOut();
+      resetToLoginScreen();
+      emailInput.value = "";
+    });
+
+    dateModal.addEventListener("click", (event) => {
+      if (event.target === dateModal) closeDateModal();
+    });
+
+    auth.onAuthStateChanged(async (user) => {
+      if (!user) {
+        resetToLoginScreen();
+        return;
+      }
+      if (!ALLOWED_EMAILS.includes((user.email || "").toLowerCase())) {
+        await auth.signOut();
+        loginError.textContent = "Access denied: this email is not authorized.";
+        resetToLoginScreen();
+        return;
+      }
+      loginError.textContent = "";
+      await startAuthenticatedSession(user);
+    });
+  </script>
+</body>
+</html>
