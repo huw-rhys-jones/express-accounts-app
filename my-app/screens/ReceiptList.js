@@ -1344,7 +1344,6 @@ const styles = StyleSheet.create({
     fontWeight: "700",
     textAlign: "center",
   },
-  },
   settingsModalCard: {
     width: "100%",
     maxWidth: 420,
