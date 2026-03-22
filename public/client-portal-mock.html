@@ -202,9 +202,30 @@
       font-weight: 700;
       letter-spacing: 0.1px;
     }
+    
+    button.chip {
+      border: 2px solid transparent;
+      cursor: pointer;
+      transition: transform 0.12s ease, box-shadow 0.12s ease, border-color 0.12s ease, opacity 0.12s ease;
+    }
+    
+    button.chip:hover {
+      transform: translateY(-1px);
+      box-shadow: 0 6px 14px rgba(18, 36, 58, 0.16);
+    }
+    
+    button.chip.active {
+      border-color: rgba(255, 255, 255, 0.9);
+      box-shadow: 0 0 0 2px rgba(18, 36, 58, 0.25);
+    }
+    
+    button.chip:not(.active) {
+      opacity: 0.82;
+    }
 
     .chip.red { background: var(--notify-red); }
     .chip.yellow { background: var(--yellow); color: #3a2a00; }
+    .chip.green { background: var(--success-green); }
     .chip.blue { background: var(--blue); }
 
     .controls {
@@ -262,6 +283,7 @@
 
     .client-card.red { background: linear-gradient(135deg, #9f1f15, #c93426); }
     .client-card.yellow { background: linear-gradient(135deg, #f4c400, #f6d53f); color: #3f2f00; }
+    .client-card.green { background: linear-gradient(135deg, #1b6a36, #2d964f); }
     .client-card.blue { background: linear-gradient(135deg, #2e86de, #51a4f6); }
 
     .statusline {
@@ -390,9 +412,10 @@
       </div>
 
       <div class="legend">
-        <span class="chip red">Red: Notify Accountant</span>
-        <span class="chip yellow">Yellow: New uploads since last login</span>
-        <span class="chip blue">Blue: No new uploads</span>
+        <button type="button" class="chip red" data-status-filter="red">Red: Notify Accountant</button>
+        <button type="button" class="chip yellow" data-status-filter="yellow">Yellow: New uploads since last login</button>
+        <button type="button" class="chip green" data-status-filter="green">Green: Marked as processed</button>
+        <button type="button" class="chip blue" data-status-filter="blue">Blue: No new uploads</button>
       </div>
 
       <div class="controls">
@@ -456,6 +479,7 @@
     const sortSelect = document.getElementById("sortSelect");
     const minReceiptsInput = document.getElementById("minReceiptsInput");
     const recentUploadFilter = document.getElementById("recentUploadFilter");
+    const statusFilterButtons = Array.from(document.querySelectorAll("[data-status-filter]"));
 
     const dateModal = document.getElementById("dateModal");
     const startDateInput = document.getElementById("startDate");
@@ -468,6 +492,7 @@
     let previousLoginDate = null;
     let liveUsers = [];
     let selectedUser = null;
+    const activeStatusFilters = new Set();
 
     function toMoney(value) {
       return Number(value).toFixed(2);
@@ -501,6 +526,13 @@
       return userLatestUploadMs(user) > loginDate.getTime();
     }
 
+    function toJsDate(value) {
+      if (!value) return null;
+      if (typeof value.toDate === "function") return value.toDate();
+      const d = new Date(value);
+      return Number.isNaN(d.getTime()) ? null : d;
+    }
+
     function getClientStatus(user, loginDate) {
       if (user.notifyAccountant) {
         return { key: "red", label: "Notify Accountant" };
@@ -508,7 +540,17 @@
       if (hasNewUploadsSince(user, loginDate)) {
         return { key: "yellow", label: "New Uploads" };
       }
+      if (user.processedAt) {
+        return { key: "green", label: "Marked As Processed" };
+      }
       return { key: "blue", label: "No New Uploads" };
+    }
+
+    function updateStatusFilterButtonState() {
+      statusFilterButtons.forEach((button) => {
+        const key = button.dataset.statusFilter;
+        button.classList.toggle("active", activeStatusFilters.has(key));
+      });
     }
 
     async function loadRealData() {
@@ -554,6 +596,7 @@
             name: profile.name || profile.displayName || profile.email || ("Unknown user (" + uid.slice(0, 6) + ")"),
             email: profile.email || null,
             notifyAccountant: profile.notifyAccountant || false,
+              processedAt: toJsDate(profile.processedAt),
             receipts: receiptsByUser[uid] || [],
           };
         });
@@ -571,12 +614,14 @@
       const nowMs = Date.now();
 
       let filtered = users.filter((user) => {
+        const status = getClientStatus(user, previousLoginDate);
         const nameMatch = user.name.toLowerCase().includes(text);
         const emailMatch = (user.email || "").toLowerCase().includes(text);
         const receiptsCount = user.receipts.length;
 
         if (text && !nameMatch && !emailMatch) return false;
         if (Number.isFinite(minReceipts) && receiptsCount < minReceipts) return false;
+        if (activeStatusFilters.size > 0 && !activeStatusFilters.has(status.key)) return false;
 
         if (recentDays > 0) {
           const latestMs = userLatestUploadMs(user);
@@ -643,7 +688,7 @@
       endDateInput.value = range.endDateYmd;
       endDateInput.min = range.startDateYmd;
       endDateInput.max = range.quarterEndDateYmd;
-      resetNotifyBtn.style.display = user.notifyAccountant ? "inline-block" : "none";
+      resetNotifyBtn.style.display = "inline-block";
 
       document.getElementById("modalTitle").textContent = "Export receipts for " + user.name;
       dateModal.style.display = "flex";
@@ -661,16 +706,31 @@
         {
           notifyAccountant: false,
           notifyAccountantAt: null,
+          processedAt: firebase.firestore.FieldValue.serverTimestamp(),
           updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
         },
         { merge: true }
       );
 
       selectedUser.notifyAccountant = false;
-      resetNotifyBtn.style.display = "none";
+      selectedUser.processedAt = new Date();
       renderBoardFromCurrentData();
-      statusLine.textContent = "Marked " + selectedUser.name + " as not notifying accountant.";
+      statusLine.textContent = "Marked " + selectedUser.name + " as processed.";
     }
+
+    statusFilterButtons.forEach((button) => {
+      button.addEventListener("click", () => {
+        const key = button.dataset.statusFilter;
+        if (!key) return;
+        if (activeStatusFilters.has(key)) {
+          activeStatusFilters.delete(key);
+        } else {
+          activeStatusFilters.add(key);
+        }
+        updateStatusFilterButtonState();
+        renderBoardFromCurrentData();
+      });
+    });
 
     function calculateReceiptTotalsByCategory(receipts) {
       return receipts.reduce(
@@ -808,6 +868,8 @@
       liveUsers = [];
       currentAccountant = null;
       previousLoginDate = null;
+      activeStatusFilters.clear();
+      updateStatusFilterButtonState();
     }
 
     loginBtn.addEventListener("click", attemptLogin);
@@ -873,6 +935,7 @@
         return;
       }
       loginError.textContent = "";
+      updateStatusFilterButtonState();
       await startAuthenticatedSession(user);
     });
   </script>
