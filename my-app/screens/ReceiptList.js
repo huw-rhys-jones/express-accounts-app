@@ -507,31 +507,91 @@ const ExpensesScreen = ({ navigation }) => {
     return sortDir === "asc" ? "▲" : "▼";
   };
 
+  const isSortActive = (key) => sortKey === key;
+
   const renderHeaderRow = () => (
-    <View style={styles.headerRow}>
-      <TouchableOpacity
-        style={styles.headerCellDate}
-        onPress={() => toggleSort("date")}
-      >
-        <Text style={styles.headerText}>Date</Text>
-        <Text style={styles.headerArrow}>{sortIcon("date")}</Text>
-      </TouchableOpacity>
+    <View>
+      <Text style={styles.sortHintText}>Tap a heading to sort your receipts</Text>
 
-      <TouchableOpacity
-        style={styles.headerCellCategory}
-        onPress={() => toggleSort("category")}
-      >
-        <Text style={styles.headerText}>Category</Text>
-        <Text style={styles.headerArrow}>{sortIcon("category")}</Text>
-      </TouchableOpacity>
+      <View style={styles.headerRow}>
+        <TouchableOpacity
+          style={[
+            styles.headerCellDate,
+            styles.sortHeaderButton,
+            isSortActive("date") ? styles.sortHeaderButtonActive : null,
+          ]}
+          onPress={() => toggleSort("date")}
+        >
+          <Text
+            style={[
+              styles.headerText,
+              isSortActive("date") ? styles.headerTextActive : null,
+            ]}
+          >
+            Date
+          </Text>
+          <Text
+            style={[
+              styles.headerArrow,
+              isSortActive("date") ? styles.headerArrowActive : null,
+            ]}
+          >
+            {sortIcon("date")}
+          </Text>
+        </TouchableOpacity>
 
-      <TouchableOpacity
-        style={styles.headerCellAmount}
-        onPress={() => toggleSort("amount")}
-      >
-        <Text style={styles.headerTextRight}>Amount</Text>
-        <Text style={styles.headerArrow}>{sortIcon("amount")}</Text>
-      </TouchableOpacity>
+        <TouchableOpacity
+          style={[
+            styles.headerCellCategory,
+            styles.sortHeaderButton,
+            isSortActive("category") ? styles.sortHeaderButtonActive : null,
+          ]}
+          onPress={() => toggleSort("category")}
+        >
+          <Text
+            style={[
+              styles.headerText,
+              isSortActive("category") ? styles.headerTextActive : null,
+            ]}
+          >
+            Category
+          </Text>
+          <Text
+            style={[
+              styles.headerArrow,
+              isSortActive("category") ? styles.headerArrowActive : null,
+            ]}
+          >
+            {sortIcon("category")}
+          </Text>
+        </TouchableOpacity>
+
+        <TouchableOpacity
+          style={[
+            styles.headerCellAmount,
+            styles.sortHeaderButton,
+            isSortActive("amount") ? styles.sortHeaderButtonActive : null,
+          ]}
+          onPress={() => toggleSort("amount")}
+        >
+          <Text
+            style={[
+              styles.headerTextRight,
+              isSortActive("amount") ? styles.headerTextActive : null,
+            ]}
+          >
+            Amount
+          </Text>
+          <Text
+            style={[
+              styles.headerArrow,
+              isSortActive("amount") ? styles.headerArrowActive : null,
+            ]}
+          >
+            {sortIcon("amount")}
+          </Text>
+        </TouchableOpacity>
+      </View>
     </View>
   );
 
@@ -968,6 +1028,16 @@ const styles = StyleSheet.create({
   },
 
   // ---- Header row (sortable columns) ----
+  sortHintText: {
+    width: "95%",
+    alignSelf: "center",
+    color: Colors.textPrimary,
+    opacity: 0.72,
+    fontSize: 13,
+    fontWeight: "600",
+    marginBottom: 8,
+    paddingHorizontal: 4,
+  },
   headerRow: {
     backgroundColor: Colors.card,
     borderRadius: 12, // round all corners
@@ -978,6 +1048,14 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     // external margins handled by wrapper View
+  },
+  sortHeaderButton: {
+    paddingVertical: 4,
+    paddingHorizontal: 6,
+    borderRadius: 10,
+  },
+  sortHeaderButtonActive: {
+    backgroundColor: "rgba(166, 13, 73, 0.12)",
   },
   headerCellDate: {
     minWidth: 90,
@@ -1006,7 +1084,14 @@ const styles = StyleSheet.create({
     color: Colors.textPrimary,
     textAlign: "right",
   },
+  headerTextActive: {
+    color: Colors.accent,
+  },
   headerArrow: { fontSize: 12, color: "#555" },
+  headerArrowActive: {
+    color: Colors.accent,
+    fontSize: 13,
+  },
 
   receiptItem: {
     backgroundColor: "#f0f0f0",
