@@ -80,6 +80,10 @@ const ExpensesScreen = ({ navigation }) => {
   const [filterOpen, setFilterOpen] = useState(false);
   const [activeFilterKey, setActiveFilterKey] = useState("current-quarter");
   const [filterItems, setFilterItems] = useState([]);
+  const [referralCodeModalVisible, setReferralCodeModalVisible] = useState(false);
+  const [referralCode, setReferralCode] = useState("");
+  const [nameChangeModalVisible, setNameChangeModalVisible] = useState(false);
+  const [newName, setNewName] = useState(displayName);
 
   const handleSendFeedback = async () => {
   // 1. Validation
@@ -410,6 +414,61 @@ const ExpensesScreen = ({ navigation }) => {
     }
   }, [hapticsEnabled]);
 
+  const handleSubmitReferralCode = async () => {
+    if (!referralCode.trim()) {
+      Alert.alert("Invalid Code", "Please enter a referral code.");
+      return;
+    }
+
+    const user = auth.currentUser;
+    if (!user) return;
+
+    triggerHaptic("selection").catch(() => {});
+
+    try {
+      await setDoc(
+        doc(db, "users", user.uid),
+        { referralCode: referralCode.trim() },
+        { merge: true }
+      );
+      triggerHaptic("success").catch(() => {});
+      Alert.alert("Success", "Referral code saved!");
+      setReferralCodeModalVisible(false);
+      setReferralCode("");
+    } catch (error) {
+      console.error("Error saving referral code:", error);
+      Alert.alert("Error", "Could not save referral code. Please try again.");
+    }
+  };
+
+  const handleSubmitNameChange = async () => {
+    if (!newName.trim()) {
+      Alert.alert("Invalid Name", "Please enter a name.");
+      return;
+    }
+
+    const user = auth.currentUser;
+    if (!user) return;
+
+    triggerHaptic("selection").catch(() => {});
+
+    try {
+      await user.updateProfile({ displayName: newName.trim() });
+      await setDoc(
+        doc(db, "users", user.uid),
+        { name: newName.trim() },
+        { merge: true }
+      );
+      setDisplayName(newName.trim());
+      triggerHaptic("success").catch(() => {});
+      Alert.alert("Success", "Name updated!");
+      setNameChangeModalVisible(false);
+    } catch (error) {
+      console.error("Error updating name:", error);
+      Alert.alert("Error", "Could not update name. Please try again.");
+    }
+  };
+
   const handleOpenSettings = useCallback(() => {
     closeMenu();
     requestAnimationFrame(() => setSettingsModalVisible(true));
@@ -507,91 +566,31 @@ const ExpensesScreen = ({ navigation }) => {
     return sortDir === "asc" ? "▲" : "▼";
   };
 
-  const isSortActive = (key) => sortKey === key;
-
   const renderHeaderRow = () => (
-    <View>
-      <Text style={styles.sortHintText}>Tap a heading to sort your receipts</Text>
+    <View style={styles.headerRow}>
+      <TouchableOpacity
+        style={styles.headerCellDate}
+        onPress={() => toggleSort("date")}
+      >
+        <Text style={styles.headerText}>Date</Text>
+        <Text style={styles.headerArrow}>{sortIcon("date")}</Text>
+      </TouchableOpacity>
 
-      <View style={styles.headerRow}>
-        <TouchableOpacity
-          style={[
-            styles.headerCellDate,
-            styles.sortHeaderButton,
-            isSortActive("date") ? styles.sortHeaderButtonActive : null,
-          ]}
-          onPress={() => toggleSort("date")}
-        >
-          <Text
-            style={[
-              styles.headerText,
-              isSortActive("date") ? styles.headerTextActive : null,
-            ]}
-          >
-            Date
-          </Text>
-          <Text
-            style={[
-              styles.headerArrow,
-              isSortActive("date") ? styles.headerArrowActive : null,
-            ]}
-          >
-            {sortIcon("date")}
-          </Text>
-        </TouchableOpacity>
+      <TouchableOpacity
+        style={styles.headerCellCategory}
+        onPress={() => toggleSort("category")}
+      >
+        <Text style={styles.headerText}>Category</Text>
+        <Text style={styles.headerArrow}>{sortIcon("category")}</Text>
+      </TouchableOpacity>
 
-        <TouchableOpacity
-          style={[
-            styles.headerCellCategory,
-            styles.sortHeaderButton,
-            isSortActive("category") ? styles.sortHeaderButtonActive : null,
-          ]}
-          onPress={() => toggleSort("category")}
-        >
-          <Text
-            style={[
-              styles.headerText,
-              isSortActive("category") ? styles.headerTextActive : null,
-            ]}
-          >
-            Category
-          </Text>
-          <Text
-            style={[
-              styles.headerArrow,
-              isSortActive("category") ? styles.headerArrowActive : null,
-            ]}
-          >
-            {sortIcon("category")}
-          </Text>
-        </TouchableOpacity>
-
-        <TouchableOpacity
-          style={[
-            styles.headerCellAmount,
-            styles.sortHeaderButton,
-            isSortActive("amount") ? styles.sortHeaderButtonActive : null,
-          ]}
-          onPress={() => toggleSort("amount")}
-        >
-          <Text
-            style={[
-              styles.headerTextRight,
-              isSortActive("amount") ? styles.headerTextActive : null,
-            ]}
-          >
-            Amount
-          </Text>
-          <Text
-            style={[
-              styles.headerArrow,
-              isSortActive("amount") ? styles.headerArrowActive : null,
-            ]}
-          >
-            {sortIcon("amount")}
-          </Text>
-        </TouchableOpacity>
-      </View>
+      <TouchableOpacity
+        style={styles.headerCellAmount}
+        onPress={() => toggleSort("amount")}
+      >
+        <Text style={styles.headerTextRight}>Amount</Text>
+        <Text style={styles.headerArrow}>{sortIcon("amount")}</Text>
+      </TouchableOpacity>
     </View>
   );
 
@@ -687,7 +686,7 @@ const ExpensesScreen = ({ navigation }) => {
 
         {/* Header row OUTSIDE the FlatList to avoid Android sticky bug */}
         {hasReceipts ? (
-          <View style={{ marginTop: 10, marginBottom: 8 }}>
+          <View style={{ marginTop: 28, marginBottom: 8 }}>
             {renderHeaderRow()}
           </View>
         ) : null}
@@ -733,24 +732,31 @@ const ExpensesScreen = ({ navigation }) => {
       {/* Slide-in side menu */}
       <SideMenu open={menuOpen} onClose={closeMenu}>
         <View style={{ flex: 1 }}>
-          {/* Top Section */}
-          <Text style={styles.menuTitle}>Menu</Text>
-
+          {/* Top Section: Name, Email, Settings Button */}
           <View style={styles.userInfo}>
-            <Text style={styles.userEmail}>{displayName}</Text>
+            <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}>
+              <Text style={styles.userEmail}>{displayName}</Text>
+              <TouchableOpacity
+                onPress={() => {
+                  setNewName(displayName);
+                  setNameChangeModalVisible(true);
+                }}
+                style={{ paddingLeft: 8 }}
+              >
+                <Text style={{ fontSize: 14 }}>✏️</Text>
+              </TouchableOpacity>
+            </View>
             <Text style={styles.userEmail}>{auth.currentUser?.email}</Text>
           </View>
 
-          {/* Bottom Section */}
-          <View style={styles.footerContainer}>
-            <TouchableOpacity onPress={handleOpenSettings} style={styles.signOutLink}>
-              <Text style={[styles.linkBtnText, { textDecorationLine: "none" }]}>Settings</Text>
-            </TouchableOpacity>
+          {/* Settings Button */}
+          <TouchableOpacity onPress={handleOpenSettings} style={styles.settingsMenuBtn}>
+            <Text style={styles.settingsMenuBtnText}>Settings</Text>
+          </TouchableOpacity>
 
-            <TouchableOpacity onPress={handleOpenPrivacyPolicy} style={styles.signOutLink}>
-              <Text style={[styles.linkBtnText, { textDecorationLine: "none" }]}>Privacy Policy</Text>
-            </TouchableOpacity>
-
+          {/* Middle Section: Action Buttons */}
+          <View style={{ marginTop: 20 }}>
+            {/* Notify Accountant Button */}
             <TouchableOpacity
               onPress={handleNotifyAccountant}
               style={styles.notifyBtnFilled}
@@ -769,38 +775,61 @@ const ExpensesScreen = ({ navigation }) => {
               </View>
             ) : null}
 
+            {/* Enter Referral Code Button */}
             <TouchableOpacity
               onPress={() => {
-                closeMenu(); // Close sidebar
-                setFeedbackModalVisible(true); // Open the popup
+                setReferralCode("");
+                setReferralCodeModalVisible(true);
               }}
-              style={[styles.signOutLink, { marginBottom: 10 }]}
+              style={[styles.notifyBtnFilled, { marginTop: 12 }]}
+            >
+              <Text style={styles.filledBtnText}>Enter Referral Code</Text>
+            </TouchableOpacity>
+
+            {/* Leave Feedback Button */}
+            <TouchableOpacity
+              onPress={() => {
+                closeMenu();
+                setFeedbackModalVisible(true);
+              }}
+              style={[styles.signOutLink, { marginTop: 16 }]}
             >
               <Text style={[styles.linkBtnText, { textDecorationLine: 'none' }]}>
                 Leave Feedback
               </Text>
             </TouchableOpacity>
-            {/* Sign Out - Now the Transparent Link */}
+          </View>
+
+          {/* Bottom Section */}
+          <View style={styles.footerContainer}>
+            {/* Sign Out Button - Red */}
             <TouchableOpacity
               onPress={async () => {
                 closeMenu();
                 await handleLogout();
               }}
-              style={styles.signOutLink}
+              style={styles.redButton}
             >
-              <Text style={styles.linkBtnText}>Sign out</Text>
+              <Text style={styles.redButtonText}>Sign out</Text>
             </TouchableOpacity>
 
-            {/* Delete Account - Now the Filled Button */}
+            {/* Delete Account Button - Red */}
             <TouchableOpacity
               onPress={handleDeleteAccount}
-              style={styles.deleteBtnFilled}
+              style={[styles.redButton, { marginTop: 10 }]}
             >
-              <Text style={styles.filledBtnText}>Delete Account</Text>
+              <Text style={styles.redButtonText}>Delete Account</Text>
             </TouchableOpacity>
 
+            {/* Version and Privacy Policy */}
             <View style={styles.versionContainer}>
               <Text style={styles.versionText}>Version {appVersion}</Text>
+              <Text style={styles.versionText}> · </Text>
+              <TouchableOpacity onPress={handleOpenPrivacyPolicy}>
+                <Text style={[styles.versionText, { textDecorationLine: "underline", color: Colors.accent }]}>
+                  Privacy Policy
+                </Text>
+              </TouchableOpacity>
             </View>
           </View>
         </View>
@@ -901,6 +930,89 @@ const ExpensesScreen = ({ navigation }) => {
             >
               <Text style={styles.signOutText}>Done</Text>
             </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
+
+      {/* Referral Code Modal */}
+      <Modal
+        visible={referralCodeModalVisible}
+        transparent
+        animationType="slide"
+        onRequestClose={() => setReferralCodeModalVisible(false)}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={styles.loadingCard}>
+            <Text style={styles.title}>Enter Referral Code</Text>
+            <Text style={{ textAlign: "center", marginVertical: 10, color: Colors.textPrimary }}>
+              Enter your referral code to track your referrals.
+            </Text>
+
+            <TextInput
+              style={[styles.input, { color: Colors.textPrimary }]}
+              placeholder="Referral code"
+              placeholderTextColor="#999"
+              value={referralCode}
+              onChangeText={setReferralCode}
+              autoCapitalize="none"
+            />
+
+            <View style={{ flexDirection: "row", marginTop: 20, gap: 10, width: "100%" }}>
+              <TouchableOpacity
+                onPress={() => setReferralCodeModalVisible(false)}
+                style={[styles.signOutBtn, { backgroundColor: "#ccc", flex: 1 }]}
+              >
+                <Text style={{ color: "#000", textAlign: "center" }}>Cancel</Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                onPress={handleSubmitReferralCode}
+                style={[styles.signOutBtn, { flex: 1 }]}
+              >
+                <Text style={styles.signOutText}>Submit</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
+
+      {/* Name Change Modal */}
+      <Modal
+        visible={nameChangeModalVisible}
+        transparent
+        animationType="slide"
+        onRequestClose={() => setNameChangeModalVisible(false)}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={styles.loadingCard}>
+            <Text style={styles.title}>Change Your Name</Text>
+            <Text style={{ textAlign: "center", marginVertical: 10, color: Colors.textPrimary }}>
+              Enter your new name.
+            </Text>
+
+            <TextInput
+              style={[styles.input, { color: Colors.textPrimary }]}
+              placeholder="New name"
+              placeholderTextColor="#999"
+              value={newName}
+              onChangeText={setNewName}
+            />
+
+            <View style={{ flexDirection: "row", marginTop: 20, gap: 10, width: "100%" }}>
+              <TouchableOpacity
+                onPress={() => setNameChangeModalVisible(false)}
+                style={[styles.signOutBtn, { backgroundColor: "#ccc", flex: 1 }]}
+              >
+                <Text style={{ color: "#000", textAlign: "center" }}>Cancel</Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                onPress={handleSubmitNameChange}
+                style={[styles.signOutBtn, { flex: 1 }]}
+              >
+                <Text style={styles.signOutText}>Accept</Text>
+              </TouchableOpacity>
+            </View>
           </View>
         </View>
       </Modal>
@@ -1028,16 +1140,6 @@ const styles = StyleSheet.create({
   },
 
   // ---- Header row (sortable columns) ----
-  sortHintText: {
-    width: "95%",
-    alignSelf: "center",
-    color: Colors.textPrimary,
-    opacity: 0.72,
-    fontSize: 13,
-    fontWeight: "600",
-    marginBottom: 8,
-    paddingHorizontal: 4,
-  },
   headerRow: {
     backgroundColor: Colors.card,
     borderRadius: 12, // round all corners
@@ -1048,14 +1150,6 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     // external margins handled by wrapper View
-  },
-  sortHeaderButton: {
-    paddingVertical: 4,
-    paddingHorizontal: 6,
-    borderRadius: 10,
-  },
-  sortHeaderButtonActive: {
-    backgroundColor: "rgba(166, 13, 73, 0.12)",
   },
   headerCellDate: {
     minWidth: 90,
@@ -1084,14 +1178,7 @@ const styles = StyleSheet.create({
     color: Colors.textPrimary,
     textAlign: "right",
   },
-  headerTextActive: {
-    color: Colors.accent,
-  },
   headerArrow: { fontSize: 12, color: "#555" },
-  headerArrowActive: {
-    color: Colors.accent,
-    fontSize: 13,
-  },
 
   receiptItem: {
     backgroundColor: "#f0f0f0",
@@ -1232,6 +1319,32 @@ const styles = StyleSheet.create({
     color: Colors.textPrimary,
     fontSize: 14,
   },
+  settingsMenuBtn: {
+    backgroundColor: "#9999AA",
+    paddingVertical: 14,
+    paddingHorizontal: 16,
+    borderRadius: 10,
+    marginTop: 16,
+    alignItems: "center",
+  },
+  settingsMenuBtnText: {
+    color: "white",
+    fontWeight: "700",
+    textAlign: "center",
+  },
+  redButton: {
+    backgroundColor: Colors.accent,
+    paddingVertical: 14,
+    paddingHorizontal: 16,
+    borderRadius: 10,
+    alignItems: "center",
+  },
+  redButtonText: {
+    color: "white",
+    fontWeight: "700",
+    textAlign: "center",
+  },
+  },
   settingsModalCard: {
     width: "100%",
     maxWidth: 420,
@@ -1296,7 +1409,10 @@ const styles = StyleSheet.create({
     textDecorationLine: "underline",
   },
   versionContainer: {
+    flexDirection: "row",
     alignItems: "center",
+    justifyContent: "center",
+    paddingTop: 20,
     paddingBottom: 10,
   },
   versionText: {
