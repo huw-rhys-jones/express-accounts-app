@@ -30,6 +30,9 @@ import {
   addDoc,
   collection,
   serverTimestamp,
+  query,
+  where,
+  getDocs,
 } from "firebase/firestore";
 import { getStorage, ref, uploadBytes, getDownloadURL } from "firebase/storage";
 import { categories_meta } from "../constants/arrays";
@@ -38,6 +41,8 @@ import { extractData, reconstructLines } from "../utils/extractors";
 import { useReceiptOcr } from "../utils/ocrHelpers";
 import ImageViewer from "react-native-image-zoom-viewer";
 import { Colors, ReceiptStyles } from "../utils/sharedStyles";
+import { getCurrentYearAprilSix, startOfDayLocal } from "../utils/financialPeriods";
+import { triggerHaptic } from "../utils/haptics";
 
 const ReceiptAdd = ({ navigation }) => {
   const [amount, setAmount] = useState("");
@@ -58,6 +63,8 @@ const ReceiptAdd = ({ navigation }) => {
   const [showConfirmReset, setConfirmReset] = useState(false);
   const [showConfirmLeaveModal, setShowConfirmLeaveModal] = useState(false);
   const [showConfirmModal, setShowConfirmModal] = useState(false);
+  const [showDuplicateModal, setShowDuplicateModal] = useState(false);
+  const [duplicateReceiptDate, setDuplicateReceiptDate] = useState(null);
 
   // OCR modal state and helpers will be provided by useReceiptOcr
   // (hook invocation inserted later).
@@ -300,7 +307,60 @@ const ReceiptAdd = ({ navigation }) => {
     return vat.toFixed(2);
   };
 
-  const handleSavePress = () => {
+  const toMoneyKey = (value) => {
+    const numeric = Number(value);
+    if (!Number.isFinite(numeric)) return "0.00";
+    return numeric.toFixed(2);
+  };
+
+  const toDateKey = (value) => {
+    const d = new Date(value);
+    if (Number.isNaN(d.getTime())) return "";
+    const local = startOfDayLocal(d);
+    const yyyy = local.getFullYear();
+    const mm = String(local.getMonth() + 1).padStart(2, "0");
+    const dd = String(local.getDate()).padStart(2, "0");
+    return `${yyyy}-${mm}-${dd}`;
+  };
+
+  const findDuplicateReceipt = async () => {
+    const user = auth.currentUser;
+    if (!user) return null;
+
+    const expectedVat = vatAmount ? vatAmount : calculateVatFromRate();
+    const current = {
+      amount: toMoneyKey(amount),
+      vatAmount: toMoneyKey(expectedVat),
+      category: String(selectedCategory || "").trim().toLowerCase(),
+      date: toDateKey(selectedDate),
+    };
+
+    const q = query(collection(db, "receipts"), where("userId", "==", user.uid));
+    const snapshot = await getDocs(q);
+
+    for (const receiptDoc of snapshot.docs) {
+      const data = receiptDoc.data() || {};
+      const candidate = {
+        amount: toMoneyKey(data.amount),
+        vatAmount: toMoneyKey(data.vatAmount),
+        category: String(data.category || "").trim().toLowerCase(),
+        date: toDateKey(data.date),
+      };
+
+      if (
+        current.amount === candidate.amount &&
+        current.vatAmount === candidate.vatAmount &&
+        current.category === candidate.category &&
+        current.date === candidate.date
+      ) {
+        return data;
+      }
+    }
+
+    return null;
+  };
+
+  const handleSavePress = async () => {
     if (
       !amount ||
       isNaN(parseFloat(amount)) ||
@@ -310,6 +370,20 @@ const ReceiptAdd = ({ navigation }) => {
       Alert.alert("Invalid Input", "Please fill in all fields correctly.");
       return;
     }
+
+    triggerHaptic("selection").catch(() => {});
+
+    try {
+      const duplicate = await findDuplicateReceipt();
+      if (duplicate) {
+        setDuplicateReceiptDate(duplicate.date ? new Date(duplicate.date) : null);
+        setShowDuplicateModal(true);
+        return;
+      }
+    } catch (error) {
+      console.error("Duplicate check failed", error);
+    }
+
     setShowConfirmModal(true);
   };
 
@@ -342,6 +416,7 @@ const ReceiptAdd = ({ navigation }) => {
 
       // 5) Yield one frame, then show success modal
       await new Promise((resolve) => requestAnimationFrame(resolve));
+      triggerHaptic("success").catch(() => {});
       setShowSuccess(true);
     } catch (err) {
       console.error("Upload failed:", err);
@@ -417,6 +492,14 @@ const ReceiptAdd = ({ navigation }) => {
     // the Android native bridge finish dismissing the modal
     setTimeout(() => {
       setSelectedDate(date);
+
+      const previousFinancialYearThreshold = getCurrentYearAprilSix(new Date());
+      if (date < previousFinancialYearThreshold) {
+        Alert.alert(
+          "Check date",
+          "This date appears to be in a previous financial year. Please verify your selection."
+        );
+      }
     }, 100);
   };
 
@@ -628,6 +711,7 @@ const ReceiptAdd = ({ navigation }) => {
               isVisible={isDatePickerVisible}
               mode="date"
               date={selectedDate}
+              maximumDate={new Date()}
               onConfirm={handleConfirmDate}
               onCancel={hideDatePicker}
             />
@@ -865,6 +949,38 @@ const ReceiptAdd = ({ navigation }) => {
               <RNButton
                 title="Confirm"
                 onPress={handleConfirmReceipt}
+                color="#a60d49"
+              />
+            </View>
+          </View>
+        </View>
+      </Modal>
+
+      <Modal
+        visible={showDuplicateModal}
+        transparent
+        animationType="slide"
+        onRequestClose={() => setShowDuplicateModal(false)}
+      >
+        <View style={ReceiptStyles.modalOverlay}>
+          <View style={ReceiptStyles.modalContent}>
+            <Text style={ReceiptStyles.modalTitle}>Possible Duplicate</Text>
+            <Text style={ReceiptStyles.modalDetailText}>
+              Are you sure? A similar receipt was already submitted on{" "}
+              {duplicateReceiptDate ? formatDate(duplicateReceiptDate) : "this date"}.
+            </Text>
+            <View style={ReceiptStyles.modalButtons}>
+              <RNButton
+                title="Cancel"
+                onPress={() => setShowDuplicateModal(false)}
+                color="black"
+              />
+              <RNButton
+                title="Continue"
+                onPress={() => {
+                  setShowDuplicateModal(false);
+                  setShowConfirmModal(true);
+                }}
                 color="#a60d49"
               />
             </View>

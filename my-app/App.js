@@ -16,6 +16,7 @@ import SummaryScreen from "./screens/SummaryScreen";
 import * as WebBrowser from "expo-web-browser";
 import { MD3LightTheme, PaperProvider } from 'react-native-paper';
 import { useSafeAreaInsets, SafeAreaProvider } from 'react-native-safe-area-context';
+import { ensureHapticsDefaultEnabled } from "./utils/haptics";
 
 WebBrowser.maybeCompleteAuthSession();
 
@@ -127,6 +128,10 @@ export default function App() {
   const [checkingAuth, setCheckingAuth] = useState(true);
 
   useEffect(() => {
+    ensureHapticsDefaultEnabled().catch((error) => {
+      console.warn("Could not load haptics default setting", error);
+    });
+
     const unsubscribe = onAuthStateChanged(auth, (user) => {
       setUser(user);
       setCheckingAuth(false);

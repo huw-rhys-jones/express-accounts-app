@@ -9,7 +9,9 @@ import {
   RefreshControl,
   Modal,
   TextInput,
-  Alert
+  Alert,
+  Linking,
+  Switch,
 } from "react-native";
 import { signOut, deleteUser } from "firebase/auth";
 import {
@@ -32,12 +34,23 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import Constants from "expo-constants";
 import { Colors } from "../utils/sharedStyles";
 import appPackage from "../package.json";
+import DropDownPicker from "react-native-dropdown-picker";
 import {
   getStorage,
   ref as storageRef,
   listAll,
   deleteObject,
 } from "firebase/storage";
+import {
+  buildFinancialFilterOptions,
+  filterReceiptsByDateRange,
+} from "../utils/financialPeriods";
+import {
+  getHapticsEnabled,
+  setHapticsEnabled,
+  triggerHaptic,
+} from "../utils/haptics";
+import { getReceiptFilterKey, setReceiptFilterKey } from "../utils/appSettings";
 
 // Inside your component
 const appVersion = appPackage?.version || Constants.expoConfig?.version || "unknown";
@@ -62,6 +75,11 @@ const ExpensesScreen = ({ navigation }) => {
   const [feedbackModalVisible, setFeedbackModalVisible] = useState(false);
   const [feedbackText, setFeedbackText] = useState("");
   const [showNotifyTip, setShowNotifyTip] = useState(false);
+  const [hapticsEnabled, setHapticsEnabledState] = useState(true);
+  const [settingsModalVisible, setSettingsModalVisible] = useState(false);
+  const [filterOpen, setFilterOpen] = useState(false);
+  const [activeFilterKey, setActiveFilterKey] = useState("current-quarter");
+  const [filterItems, setFilterItems] = useState([]);
 
   const handleSendFeedback = async () => {
   // 1. Validation
@@ -171,8 +189,55 @@ const ExpensesScreen = ({ navigation }) => {
     }
   };
 
+  const filterOptions = useMemo(
+    () => buildFinancialFilterOptions(receipts, new Date()),
+    [receipts]
+  );
+
+  const activeFilter = useMemo(
+    () => filterOptions.find((option) => option.key === activeFilterKey) || filterOptions[0],
+    [activeFilterKey, filterOptions]
+  );
+
+  useEffect(() => {
+    if (!activeFilter && filterOptions[0]) {
+      setActiveFilterKey(filterOptions[0].key);
+    }
+  }, [activeFilter, filterOptions]);
+
+  useEffect(() => {
+    setFilterItems(
+      filterOptions.map((option) => ({ label: option.label, value: option.key }))
+    );
+  }, [filterOptions]);
+
+  useEffect(() => {
+    if (filterOptions.length === 0) {
+      return;
+    }
+
+    const hasActiveOption = filterOptions.some(
+      (option) => option.key === activeFilterKey
+    );
+
+    if (!hasActiveOption) {
+      const fallbackKey = filterOptions[0].key;
+      setActiveFilterKey(fallbackKey);
+      setReceiptFilterKey(fallbackKey).catch(() => {});
+    }
+  }, [activeFilterKey, filterOptions]);
+
+  const filteredReceipts = useMemo(() => {
+    if (!activeFilter) return receipts;
+    return filterReceiptsByDateRange(
+      receipts,
+      activeFilter.startDate,
+      activeFilter.endDate
+    );
+  }, [activeFilter, receipts]);
+
   const sortedReceipts = useMemo(() => {
-    const data = [...receipts];
+    const data = [...filteredReceipts];
     data.sort((a, b) => {
       let av,
         bv,
@@ -195,7 +260,27 @@ const ExpensesScreen = ({ navigation }) => {
       return sortDir === "asc" ? cmp : -cmp;
     });
     return data;
-  }, [receipts, sortKey, sortDir]);
+  }, [filteredReceipts, sortKey, sortDir]);
+
+  useEffect(() => {
+    getHapticsEnabled()
+      .then(setHapticsEnabledState)
+      .catch(() => setHapticsEnabledState(true));
+
+    getReceiptFilterKey()
+      .then(setActiveFilterKey)
+      .catch(() => setActiveFilterKey("current-quarter"));
+  }, []);
+
+  useEffect(() => {
+    const unsubscribeFocus = navigation.addListener("focus", () => {
+      getReceiptFilterKey()
+        .then(setActiveFilterKey)
+        .catch(() => setActiveFilterKey("current-quarter"));
+    });
+
+    return unsubscribeFocus;
+  }, [navigation]);
 
   // Check Firebase for "seen" status
   useEffect(() => {
@@ -283,6 +368,8 @@ const ExpensesScreen = ({ navigation }) => {
     const user = auth.currentUser;
     if (!user) return;
 
+    triggerHaptic("selection").catch(() => {});
+
     await runWithLoading("Sending notify request…", async () => {
       await setDoc(
         doc(db, "users", user.uid),
@@ -299,8 +386,42 @@ const ExpensesScreen = ({ navigation }) => {
 
     setMenuOpen(false);
     setShowNotifyTip(false);
+    triggerHaptic("success").catch(() => {});
     Alert.alert("Accountant Notified", "Your accountant has been notified that your receipts are ready for processing.");
   };
+
+  const handleOpenPrivacyPolicy = useCallback(async () => {
+    triggerHaptic("selection").catch(() => {});
+    const url = "https://caistec.com/privacy-policy.html";
+    const canOpen = await Linking.canOpenURL(url);
+    if (!canOpen) {
+      Alert.alert("Unable to open link", "Could not open Privacy Policy.");
+      return;
+    }
+    await Linking.openURL(url);
+  }, []);
+
+  const toggleHapticsSetting = useCallback(async () => {
+    const next = !hapticsEnabled;
+    setHapticsEnabledState(next);
+    await setHapticsEnabled(next);
+    if (next) {
+      triggerHaptic("selection").catch(() => {});
+    }
+  }, [hapticsEnabled]);
+
+  const handleOpenSettings = useCallback(() => {
+    closeMenu();
+    requestAnimationFrame(() => setSettingsModalVisible(true));
+  }, [closeMenu]);
+
+  const handleFilterSelection = useCallback(
+    async (nextKey) => {
+      setActiveFilterKey(nextKey);
+      await setReceiptFilterKey(nextKey);
+    },
+    []
+  );
 
   const runWithLoading = async (text, fn) => {
     setLoadingText(text);
@@ -363,6 +484,7 @@ const ExpensesScreen = ({ navigation }) => {
   }, [fetchReceipts]);
 
   const handleLogout = async () => {
+    triggerHaptic("selection").catch(() => {});
     await runWithLoading("Signing out…", async () => {
       await signOut(auth);
       navigation.replace("SignIn");
@@ -561,6 +683,14 @@ const ExpensesScreen = ({ navigation }) => {
 
           {/* Bottom Section */}
           <View style={styles.footerContainer}>
+            <TouchableOpacity onPress={handleOpenSettings} style={styles.signOutLink}>
+              <Text style={[styles.linkBtnText, { textDecorationLine: "none" }]}>Settings</Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity onPress={handleOpenPrivacyPolicy} style={styles.signOutLink}>
+              <Text style={[styles.linkBtnText, { textDecorationLine: "none" }]}>Privacy Policy</Text>
+            </TouchableOpacity>
+
             <TouchableOpacity
               onPress={handleNotifyAccountant}
               style={styles.notifyBtnFilled}
@@ -656,6 +786,65 @@ const ExpensesScreen = ({ navigation }) => {
         </View>
       </Modal>
 
+      <Modal
+        visible={settingsModalVisible}
+        transparent
+        animationType="slide"
+        onRequestClose={() => {
+          setSettingsModalVisible(false);
+          setFilterOpen(false);
+        }}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={[styles.loadingCard, styles.settingsModalCard]}>
+            <Text style={styles.title}>Settings</Text>
+
+            <View style={styles.settingsRow}>
+              <Text style={styles.settingsLabel}>Haptic feedback</Text>
+              <Switch
+                value={hapticsEnabled}
+                onValueChange={toggleHapticsSetting}
+                trackColor={{ false: "#c8cad2", true: "#f0b5ca" }}
+                thumbColor={hapticsEnabled ? Colors.accent : "#f4f3f4"}
+              />
+            </View>
+
+            {filterOptions.length > 0 ? (
+              <View style={styles.settingsFilterSection}>
+                <Text style={styles.settingsLabel}>Filter by quarter or year</Text>
+                <DropDownPicker
+                  open={filterOpen}
+                  value={activeFilterKey}
+                  items={filterItems}
+                  setOpen={setFilterOpen}
+                  setValue={(callback) => {
+                    const nextKey = callback(activeFilterKey);
+                    handleFilterSelection(nextKey).catch(() => {});
+                    return nextKey;
+                  }}
+                  setItems={setFilterItems}
+                  listMode="SCROLLVIEW"
+                  style={styles.filterDropdown}
+                  dropDownContainerStyle={styles.filterDropdownContainer}
+                  zIndex={3000}
+                  zIndexInverse={1000}
+                />
+              </View>
+            ) : null}
+
+            <TouchableOpacity
+              onPress={() => {
+                setSettingsModalVisible(false);
+                setFilterOpen(false);
+              }}
+              style={[styles.signOutBtn, { width: "100%" }]}
+            >
+              <Text style={styles.signOutText}>Done</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
+
       <Modal visible={deleteModalVisible} transparent animationType="fade">
         <View style={styles.modalOverlay}>
           <View style={styles.loadingCard}>
@@ -735,6 +924,13 @@ const styles = StyleSheet.create({
     color: Colors.textPrimary,
     marginTop: 14,
     textAlign: "center",
+  },
+  filterDropdown: {
+    borderColor: Colors.border,
+    borderRadius: 10,
+  },
+  filterDropdownContainer: {
+    borderColor: Colors.border,
   },
   description: {
     fontSize: 16,
@@ -939,6 +1135,28 @@ const styles = StyleSheet.create({
   footerContainer: {
     marginTop: "auto",
     paddingBottom: 10,
+  },
+  settingsRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    marginBottom: 12,
+    width: "100%",
+  },
+  settingsLabel: {
+    color: Colors.textPrimary,
+    fontSize: 14,
+  },
+  settingsModalCard: {
+    width: "100%",
+    maxWidth: 420,
+    alignItems: "stretch",
+  },
+  settingsFilterSection: {
+    width: "100%",
+    marginTop: 8,
+    marginBottom: 20,
+    zIndex: 3000,
   },
   // The new filled style (formerly for Sign Out, now for Delete)
   deleteBtnFilled: {

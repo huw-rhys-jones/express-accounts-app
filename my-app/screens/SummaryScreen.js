@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from "react";
+import React, { useState, useEffect, useCallback, useMemo } from "react";
 import {
   Platform,
   View,
@@ -15,6 +15,12 @@ import { db, auth } from "../firebaseConfig";
 import { PieChart, BarChart } from "react-native-chart-kit";
 import { groupReceiptsByMonth } from "../utils/groupByMonth";
 import { Colors, SharedStyles } from "../utils/sharedStyles";
+import {
+  buildFinancialFilterOptions,
+  filterReceiptsByDateRange,
+} from "../utils/financialPeriods";
+import { formatDate } from "../utils/format_style";
+import { getReceiptFilterKey } from "../utils/appSettings";
 
 const screenWidth = Dimensions.get("window").width;
 const CHART_CARD_WIDTH = screenWidth * 0.9;
@@ -32,7 +38,7 @@ export default function SummaryScreen({ navigation }) {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [receipts, setReceipts] = useState([]);
-  const [totals, setTotals] = useState({ overall: 0, byCategory: {}, totalVat: 0 });
+  const [activeFilterKey, setActiveFilterKey] = useState("current-quarter");
 
   const barChartScrollRef = React.useRef(null);
   
@@ -50,7 +56,6 @@ export default function SummaryScreen({ navigation }) {
       const user = auth.currentUser;
       if (!user) {
         setReceipts([]);
-        setTotals({ overall: 0, byCategory: {}, totalVat: 0 });
         return;
       }
 
@@ -61,30 +66,80 @@ export default function SummaryScreen({ navigation }) {
         ...doc.data(),
       }));
       setReceipts(userReceipts);
-
-      // Calculate totals
-      let overall = 0;
-      let totalVat = 0;
-      const byCategory = {};
-
-      for (const r of userReceipts) {
-        const amt = Number(r.amount) || 0;
-        overall += amt;
-        byCategory[r.category] = (byCategory[r.category] || 0) + amt;
-
-        // VAT: prefer stored vatAmount, else derive from vatRate
-        if (r.vatAmount != null && !Number.isNaN(Number(r.vatAmount))) {
-          totalVat += Number(r.vatAmount);
-        } else if (r.vatRate != null && !Number.isNaN(Number(r.vatRate))) {
-          totalVat += computeVatFromRate(amt, r.vatRate);
-        }
-      }
-
-      setTotals({ overall, byCategory, totalVat });
     } catch (err) {
       console.error("Error fetching receipts for summary:", err);
     }
   }, []);
+
+  const filterOptions = useMemo(
+    () => buildFinancialFilterOptions(receipts, new Date()),
+    [receipts]
+  );
+
+  const activeFilter = useMemo(
+    () => filterOptions.find((option) => option.key === activeFilterKey) || filterOptions[0],
+    [activeFilterKey, filterOptions]
+  );
+
+  useEffect(() => {
+    if (!activeFilter && filterOptions[0]) {
+      setActiveFilterKey(filterOptions[0].key);
+    }
+  }, [activeFilter, filterOptions]);
+
+  useEffect(() => {
+    getReceiptFilterKey()
+      .then(setActiveFilterKey)
+      .catch(() => setActiveFilterKey("current-quarter"));
+
+    const unsubscribeFocus = navigation.addListener("focus", () => {
+      getReceiptFilterKey()
+        .then(setActiveFilterKey)
+        .catch(() => setActiveFilterKey("current-quarter"));
+    });
+
+    return unsubscribeFocus;
+  }, [navigation]);
+
+  useEffect(() => {
+    if (filterOptions.length === 0) {
+      return;
+    }
+
+    if (!filterOptions.some((option) => option.key === activeFilterKey)) {
+      setActiveFilterKey(filterOptions[0].key);
+    }
+  }, [activeFilterKey, filterOptions]);
+
+  const filteredReceipts = useMemo(() => {
+    if (!activeFilter) return receipts;
+    return filterReceiptsByDateRange(
+      receipts,
+      activeFilter.startDate,
+      activeFilter.endDate
+    );
+  }, [activeFilter, receipts]);
+
+  const totals = useMemo(() => {
+    let overall = 0;
+    let totalVat = 0;
+    const byCategory = {};
+
+    for (const receipt of filteredReceipts) {
+      const amount = Number(receipt.amount) || 0;
+      overall += amount;
+      const category = receipt.category || "Uncategorized";
+      byCategory[category] = (byCategory[category] || 0) + amount;
+
+      if (receipt.vatAmount != null && !Number.isNaN(Number(receipt.vatAmount))) {
+        totalVat += Number(receipt.vatAmount);
+      } else if (receipt.vatRate != null && !Number.isNaN(Number(receipt.vatRate))) {
+        totalVat += computeVatFromRate(amount, receipt.vatRate);
+      }
+    }
+
+    return { overall, byCategory, totalVat };
+  }, [filteredReceipts]);
 
   useEffect(() => {
     fetchReceipts().finally(() => setLoading(false));
@@ -122,7 +177,7 @@ export default function SummaryScreen({ navigation }) {
     legendFontSize: 13,
   }));
 
-  const monthlyData = groupReceiptsByMonth(receipts);
+  const monthlyData = groupReceiptsByMonth(filteredReceipts);
 
   // Build nice Y axis ticks
   const monthlyTotals = monthlyData.map((m) => Number(m.total) || 0);
@@ -145,6 +200,11 @@ export default function SummaryScreen({ navigation }) {
           {/* Summary totals card */}
           <View style={styles.card}>
             <Text style={styles.title}>Summary</Text>
+            {activeFilter ? (
+              <Text style={styles.activeFilterText}>
+                Showing data for {activeFilter.label}: {formatDate(activeFilter.startDate)} to {formatDate(activeFilter.endDate)}.
+              </Text>
+            ) : null}
             <Text style={styles.subtitle}>
               Total Spent: £{totals.overall.toFixed(2)}
             </Text>
@@ -152,7 +212,6 @@ export default function SummaryScreen({ navigation }) {
               Total VAT: £{totals.totalVat.toFixed(2)}
             </Text>
           </View>
-
           {/* Pie chart card */}
           <View style={styles.chartCard}>
             <Text style={styles.chartTitle}>Spending by Category</Text>
@@ -291,6 +350,13 @@ const styles = StyleSheet.create({
   card: SharedStyles.card,
   title: SharedStyles.title,
   subtitle: SharedStyles.subtitle,
+  activeFilterText: {
+    marginTop: 8,
+    textAlign: "center",
+    color: Colors.textPrimary,
+    fontSize: 13,
+    lineHeight: 18,
+  },
   subtitleVat: { fontSize: 16, color: Colors.textPrimary, marginTop: 6 },
   chartCard: { ...SharedStyles.chartCard, overflow: "visible" },
   chartTitle: { fontSize: 16, fontWeight: "bold", marginBottom: 12, textAlign: "center", color: "black" },

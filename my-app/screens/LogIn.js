@@ -10,6 +10,7 @@ import {
   ActivityIndicator,
   Modal,
   Alert,
+  Linking,
 } from "react-native";
 import {
   signInWithEmailAndPassword,
@@ -27,6 +28,7 @@ import { GoogleLogo } from "../utils/format_style";
 import { Ionicons } from "@expo/vector-icons";
 import { KeyboardAwareScrollView } from "react-native-keyboard-aware-scroll-view";
 import { Colors, AuthStyles } from "../utils/sharedStyles";
+import { triggerHaptic } from "../utils/haptics";
 
 WebBrowser.maybeCompleteAuthSession();
 
@@ -53,6 +55,7 @@ if (Platform.OS === "android") {
 }
 
 const looksLikeEmail = (s) => /\S+@\S+\.\S+/.test(String(s || "").trim());
+const PRIVACY_URL = "https://caistec.com/privacy-policy.html";
 
 const LoginScreen = ({ navigation }) => {
   const [email, setEmail] = useState("");
@@ -199,6 +202,8 @@ const LoginScreen = ({ navigation }) => {
       }
 
       await runWithLoading("Signing you in…", async () => {
+        triggerHaptic("selection").catch(() => {});
+
         const userCredential = await signInWithEmailAndPassword(
           auth,
           emailTrimmed,
@@ -216,6 +221,8 @@ const LoginScreen = ({ navigation }) => {
           },
           { merge: true }
         );
+
+        triggerHaptic("success").catch(() => {});
 
          navigation.reset({
           index: 0,
@@ -237,6 +244,8 @@ const LoginScreen = ({ navigation }) => {
   const onAppleButtonPress = async () => {
     try {
       await runWithLoading("Signing in with Apple…", async () => {
+        triggerHaptic("selection").catch(() => {});
+
         const rawNonce = Math.random().toString(36).substring(2, 10);
         const hashedNonce = await Crypto.digestStringAsync(
           Crypto.CryptoDigestAlgorithm.SHA256,
@@ -289,6 +298,8 @@ const LoginScreen = ({ navigation }) => {
           { merge: true }
         );
 
+        triggerHaptic("success").catch(() => {});
+
          navigation.reset({
           index: 0,
           routes: [
@@ -312,6 +323,7 @@ const LoginScreen = ({ navigation }) => {
   const onGooglePress = async () => {
     try {
       await runWithLoading("Signing in with Google…", async () => {
+        triggerHaptic("selection").catch(() => {});
         if (!request) return;
         await promptAsync();
       });
@@ -460,6 +472,24 @@ const LoginScreen = ({ navigation }) => {
               onPress={onAppleButtonPress}
             />
           )}
+
+          <Text
+            style={{
+              marginTop: 12,
+              textAlign: "center",
+              color: Colors.textMuted,
+              fontSize: 13,
+            }}
+          >
+            By continuing with email, Google, or Apple, you agree to our{" "}
+            <Text
+              style={{ color: Colors.accent, textDecorationLine: "underline" }}
+              onPress={() => Linking.openURL(PRIVACY_URL)}
+            >
+              Privacy Policy
+            </Text>
+            .
+          </Text>
 
           {/* Secondary actions */}
           <View style={AuthStyles.linksRow}>

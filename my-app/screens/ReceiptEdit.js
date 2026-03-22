@@ -38,6 +38,8 @@ import { extractData } from "../utils/extractors";
 import ImageViewer from "react-native-image-zoom-viewer";
 import { Colors, ReceiptStyles } from "../utils/sharedStyles";
 import { useReceiptOcr } from "../utils/ocrHelpers";
+import { getCurrentYearAprilSix } from "../utils/financialPeriods";
+import { triggerHaptic } from "../utils/haptics";
 
 export default function ReceiptDetailsScreen({ route, navigation }) {
   const { receipt } = route.params;
@@ -327,6 +329,8 @@ export default function ReceiptDetailsScreen({ route, navigation }) {
         return;
       }
 
+      triggerHaptic("selection").catch(() => {});
+
       setIsUploading(true);
 
       const storage = getStorage();
@@ -375,6 +379,8 @@ export default function ReceiptDetailsScreen({ route, navigation }) {
         images: uploadedImageUrls,
       });
 
+      triggerHaptic("success").catch(() => {});
+
       setIsUploading(false);
       safeNavigateToExpenses();
     } catch (err) {
@@ -398,6 +404,14 @@ export default function ReceiptDetailsScreen({ route, navigation }) {
       // the Android native bridge finish dismissing the modal
       setTimeout(() => {
         setSelectedDate(date);
+
+        const previousFinancialYearThreshold = getCurrentYearAprilSix(new Date());
+        if (date < previousFinancialYearThreshold) {
+          Alert.alert(
+            "Check date",
+            "This date appears to be in a previous financial year. Please verify your selection."
+          );
+        }
       }, 100);
     };
 
@@ -553,6 +567,7 @@ export default function ReceiptDetailsScreen({ route, navigation }) {
               isVisible={isDatePickerVisible}
               mode="date"
               date={selectedDate}
+              maximumDate={new Date()}
               onConfirm={handleConfirmDate}
               onCancel={hideDatePicker}
             />
