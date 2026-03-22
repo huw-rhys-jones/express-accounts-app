@@ -10,7 +10,6 @@ import {
   ActivityIndicator,
   Modal,
   Alert,
-  Linking,
 } from "react-native";
 import {
   signInWithEmailAndPassword,
@@ -55,7 +54,6 @@ if (Platform.OS === "android") {
 }
 
 const looksLikeEmail = (s) => /\S+@\S+\.\S+/.test(String(s || "").trim());
-const PRIVACY_URL = "https://caistec.com/privacy-policy.html";
 
 const LoginScreen = ({ navigation }) => {
   const [email, setEmail] = useState("");
@@ -472,24 +470,6 @@ const LoginScreen = ({ navigation }) => {
               onPress={onAppleButtonPress}
             />
           )}
-
-          <Text
-            style={{
-              marginTop: 12,
-              textAlign: "center",
-              color: Colors.textMuted,
-              fontSize: 13,
-            }}
-          >
-            By continuing with email, Google, or Apple, you agree to our{" "}
-            <Text
-              style={{ color: Colors.accent, textDecorationLine: "underline" }}
-              onPress={() => Linking.openURL(PRIVACY_URL)}
-            >
-              Privacy Policy
-            </Text>
-            .
-          </Text>
 
           {/* Secondary actions */}
           <View style={AuthStyles.linksRow}>
