@@ -616,13 +616,10 @@
 
   <div id="dateModal" class="modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="modalTitle">
     <div class="modal">
-      <div id="modalTitle" class="modal-head">Choose export date range</div>
+      <div id="modalTitle" class="modal-head">Choose export period</div>
       <div class="modal-body">
-        <label for="startDate">Start date</label>
-        <input id="startDate" type="date" />
-
-        <label for="endDate">End date</label>
-        <input id="endDate" type="date" />
+        <label for="periodSelect">Financial period</label>
+        <select id="periodSelect"></select>
 
         <div class="modal-actions">
           <button id="resetNotifyBtn" type="button" class="btn-success" style="display:none">Mark As Processed</button>
@@ -665,8 +662,7 @@
     const generatedCodesTableBody = document.querySelector("#generatedCodesTable tbody");
 
     const dateModal = document.getElementById("dateModal");
-    const startDateInput = document.getElementById("startDate");
-    const endDateInput = document.getElementById("endDate");
+    const periodSelect = document.getElementById("periodSelect");
     const cancelDateBtn = document.getElementById("cancelDateBtn");
     const confirmDateBtn = document.getElementById("confirmDateBtn");
     const resetNotifyBtn = document.getElementById("resetNotifyBtn");
@@ -695,6 +691,70 @@
     function toDateTimeString(isoString) {
       const d = new Date(isoString);
       return d.toLocaleString();
+    }
+
+    function startOfLocalDay(date) {
+      return new Date(date.getFullYear(), date.getMonth(), date.getDate());
+    }
+
+    function pad2(value) {
+      return String(value).padStart(2, "0");
+    }
+
+    function toLocalYmd(date) {
+      const localDate = startOfLocalDay(date);
+      return [
+        localDate.getFullYear(),
+        pad2(localDate.getMonth() + 1),
+        pad2(localDate.getDate()),
+      ].join("-");
+    }
+
+    function getFinancialYearStartYear(date) {
+      const day = startOfLocalDay(date || new Date());
+      const aprilSixThisYear = new Date(day.getFullYear(), 3, 6);
+      return day >= aprilSixThisYear ? day.getFullYear() : day.getFullYear() - 1;
+    }
+
+    function getFinancialYearLabel(startYear) {
+      const endYearShort = String((startYear + 1) % 100).padStart(2, "0");
+      return startYear + "/" + endYearShort;
+    }
+
+    function buildExportPeriodOptions(referenceDate) {
+      const today = startOfLocalDay(referenceDate || new Date());
+      const currentStartYear = getFinancialYearStartYear(today);
+      const periods = [];
+
+      for (let offset = 0; offset < 4; offset += 1) {
+        const startYear = currentStartYear - offset;
+        const periodStart = new Date(startYear, 3, 6);
+        const fullPeriodEnd = new Date(startYear + 1, 3, 5);
+        const isCurrentPeriod = offset === 0;
+        const labelPrefix = isCurrentPeriod
+          ? "Current period"
+          : (offset === 1 ? "Last period" : offset + " periods ago");
+        periods.push({
+          key: "fy-" + startYear,
+          label: labelPrefix + " (" + getFinancialYearLabel(startYear) + ")",
+          startDate: periodStart,
+          endDate: isCurrentPeriod && today < fullPeriodEnd ? today : fullPeriodEnd,
+        });
+      }
+
+      periods.push({
+        key: "all-time",
+        label: "All time",
+        startDate: null,
+        endDate: null,
+      });
+
+      return periods;
+    }
+
+    function getSelectedExportPeriod() {
+      const options = buildExportPeriodOptions(new Date());
+      return options.find((option) => option.key === periodSelect.value) || options[0] || null;
     }
 
     function userLatestUploadMs(user) {
@@ -990,13 +1050,11 @@
 
     function openDateModal(user) {
       selectedUser = user;
-      // Use UK MTD quarter defaults (tax year starts 6 April) and keep dates in local time.
-      const range = UkTaxQuarter.getDefaultExportDateRange(new Date());
-      startDateInput.value = range.startDateYmd;
-      startDateInput.max = range.quarterEndDateYmd;
-      endDateInput.value = range.endDateYmd;
-      endDateInput.min = range.startDateYmd;
-      endDateInput.max = range.quarterEndDateYmd;
+      const periods = buildExportPeriodOptions(new Date());
+      periodSelect.innerHTML = periods
+        .map((period) => "<option value='" + period.key + "'>" + period.label + "</option>")
+        .join("");
+      periodSelect.value = periods[0] ? periods[0].key : "";
       resetNotifyBtn.style.display = "inline-block";
 
       document.getElementById("modalTitle").textContent = "Export receipts for " + user.name;
@@ -1081,7 +1139,7 @@
       const categorySummaryRows = Object.entries(totals.byCategoryPence)
         .sort(([a], [b]) => a.localeCompare(b, undefined, { sensitivity: "base" }))
         .map(([categoryName, amountPence]) => [
-          "Category: " + categoryName,
+          categoryName,
           toMoney(fromPence(amountPence)),
         ]);
 
@@ -1098,23 +1156,31 @@
         ...categorySummaryRows,
       ];
       if (rows.length === 0) {
-        aoa.splice(1, 0, ["No receipts found for this date range.", "", "", "", "", ""]);
+        aoa.splice(1, 0, ["No receipts found for this period.", "", "", "", "", ""]);
       }
       return aoa;
     }
 
-    function downloadUserData(user, startDate, endDate) {
-      const filtered = user.receipts.filter((receipt) => receipt.date >= startDate && receipt.date <= endDate);
+    function downloadUserData(user, selectedPeriod) {
+      const startDate = selectedPeriod && selectedPeriod.startDate ? toLocalYmd(selectedPeriod.startDate) : null;
+      const endDate = selectedPeriod && selectedPeriod.endDate ? toLocalYmd(selectedPeriod.endDate) : null;
+      const filtered = user.receipts.filter((receipt) => {
+        if (!startDate || !endDate) return true;
+        return receipt.date >= startDate && receipt.date <= endDate;
+      });
       const aoa = buildWorkbookRows(user, filtered);
       const worksheet = XLSX.utils.aoa_to_sheet(aoa);
       const workbook = XLSX.utils.book_new();
       XLSX.utils.book_append_sheet(workbook, worksheet, "Receipts");
 
       const safeName = user.name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/(^-|-$)/g, "");
-      const fileName = safeName + "-" + startDate + "-to-" + endDate + ".xlsx";
+      const fileSuffix = startDate && endDate
+        ? startDate + "-to-" + endDate
+        : "all-time";
+      const fileName = safeName + "-" + fileSuffix + ".xlsx";
       XLSX.writeFile(workbook, fileName);
 
-      statusLine.textContent = "Downloaded " + filtered.length + " receipts for " + user.name + " (" + startDate + " to " + endDate + ").";
+      statusLine.textContent = "Downloaded " + filtered.length + " receipts for " + user.name + " (" + (selectedPeriod ? selectedPeriod.label : "All time") + ").";
     }
 
     async function attemptLogin() {
@@ -1203,30 +1269,18 @@
     clearManagementBtn.addEventListener("click", clearManagementInputs);
 
     cancelDateBtn.addEventListener("click", closeDateModal);
-    startDateInput.addEventListener("change", () => {
-      if (!startDateInput.value) return;
-      endDateInput.min = startDateInput.value;
-      if (endDateInput.value && endDateInput.value < startDateInput.value) {
-        endDateInput.value = startDateInput.value;
-      }
-    });
     resetNotifyBtn.addEventListener("click", async () => {
       await markNotifyAsProcessed();
     });
 
     confirmDateBtn.addEventListener("click", () => {
       if (!selectedUser) return;
-      const startDate = startDateInput.value;
-      const endDate = endDateInput.value;
-      if (!startDate || !endDate) {
-        statusLine.textContent = "Please choose both start and end dates before exporting.";
+      const selectedPeriod = getSelectedExportPeriod();
+      if (!selectedPeriod) {
+        statusLine.textContent = "Please choose an export period before downloading.";
         return;
       }
-      if (startDate > endDate) {
-        statusLine.textContent = "Start date must be earlier than or equal to end date.";
-        return;
-      }
-      downloadUserData(selectedUser, startDate, endDate);
+      downloadUserData(selectedUser, selectedPeriod);
       closeDateModal();
     });
 
