@@ -532,8 +532,8 @@ export default function ReceiptDetailsScreen({ route, navigation }) {
                     style={ReceiptStyles.vatRatePicker}
                     dropDownContainerStyle={ReceiptStyles.vatRateDropdown}
                     containerStyle={localStyles.fieldTopSpacingTight}
-                    zIndex={2000}
-                    zIndexInverse={2000}
+                    zIndex={3000}
+                    zIndexInverse={1000}
                     listMode="SCROLLVIEW"
                     scrollViewProps={{ keyboardShouldPersistTaps: "always" }}
                     onChangeValue={(val) => {
@@ -550,7 +550,10 @@ export default function ReceiptDetailsScreen({ route, navigation }) {
             </View>
 
             {/* Date */}
-            <View style={localStyles.fieldGroup}>
+            <View
+              style={localStyles.fieldGroup}
+              pointerEvents={vatRateOpen ? "none" : "auto"}
+            >
               <Text style={[ReceiptStyles.label, localStyles.labelAligned]}>
                 Date:
               </Text>
@@ -653,12 +656,14 @@ export default function ReceiptDetailsScreen({ route, navigation }) {
                   setSelectedCategory(next);
 
                   // 3. Trigger your VAT logic
-                  if (!vatRate && next) {
+                  if (next) {
                     const cat = categories_meta.find((c) => c.name === next);
                     const r = cat?.vatRate;
                     if (r !== undefined && r !== null && !Number.isNaN(r)) {
                       const rStr = String(r);
-                      setVatRate(rStr);
+                      if (rStr !== vatRate) {
+                        setVatRate(rStr);
+                      }
                       setVatRateItems((prev) => {
                         const has = prev.some((it) => it.value === rStr);
                         return has
