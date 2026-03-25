@@ -20,6 +20,7 @@ import { Ionicons } from "@expo/vector-icons";
 import { KeyboardAwareScrollView } from "react-native-keyboard-aware-scroll-view";
 import { Colors, AuthStyles } from "../utils/sharedStyles";
 import { triggerHaptic } from "../utils/haptics";
+import { previewClientCode, verifyClientCode } from "../utils/verificationCodes";
 
 const looksLikeEmail = (s) => /\S+@\S+\.\S+/.test(String(s || "").trim());
 const PRIVACY_URL = "https://caistec.com/privacy-policy.html";
@@ -29,6 +30,7 @@ const SignUpScreen = ({ navigation }) => {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [confirm, setConfirm] = useState("");
+  const [verificationCode, setVerificationCode] = useState("");
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirm, setShowConfirm] = useState(false);
   const [loading, setLoading] = useState(false);
@@ -108,6 +110,14 @@ const SignUpScreen = ({ navigation }) => {
           "Please accept the Privacy Policy before creating your account."
         );
 
+      let verificationPreview = null;
+      if (verificationCode.trim()) {
+        verificationPreview = await previewClientCode({
+          db,
+          rawCode: verificationCode,
+        });
+      }
+
       triggerHaptic("selection").catch(() => {});
 
       setLoading(true);
@@ -129,6 +139,14 @@ const SignUpScreen = ({ navigation }) => {
         { name: nameTrimmed, email: emailTrimmed, createdAt: serverTimestamp() },
         { merge: true }
       );
+
+      if (verificationPreview) {
+        await verifyClientCode({
+          db,
+          userId: cred.user.uid,
+          rawCode: verificationPreview.code,
+        });
+      }
 
       triggerHaptic("success").catch(() => {});
 
@@ -337,6 +355,23 @@ const SignUpScreen = ({ navigation }) => {
                 </Text>
               </TouchableOpacity>
 
+              <Text style={styles.label}>VERIFICATION CODE (OPTIONAL)</Text>
+              <View style={styles.passwordContainer}>
+                <TextInput
+                  style={styles.input}
+                  placeholder="Enter client code if you have one"
+                  placeholderTextColor="#555"
+                  value={verificationCode}
+                  onChangeText={setVerificationCode}
+                  editable={!loading}
+                  autoCapitalize="characters"
+                  autoCorrect={false}
+                />
+              </View>
+              <Text style={styles.helperText}>
+                Entering a valid verification code here will verify the account during email sign up.
+              </Text>
+
               <TouchableOpacity
                 style={[AuthStyles.button, !canSubmit && { opacity: 0.6 }]}
                 onPress={register}
@@ -440,6 +475,12 @@ const styles = StyleSheet.create({
     backgroundColor: Colors.inputBg,
     // marginTop: 6, <--- REMOVE THIS
     color: Colors.textSecondary,
+  },
+  helperText: {
+    color: Colors.textMuted,
+    fontSize: 13,
+    lineHeight: 18,
+    marginTop: 8,
   },
   inputError: {
     borderWidth: 1,

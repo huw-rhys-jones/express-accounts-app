@@ -7,6 +7,32 @@ export function normalizeVerificationCode(value) {
     .replace(/[^A-Z0-9-]/g, "");
 }
 
+export async function previewClientCode({ db, rawCode }) {
+  const code = normalizeVerificationCode(rawCode);
+  if (!code) {
+    throw new Error("Please enter a code.");
+  }
+
+  const codeRef = doc(db, "VerificationCodes", code);
+  const codeSnap = await getDoc(codeRef);
+
+  if (!codeSnap.exists()) {
+    throw new Error("That code was not recognised.");
+  }
+
+  const codeData = codeSnap.data() || {};
+  if (codeData.usedBy) {
+    throw new Error("That code has already been used.");
+  }
+
+  const verifiedName = String(codeData.accountantSubmittedName || "").trim();
+  if (!verifiedName) {
+    throw new Error("That code is missing a verified client name.");
+  }
+
+  return { code, verifiedName };
+}
+
 export async function verifyClientCode({ db, userId, rawCode }) {
   const code = normalizeVerificationCode(rawCode);
   if (!code) {

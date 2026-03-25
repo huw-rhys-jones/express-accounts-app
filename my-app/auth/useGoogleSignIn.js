@@ -41,10 +41,10 @@ export function useGoogleSignIn(onSuccess) {
       const credential = GoogleAuthProvider.credential(id_token, access_token);
 
       signInWithCredential(auth, credential)
-        .then(onSuccess)
+        .then((result) => onSuccess?.(result))
         .catch((error) => console.error("Google Sign-In error", error));
     }
-  }, [response]);
+  }, [onSuccess, response]);
 
   return [request, promptAsync];
 }

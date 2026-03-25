@@ -145,14 +145,24 @@ const ExpensesScreen = ({ navigation }) => {
         // Step A: Delete images from Storage (Do this first while auth is active)
         await deleteUserStorage(user.uid);
 
-        // Step B: Delete Receipt documents in Firestore
-        const q = query(
-          collection(db, "receipts"),
-          where("userId", "==", user.uid)
-        );
-        const querySnapshot = await getDocs(q);
+        // Step B: Delete user-owned documents in Firestore
         const batch = writeBatch(db);
-        querySnapshot.forEach((docRef) => batch.delete(docRef.ref));
+
+        const [receiptSnapshot, incomeSnapshot, bankSnapshot] = await Promise.all([
+          getDocs(
+            query(collection(db, "receipts"), where("userId", "==", user.uid))
+          ),
+          getDocs(
+            query(collection(db, "income"), where("userId", "==", user.uid))
+          ),
+          getDocs(
+            query(collection(db, "bankStatements"), where("userId", "==", user.uid))
+          ),
+        ]);
+
+        receiptSnapshot.forEach((docRef) => batch.delete(docRef.ref));
+        incomeSnapshot.forEach((docRef) => batch.delete(docRef.ref));
+        bankSnapshot.forEach((docRef) => batch.delete(docRef.ref));
         await batch.commit();
 
         // Step C: Delete the main User Profile document
@@ -183,16 +193,18 @@ const ExpensesScreen = ({ navigation }) => {
 
   const deleteUserStorage = async (userId) => {
     const storage = getStorage();
-    const userFolderRef = storageRef(storage, `receipts/${userId}`);
+    const folderNames = ["receipts", "income", "bankStatements"];
 
-    try {
-      const listResult = await listAll(userFolderRef);
-      const deletePromises = listResult.items.map((item) => deleteObject(item));
-      await Promise.all(deletePromises);
-      console.log("All receipt images deleted.");
-    } catch (error) {
-      // If the folder doesn't exist, listAll might throw an error; we can ignore it
-      console.log("Storage cleanup error (likely no files):", error);
+    for (const folderName of folderNames) {
+      const userFolderRef = storageRef(storage, `${folderName}/${userId}`);
+
+      try {
+        const listResult = await listAll(userFolderRef);
+        const deletePromises = listResult.items.map((item) => deleteObject(item));
+        await Promise.all(deletePromises);
+      } catch (error) {
+        console.log("Storage cleanup error (likely no files):", folderName, error);
+      }
     }
   };
 
@@ -476,6 +488,22 @@ const ExpensesScreen = ({ navigation }) => {
       Alert.alert("Error", "Could not update name. Please try again.");
     }
   };
+
+  const handleIdPlaceholder = useCallback(() => {
+    closeMenu();
+    Alert.alert(
+      "ID Upload Coming Soon",
+      "Planned flow: capture passport or driving licence images, extract name, date of birth, document number, and expiry with OCR, then compare those details against the signed-in account before manual review."
+    );
+  }, [closeMenu]);
+
+  const handleAddressPlaceholder = useCallback(() => {
+    closeMenu();
+    Alert.alert(
+      "Address Capture Coming Soon",
+      "This will become the place to add and confirm a billing or registered address, with proof-of-address support later."
+    );
+  }, [closeMenu]);
 
   const handleOpenSettings = useCallback(() => {
     closeMenu();
@@ -799,6 +827,19 @@ const ExpensesScreen = ({ navigation }) => {
                 </TouchableOpacity>
               </View>
             ) : null}
+          </View>
+
+          <View style={{ marginTop: 6 }}>
+            <TouchableOpacity onPress={handleIdPlaceholder} style={styles.secondaryMenuButton}>
+              <Text style={styles.secondaryMenuButtonText}>Add ID Image</Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              onPress={handleAddressPlaceholder}
+              style={[styles.secondaryMenuButton, { marginTop: 10 }]}
+            >
+              <Text style={styles.secondaryMenuButtonText}>Add Address</Text>
+            </TouchableOpacity>
           </View>
 
           {/* Bottom Section */}
@@ -1459,6 +1500,20 @@ const styles = StyleSheet.create({
   filledBtnText: {
     color: "white",
     fontWeight: "700",
+    textAlign: "center",
+  },
+  secondaryMenuButton: {
+    backgroundColor: Colors.surface,
+    borderColor: Colors.border,
+    borderWidth: 1,
+    borderRadius: 10,
+    paddingVertical: 12,
+    paddingHorizontal: 16,
+    alignItems: "center",
+  },
+  secondaryMenuButtonText: {
+    color: Colors.textPrimary,
+    fontWeight: "600",
     textAlign: "center",
   },
   // The new transparent style (formerly for Delete, now for Sign Out)

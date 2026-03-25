@@ -12,6 +12,7 @@ import {
   Alert,
 } from "react-native";
 import {
+  getAdditionalUserInfo,
   signInWithEmailAndPassword,
   OAuthProvider,
   signInWithCredential,
@@ -28,6 +29,7 @@ import { Ionicons } from "@expo/vector-icons";
 import { KeyboardAwareScrollView } from "react-native-keyboard-aware-scroll-view";
 import { Colors, AuthStyles } from "../utils/sharedStyles";
 import { triggerHaptic } from "../utils/haptics";
+import { verifyClientCode } from "../utils/verificationCodes";
 
 WebBrowser.maybeCompleteAuthSession();
 
@@ -71,6 +73,9 @@ const LoginScreen = ({ navigation }) => {
   // Feedback state
   const [feedbackVisible, setFeedbackVisible] = useState(false);
   const [feedbackText, setFeedbackText] = useState("");
+  const [verificationPromptVisible, setVerificationPromptVisible] = useState(false);
+  const [verificationCode, setVerificationCode] = useState("");
+  const [verificationSubmitting, setVerificationSubmitting] = useState(false);
 
   const handleSendFeedback = async () => {
     const senderEmail = (email || "").trim();
@@ -119,19 +124,108 @@ const LoginScreen = ({ navigation }) => {
     }
   };
 
+  const navigateToExpenses = () => {
+    navigation.reset({
+      index: 0,
+      routes: [
+        {
+          name: "MainTabs",
+          state: { index: 0, routes: [{ name: "Expenses" }] },
+        },
+      ],
+    });
+  };
+
+  const upsertUserProfile = async (user, { displayName, emailAddress, isNewUser = false } = {}) => {
+    await setDoc(
+      doc(db, "users", user.uid),
+      {
+        ...(displayName ? { name: displayName } : {}),
+        ...(emailAddress ? { email: emailAddress } : {}),
+        ...(isNewUser ? { createdAt: serverTimestamp() } : {}),
+        updatedAt: serverTimestamp(),
+      },
+      { merge: true }
+    );
+  };
+
+  const handlePostFederatedLogin = async (userCredential, overrides = {}) => {
+    const user = userCredential?.user;
+    if (!user) return;
+
+    const additionalInfo = getAdditionalUserInfo(userCredential);
+    const isNewUser = Boolean(additionalInfo?.isNewUser);
+    const displayName = overrides.displayName || user.displayName || undefined;
+    const emailAddress = overrides.emailAddress || user.email || undefined;
+
+    if (!user.displayName && displayName) {
+      await updateProfile(user, { displayName });
+    }
+
+    await upsertUserProfile(user, {
+      displayName,
+      emailAddress,
+      isNewUser,
+    });
+
+    if (isNewUser) {
+      setVerificationCode("");
+      setVerificationPromptVisible(true);
+      return;
+    }
+
+    navigateToExpenses();
+  };
+
+  const handleVerificationPromptContinue = async () => {
+    const user = auth.currentUser;
+    if (!user) {
+      setVerificationPromptVisible(false);
+      navigateToExpenses();
+      return;
+    }
+
+    if (!verificationCode.trim()) {
+      setVerificationPromptVisible(false);
+      navigateToExpenses();
+      return;
+    }
+
+    try {
+      setVerificationSubmitting(true);
+      const result = await verifyClientCode({
+        db,
+        userId: user.uid,
+        rawCode: verificationCode,
+      });
+      Alert.alert(
+        "Verified",
+        `Code accepted. Your account is now verified as ${result.verifiedName}.`
+      );
+      setVerificationPromptVisible(false);
+      setVerificationCode("");
+      navigateToExpenses();
+    } catch (error) {
+      Alert.alert(
+        "Verification Failed",
+        error?.message || "Could not verify that code. You can continue without it or try again."
+      );
+    } finally {
+      setVerificationSubmitting(false);
+    }
+  };
+
+  const skipVerificationPrompt = () => {
+    setVerificationPromptVisible(false);
+    setVerificationCode("");
+    navigateToExpenses();
+  };
+
   let request, promptAsync;
   if (Platform.OS === "android" && useGoogleSignIn) {
-     [request, promptAsync] = useGoogleSignIn(() =>
-        navigation.reset({
-          index: 0,
-          routes: [
-            {
-              name: "MainTabs",
-              state: { index: 0, routes: [{ name: "Expenses" }] },
-            },
-          ],
-        })
-     );
+      [request, promptAsync] = useGoogleSignIn(async (userCredential) => {
+        await handlePostFederatedLogin(userCredential);
+      });
   }
 
   useEffect(() => {
@@ -222,15 +316,7 @@ const LoginScreen = ({ navigation }) => {
 
         triggerHaptic("success").catch(() => {});
 
-         navigation.reset({
-          index: 0,
-          routes: [
-            {
-              name: "MainTabs",
-              state: { index: 0, routes: [{ name: "Expenses" }] },
-              },
-            ],
-          });
+        navigateToExpenses();
       });
     } catch (error) {
       console.error("❌ Email login failed:", error);
@@ -285,27 +371,10 @@ const LoginScreen = ({ navigation }) => {
           await updateProfile(user, { displayName: fullName });
         }
 
-        await setDoc(
-          doc(db, "users", user.uid),
-          {
-            ...(fullName ? { name: fullName } : {}),
-            ...(userEmail ? { email: userEmail } : {}),
-            createdAt: serverTimestamp(),
-            updatedAt: serverTimestamp(),
-          },
-          { merge: true }
-        );
-
         triggerHaptic("success").catch(() => {});
-
-         navigation.reset({
-          index: 0,
-          routes: [
-            {
-              name: "MainTabs",
-              state: { index: 0, routes: [{ name: "Expenses" }] },
-            },
-          ],
+        await handlePostFederatedLogin(result, {
+          displayName: fullName,
+          emailAddress: userEmail,
         });
       });
     } catch (e) {
@@ -323,7 +392,10 @@ const LoginScreen = ({ navigation }) => {
       await runWithLoading("Signing in with Google…", async () => {
         triggerHaptic("selection").catch(() => {});
         if (!request) return;
-        await promptAsync();
+        const result = await promptAsync();
+        if (result?.type !== "success") {
+          return;
+        }
       });
     } catch (e) {
       console.error("❌ Google Sign-In Error:", e);
@@ -557,6 +629,52 @@ const LoginScreen = ({ navigation }) => {
         </View>
       </Modal>
 
+      <Modal
+        visible={verificationPromptVisible}
+        transparent
+        animationType="fade"
+        onRequestClose={skipVerificationPrompt}
+      >
+        <View style={AuthStyles.loadingOverlay}>
+          <View style={AuthStyles.loadingCard}>
+            <Text style={[AuthStyles.loadingText, { marginBottom: 10 }]}>Verification Code</Text>
+            <Text style={styles.verificationPromptText}>
+              Have a verification code? If so, enter it below. Continuing without one will just close this prompt.
+            </Text>
+            <TextInput
+              style={[AuthStyles.input, { width: "100%", marginTop: 10 }]}
+              placeholder="Client code"
+              placeholderTextColor="#AAA"
+              value={verificationCode}
+              onChangeText={setVerificationCode}
+              autoCapitalize="characters"
+              autoCorrect={false}
+              editable={!verificationSubmitting}
+            />
+            <View style={{ flexDirection: "row", gap: 10, marginTop: 14 }}>
+              <TouchableOpacity
+                style={[AuthStyles.googleButton, { flex: 1, backgroundColor: "#EEE" }]}
+                onPress={skipVerificationPrompt}
+                disabled={verificationSubmitting}
+              >
+                <Text style={[AuthStyles.googleButtonText, { marginRight: 0 }]}>Maybe later</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[AuthStyles.loginButton, { flex: 1 }, verificationSubmitting && { opacity: 0.7 }]}
+                onPress={handleVerificationPromptContinue}
+                disabled={verificationSubmitting}
+              >
+                {verificationSubmitting ? (
+                  <ActivityIndicator color="#FFF" />
+                ) : (
+                  <Text style={AuthStyles.loginButtonText}>Continue</Text>
+                )}
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
+
       {/* Support / Feedback Modal */}
       {/* Updated Support / Feedback Modal */}
       <Modal visible={feedbackVisible} transparent animationType="slide">
@@ -780,6 +898,11 @@ const styles = StyleSheet.create({
     maxWidth: 400,
   },
   loadingText: { marginTop: 10, fontSize: 16, fontWeight: "600", color: "#000" },
+  verificationPromptText: {
+    color: Colors.textPrimary,
+    textAlign: "center",
+    lineHeight: 20,
+  },
 });
 
 export default LoginScreen;

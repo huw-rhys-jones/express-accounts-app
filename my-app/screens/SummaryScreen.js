@@ -13,7 +13,7 @@ import {
 import { collection, query, where, getDocs } from "firebase/firestore";
 import { db, auth } from "../firebaseConfig";
 import { PieChart, BarChart } from "react-native-chart-kit";
-import { groupReceiptsByMonth } from "../utils/groupByMonth";
+import { groupCashflowByMonth } from "../utils/groupByMonth";
 import { Colors, SharedStyles } from "../utils/sharedStyles";
 import {
   buildFinancialFilterOptions,
@@ -38,6 +38,8 @@ export default function SummaryScreen({ navigation }) {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [receipts, setReceipts] = useState([]);
+  const [incomeItems, setIncomeItems] = useState([]);
+  const [bankStatements, setBankStatements] = useState([]);
   const [activeFilterKey, setActiveFilterKey] = useState("current-quarter");
 
   const barChartScrollRef = React.useRef(null);
@@ -51,23 +53,41 @@ export default function SummaryScreen({ navigation }) {
     return vat;
   };
 
-  const fetchReceipts = useCallback(async () => {
+  const fetchSummaryData = useCallback(async () => {
     try {
       const user = auth.currentUser;
       if (!user) {
         setReceipts([]);
+        setIncomeItems([]);
+        setBankStatements([]);
         return;
       }
 
-      const q = query(collection(db, "receipts"), where("userId", "==", user.uid));
-      const querySnapshot = await getDocs(q);
-      const userReceipts = querySnapshot.docs.map((doc) => ({
+      const [receiptSnapshot, incomeSnapshot, bankSnapshot] = await Promise.all([
+        getDocs(query(collection(db, "receipts"), where("userId", "==", user.uid))),
+        getDocs(query(collection(db, "income"), where("userId", "==", user.uid))),
+        getDocs(
+          query(collection(db, "bankStatements"), where("userId", "==", user.uid))
+        ),
+      ]);
+
+      const userReceipts = receiptSnapshot.docs.map((doc) => ({
+        id: doc.id,
+        ...doc.data(),
+      }));
+      const userIncome = incomeSnapshot.docs.map((doc) => ({
+        id: doc.id,
+        ...doc.data(),
+      }));
+      const userStatements = bankSnapshot.docs.map((doc) => ({
         id: doc.id,
         ...doc.data(),
       }));
       setReceipts(userReceipts);
+      setIncomeItems(userIncome);
+      setBankStatements(userStatements);
     } catch (err) {
-      console.error("Error fetching receipts for summary:", err);
+      console.error("Error fetching summary data:", err);
     }
   }, []);
 
@@ -120,9 +140,30 @@ export default function SummaryScreen({ navigation }) {
     );
   }, [activeFilter, receipts]);
 
+  const filteredIncome = useMemo(() => {
+    if (!activeFilter) return incomeItems;
+    return filterReceiptsByDateRange(
+      incomeItems,
+      activeFilter.startDate,
+      activeFilter.endDate
+    );
+  }, [activeFilter, incomeItems]);
+
+  const filteredBankStatements = useMemo(() => {
+    if (!activeFilter) return bankStatements;
+    return filterReceiptsByDateRange(
+      bankStatements,
+      activeFilter.startDate,
+      activeFilter.endDate
+    );
+  }, [activeFilter, bankStatements]);
+
   const totals = useMemo(() => {
     let overall = 0;
     let totalVat = 0;
+    let incomeTotal = 0;
+    let bankMoneyIn = 0;
+    let bankMoneyOut = 0;
     const byCategory = {};
 
     for (const receipt of filteredReceipts) {
@@ -138,17 +179,34 @@ export default function SummaryScreen({ navigation }) {
       }
     }
 
-    return { overall, byCategory, totalVat };
-  }, [filteredReceipts]);
+    for (const incomeItem of filteredIncome) {
+      incomeTotal += Number(incomeItem.amount) || 0;
+    }
+
+    for (const statement of filteredBankStatements) {
+      bankMoneyIn += Number(statement.moneyInTotal) || 0;
+      bankMoneyOut += Number(statement.moneyOutTotal) || 0;
+    }
+
+    return {
+      overall,
+      byCategory,
+      totalVat,
+      incomeTotal,
+      bankMoneyIn,
+      bankMoneyOut,
+      netPosition: incomeTotal - overall,
+    };
+  }, [filteredBankStatements, filteredIncome, filteredReceipts]);
 
   useEffect(() => {
-    fetchReceipts().finally(() => setLoading(false));
+    fetchSummaryData().finally(() => setLoading(false));
 
     const unsubscribeFocus = navigation.addListener("focus", () => {
-      fetchReceipts().catch((e) => console.error("Refresh on focus failed", e));
+      fetchSummaryData().catch((e) => console.error("Refresh on focus failed", e));
     });
     return unsubscribeFocus;
-  }, [navigation, fetchReceipts]);
+  }, [navigation, fetchSummaryData]);
 
   useEffect(() => {
   if (!loading && monthlyData.length > 0) {
@@ -162,11 +220,11 @@ export default function SummaryScreen({ navigation }) {
   const onRefresh = useCallback(async () => {
     setRefreshing(true);
     try {
-      await fetchReceipts();
+      await fetchSummaryData();
     } finally {
       setRefreshing(false);
     }
-  }, [fetchReceipts]);
+  }, [fetchSummaryData]);
 
   // ===== Data for charts =====
   const pieData = Object.entries(totals.byCategory).map(([cat, val], i) => ({
@@ -177,10 +235,13 @@ export default function SummaryScreen({ navigation }) {
     legendFontSize: 13,
   }));
 
-  const monthlyData = groupReceiptsByMonth(filteredReceipts);
+  const monthlyData = groupCashflowByMonth(filteredReceipts, filteredIncome);
 
   // Build nice Y axis ticks
-  const monthlyTotals = monthlyData.map((m) => Number(m.total) || 0);
+  const monthlyTotals = monthlyData.flatMap((month) => [
+    Number(month.expenseTotal) || 0,
+    Number(month.incomeTotal) || 0,
+  ]);
   const { yTicks } = getYAxisTicks(monthlyTotals, 5);
 
   return (
@@ -210,6 +271,15 @@ export default function SummaryScreen({ navigation }) {
             </Text>
             <Text style={styles.subtitleVat}>
               Total VAT: £{totals.totalVat.toFixed(2)}
+            </Text>
+            <Text style={styles.subtitleIncome}>
+              Total Income: £{totals.incomeTotal.toFixed(2)}
+            </Text>
+            <Text style={styles.subtitleIncome}>
+              Net Position: £{totals.netPosition.toFixed(2)}
+            </Text>
+            <Text style={styles.subtitleBank}>
+              Bank In / Out: £{totals.bankMoneyIn.toFixed(2)} / £{totals.bankMoneyOut.toFixed(2)}
             </Text>
           </View>
           {/* Pie chart card */}
@@ -256,7 +326,17 @@ export default function SummaryScreen({ navigation }) {
 
           {/* Monthly bar chart card */}
           <View style={styles.chartCard}>
-            <Text style={styles.chartTitle}>Monthly Spending (Current FY)</Text>
+            <Text style={styles.chartTitle}>Monthly Income vs Spending (Current FY)</Text>
+            <View style={styles.cashflowLegendRow}>
+              <View style={styles.cashflowLegendItem}>
+                <View style={[styles.cashflowLegendSwatch, styles.expenseSwatch]} />
+                <Text style={styles.cashflowLegendText}>Expenses</Text>
+              </View>
+              <View style={styles.cashflowLegendItem}>
+                <View style={[styles.cashflowLegendSwatch, styles.incomeSwatch]} />
+                <Text style={styles.cashflowLegendText}>Income</Text>
+              </View>
+            </View>
             <View style={styles.chartRow}>
               {/* Fixed Y axis */}
               <View style={styles.yAxis}>
@@ -276,27 +356,45 @@ export default function SummaryScreen({ navigation }) {
                 nestedScrollEnabled={true}
                 onContentSizeChange={() => barChartScrollRef.current?.scrollToEnd({ animated: false })}
               >
-                <BarChart
-                  data={{
-                    labels: monthlyData.map((m) => m.label),
-                    datasets: [{ data: monthlyData.map((m) => m.total) }],
-                  }}
-                  width={Math.max(
-                    (screenWidth - 40) - Y_AXIS_WIDTH,
-                    monthlyData.length * 80
-                  )}
-                  height={BAR_CHART_HEIGHT}
-                  fromZero
-                  withHorizontalLabels={false}
-                  chartConfig={{
-                    backgroundGradientFrom: "#fff",
-                    backgroundGradientTo: "#fff",
-                    decimalPlaces: 2,
-                    color: (opacity = 1) => `rgba(166, 13, 73, ${opacity})`,
-                    labelColor: (opacity = 1) => `rgba(0,0,0,${opacity})`,
-                  }}
-                  style={styles.barChart}
-                />
+                <View style={styles.cashflowChartArea}>
+                  {monthlyData.map((month) => {
+                    const topTick = yTicks[yTicks.length - 1] || 1;
+                    const expenseHeight = Math.max(
+                      0,
+                      (Number(month.expenseTotal) || 0) / topTick
+                    ) * BAR_CHART_HEIGHT;
+                    const incomeHeight = Math.max(
+                      0,
+                      (Number(month.incomeTotal) || 0) / topTick
+                    ) * BAR_CHART_HEIGHT;
+
+                    return (
+                      <View key={month.label} style={styles.cashflowMonthColumn}>
+                        <View style={styles.cashflowBarsRow}>
+                          <View style={styles.singleBarWrap}>
+                            <View
+                              style={[
+                                styles.cashflowBar,
+                                styles.expenseBar,
+                                { height: expenseHeight || 2 },
+                              ]}
+                            />
+                          </View>
+                          <View style={styles.singleBarWrap}>
+                            <View
+                              style={[
+                                styles.cashflowBar,
+                                styles.incomeBar,
+                                { height: incomeHeight || 2 },
+                              ]}
+                            />
+                          </View>
+                        </View>
+                        <Text style={styles.cashflowMonthLabel}>{month.label}</Text>
+                      </View>
+                    );
+                  })}
+                </View>
               </ScrollView>
             </View>
           </View>
@@ -358,6 +456,8 @@ const styles = StyleSheet.create({
     lineHeight: 18,
   },
   subtitleVat: { fontSize: 16, color: Colors.textPrimary, marginTop: 6 },
+  subtitleIncome: { fontSize: 16, color: Colors.textPrimary, marginTop: 6 },
+  subtitleBank: { fontSize: 15, color: Colors.textMuted, marginTop: 6 },
   chartCard: { ...SharedStyles.chartCard, overflow: "visible" },
   chartTitle: { fontSize: 16, fontWeight: "bold", marginBottom: 12, textAlign: "center", color: "black" },
   noData: { fontSize: 15, color: "#666", marginTop: 10, textAlign: "center" },
@@ -396,6 +496,33 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "flex-end",
   },
+  cashflowLegendRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 18,
+    marginBottom: 10,
+  },
+  cashflowLegendItem: {
+    flexDirection: "row",
+    alignItems: "center",
+  },
+  cashflowLegendSwatch: {
+    width: 12,
+    height: 12,
+    borderRadius: 3,
+    marginRight: 6,
+  },
+  expenseSwatch: {
+    backgroundColor: Colors.accent,
+  },
+  incomeSwatch: {
+    backgroundColor: "#2a7b46",
+  },
+  cashflowLegendText: {
+    fontSize: 13,
+    color: Colors.textPrimary,
+  },
   yAxis: {
     width: Y_AXIS_WIDTH,
     height: BAR_CHART_HEIGHT,
@@ -410,5 +537,44 @@ const styles = StyleSheet.create({
   barChart: {
     marginLeft: 4,
     borderRadius: 12,
+  },
+  cashflowChartArea: {
+    flexDirection: "row",
+    alignItems: "flex-end",
+    height: BAR_CHART_HEIGHT + 28,
+    marginLeft: 8,
+  },
+  cashflowMonthColumn: {
+    width: 68,
+    alignItems: "center",
+    justifyContent: "flex-end",
+  },
+  cashflowBarsRow: {
+    height: BAR_CHART_HEIGHT,
+    flexDirection: "row",
+    alignItems: "flex-end",
+    justifyContent: "center",
+    gap: 8,
+  },
+  singleBarWrap: {
+    width: 18,
+    height: BAR_CHART_HEIGHT,
+    justifyContent: "flex-end",
+  },
+  cashflowBar: {
+    width: 18,
+    borderTopLeftRadius: 6,
+    borderTopRightRadius: 6,
+  },
+  expenseBar: {
+    backgroundColor: Colors.accent,
+  },
+  incomeBar: {
+    backgroundColor: "#2a7b46",
+  },
+  cashflowMonthLabel: {
+    marginTop: 8,
+    fontSize: 12,
+    color: Colors.textPrimary,
   },
 });

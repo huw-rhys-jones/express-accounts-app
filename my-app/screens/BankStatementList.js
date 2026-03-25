@@ -12,42 +12,38 @@ import {
 import { collection, getDocs, onSnapshot, query, where } from "firebase/firestore";
 import DropDownPicker from "react-native-dropdown-picker";
 import { auth, db } from "../firebaseConfig";
+import { Colors, SharedStyles } from "../utils/sharedStyles";
 import { formatDate } from "../utils/format_style";
 import {
   buildFinancialFilterOptions,
   filterReceiptsByDateRange,
 } from "../utils/financialPeriods";
-import {
-  getIncomeFilterKey,
-  setIncomeFilterKey,
-} from "../utils/appSettings";
-import { Colors, SharedStyles } from "../utils/sharedStyles";
+import { getBankFilterKey, setBankFilterKey } from "../utils/appSettings";
 
-export default function IncomeScreen({ navigation }) {
-  const [incomeItems, setIncomeItems] = useState([]);
+export default function BankStatementList({ navigation }) {
+  const [statements, setStatements] = useState([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
-  const [sortKey, setSortKey] = useState("date");
-  const [sortDir, setSortDir] = useState("desc");
   const [filterOpen, setFilterOpen] = useState(false);
   const [activeFilterKey, setActiveFilterKey] = useState("current-quarter");
   const [filterItems, setFilterItems] = useState([]);
+  const [sortKey, setSortKey] = useState("date");
+  const [sortDir, setSortDir] = useState("desc");
 
-  const fetchIncome = useCallback(async () => {
+  const fetchStatements = useCallback(async () => {
     const user = auth.currentUser;
     if (!user) {
-      setIncomeItems([]);
+      setStatements([]);
       return;
     }
-
     const snapshot = await getDocs(
-      query(collection(db, "income"), where("userId", "==", user.uid))
+      query(collection(db, "bankStatements"), where("userId", "==", user.uid))
     );
-    setIncomeItems(snapshot.docs.map((item) => ({ id: item.id, ...item.data() })));
+    setStatements(snapshot.docs.map((item) => ({ id: item.id, ...item.data() })));
   }, []);
 
   useEffect(() => {
-    getIncomeFilterKey()
+    getBankFilterKey()
       .then(setActiveFilterKey)
       .catch(() => setActiveFilterKey("current-quarter"));
   }, []);
@@ -55,25 +51,25 @@ export default function IncomeScreen({ navigation }) {
   useEffect(() => {
     const user = auth.currentUser;
     if (!user) {
-      setIncomeItems([]);
+      setStatements([]);
       setLoading(false);
       return undefined;
     }
 
     const unsubscribeSnapshot = onSnapshot(
-      query(collection(db, "income"), where("userId", "==", user.uid)),
+      query(collection(db, "bankStatements"), where("userId", "==", user.uid)),
       (snapshot) => {
-        setIncomeItems(snapshot.docs.map((item) => ({ id: item.id, ...item.data() })));
+        setStatements(snapshot.docs.map((item) => ({ id: item.id, ...item.data() })));
         setLoading(false);
       },
       (error) => {
-        console.error("Error listening to income", error);
+        console.error("Error listening to bank statements", error);
         setLoading(false);
       }
     );
 
     const unsubscribeFocus = navigation.addListener("focus", () => {
-      getIncomeFilterKey()
+      getBankFilterKey()
         .then(setActiveFilterKey)
         .catch(() => setActiveFilterKey("current-quarter"));
     });
@@ -82,11 +78,11 @@ export default function IncomeScreen({ navigation }) {
       unsubscribeSnapshot();
       unsubscribeFocus();
     };
-  }, [fetchIncome, navigation]);
+  }, [fetchStatements, navigation]);
 
   const filterOptions = useMemo(
-    () => buildFinancialFilterOptions(incomeItems, new Date()),
-    [incomeItems]
+    () => buildFinancialFilterOptions(statements, new Date()),
+    [statements]
   );
 
   useEffect(() => {
@@ -96,7 +92,7 @@ export default function IncomeScreen({ navigation }) {
     if (filterOptions.length > 0 && !filterOptions.some((item) => item.key === activeFilterKey)) {
       const nextKey = filterOptions[0].key;
       setActiveFilterKey(nextKey);
-      setIncomeFilterKey(nextKey).catch(() => {});
+      setBankFilterKey(nextKey).catch(() => {});
     }
   }, [activeFilterKey, filterOptions]);
 
@@ -105,27 +101,28 @@ export default function IncomeScreen({ navigation }) {
     [activeFilterKey, filterOptions]
   );
 
-  const filteredIncome = useMemo(() => {
-    if (!activeFilter) return incomeItems;
+  const filteredStatements = useMemo(() => {
+    if (!activeFilter) return statements;
     return filterReceiptsByDateRange(
-      incomeItems,
+      statements,
       activeFilter.startDate,
       activeFilter.endDate
     );
-  }, [activeFilter, incomeItems]);
+  }, [activeFilter, statements]);
 
-  const sortedIncome = useMemo(() => {
-    const data = [...filteredIncome];
+  const sortedStatements = useMemo(() => {
+    const data = [...filteredStatements];
     data.sort((left, right) => {
       let comparison = 0;
-      if (sortKey === "amount") {
-        comparison = (Number(left.amount) || 0) - (Number(right.amount) || 0);
-      } else if (sortKey === "reference") {
-        comparison = String(left.reference || "").localeCompare(
-          String(right.reference || ""),
+      if (sortKey === "accountName") {
+        comparison = String(left.accountName || "").localeCompare(
+          String(right.accountName || ""),
           undefined,
           { sensitivity: "base" }
         );
+      } else if (sortKey === "netMovement") {
+        comparison =
+          (Number(left.netMovement) || 0) - (Number(right.netMovement) || 0);
       } else {
         comparison =
           (new Date(left.date).getTime() || 0) -
@@ -134,16 +131,16 @@ export default function IncomeScreen({ navigation }) {
       return sortDir === "asc" ? comparison : -comparison;
     });
     return data;
-  }, [filteredIncome, sortDir, sortKey]);
+  }, [filteredStatements, sortDir, sortKey]);
 
   const onRefresh = useCallback(async () => {
     setRefreshing(true);
     try {
-      await fetchIncome();
+      await fetchStatements();
     } finally {
       setRefreshing(false);
     }
-  }, [fetchIncome]);
+  }, [fetchStatements]);
 
   const toggleSort = (nextKey) => {
     if (sortKey === nextKey) {
@@ -159,61 +156,45 @@ export default function IncomeScreen({ navigation }) {
     return sortDir === "asc" ? "▲" : "▼";
   };
 
-  const renderHeader = () => (
-    <View style={styles.headerRow}>
-      <TouchableOpacity style={styles.headerCellDate} onPress={() => toggleSort("date")}>
-        <Text style={styles.headerText}>Date</Text>
-        <Text style={styles.headerArrow}>{sortIcon("date")}</Text>
-      </TouchableOpacity>
-      <TouchableOpacity
-        style={styles.headerCellReference}
-        onPress={() => toggleSort("reference")}
-      >
-        <Text style={styles.headerText}>Reference</Text>
-        <Text style={styles.headerArrow}>{sortIcon("reference")}</Text>
-      </TouchableOpacity>
-      <TouchableOpacity style={styles.headerCellAmount} onPress={() => toggleSort("amount")}>
-        <Text style={styles.headerText}>Amount</Text>
-        <Text style={styles.headerArrow}>{sortIcon("amount")}</Text>
-      </TouchableOpacity>
-    </View>
-  );
-
   const renderItem = ({ item }) => (
     <View style={styles.listContainer}>
       <TouchableOpacity
         style={styles.row}
-        onPress={() => navigation.navigate("IncomeDetails", { income: item })}
+        onPress={() => navigation.navigate("BankStatementDetails", { statement: item })}
       >
-        <Text style={styles.rowDate}>{formatDate(new Date(item.date))}</Text>
-        <View style={styles.referenceWrap}>
-          <Text style={styles.rowReference} numberOfLines={1}>
-            {item.reference || "Income record"}
+        <View style={styles.rowPrimary}>
+          <Text style={styles.rowTitle} numberOfLines={1}>
+            {item.accountName || "Bank statement"}
+          </Text>
+          <Text style={styles.rowMeta}>
+            {item.statementStartDate
+              ? `${formatDate(new Date(item.statementStartDate))} to ${formatDate(
+                  new Date(item.statementEndDate || item.date)
+                )}`
+              : formatDate(new Date(item.date))}
           </Text>
         </View>
-        <Text style={styles.rowAmount}>£{Number(item.amount || 0).toFixed(2)}</Text>
+        <View style={styles.amountColumn}>
+          <Text style={styles.moneyIn}>In £{Number(item.moneyInTotal || 0).toFixed(2)}</Text>
+          <Text style={styles.moneyOut}>Out £{Number(item.moneyOutTotal || 0).toFixed(2)}</Text>
+        </View>
       </TouchableOpacity>
     </View>
   );
 
-  const handleFilterChange = async (nextKey) => {
-    setActiveFilterKey(nextKey);
-    await setIncomeFilterKey(nextKey);
-  };
-
   return (
     <SafeAreaView style={styles.container}>
       <View style={styles.topBar}>
-        <Text style={styles.topBarTitle}>Income</Text>
+        <Text style={styles.topBarTitle}>Bank Statements</Text>
       </View>
 
       <View style={styles.content}>
         <View style={styles.card}>
-          <Text style={styles.title}>Income Records</Text>
+          <Text style={styles.title}>Bank Statements</Text>
           <Text style={styles.subtitle}>
-            {sortedIncome.length > 0
-              ? "Your income statements are shown below."
-              : "You haven't added any income yet."}
+            {sortedStatements.length > 0
+              ? "Your bank statement records are shown below."
+              : "Upload statements to track money in and money out."}
           </Text>
         </View>
 
@@ -227,7 +208,8 @@ export default function IncomeScreen({ navigation }) {
               setOpen={setFilterOpen}
               setValue={(callback) => {
                 const nextValue = callback(activeFilterKey);
-                handleFilterChange(nextValue).catch(() => {});
+                setActiveFilterKey(nextValue);
+                setBankFilterKey(nextValue).catch(() => {});
                 return nextValue;
               }}
               setItems={setFilterItems}
@@ -240,10 +222,25 @@ export default function IncomeScreen({ navigation }) {
           </View>
         ) : null}
 
-        {sortedIncome.length > 0 ? renderHeader() : null}
+        {sortedStatements.length > 0 ? (
+          <View style={styles.headerRow}>
+            <TouchableOpacity style={styles.headerAccount} onPress={() => toggleSort("accountName")}>
+              <Text style={styles.headerText}>Account</Text>
+              <Text style={styles.headerArrow}>{sortIcon("accountName")}</Text>
+            </TouchableOpacity>
+            <TouchableOpacity style={styles.headerDate} onPress={() => toggleSort("date")}>
+              <Text style={styles.headerText}>Date</Text>
+              <Text style={styles.headerArrow}>{sortIcon("date")}</Text>
+            </TouchableOpacity>
+            <TouchableOpacity style={styles.headerNet} onPress={() => toggleSort("netMovement")}>
+              <Text style={styles.headerText}>Net</Text>
+              <Text style={styles.headerArrow}>{sortIcon("netMovement")}</Text>
+            </TouchableOpacity>
+          </View>
+        ) : null}
 
         <FlatList
-          data={loading ? [] : sortedIncome}
+          data={loading ? [] : sortedStatements}
           keyExtractor={(item) => item.id}
           renderItem={renderItem}
           ListEmptyComponent={
@@ -251,21 +248,23 @@ export default function IncomeScreen({ navigation }) {
               <View style={styles.emptyState}>
                 <TouchableOpacity
                   style={styles.addButton}
-                  onPress={() => navigation.navigate("IncomeRecord")}
+                  onPress={() => navigation.navigate("BankStatement")}
                 >
-                  <Text style={styles.addButtonText}>Add Income</Text>
+                  <Text style={styles.addButtonText}>Add Bank Statement</Text>
                 </TouchableOpacity>
               </View>
             ) : null
           }
-          contentContainerStyle={sortedIncome.length === 0 ? styles.emptyListContent : styles.listContent}
+          contentContainerStyle={
+            sortedStatements.length === 0 ? styles.emptyListContent : styles.listContent
+          }
           refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
         />
       </View>
 
       <TouchableOpacity
         style={styles.floatingButton}
-        onPress={() => navigation.navigate("IncomeRecord")}
+        onPress={() => navigation.navigate("BankStatement")}
       >
         <Text style={styles.floatingButtonText}>+</Text>
       </TouchableOpacity>
@@ -274,7 +273,7 @@ export default function IncomeScreen({ navigation }) {
         <View style={styles.loadingOverlay}>
           <View style={styles.loadingCard}>
             <ActivityIndicator size="large" color={Colors.accent} />
-            <Text style={styles.loadingText}>Loading income…</Text>
+            <Text style={styles.loadingText}>Loading bank statements…</Text>
           </View>
         </View>
       ) : null}
@@ -300,11 +299,7 @@ const styles = StyleSheet.create({
     marginTop: 12,
     textAlign: "center",
   },
-  filterCard: {
-    width: "90%",
-    marginTop: 18,
-    zIndex: 10,
-  },
+  filterCard: { width: "90%", marginTop: 18, zIndex: 10 },
   filterLabel: {
     color: Colors.surface,
     marginBottom: 8,
@@ -324,14 +319,14 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
   },
-  headerCellDate: { width: 90, flexDirection: "row", gap: 6, alignItems: "center" },
-  headerCellReference: { flex: 1, flexDirection: "row", gap: 6, alignItems: "center" },
-  headerCellAmount: {
-    width: 96,
+  headerAccount: { flex: 1, flexDirection: "row", gap: 6, alignItems: "center" },
+  headerDate: { width: 96, flexDirection: "row", gap: 6, alignItems: "center" },
+  headerNet: {
+    width: 82,
     flexDirection: "row",
     gap: 6,
-    alignItems: "center",
     justifyContent: "flex-end",
+    alignItems: "center",
   },
   headerText: { fontWeight: "700", color: Colors.textPrimary },
   headerArrow: { color: Colors.textMuted, fontSize: 12 },
@@ -350,20 +345,16 @@ const styles = StyleSheet.create({
     borderRadius: 8,
     paddingHorizontal: 12,
     paddingVertical: 14,
-    minHeight: 62,
+    minHeight: 74,
     flexDirection: "row",
     alignItems: "center",
   },
-  rowDate: { width: 90, color: Colors.textMuted, fontSize: 14 },
-  referenceWrap: { flex: 1, paddingHorizontal: 14 },
-  rowReference: { color: Colors.textPrimary, fontWeight: "600", fontSize: 15 },
-  rowAmount: {
-    width: 96,
-    textAlign: "right",
-    color: Colors.accent,
-    fontWeight: "700",
-    fontSize: 15,
-  },
+  rowPrimary: { flex: 1, paddingRight: 12 },
+  rowTitle: { color: Colors.textPrimary, fontWeight: "700", fontSize: 15 },
+  rowMeta: { color: Colors.textMuted, marginTop: 4, fontSize: 13 },
+  amountColumn: { width: 120 },
+  moneyIn: { color: "#2a7b46", textAlign: "right", fontWeight: "600" },
+  moneyOut: { color: Colors.accent, textAlign: "right", marginTop: 4, fontWeight: "600" },
   emptyState: { alignItems: "center", justifyContent: "center", paddingTop: 20 },
   addButton: {
     backgroundColor: Colors.accent,

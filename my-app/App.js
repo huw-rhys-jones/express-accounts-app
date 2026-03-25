@@ -9,9 +9,14 @@ import SignUpScreen from "./screens/Register";
 import SignInScreen from "./screens/LogIn";
 import IncomeScreen from "./screens/Income";
 import ExpensesScreen from "./screens/ReceiptList";
+import BankStatementList from "./screens/BankStatementList";
 import ScanScreen from "./screens/Scan";
 import ReceiptAdd from "./screens/ReceiptAdd";
 import ReceiptDetailsScreen from "./screens/ReceiptEdit";
+import IncomeAdd from "./screens/IncomeAdd";
+import IncomeEdit from "./screens/IncomeEdit";
+import BankStatementAdd from "./screens/BankStatementAdd";
+import BankStatementEdit from "./screens/BankStatementEdit";
 import SummaryScreen from "./screens/SummaryScreen";
 import * as WebBrowser from "expo-web-browser";
 import { MD3LightTheme, PaperProvider } from 'react-native-paper';
@@ -114,6 +119,16 @@ function AppTabs() {
         options={{ tabBarLabel: "Receipts" }}
       />
       <Tab.Screen
+        name="Income"
+        component={IncomeScreen}
+        options={{ tabBarLabel: "Income" }}
+      />
+      <Tab.Screen
+        name="BankStatements"
+        component={BankStatementList}
+        options={{ tabBarLabel: "Bank" }}
+      />
+      <Tab.Screen
         name="Summary"
         component={SummaryScreen}
         options={{ tabBarLabel: "Summary" }}
@@ -152,11 +167,14 @@ export default function App() {
         >
           <Stack.Screen name="SignUp" component={SignUpScreen} />
           <Stack.Screen name="SignIn" component={SignInScreen} />
-          <Stack.Screen name="Income" component={IncomeScreen} />
           <Stack.Screen name="MainTabs" component={AppTabs} />
           <Stack.Screen name="Scan" component={ScanScreen} />
           <Stack.Screen name="Receipt" component={ReceiptAdd} />
           <Stack.Screen name="ReceiptDetails" component={ReceiptDetailsScreen} />
+          <Stack.Screen name="IncomeRecord" component={IncomeAdd} />
+          <Stack.Screen name="IncomeDetails" component={IncomeEdit} />
+          <Stack.Screen name="BankStatement" component={BankStatementAdd} />
+          <Stack.Screen name="BankStatementDetails" component={BankStatementEdit} />
         </Stack.Navigator>
       </NavigationContainer>
     </PaperProvider>

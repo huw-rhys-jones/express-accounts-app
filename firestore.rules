@@ -38,6 +38,20 @@ service cloud.firestore {
       allow update, delete: if isOwner(resource.data.userId);
     }
 
+    match /income/{incomeId} {
+      allow read: if isOwner(resource.data.userId) || isAccountant();
+      allow create: if request.auth != null &&
+                       request.resource.data.userId == request.auth.uid;
+      allow update, delete: if isOwner(resource.data.userId);
+    }
+
+    match /bankStatements/{statementId} {
+      allow read: if isOwner(resource.data.userId) || isAccountant();
+      allow create: if request.auth != null &&
+                       request.resource.data.userId == request.auth.uid;
+      allow update, delete: if isOwner(resource.data.userId);
+    }
+
     // User profiles: each user owns their own; accountants can read/update for portal workflows.
     match /users/{userId} {
       allow read, write: if isOwner(userId);
