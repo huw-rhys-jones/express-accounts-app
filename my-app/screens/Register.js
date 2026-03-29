@@ -14,13 +14,17 @@ import {
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { auth, db } from "../firebaseConfig";
-import { createUserWithEmailAndPassword, updateProfile } from "firebase/auth";
+import {
+  createUserWithEmailAndPassword,
+  sendEmailVerification,
+  updateProfile,
+} from "firebase/auth";
 import { doc, setDoc, serverTimestamp } from "firebase/firestore";
 import { Ionicons } from "@expo/vector-icons";
 import { KeyboardAwareScrollView } from "react-native-keyboard-aware-scroll-view";
 import { Colors, AuthStyles } from "../utils/sharedStyles";
 import { triggerHaptic } from "../utils/haptics";
-import { previewClientCode, verifyClientCode } from "../utils/verificationCodes";
+import { verifyClientCode } from "../utils/verificationCodes";
 
 const looksLikeEmail = (s) => /\S+@\S+\.\S+/.test(String(s || "").trim());
 const PRIVACY_URL = "https://caistec.com/privacy-policy.html";
@@ -83,6 +87,9 @@ const SignUpScreen = ({ navigation }) => {
       case "auth/operation-not-allowed":
         msg = "Email/password sign-up is not enabled for this project.";
         break;
+      case "permission-denied":
+        msg = "Registration was blocked by database rules. Please try again.";
+        break;
       default:
         msg = fallback || msg;
     }
@@ -110,14 +117,6 @@ const SignUpScreen = ({ navigation }) => {
           "Please accept the Privacy Policy before creating your account."
         );
 
-      let verificationPreview = null;
-      if (verificationCode.trim()) {
-        verificationPreview = await previewClientCode({
-          db,
-          rawCode: verificationCode,
-        });
-      }
-
       triggerHaptic("selection").catch(() => {});
 
       setLoading(true);
@@ -136,29 +135,41 @@ const SignUpScreen = ({ navigation }) => {
       // Persist name to Firestore so the accountant portal can display it
       await setDoc(
         doc(db, "users", cred.user.uid),
-        { name: nameTrimmed, email: emailTrimmed, createdAt: serverTimestamp() },
+        {
+          name: nameTrimmed,
+          email: emailTrimmed,
+          emailVerified: false,
+          createdAt: serverTimestamp(),
+        },
         { merge: true }
       );
 
-      if (verificationPreview) {
-        await verifyClientCode({
-          db,
-          userId: cred.user.uid,
-          rawCode: verificationPreview.code,
-        });
+      if (verificationCode.trim()) {
+        try {
+          await verifyClientCode({
+            db,
+            userId: cred.user.uid,
+            rawCode: verificationCode,
+          });
+        } catch (verificationError) {
+          console.warn("Verification code could not be applied", verificationError);
+          Alert.alert(
+            "Code Not Applied",
+            "Your account was created, but we could not apply that client code. You can add it later from settings."
+          );
+        }
       }
+
+      await sendEmailVerification(cred.user);
 
       triggerHaptic("success").catch(() => {});
 
-      // Navigate in with a clean stack
       navigation.reset({
         index: 0,
         routes: [
           {
-            name: "MainTabs", // The parent navigator
-            state: { 
-              routes: [{ name: "Expenses" }] // The child screen
-            },
+            name: "MainTabs",
+            state: { routes: [{ name: "Expenses" }] },
           },
         ],
       });

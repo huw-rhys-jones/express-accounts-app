@@ -56,7 +56,7 @@ import { verifyClientCode } from "../utils/verificationCodes";
 // Inside your component
 const appVersion = appPackage?.version || Constants.expoConfig?.version || "unknown";
 
-const ExpensesScreen = ({ navigation }) => {
+const ExpensesScreen = ({ navigation, route }) => {
   const [displayName, setDisplayName] = useState("User");
   const [verifiedName, setVerifiedName] = useState("");
   const [verificationStatus, setVerificationStatus] = useState("");
@@ -87,6 +87,7 @@ const ExpensesScreen = ({ navigation }) => {
   const [referralCode, setReferralCode] = useState("");
   const [nameChangeModalVisible, setNameChangeModalVisible] = useState(false);
   const [newName, setNewName] = useState(displayName);
+  const [federatedPromptMode, setFederatedPromptMode] = useState(false);
 
   const handleSendFeedback = async () => {
   // 1. Validation
@@ -301,6 +302,16 @@ const ExpensesScreen = ({ navigation }) => {
     return unsubscribeFocus;
   }, [navigation]);
 
+  useEffect(() => {
+    if (!route?.params?.showFederatedCodePrompt) {
+      return;
+    }
+
+    setFederatedPromptMode(true);
+    setReferralCodeModalVisible(true);
+    navigation.setParams({ showFederatedCodePrompt: false });
+  }, [navigation, route?.params?.showFederatedCodePrompt]);
+
   // Check Firebase for "seen" status
   useEffect(() => {
     const checkItemTipStatus = async () => {
@@ -455,6 +466,7 @@ const ExpensesScreen = ({ navigation }) => {
       );
       setReferralCodeModalVisible(false);
       setReferralCode("");
+      setFederatedPromptMode(false);
     } catch (error) {
       console.error("Error verifying referral code:", error);
       Alert.alert("Verification Failed", error.message || "Could not verify that code. Please try again.");
@@ -1015,13 +1027,20 @@ const ExpensesScreen = ({ navigation }) => {
         visible={referralCodeModalVisible}
         transparent
         animationType="slide"
-        onRequestClose={() => setReferralCodeModalVisible(false)}
+        onRequestClose={() => {
+          setReferralCodeModalVisible(false);
+          setFederatedPromptMode(false);
+        }}
       >
         <View style={styles.modalOverlay}>
           <View style={styles.loadingCard}>
-            <Text style={styles.title}>Enter Client Code</Text>
+            <Text style={styles.title}>
+              {federatedPromptMode ? "Welcome" : "Enter Client Code"}
+            </Text>
             <Text style={{ textAlign: "center", marginVertical: 10, color: Colors.textPrimary }}>
-              Enter your verification code to link your account to your accountant.
+              {federatedPromptMode
+                ? "If you have a client code, enter it now to link your account. You can also continue without one."
+                : "Enter your verification code to link your account to your accountant."}
             </Text>
 
             {verificationStatus === "verified" ? (
@@ -1041,10 +1060,15 @@ const ExpensesScreen = ({ navigation }) => {
 
             <View style={{ flexDirection: "row", marginTop: 20, gap: 10, width: "100%" }}>
               <TouchableOpacity
-                onPress={() => setReferralCodeModalVisible(false)}
+                onPress={() => {
+                  setReferralCodeModalVisible(false);
+                  setFederatedPromptMode(false);
+                }}
                 style={[styles.signOutBtn, { backgroundColor: "#ccc", flex: 1 }]}
               >
-                <Text style={{ color: "#000", textAlign: "center" }}>Cancel</Text>
+                <Text style={{ color: "#000", textAlign: "center" }}>
+                  {federatedPromptMode ? "Continue without code" : "Cancel"}
+                </Text>
               </TouchableOpacity>
 
               <TouchableOpacity

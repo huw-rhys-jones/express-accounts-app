@@ -1,16 +1,21 @@
 import React, { useState, useEffect, useCallback, useMemo } from "react";
 import {
+  Alert,
   Platform,
   View,
   Text,
   StyleSheet,
-  SafeAreaView,
   ActivityIndicator,
   Dimensions,
   ScrollView,
   RefreshControl,
+  TouchableOpacity,
+  StatusBar,
 } from "react-native";
+import { SafeAreaView } from "react-native-safe-area-context";
+import { signOut } from "firebase/auth";
 import { collection, query, where, getDocs } from "firebase/firestore";
+import SideMenu from "../components/SideMenu";
 import { db, auth } from "../firebaseConfig";
 import { PieChart, BarChart } from "react-native-chart-kit";
 import { groupCashflowByMonth } from "../utils/groupByMonth";
@@ -41,6 +46,7 @@ export default function SummaryScreen({ navigation }) {
   const [incomeItems, setIncomeItems] = useState([]);
   const [bankStatements, setBankStatements] = useState([]);
   const [activeFilterKey, setActiveFilterKey] = useState("current-quarter");
+  const [menuOpen, setMenuOpen] = useState(false);
 
   const barChartScrollRef = React.useRef(null);
   
@@ -226,6 +232,19 @@ export default function SummaryScreen({ navigation }) {
     }
   }, [fetchSummaryData]);
 
+  const closeMenu = () => setMenuOpen(false);
+
+  const handleLogout = async () => {
+    closeMenu();
+    try {
+      await signOut(auth);
+      navigation.replace("SignIn");
+    } catch (error) {
+      console.error("Error signing out", error);
+      Alert.alert("Sign Out Failed", "Could not sign out right now.");
+    }
+  };
+
   // ===== Data for charts =====
   const pieData = Object.entries(totals.byCategory).map(([cat, val], i) => ({
     name: cat,
@@ -246,6 +265,16 @@ export default function SummaryScreen({ navigation }) {
 
   return (
     <SafeAreaView style={styles.container}>
+      <View style={[styles.topBar, { paddingTop: 5 }]}> 
+        <TouchableOpacity style={styles.topBarButton} onPress={() => setMenuOpen(true)}>
+          <Text style={styles.topBarButtonText}>≡</Text>
+        </TouchableOpacity>
+
+        <Text style={styles.topBarTitle}>Summary</Text>
+
+        <View style={{ width: 44 }} />
+      </View>
+
       {loading ? (
         <View style={styles.center}>
           <ActivityIndicator size="large" color="#a60d49" />
@@ -400,6 +429,51 @@ export default function SummaryScreen({ navigation }) {
           </View>
         </ScrollView>
       )}
+
+      <SideMenu open={menuOpen} onClose={closeMenu}>
+        <View style={{ flex: 1 }}>
+          <View style={styles.userInfo}>
+            <Text style={styles.userEmail}>{auth.currentUser?.displayName || "User"}</Text>
+            <Text style={styles.userEmail}>{auth.currentUser?.email}</Text>
+          </View>
+
+          <TouchableOpacity
+            onPress={() => {
+              closeMenu();
+              navigation.navigate("Expenses");
+            }}
+            style={styles.menuButton}
+          >
+            <Text style={styles.menuButtonText}>Go to Expenses</Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            onPress={() => {
+              closeMenu();
+              navigation.navigate("Income");
+            }}
+            style={[styles.menuButton, { marginTop: 10 }]}
+          >
+            <Text style={styles.menuButtonText}>Go to Income</Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            onPress={() => {
+              closeMenu();
+              navigation.navigate("BankStatements");
+            }}
+            style={[styles.menuButton, { marginTop: 10 }]}
+          >
+            <Text style={styles.menuButtonText}>Go to Bank</Text>
+          </TouchableOpacity>
+
+          <View style={styles.footerContainer}>
+            <TouchableOpacity onPress={handleLogout} style={styles.redButton}>
+              <Text style={styles.redButtonText}>Sign Out</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </SideMenu>
     </SafeAreaView>
   );
 }
@@ -440,9 +514,37 @@ const chartConfig = {
 // ===== Styles =====
 const styles = StyleSheet.create({
   container: SharedStyles.screen,
+  topBar: {
+    backgroundColor: Colors.card,
+    width: "100%",
+    paddingHorizontal: 12,
+    paddingBottom: 10,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    elevation: 3,
+    shadowColor: "#000",
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    shadowOffset: { width: 0, height: 2 },
+  },
+  topBarButton: {
+    width: 44,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: Colors.inputBg,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  topBarButtonText: {
+    fontSize: 18,
+    fontWeight: "700",
+    color: Colors.textPrimary,
+  },
+  topBarTitle: { fontSize: 18, fontWeight: "800", color: Colors.textPrimary },
   content: {
   ...SharedStyles.content,
-  paddingTop: Platform.OS === 'android' ? 50 : 10, // Add explicit padding for the status bar
+  paddingTop: 10,
   paddingBottom: 40, 
 },
   card: SharedStyles.card,
@@ -576,5 +678,39 @@ const styles = StyleSheet.create({
     marginTop: 8,
     fontSize: 12,
     color: Colors.textPrimary,
+  },
+  userInfo: {
+    marginBottom: 20,
+  },
+  userEmail: {
+    color: Colors.textPrimary,
+    fontSize: 15,
+    marginBottom: 6,
+    fontWeight: "600",
+  },
+  menuButton: {
+    backgroundColor: "#f4d7e4",
+    paddingVertical: 12,
+    borderRadius: 24,
+    alignItems: "center",
+  },
+  menuButtonText: {
+    color: Colors.textPrimary,
+    fontWeight: "700",
+  },
+  footerContainer: {
+    marginTop: "auto",
+    paddingBottom: Platform.OS === "android" ? (StatusBar.currentHeight || 0) + 16 : 24,
+  },
+  redButton: {
+    backgroundColor: "#b00020",
+    paddingVertical: 12,
+    borderRadius: 24,
+    alignItems: "center",
+  },
+  redButtonText: {
+    color: "#fff",
+    fontWeight: "700",
+    fontSize: 15,
   },
 });

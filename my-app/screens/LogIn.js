@@ -13,6 +13,7 @@ import {
 } from "react-native";
 import {
   getAdditionalUserInfo,
+  sendEmailVerification,
   signInWithEmailAndPassword,
   OAuthProvider,
   signInWithCredential,
@@ -29,7 +30,6 @@ import { Ionicons } from "@expo/vector-icons";
 import { KeyboardAwareScrollView } from "react-native-keyboard-aware-scroll-view";
 import { Colors, AuthStyles } from "../utils/sharedStyles";
 import { triggerHaptic } from "../utils/haptics";
-import { verifyClientCode } from "../utils/verificationCodes";
 
 WebBrowser.maybeCompleteAuthSession();
 
@@ -57,6 +57,9 @@ if (Platform.OS === "android") {
 
 const looksLikeEmail = (s) => /\S+@\S+\.\S+/.test(String(s || "").trim());
 
+const isPasswordProviderUser = (user) =>
+  Boolean(user?.providerData?.some((provider) => provider?.providerId === "password"));
+
 const LoginScreen = ({ navigation }) => {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -73,9 +76,6 @@ const LoginScreen = ({ navigation }) => {
   // Feedback state
   const [feedbackVisible, setFeedbackVisible] = useState(false);
   const [feedbackText, setFeedbackText] = useState("");
-  const [verificationPromptVisible, setVerificationPromptVisible] = useState(false);
-  const [verificationCode, setVerificationCode] = useState("");
-  const [verificationSubmitting, setVerificationSubmitting] = useState(false);
 
   const handleSendFeedback = async () => {
     const senderEmail = (email || "").trim();
@@ -124,13 +124,16 @@ const LoginScreen = ({ navigation }) => {
     }
   };
 
-  const navigateToExpenses = () => {
+  const navigateToExpenses = (params = {}) => {
     navigation.reset({
       index: 0,
       routes: [
         {
           name: "MainTabs",
-          state: { index: 0, routes: [{ name: "Expenses" }] },
+          state: {
+            index: 0,
+            routes: [{ name: "Expenses", params }],
+          },
         },
       ],
     });
@@ -169,55 +172,10 @@ const LoginScreen = ({ navigation }) => {
     });
 
     if (isNewUser) {
-      setVerificationCode("");
-      setVerificationPromptVisible(true);
+      navigateToExpenses({ showFederatedCodePrompt: true });
       return;
     }
 
-    navigateToExpenses();
-  };
-
-  const handleVerificationPromptContinue = async () => {
-    const user = auth.currentUser;
-    if (!user) {
-      setVerificationPromptVisible(false);
-      navigateToExpenses();
-      return;
-    }
-
-    if (!verificationCode.trim()) {
-      setVerificationPromptVisible(false);
-      navigateToExpenses();
-      return;
-    }
-
-    try {
-      setVerificationSubmitting(true);
-      const result = await verifyClientCode({
-        db,
-        userId: user.uid,
-        rawCode: verificationCode,
-      });
-      Alert.alert(
-        "Verified",
-        `Code accepted. Your account is now verified as ${result.verifiedName}.`
-      );
-      setVerificationPromptVisible(false);
-      setVerificationCode("");
-      navigateToExpenses();
-    } catch (error) {
-      Alert.alert(
-        "Verification Failed",
-        error?.message || "Could not verify that code. You can continue without it or try again."
-      );
-    } finally {
-      setVerificationSubmitting(false);
-    }
-  };
-
-  const skipVerificationPrompt = () => {
-    setVerificationPromptVisible(false);
-    setVerificationCode("");
     navigateToExpenses();
   };
 
@@ -315,6 +273,28 @@ const LoginScreen = ({ navigation }) => {
         );
 
         triggerHaptic("success").catch(() => {});
+
+        if (isPasswordProviderUser(signedInUser) && !signedInUser.emailVerified) {
+          Alert.alert(
+            "Email Not Verified",
+            "Please verify your email before using the app. You can resend the verification email now.",
+            [
+              {
+                text: "Resend",
+                onPress: async () => {
+                  try {
+                    await sendEmailVerification(signedInUser);
+                    Alert.alert("Verification Email Sent", "Please check your inbox.");
+                  } catch (verificationError) {
+                    console.error("Failed to send verification email", verificationError);
+                    Alert.alert("Could not send email", "Please try again in a moment.");
+                  }
+                },
+              },
+              { text: "OK" },
+            ]
+          );
+        }
 
         navigateToExpenses();
       });
@@ -629,52 +609,6 @@ const LoginScreen = ({ navigation }) => {
         </View>
       </Modal>
 
-      <Modal
-        visible={verificationPromptVisible}
-        transparent
-        animationType="fade"
-        onRequestClose={skipVerificationPrompt}
-      >
-        <View style={AuthStyles.loadingOverlay}>
-          <View style={AuthStyles.loadingCard}>
-            <Text style={[AuthStyles.loadingText, { marginBottom: 10 }]}>Verification Code</Text>
-            <Text style={styles.verificationPromptText}>
-              Have a verification code? If so, enter it below. Continuing without one will just close this prompt.
-            </Text>
-            <TextInput
-              style={[AuthStyles.input, { width: "100%", marginTop: 10 }]}
-              placeholder="Client code"
-              placeholderTextColor="#AAA"
-              value={verificationCode}
-              onChangeText={setVerificationCode}
-              autoCapitalize="characters"
-              autoCorrect={false}
-              editable={!verificationSubmitting}
-            />
-            <View style={{ flexDirection: "row", gap: 10, marginTop: 14 }}>
-              <TouchableOpacity
-                style={[AuthStyles.googleButton, { flex: 1, backgroundColor: "#EEE" }]}
-                onPress={skipVerificationPrompt}
-                disabled={verificationSubmitting}
-              >
-                <Text style={[AuthStyles.googleButtonText, { marginRight: 0 }]}>Maybe later</Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                style={[AuthStyles.loginButton, { flex: 1 }, verificationSubmitting && { opacity: 0.7 }]}
-                onPress={handleVerificationPromptContinue}
-                disabled={verificationSubmitting}
-              >
-                {verificationSubmitting ? (
-                  <ActivityIndicator color="#FFF" />
-                ) : (
-                  <Text style={AuthStyles.loginButtonText}>Continue</Text>
-                )}
-              </TouchableOpacity>
-            </View>
-          </View>
-        </View>
-      </Modal>
-
       {/* Support / Feedback Modal */}
       {/* Updated Support / Feedback Modal */}
       <Modal visible={feedbackVisible} transparent animationType="slide">
@@ -898,11 +832,6 @@ const styles = StyleSheet.create({
     maxWidth: 400,
   },
   loadingText: { marginTop: 10, fontSize: 16, fontWeight: "600", color: "#000" },
-  verificationPromptText: {
-    color: Colors.textPrimary,
-    textAlign: "center",
-    lineHeight: 20,
-  },
 });
 
 export default LoginScreen;

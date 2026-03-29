@@ -2,9 +2,11 @@ import React, { useEffect, useState } from "react";
 import { NavigationContainer } from "@react-navigation/native";
 import { createStackNavigator } from "@react-navigation/stack";
 import { createBottomTabNavigator } from "@react-navigation/bottom-tabs";
-import { View, Text, TouchableOpacity, StyleSheet, Platform } from "react-native";
-import { onAuthStateChanged } from "firebase/auth";
-import { auth } from "./firebaseConfig";
+import { View, Text, TouchableOpacity, StyleSheet, Platform, Alert } from "react-native";
+import { onAuthStateChanged, reload, sendEmailVerification } from "firebase/auth";
+import { doc, serverTimestamp, setDoc } from "firebase/firestore";
+import { Ionicons } from "@expo/vector-icons";
+import { auth, db } from "./firebaseConfig";
 import SignUpScreen from "./screens/Register";
 import SignInScreen from "./screens/LogIn";
 import IncomeScreen from "./screens/Income";
@@ -45,6 +47,88 @@ export const setModalOpen = (isOpen) => {
   modalOpen = isOpen;
 };
 
+function isPasswordProviderUser(user) {
+  return Boolean(user?.providerData?.some((provider) => provider?.providerId === "password"));
+}
+
+function VerifyEmailGate({ onRefreshAuth }) {
+  const [busy, setBusy] = useState(false);
+
+  const resendVerification = async () => {
+    const user = auth.currentUser;
+    if (!user) return;
+    try {
+      setBusy(true);
+      await sendEmailVerification(user);
+      Alert.alert("Verification Email Sent", "Please check your inbox and click the verification link.");
+    } catch (error) {
+      console.error("Could not send verification email", error);
+      Alert.alert("Could not send email", "Please try again in a moment.");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const checkVerification = async () => {
+    const user = auth.currentUser;
+    if (!user) return;
+    try {
+      setBusy(true);
+      await reload(user);
+      if (!user.emailVerified) {
+        Alert.alert("Not Verified Yet", "We still see this email as unverified. Please check your inbox and try again.");
+        return;
+      }
+
+      await user.getIdToken(true);
+      await setDoc(
+        doc(db, "users", user.uid),
+        {
+          ...(user.displayName ? { name: user.displayName } : {}),
+          ...(user.email ? { email: user.email } : {}),
+          emailVerified: true,
+          updatedAt: serverTimestamp(),
+        },
+        { merge: true }
+      );
+
+      onRefreshAuth();
+    } catch (error) {
+      console.error("Could not refresh verification state", error);
+      Alert.alert("Refresh Failed", "Could not refresh verification status.");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <View style={styles.verifyContainer}>
+      <View style={styles.verifyCard}>
+        <Text style={styles.verifyTitle}>Verify Your Email</Text>
+        <Text style={styles.verifyText}>
+          Please verify your email address to enable the app.
+        </Text>
+
+        <TouchableOpacity
+          disabled={busy}
+          style={styles.verifyPrimaryButton}
+          onPress={resendVerification}
+        >
+          <Text style={styles.verifyPrimaryText}>Resend Verification Email</Text>
+        </TouchableOpacity>
+
+        <TouchableOpacity
+          disabled={busy}
+          style={styles.verifyPrimaryButton}
+          onPress={checkVerification}
+        >
+          <Text style={styles.verifyPrimaryText}>I've Verified, Unlock App</Text>
+        </TouchableOpacity>
+      </View>
+    </View>
+  );
+}
+
 // ---------------- Custom Tab Bar ----------------
 function CustomTabBar({ state, descriptors, navigation }) {
   const insets = useSafeAreaInsets();
@@ -77,6 +161,15 @@ function CustomTabBar({ state, descriptors, navigation }) {
           }
         };
 
+        const iconName =
+          route.name === "Expenses"
+            ? "receipt-outline"
+            : route.name === "Income"
+            ? "cash-outline"
+            : route.name === "BankStatements"
+            ? "card-outline"
+            : "stats-chart-outline";
+
         return (
           <TouchableOpacity
             key={route.key}
@@ -87,6 +180,12 @@ function CustomTabBar({ state, descriptors, navigation }) {
             <Text style={[styles.tabText, isFocused && styles.activeTab]}>
               {label}
             </Text>
+            <Ionicons
+              name={iconName}
+              size={18}
+              color={isFocused ? "#1C1C4E" : "#7B7B7B"}
+              style={styles.tabIcon}
+            />
           </TouchableOpacity>
         );
       })}
@@ -141,14 +240,31 @@ function AppTabs() {
 export default function App() {
   const [user, setUser] = useState(null);
   const [checkingAuth, setCheckingAuth] = useState(true);
+  const [authRefreshTick, setAuthRefreshTick] = useState(0);
 
   useEffect(() => {
     ensureHapticsDefaultEnabled().catch((error) => {
       console.warn("Could not load haptics default setting", error);
     });
 
-    const unsubscribe = onAuthStateChanged(auth, (user) => {
-      setUser(user);
+    const unsubscribe = onAuthStateChanged(auth, async (nextUser) => {
+      setUser(nextUser);
+
+      if (nextUser) {
+        await setDoc(
+          doc(db, "users", nextUser.uid),
+          {
+            ...(nextUser.displayName ? { name: nextUser.displayName } : {}),
+            ...(nextUser.email ? { email: nextUser.email } : {}),
+            emailVerified: Boolean(nextUser.emailVerified),
+            updatedAt: serverTimestamp(),
+          },
+          { merge: true }
+        ).catch((error) => {
+          console.warn("Could not sync email verification state", error);
+        });
+      }
+
       setCheckingAuth(false);
     });
 
@@ -157,17 +273,33 @@ export default function App() {
 
   if (checkingAuth) return null;
 
+  const activeUser = auth.currentUser || user;
+  const requiresEmailVerification =
+    Boolean(activeUser) &&
+    isPasswordProviderUser(activeUser) &&
+    !activeUser.emailVerified;
+
   return (
     /* Wrap everything in PaperProvider to fix the text color issue */
     <PaperProvider theme={theme}>
       <NavigationContainer>
         <Stack.Navigator
-          initialRouteName={user ? "MainTabs" : "SignIn"}
+          initialRouteName={activeUser ? "MainTabs" : "SignIn"}
           screenOptions={{ headerShown: false }}
         >
           <Stack.Screen name="SignUp" component={SignUpScreen} />
           <Stack.Screen name="SignIn" component={SignInScreen} />
-          <Stack.Screen name="MainTabs" component={AppTabs} />
+          <Stack.Screen name="MainTabs">
+            {() =>
+              requiresEmailVerification ? (
+                <VerifyEmailGate
+                  onRefreshAuth={() => setAuthRefreshTick((current) => current + 1)}
+                />
+              ) : (
+                <AppTabs key={`tabs-${authRefreshTick}`} />
+              )
+            }
+          </Stack.Screen>
           <Stack.Screen name="Scan" component={ScanScreen} />
           <Stack.Screen name="Receipt" component={ReceiptAdd} />
           <Stack.Screen name="ReceiptDetails" component={ReceiptDetailsScreen} />
@@ -190,11 +322,58 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "space-around",
     paddingBottom: Platform.OS === 'android' ? 60 : 0,
-    paddingTop: 10,
+    paddingTop: 8,
   },
-  tabItem: { flex: 1, alignItems: "center" },
+  tabItem: { flex: 1, alignItems: "center", paddingVertical: 2 },
   tabText: { color: "#7B7B7B", fontSize: 14 },
   activeTab: { fontWeight: "bold", color: "#1C1C4E" },
+  tabIcon: { marginTop: 2 },
+  verifyContainer: {
+    flex: 1,
+    backgroundColor: "rgba(0,0,0,0.45)",
+    alignItems: "center",
+    justifyContent: "center",
+    paddingHorizontal: 20,
+  },
+  verifyCard: {
+    width: "90%",
+    maxWidth: 420,
+    backgroundColor: "#E5E5EA",
+    borderRadius: 20,
+    padding: 22,
+    alignItems: "center",
+  },
+  verifyTitle: {
+    fontSize: 20,
+    fontWeight: "800",
+    color: "#1C1C4E",
+    marginBottom: 10,
+  },
+  verifyText: {
+    fontSize: 15,
+    color: "#1C1C4E",
+    textAlign: "center",
+    marginBottom: 16,
+  },
+  verifyPrimaryButton: {
+    width: "100%",
+    backgroundColor: "#a60d49",
+    borderRadius: 24,
+    paddingVertical: 12,
+    alignItems: "center",
+    marginTop: 10,
+  },
+  verifyPrimaryText: {
+    color: "#fff",
+    fontWeight: "700",
+  },
+  verifySecondaryButton: {
+    display: "none",
+  },
+  verifySecondaryText: {
+    color: "#a60d49",
+    fontWeight: "700",
+  },
   floatingButton: {
     position: "absolute",
     bottom: 20,

@@ -14,6 +14,21 @@ service cloud.firestore {
       return request.auth != null && request.auth.uid == userId;
     }
 
+    // Password-based accounts must verify email before accessing financial data.
+    function userProfileSaysVerified() {
+      return request.auth != null &&
+             get(/databases/$(database)/documents/users/$(request.auth.uid)).data.emailVerified == true;
+    }
+
+    function isVerifiedOrFederated() {
+      return request.auth != null &&
+             (
+               request.auth.token.firebase.sign_in_provider != "password" ||
+               request.auth.token.email_verified == true ||
+               userProfileSaysVerified()
+             );
+    }
+
     function isVerificationCodeClaim() {
       return request.auth != null &&
              resource != null &&
@@ -32,24 +47,27 @@ service cloud.firestore {
 
     // Receipts: each user owns their own; accountants can read all.
     match /receipts/{receiptId} {
-      allow read: if isOwner(resource.data.userId) || isAccountant();
+      allow read: if (isOwner(resource.data.userId) && isVerifiedOrFederated()) || isAccountant();
       allow create: if request.auth != null &&
-                       request.resource.data.userId == request.auth.uid;
-      allow update, delete: if isOwner(resource.data.userId);
+                       request.resource.data.userId == request.auth.uid &&
+                       isVerifiedOrFederated();
+      allow update, delete: if isOwner(resource.data.userId) && isVerifiedOrFederated();
     }
 
     match /income/{incomeId} {
-      allow read: if isOwner(resource.data.userId) || isAccountant();
+      allow read: if (isOwner(resource.data.userId) && isVerifiedOrFederated()) || isAccountant();
       allow create: if request.auth != null &&
-                       request.resource.data.userId == request.auth.uid;
-      allow update, delete: if isOwner(resource.data.userId);
+                       request.resource.data.userId == request.auth.uid &&
+                       isVerifiedOrFederated();
+      allow update, delete: if isOwner(resource.data.userId) && isVerifiedOrFederated();
     }
 
     match /bankStatements/{statementId} {
-      allow read: if isOwner(resource.data.userId) || isAccountant();
+      allow read: if (isOwner(resource.data.userId) && isVerifiedOrFederated()) || isAccountant();
       allow create: if request.auth != null &&
-                       request.resource.data.userId == request.auth.uid;
-      allow update, delete: if isOwner(resource.data.userId);
+                       request.resource.data.userId == request.auth.uid &&
+                       isVerifiedOrFederated();
+      allow update, delete: if isOwner(resource.data.userId) && isVerifiedOrFederated();
     }
 
     // User profiles: each user owns their own; accountants can read/update for portal workflows.

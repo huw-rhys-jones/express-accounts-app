@@ -28,7 +28,6 @@ import { auth, db } from "../firebaseConfig";
 import { Colors, ReceiptStyles } from "../utils/sharedStyles";
 import { formatDate } from "../utils/format_style";
 import {
-  createDocumentAttachment,
   createImageAttachment,
   deleteStoredAttachments,
   getAttachmentUri,
@@ -126,32 +125,10 @@ export default function BankStatementForm({ navigation, route, mode }) {
   };
 
   const pickPdfOption = async () => {
-    let documentPickerModule;
-    try {
-      documentPickerModule = await import("expo-document-picker");
-    } catch (error) {
-      console.error("Document picker module could not be loaded", error);
-      Alert.alert(
-        "PDF Upload Unavailable",
-        "This build does not currently include document picker support. Please restart the Metro server from my-app, or rebuild the dev client if needed."
-      );
-      return;
-    }
-
-    const result = await documentPickerModule.getDocumentAsync({
-      type: "application/pdf",
-      multiple: true,
-      copyToCacheDirectory: true,
-    });
-
-    if (result.canceled || !result.assets?.length) {
-      return;
-    }
-
-    setAttachments((current) => [
-      ...current,
-      ...result.assets.map(createDocumentAttachment),
-    ]);
+    Alert.alert(
+      "PDF Upload Unavailable",
+      "PDF picking is temporarily disabled in this build. Please add statement pages as images for now."
+    );
   };
 
   const saveStatement = async () => {
