@@ -64,7 +64,23 @@ function parseAmount(raw) {
   const neg = /^\(.*\)$/.test(t) || /^-/.test(t);
   t = t.replace(/[()\-]/g, '');
   t = t.replace(CURRENCY_SYMS, '');
-  t = t.replace(/,/g, '');
+  const lastComma = t.lastIndexOf(',');
+  const lastDot = t.lastIndexOf('.');
+
+  if (lastComma >= 0 && lastDot >= 0) {
+    const decimalIndex = Math.max(lastComma, lastDot);
+    const decimalChar = t[decimalIndex];
+    const integerPart = t.slice(0, decimalIndex).replace(/[.,]/g, '');
+    const fractionPart = t.slice(decimalIndex + 1).replace(/[.,]/g, '');
+    t = `${integerPart}${decimalChar}${fractionPart}`;
+  } else if (lastComma >= 0) {
+    t = /,\d{2}$/.test(t) ? t.replace(',', '.') : t.replace(/,/g, '');
+  } else if ((t.match(/\./g) || []).length > 1) {
+    const integerPart = t.slice(0, lastDot).replace(/\./g, '');
+    const fractionPart = t.slice(lastDot + 1).replace(/\./g, '');
+    t = `${integerPart}.${fractionPart}`;
+  }
+
   const num = parseFloat(t);
   if (Number.isNaN(num)) return null;
   return neg ? -num : num;
@@ -189,7 +205,7 @@ function extractDate(text) {
 // ---------- amount extraction ----------
 // ---------- amount extraction ----------
 // ---------- amount extraction ----------
-const MONEY_RE = /(?:£\s?|GBP\s*)?[0-9]{1,6}\.[0-9]{2}(?!\d)/g; // only amounts with decimals
+const MONEY_RE = /(?:£\s?|GBP\s*)?(?:\d{1,3}(?:[\s,.]\d{3})+|\d{1,6})[.,]\d{2}(?!\d)/g;
 
 // Inside your extractors.js
 export function extractAmount(reconstructedText) {
@@ -208,7 +224,7 @@ export function extractAmount(reconstructedText) {
   const candidates = [];
 
   // Require a non-alphanumeric boundary before the amount to avoid matches like "9306U261.67"
-  const FORGIVING_MONEY = /(?:^|[^A-Z0-9])((?:GBP|[£S$€¥ECT])?\s?\d{1,6}[.,]\s?\d{2})(?!\d)/gi;
+  const FORGIVING_MONEY = /(?:^|[^A-Z0-9])((?:GBP|[£S$€¥ECT])?\s?(?:\d{1,3}(?:[\s,.]\d{3})+|\d{1,6})[.,]\s?\d{2})(?!\d)/gi;
 
   const hasNear = (lineIndex, regex, radius = 1) => {
     for (let i = Math.max(0, lineIndex - radius); i <= Math.min(lineData.length - 1, lineIndex + radius); i++) {
@@ -226,8 +242,7 @@ export function extractAmount(reconstructedText) {
 
     matches.forEach((match) => {
       const raw = match[1];
-      const normalized = raw.replace(/GBP/gi, "").replace(/[£S$€¥ECT\s]/gi, "").replace(",", ".");
-      const val = parseFloat(normalized);
+      const val = parseAmount(raw);
       if (Number.isNaN(val) || val <= 0 || val > 100000) return;
       const valueKey = val.toFixed(2);
       if (seenValueInLine.has(valueKey)) return;
@@ -479,6 +494,59 @@ function normalizeForMatch(s) {
     .toLowerCase();
 }
 
+function cleanReferenceValue(raw) {
+  if (!raw) return null;
+
+  const cleaned = normalizeWhitespace(raw)
+    .replace(/^[#:\-.\s]+/, "")
+    .replace(/[.,;:]+$/, "");
+
+  if (!cleaned) return null;
+  if (cleaned.length < 3 || cleaned.length > 32) return null;
+  if (!/[A-Z]/i.test(cleaned) || !/\d/.test(cleaned)) return null;
+
+  return cleaned;
+}
+
+function extractReference(text) {
+  if (!text) return null;
+
+  const lines = text.split("\n").map(normalizeWhitespace).filter(Boolean);
+  const candidates = [];
+  const referencePatterns = [
+    {
+      regex: /\b(?:reference|ref)(?:\s*(?:no|number))?\.?\s*[:#-]?\s*([A-Z0-9][A-Z0-9\/.\-]*(?:\s+[A-Z0-9\/.\-]+){0,2})\b/i,
+      score: 3,
+    },
+    {
+      regex: /\b(?:invoice|inv)(?:\s*(?:no|number))?\.?\s*[:#-]?\s*([A-Z0-9][A-Z0-9\/.\-]*(?:\s+[A-Z0-9\/.\-]+){0,2})\b/i,
+      score: 3.2,
+    },
+    {
+      regex: /\b(?:statement|document)(?:\s*(?:no|number))?\.?\s*[:#-]?\s*([A-Z0-9][A-Z0-9\/.\-]*(?:\s+[A-Z0-9\/.\-]+){0,2})\b/i,
+      score: 2.8,
+    },
+  ];
+
+  lines.forEach((line, index) => {
+    referencePatterns.forEach(({ regex, score }) => {
+      const match = line.match(regex);
+      const reference = cleanReferenceValue(match?.[1]);
+      if (!reference) return;
+
+      let candidateScore = score;
+      if (/\b(invoice|reference|statement)\b/i.test(line)) candidateScore += 0.6;
+      if (index <= 4) candidateScore += 0.2;
+
+      candidates.push({ reference, score: candidateScore });
+    });
+  });
+
+  if (!candidates.length) return null;
+  candidates.sort((a, b) => b.score - a.score);
+  return candidates[0].reference;
+}
+
 
 // Unique numeric VAT rates from categories_meta (sorted)
 const getAllowedVatRates = () => {
@@ -621,6 +689,7 @@ export function extractData(text) {
     return {
       money: { value: null, currency: 0 },
       date: null,
+      reference: null,
       category: -1,
       vat: { value: null, rate: null },
     };
@@ -630,6 +699,7 @@ export function extractData(text) {
 
   const amountInfo = extractAmount(cleaned);
   const dateIso = extractDate(cleaned);
+  const reference = extractReference(cleaned);
   const categoryIdx = categoryFinder(cleaned, categories_meta);
   const vatInfo = extractVAT(cleaned, amountInfo, categoryIdx);
 
@@ -640,6 +710,7 @@ export function extractData(text) {
       display: amountInfo ? amountInfo.display : null,
     },
     date: dateIso,
+    reference,
     category: categoryIdx,
     vat: vatInfo, // ✅ new field
   };

@@ -12,6 +12,7 @@ import {
   TouchableOpacity,
   View,
 } from "react-native";
+import ImageViewer from "react-native-image-zoom-viewer";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { KeyboardAwareScrollView } from "react-native-keyboard-aware-scroll-view";
 import { Button, Checkbox } from "react-native-paper";
@@ -67,6 +68,8 @@ export default function IncomeFormScreen({ navigation, route, mode }) {
   );
   const [isDatePickerVisible, setDatePickerVisibility] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
+  const [fullScreenImage, setFullScreenImage] = useState(null);
+  const [returnToOcrAfterFullscreen, setReturnToOcrAfterFullscreen] = useState(false);
 
   const {
     ensureFileFromAsset,
@@ -303,15 +306,17 @@ export default function IncomeFormScreen({ navigation, route, mode }) {
 
             <View style={styles.fieldGroup}>
               <Text style={ReceiptStyles.label}>Amount:</Text>
-              <View style={styles.currencyField}>
-                <View style={styles.currencyBadge}>
+              <View style={[ReceiptStyles.inputRow, styles.currencyField]}>
+                <View style={styles.currencyWrapper}>
                   <Text style={styles.currencyText}>£</Text>
                 </View>
                 <TextInput
                   value={amount}
                   onChangeText={setAmount}
                   keyboardType="decimal-pad"
-                  style={[ReceiptStyles.input, styles.amountInput]}
+                  placeholder="0.00"
+                  placeholderTextColor={Colors.textSecondary}
+                  style={[ReceiptStyles.input, styles.amountInput, styles.inputWithCurrency]}
                 />
               </View>
             </View>
@@ -332,8 +337,8 @@ export default function IncomeFormScreen({ navigation, route, mode }) {
                 value={reference}
                 onChangeText={setReference}
                 placeholder="Invoice number or source"
-                placeholderTextColor={Colors.textMuted}
-                style={styles.textInput}
+                placeholderTextColor={Colors.textSecondary}
+                style={ReceiptStyles.input}
               />
             </View>
 
@@ -351,7 +356,11 @@ export default function IncomeFormScreen({ navigation, route, mode }) {
 
             <View style={styles.fieldGroup}>
               <Text style={ReceiptStyles.label}>Images:</Text>
-              <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+              <ScrollView
+                horizontal
+                showsHorizontalScrollIndicator={false}
+                contentContainerStyle={{ alignItems: "center" }}
+              >
                 {attachments.map(renderAttachment)}
                 <TouchableOpacity style={ReceiptStyles.uploadPlaceholder} onPress={pickImageOption}>
                   <Text style={ReceiptStyles.plus}>+</Text>
@@ -360,7 +369,7 @@ export default function IncomeFormScreen({ navigation, route, mode }) {
             </View>
 
             <View style={styles.actionRow}>
-              <Button mode="outlined" onPress={() => navigateBackToIncome(navigation)}>
+              <Button mode="outlined" textColor={Colors.accent} onPress={() => navigateBackToIncome(navigation)}>
                 Cancel
               </Button>
               <Button
@@ -407,12 +416,30 @@ export default function IncomeFormScreen({ navigation, route, mode }) {
             <Text style={ReceiptStyles.modalTitle}>Income OCR Preview</Text>
             <ScrollView keyboardShouldPersistTaps="handled">
               {preview?.uri ? (
-                <Image source={{ uri: preview.uri }} style={ReceiptStyles.modalImage} />
+                <View style={{ alignItems: "center" }}>
+                  <TouchableOpacity
+                    style={{ alignSelf: "stretch", opacity: ocrLoading ? 0.6 : 1 }}
+                    activeOpacity={0.7}
+                    disabled={ocrLoading}
+                    onPress={() => {
+                      const current = preview?.uri;
+                      if (!current) return;
+                      setReturnToOcrAfterFullscreen(true);
+                      setOcrModalVisible(false);
+                      requestAnimationFrame(() => setFullScreenImage({ uri: current }));
+                    }}
+                  >
+                    <Image source={{ uri: preview.uri }} style={ReceiptStyles.modalImage} />
+                  </TouchableOpacity>
+                  {ocrLoading ? (
+                    <Text style={ReceiptStyles.scanningText}>Scanning…</Text>
+                  ) : (
+                    <Text style={ReceiptStyles.fullscreenHint}>Tap image to view full screen</Text>
+                  )}
+                </View>
               ) : null}
 
-              {ocrLoading ? (
-                <Text style={ReceiptStyles.scanningText}>Scanning…</Text>
-              ) : (
+              {ocrLoading ? null : (
                 <>
                   <View style={ReceiptStyles.ocrRow}>
                     <Checkbox
@@ -444,6 +471,19 @@ export default function IncomeFormScreen({ navigation, route, mode }) {
                     </Text>
                   </View>
 
+                  <View style={ReceiptStyles.ocrRow}>
+                    <Checkbox
+                      status={acceptFlags.reference ? "checked" : "unchecked"}
+                      onPress={() => toggleAccept("reference")}
+                      color={Colors.accent}
+                      disabled={!ocrResult?.reference}
+                    />
+                    <Text style={ReceiptStyles.ocrLabel}>Reference:</Text>
+                    <Text style={ReceiptStyles.ocrValue}>
+                      {ocrResult?.reference || "Not detected"}
+                    </Text>
+                  </View>
+
                   <View style={ReceiptStyles.modalButtons}>
                     {!isNewImageSession ? (
                       <Button
@@ -466,6 +506,7 @@ export default function IncomeFormScreen({ navigation, route, mode }) {
                           setVatAmount: () => {},
                           setVatRate: () => {},
                           setSelectedDate,
+                          setReference,
                           setSelectedCategory: () => {},
                           vatAmountEdited: false,
                           amount,
@@ -484,6 +525,60 @@ export default function IncomeFormScreen({ navigation, route, mode }) {
         </View>
       </Modal>
 
+      <Modal
+        visible={!!fullScreenImage}
+        animationType="fade"
+        presentationStyle="fullScreen"
+        transparent={false}
+        onRequestClose={() => {
+          setFullScreenImage(null);
+          if (returnToOcrAfterFullscreen) {
+            requestAnimationFrame(() => setOcrModalVisible(true));
+            setReturnToOcrAfterFullscreen(false);
+          }
+        }}
+      >
+        {fullScreenImage ? (
+          <>
+            <ImageViewer
+              imageUrls={[{ url: fullScreenImage.uri }]}
+              enableSwipeDown
+              onSwipeDown={() => {
+                setFullScreenImage(null);
+                if (returnToOcrAfterFullscreen) {
+                  requestAnimationFrame(() => setOcrModalVisible(true));
+                  setReturnToOcrAfterFullscreen(false);
+                }
+              }}
+              onClick={() => {
+                setFullScreenImage(null);
+                if (returnToOcrAfterFullscreen) {
+                  requestAnimationFrame(() => setOcrModalVisible(true));
+                  setReturnToOcrAfterFullscreen(false);
+                }
+              }}
+              backgroundColor="black"
+              renderIndicator={() => null}
+              saveToLocalByLongPress={false}
+            />
+            <View style={ReceiptStyles.fullScreenCloseButtonWrapper}>
+              <TouchableOpacity
+                style={ReceiptStyles.fullScreenCloseButton}
+                onPress={() => {
+                  setFullScreenImage(null);
+                  if (returnToOcrAfterFullscreen) {
+                    requestAnimationFrame(() => setOcrModalVisible(true));
+                    setReturnToOcrAfterFullscreen(false);
+                  }
+                }}
+              >
+                <Text style={ReceiptStyles.fullScreenCloseText}>Close</Text>
+              </TouchableOpacity>
+            </View>
+          </>
+        ) : null}
+      </Modal>
+
       {isSaving ? (
         <View style={styles.loadingOverlay}>
           <View style={styles.loadingCard}>
@@ -496,25 +591,22 @@ export default function IncomeFormScreen({ navigation, route, mode }) {
 }
 
 const styles = StyleSheet.create({
-  scrollContent: { flexGrow: 1, paddingBottom: 120 },
+  scrollContent: { flexGrow: 1, paddingBottom: 160 },
   fieldGroup: { marginBottom: 18 },
-  currencyField: { flexDirection: "row", alignItems: "center" },
-  currencyBadge: {
-    width: 44,
-    height: 50,
-    borderTopLeftRadius: 10,
-    borderBottomLeftRadius: 10,
-    backgroundColor: Colors.inputBg,
+  currencyField: { position: "relative" },
+  currencyWrapper: {
+    position: "absolute",
+    left: 0,
+    top: 0,
+    bottom: 0,
+    width: 40,
+    zIndex: 1,
     alignItems: "center",
     justifyContent: "center",
-    marginRight: 2,
   },
-  currencyText: { color: Colors.textPrimary, fontSize: 18, fontWeight: "700" },
-  amountInput: {
-    flex: 1,
-    borderTopLeftRadius: 0,
-    borderBottomLeftRadius: 0,
-  },
+  currencyText: { color: Colors.textSecondary, fontSize: 16, fontWeight: "600" },
+  amountInput: { flex: 1 },
+  inputWithCurrency: { paddingLeft: 28 },
   textInput: {
     backgroundColor: Colors.inputBg,
     borderRadius: 10,

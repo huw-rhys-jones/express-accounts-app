@@ -19,6 +19,7 @@ export function useReceiptOcr({ computeVat }) {
   const [acceptFlags, setAcceptFlags] = useState({
     amount: false,
     date: false,
+    reference: false,
     category: false,
     vat: false,
   });
@@ -68,7 +69,7 @@ export function useReceiptOcr({ computeVat }) {
   const openOcrModal = async (uri, { autoScan = true, newSession = false } = {}) => {
     setPreview({ uri });
     setOcrResult(null);
-    setAcceptFlags({ amount: false, date: false, category: false, vat: false });
+    setAcceptFlags({ amount: false, date: false, reference: false, category: false, vat: false });
     setIsNewImageSession(!!newSession);
     setOcrModalVisible(true);
 
@@ -107,6 +108,7 @@ export function useReceiptOcr({ computeVat }) {
       setOcrResult({
         amount: res?.money?.value ?? null,
         date: res?.date ?? null,
+        reference: res?.reference ?? null,
         vat: res?.vat ?? null,
         categoryIndex,
         categoryName,
@@ -115,6 +117,7 @@ export function useReceiptOcr({ computeVat }) {
       setAcceptFlags({
         amount: !!res?.money?.value,
         date: !!res?.date,
+        reference: !!res?.reference,
         category: categoryIndex >= 0,
         vat: !!res?.vat?.value || !!res?.vat?.rate,
       });
@@ -134,6 +137,7 @@ export function useReceiptOcr({ computeVat }) {
     setVatAmount,
     setVatRate,
     setSelectedDate,
+    setReference,
     setSelectedCategory,
     vatAmountEdited,
     amount,
@@ -149,6 +153,9 @@ export function useReceiptOcr({ computeVat }) {
     if (acceptFlags.date && ocrResult.date) {
       const d = new Date(ocrResult.date);
       if (!isNaN(d.getTime())) setSelectedDate(d);
+    }
+    if (acceptFlags.reference && ocrResult.reference && typeof setReference === 'function') {
+      setReference(ocrResult.reference);
     }
     if (acceptFlags.category && ocrResult.categoryName) {
       setSelectedCategory(ocrResult.categoryName);
