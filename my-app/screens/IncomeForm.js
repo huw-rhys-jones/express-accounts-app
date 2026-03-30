@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import {
   Alert,
   Image,
@@ -23,7 +23,9 @@ import {
   collection,
   deleteDoc,
   doc,
+  getDoc,
   serverTimestamp,
+  setDoc,
   updateDoc,
 } from "firebase/firestore";
 import { auth, db } from "../firebaseConfig";
@@ -70,6 +72,7 @@ export default function IncomeFormScreen({ navigation, route, mode }) {
   const [isSaving, setIsSaving] = useState(false);
   const [fullScreenImage, setFullScreenImage] = useState(null);
   const [returnToOcrAfterFullscreen, setReturnToOcrAfterFullscreen] = useState(false);
+  const [showTip, setShowTip] = useState(false);
 
   const {
     ensureFileFromAsset,
@@ -89,6 +92,41 @@ export default function IncomeFormScreen({ navigation, route, mode }) {
     () => normalizeStoredAttachments(income?.attachments || []),
     [income?.attachments]
   );
+
+  useEffect(() => {
+    let active = true;
+    const loadTipStatus = async () => {
+      const user = auth.currentUser;
+      if (!user || attachments.length > 0) return;
+
+      if (active) setShowTip(true);
+
+      try {
+        const userSnap = await getDoc(doc(db, "users", user.uid));
+        if (active && userSnap.data()?.hasSeenIncomeScannerTip) {
+          setShowTip(false);
+        }
+      } catch {
+        // keep tip visible when profile read fails
+      }
+    };
+
+    loadTipStatus();
+    return () => {
+      active = false;
+    };
+  }, [attachments.length]);
+
+  const dismissTip = async () => {
+    setShowTip(false);
+    const user = auth.currentUser;
+    if (!user) return;
+    try {
+      await setDoc(doc(db, "users", user.uid), { hasSeenIncomeScannerTip: true }, { merge: true });
+    } catch {
+      // non-blocking tooltip persistence
+    }
+  };
 
   const handleConfirmDate = (date) => {
     setDatePickerVisibility(false);
@@ -133,6 +171,10 @@ export default function IncomeFormScreen({ navigation, route, mode }) {
   };
 
   const pickImageOption = () => {
+    if (showTip) {
+      dismissTip().catch(() => {});
+    }
+
     Alert.alert("Add Image", "Choose an option", [
       { text: "Camera", onPress: () => requestCameraAndLaunch().catch(() => {}) },
       {
@@ -324,7 +366,7 @@ export default function IncomeFormScreen({ navigation, route, mode }) {
             <View style={styles.fieldGroup}>
               <Text style={ReceiptStyles.label}>Date:</Text>
               <TouchableOpacity
-                style={ReceiptStyles.dateButton}
+                style={[ReceiptStyles.dateButton, styles.dateButtonAligned]}
                 onPress={() => setDatePickerVisibility(true)}
               >
                 <Text style={ReceiptStyles.dateText}>{formatDate(selectedDate)}</Text>
@@ -337,7 +379,7 @@ export default function IncomeFormScreen({ navigation, route, mode }) {
                 value={reference}
                 onChangeText={setReference}
                 placeholder="Invoice number or source"
-                placeholderTextColor={Colors.textSecondary}
+                placeholderTextColor={stylesConst.placeholder}
                 style={ReceiptStyles.input}
               />
             </View>
@@ -348,23 +390,25 @@ export default function IncomeFormScreen({ navigation, route, mode }) {
                 value={notes}
                 onChangeText={setNotes}
                 placeholder="Optional notes"
-                placeholderTextColor={Colors.textMuted}
-                style={[styles.textInput, styles.notesInput]}
+                placeholderTextColor={stylesConst.placeholder}
+                style={[ReceiptStyles.input, styles.notesInput]}
                 multiline
               />
             </View>
 
-            <View style={styles.fieldGroup}>
-              <Text style={ReceiptStyles.label}>Images:</Text>
+            <View style={[styles.fieldGroup, styles.attachmentSection]}>
               <ScrollView
                 horizontal
                 showsHorizontalScrollIndicator={false}
                 contentContainerStyle={{ alignItems: "center" }}
               >
                 {attachments.map(renderAttachment)}
-                <TouchableOpacity style={ReceiptStyles.uploadPlaceholder} onPress={pickImageOption}>
-                  <Text style={ReceiptStyles.plus}>+</Text>
-                </TouchableOpacity>
+                <View style={{ flexDirection: "row", alignItems: "center" }}>
+                  <TouchableOpacity style={ReceiptStyles.uploadPlaceholder} onPress={pickImageOption}>
+                    <Text style={ReceiptStyles.plus}>+</Text>
+                  </TouchableOpacity>
+                  {showTip ? <ScannerTooltip onDismiss={dismissTip} text="Tap here to scan an invoice" /> : null}
+                </View>
               </ScrollView>
             </View>
 
@@ -590,9 +634,15 @@ export default function IncomeFormScreen({ navigation, route, mode }) {
   );
 }
 
+const stylesConst = {
+  placeholder: "#8f8f95",
+};
+
 const styles = StyleSheet.create({
   scrollContent: { flexGrow: 1, paddingBottom: 160 },
   fieldGroup: { marginBottom: 18 },
+  attachmentSection: { marginTop: 16 },
+  dateButtonAligned: { marginHorizontal: 0 },
   currencyField: { position: "relative" },
   currencyWrapper: {
     position: "absolute",
@@ -607,15 +657,7 @@ const styles = StyleSheet.create({
   currencyText: { color: Colors.textSecondary, fontSize: 16, fontWeight: "600" },
   amountInput: { flex: 1 },
   inputWithCurrency: { paddingLeft: 28 },
-  textInput: {
-    backgroundColor: Colors.inputBg,
-    borderRadius: 10,
-    paddingHorizontal: 14,
-    paddingVertical: 12,
-    color: Colors.textPrimary,
-    fontSize: 16,
-  },
-  notesInput: { minHeight: 92, textAlignVertical: "top" },
+  notesInput: { height: 110, textAlignVertical: "top", paddingTop: 10 },
   attachmentCard: { marginRight: 12, position: "relative" },
   removeAttachmentButton: {
     position: "absolute",
@@ -629,6 +671,40 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
   removeAttachmentText: { color: Colors.surface, fontSize: 18, lineHeight: 18 },
+  sideTipWrapper: {
+    flexDirection: "row",
+    alignItems: "center",
+    marginLeft: 8,
+    zIndex: 10,
+  },
+  leftTriangle: {
+    width: 0,
+    height: 0,
+    borderTopWidth: 7,
+    borderBottomWidth: 7,
+    borderRightWidth: 10,
+    borderTopColor: "transparent",
+    borderBottomColor: "transparent",
+    borderRightColor: "#F0D1FF",
+  },
+  sideTipBox: {
+    backgroundColor: "#F0D1FF",
+    padding: 10,
+    borderRadius: 12,
+    maxWidth: 170,
+  },
+  sideTipText: {
+    color: "#4A148C",
+    fontSize: 11,
+    lineHeight: 15,
+  },
+  sideGotIt: {
+    color: "#4A148C",
+    fontWeight: "bold",
+    fontSize: 10,
+    marginTop: 5,
+    textAlign: "right",
+  },
   actionRow: {
     flexDirection: "row",
     justifyContent: "space-between",
@@ -649,3 +725,15 @@ const styles = StyleSheet.create({
   },
   loadingText: { color: Colors.textPrimary, fontWeight: "600" },
 });
+
+const ScannerTooltip = ({ onDismiss, text }) => (
+  <View style={styles.sideTipWrapper}>
+    <View style={styles.leftTriangle} />
+    <View style={styles.sideTipBox}>
+      <Text style={styles.sideTipText}>{text}</Text>
+      <TouchableOpacity onPress={onDismiss}>
+        <Text style={styles.sideGotIt}>Got it</Text>
+      </TouchableOpacity>
+    </View>
+  </View>
+);

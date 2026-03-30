@@ -1,7 +1,8 @@
-import React, { useMemo, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import {
   Alert,
   Image,
+  Modal,
   PermissionsAndroid,
   Platform,
   ScrollView,
@@ -11,23 +12,31 @@ import {
   TouchableOpacity,
   View,
 } from "react-native";
+import ImageViewer from "react-native-image-zoom-viewer";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { KeyboardAwareScrollView } from "react-native-keyboard-aware-scroll-view";
-import { Button } from "react-native-paper";
+import { Button, Checkbox } from "react-native-paper";
 import DateTimePickerModal from "react-native-modal-datetime-picker";
 import * as ImagePicker from "react-native-image-picker";
+import * as FileSystem from "expo-file-system/legacy";
+import TextRecognition from "@react-native-ml-kit/text-recognition";
 import {
   addDoc,
   collection,
   deleteDoc,
   doc,
+  getDoc,
   serverTimestamp,
+  setDoc,
   updateDoc,
 } from "firebase/firestore";
 import { auth, db } from "../firebaseConfig";
 import { Colors, ReceiptStyles } from "../utils/sharedStyles";
 import { formatDate } from "../utils/format_style";
+import { reconstructLines } from "../utils/extractors";
+import { extractBankStatementData } from "../utils/bankStatementExtractors";
 import {
+  createDocumentAttachment,
   createImageAttachment,
   deleteStoredAttachments,
   getAttachmentUri,
@@ -46,6 +55,12 @@ function navigateBackToBankStatements(navigation) {
       },
     ],
   });
+}
+
+function parseMoneyInput(value) {
+  const normalized = String(value || "").replace(/[^\d.-]/g, "");
+  const parsed = Number(normalized);
+  return Number.isFinite(parsed) ? parsed : NaN;
 }
 
 export default function BankStatementForm({ navigation, route, mode }) {
@@ -69,11 +84,136 @@ export default function BankStatementForm({ navigation, route, mode }) {
     normalizeStoredAttachments(statement?.attachments || [])
   );
   const [isSaving, setIsSaving] = useState(false);
+  const [showTip, setShowTip] = useState(false);
+  const [attachmentPickerVisible, setAttachmentPickerVisible] = useState(false);
+  const [fullScreenImage, setFullScreenImage] = useState(null);
+  const [returnToOcrAfterFullscreen, setReturnToOcrAfterFullscreen] = useState(false);
+
+  const [ocrModalVisible, setOcrModalVisible] = useState(false);
+  const [ocrLoading, setOcrLoading] = useState(false);
+  const [ocrPreviewUri, setOcrPreviewUri] = useState(null);
+  const [ocrNewImageSession, setOcrNewImageSession] = useState(false);
+  const [ocrResult, setOcrResult] = useState(null);
+  const [acceptFlags, setAcceptFlags] = useState({
+    accountName: false,
+    startDate: false,
+    endDate: false,
+    moneyInTotal: false,
+    moneyOutTotal: false,
+  });
 
   const existingRemoteAttachments = useMemo(
     () => normalizeStoredAttachments(statement?.attachments || []),
     [statement?.attachments]
   );
+
+  useEffect(() => {
+    let active = true;
+    const loadTipStatus = async () => {
+      const user = auth.currentUser;
+      if (!user || attachments.length > 0) return;
+
+      if (active) setShowTip(true);
+
+      try {
+        const userSnap = await getDoc(doc(db, "users", user.uid));
+        if (active && userSnap.data()?.hasSeenBankScannerTip) {
+          setShowTip(false);
+        }
+      } catch {
+        // keep tip visible when profile read fails
+      }
+    };
+
+    loadTipStatus();
+    return () => {
+      active = false;
+    };
+  }, [attachments.length]);
+
+  const dismissTip = async () => {
+    setShowTip(false);
+    const user = auth.currentUser;
+    if (!user) return;
+    try {
+      await setDoc(doc(db, "users", user.uid), { hasSeenBankScannerTip: true }, { merge: true });
+    } catch {
+      // non-blocking tooltip persistence
+    }
+  };
+
+  const ensureLocalImageUri = async (asset) => {
+    if (!asset) throw new Error("No image asset provided");
+    const { base64, fileName, uri } = asset;
+    const ext =
+      (fileName && fileName.includes(".") && `.${fileName.split(".").pop()}`) ||
+      ".jpg";
+    const dest = `${FileSystem.cacheDirectory}bank-ocr-${Date.now()}${ext}`;
+
+    if (base64) {
+      await FileSystem.writeAsStringAsync(dest, base64, {
+        encoding: FileSystem.EncodingType.Base64,
+      });
+      return dest;
+    }
+
+    if (uri && /^(file|content):\/\//i.test(uri)) {
+      await FileSystem.copyAsync({ from: uri, to: dest });
+      return dest;
+    }
+
+    if (uri && /^https?:\/\//i.test(uri)) {
+      const download = await FileSystem.downloadAsync(uri, dest);
+      return download.uri;
+    }
+
+    if (uri) return uri;
+
+    throw new Error("No usable image URI for OCR");
+  };
+
+  const setAcceptFlagsFromResult = (result) => {
+    setAcceptFlags({
+      accountName: Boolean(result?.accountName),
+      startDate: Boolean(result?.statementStartDate),
+      endDate: Boolean(result?.statementEndDate),
+      moneyInTotal: Number.isFinite(result?.moneyInTotal),
+      moneyOutTotal: Number.isFinite(result?.moneyOutTotal),
+    });
+  };
+
+  const runBankOcr = async (localUri) => {
+    try {
+      setOcrLoading(true);
+      const result = await TextRecognition.recognize(localUri);
+      const reconstructedText = reconstructLines(result?.blocks || []);
+      const text = reconstructedText || result?.text || "";
+      const extracted = extractBankStatementData(text);
+      setOcrResult(extracted);
+      setAcceptFlagsFromResult(extracted);
+    } catch (error) {
+      console.error("Bank statement OCR failed", error);
+      setOcrResult(null);
+      setAcceptFlags({
+        accountName: false,
+        startDate: false,
+        endDate: false,
+        moneyInTotal: false,
+        moneyOutTotal: false,
+      });
+      Alert.alert("OCR Failed", "Could not scan this image. Please enter values manually.");
+    } finally {
+      setOcrLoading(false);
+    }
+  };
+
+  const openOcrModal = async (uri, { newSession = false } = {}) => {
+    setOcrPreviewUri(uri);
+    setOcrNewImageSession(newSession);
+    setOcrResult(null);
+    setOcrModalVisible(true);
+    await runBankOcr(uri);
+  };
 
   const requestCameraAndLaunch = async () => {
     if (Platform.OS === "android") {
@@ -87,48 +227,153 @@ export default function BankStatementForm({ navigation, route, mode }) {
     }
 
     ImagePicker.launchCamera(
-      { mediaType: "photo", includeBase64: false, quality: 0.9 },
-      (response) => {
+      { mediaType: "photo", includeBase64: true, quality: 0.9 },
+      async (response) => {
         if (!response?.assets?.length) return;
-        setAttachments((current) => [
-          ...current,
-          ...response.assets.map(createImageAttachment),
-        ]);
+        try {
+          const firstAsset = response.assets[0];
+          const localUri = await ensureLocalImageUri(firstAsset);
+          const attachment = {
+            ...createImageAttachment(firstAsset),
+            id: localUri,
+            localUri,
+          };
+          setAttachments((current) => [...current, attachment]);
+          await openOcrModal(localUri, { newSession: true });
+        } catch (error) {
+          console.error("Camera attachment handling failed", error);
+          Alert.alert("Image Error", "Could not process this captured image.");
+        }
       }
     );
   };
 
-  const pickImageOption = () => {
-    Alert.alert("Add Statement Pages", "Choose an option", [
-      { text: "Camera", onPress: () => requestCameraAndLaunch().catch(() => {}) },
+  const pickGalleryImages = () => {
+    ImagePicker.launchImageLibrary(
       {
-        text: "Gallery",
-        onPress: () =>
-          ImagePicker.launchImageLibrary(
-            {
-              mediaType: "photo",
-              includeBase64: false,
-              selectionLimit: 0,
-              quality: 0.9,
-            },
-            (response) => {
-              if (!response?.assets?.length) return;
-              setAttachments((current) => [
-                ...current,
-                ...response.assets.map(createImageAttachment),
-              ]);
-            }
-          ),
+        mediaType: "photo",
+        includeBase64: true,
+        selectionLimit: 0,
+        quality: 0.9,
       },
-      { text: "Cancel", style: "cancel" },
-    ]);
+      async (response) => {
+        if (!response?.assets?.length) return;
+        try {
+          const mapped = await Promise.all(
+            response.assets.map(async (asset, idx) => {
+              const localUri = await ensureLocalImageUri(asset);
+              return {
+                ...createImageAttachment(asset),
+                id: `${localUri}-${idx}`,
+                localUri,
+              };
+            })
+          );
+          setAttachments((current) => [...current, ...mapped]);
+          const first = mapped[0];
+          if (first?.localUri) {
+            await openOcrModal(first.localUri, { newSession: true });
+          }
+        } catch (error) {
+          console.error("Gallery attachment handling failed", error);
+          Alert.alert("Image Error", "Could not process one or more selected images.");
+        }
+      }
+    );
   };
 
   const pickPdfOption = async () => {
-    Alert.alert(
-      "PDF Upload Unavailable",
-      "PDF picking is temporarily disabled in this build. Please add statement pages as images for now."
+    try {
+      const moduleName = "expo-document-picker";
+      const documentPicker = require(moduleName);
+      const result = await documentPicker.getDocumentAsync({
+        type: "application/pdf",
+        multiple: true,
+        copyToCacheDirectory: true,
+      });
+
+      if (result?.canceled || !result?.assets?.length) {
+        return;
+      }
+
+      setAttachments((current) => [
+        ...current,
+        ...result.assets.map(createDocumentAttachment),
+      ]);
+    } catch (error) {
+      console.error("PDF picker unavailable", error);
+      Alert.alert(
+        "PDF Upload Unavailable",
+        "PDF picker is not available in this build yet. Please rebuild the app client and try again."
+      );
+    }
+  };
+
+  const pickAttachmentOption = () => {
+    if (showTip) {
+      dismissTip().catch(() => {});
+    }
+    setAttachmentPickerVisible(true);
+  };
+
+  const closeAttachmentPicker = () => setAttachmentPickerVisible(false);
+
+  const closeOcrModal = () => {
+    if (ocrNewImageSession && ocrPreviewUri) {
+      setAttachments((current) =>
+        current.filter((item) => getAttachmentUri(item) !== ocrPreviewUri)
+      );
+    }
+    setOcrModalVisible(false);
+    setOcrPreviewUri(null);
+    setOcrNewImageSession(false);
+  };
+
+  const deletePreviewImage = () => {
+    if (!ocrPreviewUri) return;
+    setAttachments((current) =>
+      current.filter((item) => getAttachmentUri(item) !== ocrPreviewUri)
     );
+    setOcrModalVisible(false);
+    setOcrPreviewUri(null);
+    setOcrNewImageSession(false);
+  };
+
+  const toggleAccept = (key) => {
+    setAcceptFlags((current) => ({ ...current, [key]: !current[key] }));
+  };
+
+  const applyAcceptedOcr = () => {
+    if (!ocrResult) {
+      setOcrModalVisible(false);
+      return;
+    }
+
+    if (acceptFlags.accountName && ocrResult.accountName) {
+      setAccountName(ocrResult.accountName);
+    }
+
+    if (acceptFlags.startDate && ocrResult.statementStartDate) {
+      const nextStart = new Date(ocrResult.statementStartDate);
+      if (!Number.isNaN(nextStart.getTime())) setStatementStartDate(nextStart);
+    }
+
+    if (acceptFlags.endDate && ocrResult.statementEndDate) {
+      const nextEnd = new Date(ocrResult.statementEndDate);
+      if (!Number.isNaN(nextEnd.getTime())) setStatementEndDate(nextEnd);
+    }
+
+    if (acceptFlags.moneyInTotal && Number.isFinite(ocrResult.moneyInTotal)) {
+      setMoneyInTotal(String(Number(ocrResult.moneyInTotal).toFixed(2)));
+    }
+
+    if (acceptFlags.moneyOutTotal && Number.isFinite(ocrResult.moneyOutTotal)) {
+      setMoneyOutTotal(String(Number(ocrResult.moneyOutTotal).toFixed(2)));
+    }
+
+    setOcrModalVisible(false);
+    setOcrPreviewUri(null);
+    setOcrNewImageSession(false);
   };
 
   const saveStatement = async () => {
@@ -137,8 +382,8 @@ export default function BankStatementForm({ navigation, route, mode }) {
       return;
     }
 
-    const incomingMoney = Number(moneyInTotal || 0);
-    const outgoingMoney = Number(moneyOutTotal || 0);
+    const incomingMoney = parseMoneyInput(moneyInTotal || 0);
+    const outgoingMoney = parseMoneyInput(moneyOutTotal || 0);
     if (Number.isNaN(incomingMoney) || Number.isNaN(outgoingMoney)) {
       Alert.alert("Invalid Input", "Please enter valid totals for money in and money out.");
       return;
@@ -233,16 +478,26 @@ export default function BankStatementForm({ navigation, route, mode }) {
 
     return (
       <View key={attachment.id || `${uri}-${index}`} style={styles.attachmentShell}>
-        {isImageAttachment(attachment) ? (
-          <Image source={{ uri }} style={ReceiptStyles.receiptImage} />
-        ) : (
-          <View style={styles.pdfCard}>
-            <Text style={styles.pdfLabel}>PDF</Text>
-            <Text style={styles.pdfName} numberOfLines={2}>
-              {attachment.name || "Statement PDF"}
-            </Text>
-          </View>
-        )}
+        <TouchableOpacity
+          disabled={!isImageAttachment(attachment)}
+          onPress={() => {
+            if (isImageAttachment(attachment)) {
+              openOcrModal(uri, { newSession: false }).catch(() => {});
+            }
+          }}
+        >
+          {isImageAttachment(attachment) ? (
+            <Image source={{ uri }} style={ReceiptStyles.receiptImage} />
+          ) : (
+            <View style={styles.pdfCard}>
+              <Text style={styles.pdfLabel}>PDF</Text>
+              <Text style={styles.pdfName} numberOfLines={2}>
+                {attachment.name || "Statement PDF"}
+              </Text>
+            </View>
+          )}
+        </TouchableOpacity>
+
         <TouchableOpacity
           style={styles.removeAttachmentButton}
           onPress={() =>
@@ -274,15 +529,15 @@ export default function BankStatementForm({ navigation, route, mode }) {
                 value={accountName}
                 onChangeText={setAccountName}
                 placeholder="Main business account"
-                placeholderTextColor={Colors.textMuted}
-                style={styles.textInput}
+                placeholderTextColor={stylesConst.placeholder}
+                style={ReceiptStyles.input}
               />
             </View>
 
             <View style={styles.fieldGroup}>
               <Text style={ReceiptStyles.label}>Statement Start:</Text>
               <TouchableOpacity
-                style={ReceiptStyles.dateButton}
+                style={[ReceiptStyles.dateButton, styles.dateButtonAligned]}
                 onPress={() => setDatePickerTarget("start")}
               >
                 <Text style={ReceiptStyles.dateText}>{formatDate(statementStartDate)}</Text>
@@ -292,7 +547,7 @@ export default function BankStatementForm({ navigation, route, mode }) {
             <View style={styles.fieldGroup}>
               <Text style={ReceiptStyles.label}>Statement End:</Text>
               <TouchableOpacity
-                style={ReceiptStyles.dateButton}
+                style={[ReceiptStyles.dateButton, styles.dateButtonAligned]}
                 onPress={() => setDatePickerTarget("end")}
               >
                 <Text style={ReceiptStyles.dateText}>{formatDate(statementEndDate)}</Text>
@@ -302,25 +557,35 @@ export default function BankStatementForm({ navigation, route, mode }) {
             <View style={styles.moneyRow}>
               <View style={styles.moneyColumn}>
                 <Text style={ReceiptStyles.label}>Money In:</Text>
-                <TextInput
-                  value={moneyInTotal}
-                  onChangeText={setMoneyInTotal}
-                  keyboardType="decimal-pad"
-                  placeholder="0.00"
-                  placeholderTextColor={Colors.textMuted}
-                  style={styles.textInput}
-                />
+                <View style={[ReceiptStyles.inputRow, styles.currencyField]}>
+                  <View style={styles.currencyWrapper}>
+                    <Text style={styles.currencyText}>£</Text>
+                  </View>
+                  <TextInput
+                    value={moneyInTotal}
+                    onChangeText={setMoneyInTotal}
+                    keyboardType="decimal-pad"
+                    placeholder="0.00"
+                    placeholderTextColor={stylesConst.placeholder}
+                    style={[ReceiptStyles.input, styles.inputWithCurrency]}
+                  />
+                </View>
               </View>
               <View style={styles.moneyColumn}>
                 <Text style={ReceiptStyles.label}>Money Out:</Text>
-                <TextInput
-                  value={moneyOutTotal}
-                  onChangeText={setMoneyOutTotal}
-                  keyboardType="decimal-pad"
-                  placeholder="0.00"
-                  placeholderTextColor={Colors.textMuted}
-                  style={styles.textInput}
-                />
+                <View style={[ReceiptStyles.inputRow, styles.currencyField]}>
+                  <View style={styles.currencyWrapper}>
+                    <Text style={styles.currencyText}>£</Text>
+                  </View>
+                  <TextInput
+                    value={moneyOutTotal}
+                    onChangeText={setMoneyOutTotal}
+                    keyboardType="decimal-pad"
+                    placeholder="0.00"
+                    placeholderTextColor={stylesConst.placeholder}
+                    style={[ReceiptStyles.input, styles.inputWithCurrency]}
+                  />
+                </View>
               </View>
             </View>
 
@@ -330,26 +595,22 @@ export default function BankStatementForm({ navigation, route, mode }) {
                 value={notes}
                 onChangeText={setNotes}
                 placeholder="Statement notes or review reminders"
-                placeholderTextColor={Colors.textMuted}
-                style={[styles.textInput, styles.notesInput]}
+                placeholderTextColor={stylesConst.placeholder}
+                style={[ReceiptStyles.input, styles.notesInput]}
                 multiline
               />
             </View>
 
-            <View style={styles.fieldGroup}>
-              <Text style={ReceiptStyles.label}>Attachments:</Text>
-              <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+            <View style={[styles.fieldGroup, styles.attachmentSection]}>
+              <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ alignItems: "center" }}>
                 {attachments.map(renderAttachment)}
-                <TouchableOpacity style={ReceiptStyles.uploadPlaceholder} onPress={pickImageOption}>
-                  <Text style={ReceiptStyles.plus}>+</Text>
-                </TouchableOpacity>
-                <TouchableOpacity style={styles.pdfAddCard} onPress={() => pickPdfOption().catch(() => {})}>
-                  <Text style={styles.pdfAddText}>PDF</Text>
-                </TouchableOpacity>
+                <View style={{ flexDirection: "row", alignItems: "center" }}>
+                  <TouchableOpacity style={ReceiptStyles.uploadPlaceholder} onPress={pickAttachmentOption}>
+                    <Text style={ReceiptStyles.plus}>+</Text>
+                  </TouchableOpacity>
+                  {showTip ? <ScannerTooltip onDismiss={dismissTip} text="Tap here to upload your bank statement" /> : null}
+                </View>
               </ScrollView>
-              <Text style={styles.helperText}>
-                Images and PDFs are stored now. OCR extraction of statement rows will be added next.
-              </Text>
             </View>
 
             <View style={styles.actionRow}>
@@ -396,6 +657,229 @@ export default function BankStatementForm({ navigation, route, mode }) {
         onCancel={() => setDatePickerTarget(null)}
       />
 
+      <Modal
+        visible={ocrModalVisible}
+        transparent
+        animationType="slide"
+        onRequestClose={closeOcrModal}
+      >
+        <View style={ReceiptStyles.modalOverlay}>
+          <View style={[ReceiptStyles.modalContent, { maxHeight: "88%" }]}>
+            <Text style={ReceiptStyles.modalTitle}>Bank Statement OCR Preview</Text>
+            <ScrollView keyboardShouldPersistTaps="handled">
+              {ocrPreviewUri ? (
+                <View style={{ alignItems: "center" }}>
+                  <TouchableOpacity
+                    style={{ alignSelf: "stretch", opacity: ocrLoading ? 0.6 : 1 }}
+                    activeOpacity={0.7}
+                    disabled={ocrLoading}
+                    onPress={() => {
+                      if (!ocrPreviewUri) return;
+                      setReturnToOcrAfterFullscreen(true);
+                      setOcrModalVisible(false);
+                      requestAnimationFrame(() => setFullScreenImage({ uri: ocrPreviewUri }));
+                    }}
+                  >
+                    <Image source={{ uri: ocrPreviewUri }} style={ReceiptStyles.modalImage} />
+                  </TouchableOpacity>
+                  {!ocrLoading ? (
+                    <Text style={ReceiptStyles.fullscreenHint}>Tap image to view full screen</Text>
+                  ) : null}
+                </View>
+              ) : null}
+
+              {ocrLoading ? (
+                <Text style={ReceiptStyles.scanningText}>Scanning…</Text>
+              ) : (
+                <>
+                  <View style={ReceiptStyles.ocrRow}>
+                    <Checkbox
+                      status={acceptFlags.accountName ? "checked" : "unchecked"}
+                      onPress={() => toggleAccept("accountName")}
+                      color={Colors.accent}
+                      disabled={!ocrResult?.accountName}
+                    />
+                    <Text style={ReceiptStyles.ocrLabel}>Account:</Text>
+                    <Text style={ReceiptStyles.ocrValue}>{ocrResult?.accountName || "Not detected"}</Text>
+                  </View>
+
+                  <View style={ReceiptStyles.ocrRow}>
+                    <Checkbox
+                      status={acceptFlags.startDate ? "checked" : "unchecked"}
+                      onPress={() => toggleAccept("startDate")}
+                      color={Colors.accent}
+                      disabled={!ocrResult?.statementStartDate}
+                    />
+                    <Text style={ReceiptStyles.ocrLabel}>Start Date:</Text>
+                    <Text style={ReceiptStyles.ocrValue}>
+                      {ocrResult?.statementStartDate ? formatDate(new Date(ocrResult.statementStartDate)) : "Not detected"}
+                    </Text>
+                  </View>
+
+                  <View style={ReceiptStyles.ocrRow}>
+                    <Checkbox
+                      status={acceptFlags.endDate ? "checked" : "unchecked"}
+                      onPress={() => toggleAccept("endDate")}
+                      color={Colors.accent}
+                      disabled={!ocrResult?.statementEndDate}
+                    />
+                    <Text style={ReceiptStyles.ocrLabel}>End Date:</Text>
+                    <Text style={ReceiptStyles.ocrValue}>
+                      {ocrResult?.statementEndDate ? formatDate(new Date(ocrResult.statementEndDate)) : "Not detected"}
+                    </Text>
+                  </View>
+
+                  <View style={ReceiptStyles.ocrRow}>
+                    <Checkbox
+                      status={acceptFlags.moneyInTotal ? "checked" : "unchecked"}
+                      onPress={() => toggleAccept("moneyInTotal")}
+                      color={Colors.accent}
+                      disabled={!Number.isFinite(ocrResult?.moneyInTotal)}
+                    />
+                    <Text style={ReceiptStyles.ocrLabel}>Money In:</Text>
+                    <Text style={ReceiptStyles.ocrValue}>
+                      {Number.isFinite(ocrResult?.moneyInTotal)
+                        ? `£${Number(ocrResult.moneyInTotal).toFixed(2)}`
+                        : "Not detected"}
+                    </Text>
+                  </View>
+
+                  <View style={ReceiptStyles.ocrRow}>
+                    <Checkbox
+                      status={acceptFlags.moneyOutTotal ? "checked" : "unchecked"}
+                      onPress={() => toggleAccept("moneyOutTotal")}
+                      color={Colors.accent}
+                      disabled={!Number.isFinite(ocrResult?.moneyOutTotal)}
+                    />
+                    <Text style={ReceiptStyles.ocrLabel}>Money Out:</Text>
+                    <Text style={ReceiptStyles.ocrValue}>
+                      {Number.isFinite(ocrResult?.moneyOutTotal)
+                        ? `£${Number(ocrResult.moneyOutTotal).toFixed(2)}`
+                        : "Not detected"}
+                    </Text>
+                  </View>
+
+                  <View style={ReceiptStyles.modalButtons}>
+                    {!ocrNewImageSession ? (
+                      <Button mode="outlined" textColor={Colors.accent} onPress={deletePreviewImage}>
+                        Delete Image
+                      </Button>
+                    ) : null}
+                    <Button mode="outlined" onPress={closeOcrModal}>
+                      Cancel
+                    </Button>
+                    <Button mode="contained" buttonColor={Colors.accent} onPress={applyAcceptedOcr}>
+                      Accept
+                    </Button>
+                  </View>
+                </>
+              )}
+            </ScrollView>
+          </View>
+        </View>
+      </Modal>
+
+      <Modal
+        visible={attachmentPickerVisible}
+        transparent
+        animationType="fade"
+        onRequestClose={closeAttachmentPicker}
+      >
+        <View style={styles.pickerOverlay}>
+          <View style={styles.pickerCard}>
+            <Text style={styles.pickerTitle}>Add Attachment</Text>
+
+            <TouchableOpacity
+              style={styles.pickerOption}
+              onPress={() => {
+                closeAttachmentPicker();
+                pickPdfOption().catch(() => {});
+              }}
+            >
+              <Text style={styles.pickerOptionText}>PDF</Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={styles.pickerOption}
+              onPress={() => {
+                closeAttachmentPicker();
+                requestCameraAndLaunch().catch(() => {});
+              }}
+            >
+              <Text style={styles.pickerOptionText}>Camera</Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={styles.pickerOption}
+              onPress={() => {
+                closeAttachmentPicker();
+                pickGalleryImages();
+              }}
+            >
+              <Text style={styles.pickerOptionText}>Gallery</Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity style={[styles.pickerOption, styles.pickerCancel]} onPress={closeAttachmentPicker}>
+              <Text style={styles.pickerCancelText}>Cancel</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
+
+      <Modal
+        visible={!!fullScreenImage}
+        animationType="fade"
+        presentationStyle="fullScreen"
+        transparent={false}
+        onRequestClose={() => {
+          setFullScreenImage(null);
+          if (returnToOcrAfterFullscreen) {
+            requestAnimationFrame(() => setOcrModalVisible(true));
+            setReturnToOcrAfterFullscreen(false);
+          }
+        }}
+      >
+        {fullScreenImage ? (
+          <>
+            <ImageViewer
+              imageUrls={[{ url: fullScreenImage.uri }]}
+              enableSwipeDown
+              onSwipeDown={() => {
+                setFullScreenImage(null);
+                if (returnToOcrAfterFullscreen) {
+                  requestAnimationFrame(() => setOcrModalVisible(true));
+                  setReturnToOcrAfterFullscreen(false);
+                }
+              }}
+              onClick={() => {
+                setFullScreenImage(null);
+                if (returnToOcrAfterFullscreen) {
+                  requestAnimationFrame(() => setOcrModalVisible(true));
+                  setReturnToOcrAfterFullscreen(false);
+                }
+              }}
+              backgroundColor="black"
+              renderIndicator={() => null}
+              saveToLocalByLongPress={false}
+            />
+            <View style={ReceiptStyles.fullScreenCloseButtonWrapper}>
+              <TouchableOpacity
+                style={ReceiptStyles.fullScreenCloseButton}
+                onPress={() => {
+                  setFullScreenImage(null);
+                  if (returnToOcrAfterFullscreen) {
+                    requestAnimationFrame(() => setOcrModalVisible(true));
+                    setReturnToOcrAfterFullscreen(false);
+                  }
+                }}
+              >
+                <Text style={ReceiptStyles.fullScreenCloseText}>Close</Text>
+              </TouchableOpacity>
+            </View>
+          </>
+        ) : null}
+      </Modal>
+
       {isSaving ? (
         <View style={styles.loadingOverlay}>
           <View style={styles.loadingCard}>
@@ -407,31 +891,49 @@ export default function BankStatementForm({ navigation, route, mode }) {
   );
 }
 
+const stylesConst = {
+  placeholder: "#8f8f95",
+};
+
 const styles = StyleSheet.create({
   scrollContent: { flexGrow: 1, paddingBottom: 120 },
   fieldGroup: { marginBottom: 18 },
-  textInput: {
-    backgroundColor: Colors.inputBg,
-    borderRadius: 10,
-    paddingHorizontal: 14,
-    paddingVertical: 12,
-    color: Colors.textPrimary,
-    fontSize: 16,
+  attachmentSection: { marginTop: 16 },
+  dateButtonAligned: { marginHorizontal: 0 },
+  notesInput: {
+    height: 110,
+    textAlignVertical: "top",
+    paddingTop: 10,
   },
-  notesInput: { minHeight: 92, textAlignVertical: "top" },
-  moneyRow: { flexDirection: "row", justifyContent: "space-between", gap: 12 },
+  moneyRow: { flexDirection: "row", justifyContent: "space-between", gap: 12, marginBottom: 18 },
   moneyColumn: { flex: 1 },
+  currencyField: { position: "relative" },
+  currencyWrapper: {
+    position: "absolute",
+    left: 0,
+    top: 0,
+    bottom: 0,
+    width: 32,
+    zIndex: 1,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  currencyText: { color: Colors.textSecondary, fontSize: 16, fontWeight: "600" },
+  inputWithCurrency: { paddingLeft: 24 },
   attachmentShell: { marginRight: 12, position: "relative" },
   pdfCard: {
-    width: 120,
-    height: 120,
-    borderRadius: 16,
-    backgroundColor: Colors.card,
-    padding: 14,
-    justifyContent: "space-between",
+    width: 100,
+    height: 150,
+    borderRadius: 5,
+    borderWidth: 1,
+    borderColor: Colors.border,
+    backgroundColor: Colors.surface,
+    justifyContent: "center",
+    alignItems: "center",
+    paddingHorizontal: 8,
   },
-  pdfLabel: { color: Colors.accent, fontWeight: "700", fontSize: 16 },
-  pdfName: { color: Colors.textPrimary, fontSize: 13 },
+  pdfLabel: { color: Colors.accent, fontWeight: "700", fontSize: 18 },
+  pdfName: { color: Colors.textPrimary, fontSize: 11, marginTop: 8, textAlign: "center" },
   removeAttachmentButton: {
     position: "absolute",
     top: 4,
@@ -444,20 +946,77 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
   removeAttachmentText: { color: Colors.surface, fontSize: 18, lineHeight: 18 },
-  pdfAddCard: {
-    width: 78,
-    height: 120,
-    borderRadius: 18,
-    backgroundColor: Colors.card,
-    justifyContent: "center",
+  sideTipWrapper: {
+    flexDirection: "row",
     alignItems: "center",
+    marginLeft: 8,
+    zIndex: 10,
   },
-  pdfAddText: { color: Colors.textPrimary, fontWeight: "700", fontSize: 18 },
-  helperText: {
-    marginTop: 10,
-    color: Colors.textMuted,
-    fontSize: 13,
-    lineHeight: 18,
+  leftTriangle: {
+    width: 0,
+    height: 0,
+    borderTopWidth: 7,
+    borderBottomWidth: 7,
+    borderRightWidth: 10,
+    borderTopColor: "transparent",
+    borderBottomColor: "transparent",
+    borderRightColor: "#F0D1FF",
+  },
+  sideTipBox: {
+    backgroundColor: "#F0D1FF",
+    padding: 10,
+    borderRadius: 12,
+    maxWidth: 170,
+  },
+  sideTipText: {
+    color: "#4A148C",
+    fontSize: 11,
+    lineHeight: 15,
+  },
+  sideGotIt: {
+    color: "#4A148C",
+    fontWeight: "bold",
+    fontSize: 10,
+    marginTop: 5,
+    textAlign: "right",
+  },
+  pickerOverlay: {
+    flex: 1,
+    backgroundColor: "rgba(0,0,0,0.4)",
+    justifyContent: "center",
+    padding: 24,
+  },
+  pickerCard: {
+    backgroundColor: Colors.surface,
+    borderRadius: 14,
+    padding: 14,
+  },
+  pickerTitle: {
+    fontSize: 18,
+    fontWeight: "700",
+    color: Colors.textPrimary,
+    marginBottom: 8,
+    textAlign: "center",
+  },
+  pickerOption: {
+    paddingVertical: 13,
+    borderBottomWidth: 1,
+    borderBottomColor: "#ececf0",
+  },
+  pickerOptionText: {
+    fontSize: 16,
+    color: Colors.textPrimary,
+    textAlign: "center",
+  },
+  pickerCancel: {
+    borderBottomWidth: 0,
+    marginTop: 2,
+  },
+  pickerCancelText: {
+    fontSize: 16,
+    color: Colors.accent,
+    fontWeight: "700",
+    textAlign: "center",
   },
   actionRow: {
     flexDirection: "row",
@@ -479,3 +1038,15 @@ const styles = StyleSheet.create({
   },
   loadingText: { color: Colors.textPrimary, fontWeight: "600" },
 });
+
+const ScannerTooltip = ({ onDismiss, text }) => (
+  <View style={styles.sideTipWrapper}>
+    <View style={styles.leftTriangle} />
+    <View style={styles.sideTipBox}>
+      <Text style={styles.sideTipText}>{text}</Text>
+      <TouchableOpacity onPress={onDismiss}>
+        <Text style={styles.sideGotIt}>Got it</Text>
+      </TouchableOpacity>
+    </View>
+  </View>
+);
