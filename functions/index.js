@@ -3,6 +3,7 @@ const admin = require("firebase-admin");
 const functions = require("firebase-functions");
 const nodemailer = require("nodemailer");
 const cors = require("cors")({origin: true});
+const pdfParse = require("pdf-parse");
 const {DocumentProcessorServiceClient} = require("@google-cloud/documentai").v1;
 const {extractBankStatementData} = require("./bankStatementExtractors");
 
@@ -45,6 +46,44 @@ async function verifyAuthenticatedUser(req) {
   }
 
   return admin.auth().verifyIdToken(idToken);
+}
+
+async function extractTextFromPdf(pdfBase64, mimeType) {
+  const {projectId, location, processorId} = getDocumentAiConfig();
+
+  if (projectId && processorId) {
+    try {
+      const client = new DocumentProcessorServiceClient({
+        apiEndpoint: `${location}-documentai.googleapis.com`,
+      });
+
+      const name = `projects/${projectId}/locations/${location}/processors/${processorId}`;
+      const [result] = await client.processDocument({
+        name,
+        rawDocument: {
+          content: pdfBase64,
+          mimeType,
+        },
+      });
+
+      const document = result && result.document ? result.document : null;
+      return {
+        text: document && document.text ? document.text : "",
+        pageCount: document && Array.isArray(document.pages) ? document.pages.length : 0,
+        provider: "document-ai",
+      };
+    } catch (error) {
+      console.warn("Document AI PDF scan failed, falling back to embedded PDF text extraction.", error);
+    }
+  }
+
+  const pdfBuffer = Buffer.from(pdfBase64, "base64");
+  const parsedPdf = await pdfParse(pdfBuffer);
+  return {
+    text: parsedPdf && parsedPdf.text ? parsedPdf.text : "",
+    pageCount: parsedPdf && parsedPdf.numpages ? parsedPdf.numpages : 0,
+    provider: "pdf-parse",
+  };
 }
 
 exports.submitDeletionRequest = functions.https.onRequest((req, res) => {
@@ -119,41 +158,22 @@ exports.extractBankStatementPdf = functions.https.onRequest((req, res) => {
         return res.status(400).json({error: "Only PDF files are supported for this scan."});
       }
 
-      const {projectId, location, processorId} = getDocumentAiConfig();
-      if (!projectId || !processorId) {
-        return res.status(500).json({
-          error: "Document AI is not configured yet. Set DOCUMENT_AI_PROCESSOR_ID and redeploy the functions.",
-        });
-      }
-
-      const client = new DocumentProcessorServiceClient({
-        apiEndpoint: `${location}-documentai.googleapis.com`,
-      });
-
-      const name = `projects/${projectId}/locations/${location}/processors/${processorId}`;
-      const [result] = await client.processDocument({
-        name,
-        rawDocument: {
-          content: pdfBase64,
-          mimeType,
-        },
-      });
-
-      const document = result && result.document ? result.document : null;
-      const documentText = document && document.text ? document.text : "";
+      const parsedPdf = await extractTextFromPdf(pdfBase64, mimeType);
+      const documentText = parsedPdf.text || "";
       const extracted = extractBankStatementData(documentText);
 
       return res.status(200).json({
         fileName: fileName || null,
         extracted,
-        pageCount: document && Array.isArray(document.pages) ? document.pages.length : 0,
+        pageCount: parsedPdf.pageCount || 0,
         textLength: documentText.length,
+        provider: parsedPdf.provider,
       });
     } catch (error) {
       console.error("PDF OCR failed", error);
       const statusCode = error && error.statusCode ? error.statusCode : 500;
       return res.status(statusCode).json({
-        error: statusCode === 401 ? error.message : "PDF scan failed. Check the Document AI setup and try again.",
+        error: statusCode === 401 ? error.message : "PDF scan failed. Please try again with another PDF or image upload.",
       });
     }
   });
