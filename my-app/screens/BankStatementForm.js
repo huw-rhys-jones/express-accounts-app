@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useState } from "react";
 import {
   Alert,
   Image,
+  Linking,
   Modal,
   PermissionsAndroid,
   Platform,
@@ -35,6 +36,7 @@ import { Colors, ReceiptStyles } from "../utils/sharedStyles";
 import { formatDate } from "../utils/format_style";
 import { reconstructLines } from "../utils/extractors";
 import { extractBankStatementData } from "../utils/bankStatementExtractors";
+import { extractBankStatementPdfInCloud } from "../utils/cloudBankStatementOcr";
 import {
   createDocumentAttachment,
   createImageAttachment,
@@ -85,6 +87,7 @@ export default function BankStatementForm({ navigation, route, mode }) {
   );
   const [isSaving, setIsSaving] = useState(false);
   const [showTip, setShowTip] = useState(false);
+  const [tipStatusLoaded, setTipStatusLoaded] = useState(false);
   const [attachmentPickerVisible, setAttachmentPickerVisible] = useState(false);
   const [fullScreenImage, setFullScreenImage] = useState(null);
   const [returnToOcrAfterFullscreen, setReturnToOcrAfterFullscreen] = useState(false);
@@ -111,17 +114,25 @@ export default function BankStatementForm({ navigation, route, mode }) {
     let active = true;
     const loadTipStatus = async () => {
       const user = auth.currentUser;
-      if (!user || attachments.length > 0) return;
-
-      if (active) setShowTip(true);
+      if (!user || attachments.length > 0) {
+        if (active) {
+          setShowTip(false);
+          setTipStatusLoaded(true);
+        }
+        return;
+      }
 
       try {
         const userSnap = await getDoc(doc(db, "users", user.uid));
-        if (active && userSnap.data()?.hasSeenBankScannerTip) {
-          setShowTip(false);
+        if (active) {
+          setShowTip(!userSnap.data()?.hasSeenBankScannerTip);
+          setTipStatusLoaded(true);
         }
       } catch {
-        // keep tip visible when profile read fails
+        if (active) {
+          setShowTip(true);
+          setTipStatusLoaded(true);
+        }
       }
     };
 
@@ -286,7 +297,13 @@ export default function BankStatementForm({ navigation, route, mode }) {
     try {
       const moduleName = "expo-document-picker";
       const documentPicker = require(moduleName);
-      const result = await documentPicker.getDocumentAsync({
+      const getDocumentAsync = documentPicker?.getDocumentAsync;
+
+      if (typeof getDocumentAsync !== "function") {
+        throw new Error("expo-document-picker native module unavailable");
+      }
+
+      const result = await getDocumentAsync({
         type: "application/pdf",
         multiple: true,
         copyToCacheDirectory: true,
@@ -296,17 +313,117 @@ export default function BankStatementForm({ navigation, route, mode }) {
         return;
       }
 
-      setAttachments((current) => [
-        ...current,
-        ...result.assets.map(createDocumentAttachment),
-      ]);
+      const createdAttachments = result.assets.map(createDocumentAttachment);
+      setAttachments((current) => [...current, ...createdAttachments]);
+
+      if (createdAttachments[0]) {
+        await runPdfCloudOcr(createdAttachments[0]);
+      }
+
+      if (createdAttachments.length > 1) {
+        Alert.alert(
+          "PDFs Added",
+          "The first PDF is being scanned now. The others were attached successfully."
+        );
+      }
     } catch (error) {
       console.error("PDF picker unavailable", error);
       Alert.alert(
         "PDF Upload Unavailable",
-        "PDF picker is not available in this build yet. Please rebuild the app client and try again."
+        error?.message || "PDF picker is not available in this build yet. Please rebuild the app client and try again."
       );
     }
+  };
+
+  const openPdfAttachment = async (uri) => {
+    if (!uri) return;
+
+    try {
+      const supported = await Linking.canOpenURL(uri);
+      if (!supported) {
+        Alert.alert(
+          "Open PDF Failed",
+          "This device could not open the PDF directly from here. You can still use the scan option to extract the statement totals and dates."
+        );
+        return;
+      }
+
+      await Linking.openURL(uri);
+    } catch (error) {
+      console.error("Could not open PDF attachment", error);
+      Alert.alert(
+        "Open PDF Failed",
+        "This PDF is attached, but it could not be opened from here. Please try the scan option or open it from your files app."
+      );
+    }
+  };
+
+  const runPdfCloudOcr = async (attachment) => {
+    const uri = getAttachmentUri(attachment);
+    if (!uri) {
+      Alert.alert("Scan Failed", "This PDF does not have a readable file path.");
+      return;
+    }
+
+    try {
+      setOcrPreviewUri(null);
+      setOcrNewImageSession(false);
+      setOcrResult(null);
+      setOcrModalVisible(true);
+      setOcrLoading(true);
+
+      const response = await extractBankStatementPdfInCloud({
+        uri,
+        fileName: attachment?.name,
+      });
+
+      const extracted = response?.extracted || null;
+      setOcrResult(extracted);
+      setAcceptFlagsFromResult(extracted);
+
+      if (!extracted || Object.values(extracted).every((value) => value == null)) {
+        Alert.alert(
+          "Scan Complete",
+          "The PDF was scanned, but no totals or statement dates were confidently detected. Please review the values manually."
+        );
+      }
+    } catch (error) {
+      console.error("Cloud PDF OCR failed", error);
+      setOcrResult(null);
+      setAcceptFlags({
+        accountName: false,
+        startDate: false,
+        endDate: false,
+        moneyInTotal: false,
+        moneyOutTotal: false,
+      });
+      Alert.alert(
+        "PDF OCR Failed",
+        error?.message || "The secure PDF scan could not complete right now."
+      );
+      setOcrModalVisible(false);
+    } finally {
+      setOcrLoading(false);
+    }
+  };
+
+  const showPdfAttachmentActions = (attachment) => {
+    const uri = getAttachmentUri(attachment);
+    Alert.alert("PDF Attachment", "Choose what you want to do with this statement.", [
+      {
+        text: "Scan PDF",
+        onPress: () => {
+          runPdfCloudOcr(attachment).catch(() => {});
+        },
+      },
+      {
+        text: "Open PDF",
+        onPress: () => {
+          openPdfAttachment(uri).catch(() => {});
+        },
+      },
+      { text: "Cancel", style: "cancel" },
+    ]);
   };
 
   const pickAttachmentOption = () => {
@@ -479,11 +596,13 @@ export default function BankStatementForm({ navigation, route, mode }) {
     return (
       <View key={attachment.id || `${uri}-${index}`} style={styles.attachmentShell}>
         <TouchableOpacity
-          disabled={!isImageAttachment(attachment)}
           onPress={() => {
             if (isImageAttachment(attachment)) {
               openOcrModal(uri, { newSession: false }).catch(() => {});
+              return;
             }
+
+            showPdfAttachmentActions(attachment);
           }}
         >
           {isImageAttachment(attachment) ? (
@@ -494,6 +613,7 @@ export default function BankStatementForm({ navigation, route, mode }) {
               <Text style={styles.pdfName} numberOfLines={2}>
                 {attachment.name || "Statement PDF"}
               </Text>
+              <Text style={styles.pdfHint}>Tap to scan or open</Text>
             </View>
           )}
         </TouchableOpacity>
@@ -608,7 +728,9 @@ export default function BankStatementForm({ navigation, route, mode }) {
                   <TouchableOpacity style={ReceiptStyles.uploadPlaceholder} onPress={pickAttachmentOption}>
                     <Text style={ReceiptStyles.plus}>+</Text>
                   </TouchableOpacity>
-                  {showTip ? <ScannerTooltip onDismiss={dismissTip} text="Tap here to upload your bank statement" /> : null}
+                  {tipStatusLoaded && showTip ? (
+                    <ScannerTooltip onDismiss={dismissTip} text="Tap here to upload your bank statement" />
+                  ) : null}
                 </View>
               </ScrollView>
             </View>
@@ -689,7 +811,9 @@ export default function BankStatementForm({ navigation, route, mode }) {
               ) : null}
 
               {ocrLoading ? (
-                <Text style={ReceiptStyles.scanningText}>Scanning…</Text>
+                <Text style={ReceiptStyles.scanningText}>
+                  {ocrPreviewUri ? "Scanning…" : "Scanning PDF securely in the cloud…"}
+                </Text>
               ) : (
                 <>
                   <View style={ReceiptStyles.ocrRow}>
@@ -934,6 +1058,7 @@ const styles = StyleSheet.create({
   },
   pdfLabel: { color: Colors.accent, fontWeight: "700", fontSize: 18 },
   pdfName: { color: Colors.textPrimary, fontSize: 11, marginTop: 8, textAlign: "center" },
+  pdfHint: { color: Colors.textMuted, fontSize: 10, marginTop: 6, textAlign: "center" },
   removeAttachmentButton: {
     position: "absolute",
     top: 4,

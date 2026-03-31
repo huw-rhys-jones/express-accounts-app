@@ -5,8 +5,8 @@ import {
   FlatList,
   Platform,
   RefreshControl,
-  StyleSheet,
   StatusBar,
+  StyleSheet,
   Text,
   TouchableOpacity,
   View,
@@ -123,6 +123,15 @@ export default function IncomeScreen({ navigation }) {
     }
   };
 
+  const openExpensesForFeature = (featureName) => {
+    closeMenu();
+    Alert.alert(
+      "Open in Expenses",
+      `${featureName} is managed from the Expenses menu. Opening Expenses now.`
+    );
+    navigation.navigate("Expenses");
+  };
+
   const renderHeader = () => (
     <View style={styles.headerRow}>
       <TouchableOpacity style={styles.headerCellDate} onPress={() => toggleSort("date")}>
@@ -226,39 +235,49 @@ export default function IncomeScreen({ navigation }) {
             <Text style={styles.userEmail}>{auth.currentUser?.email}</Text>
           </View>
 
-          <TouchableOpacity
-            onPress={() => {
-              closeMenu();
-              navigation.navigate("Expenses");
-            }}
-            style={styles.menuButton}
-          >
-            <Text style={styles.menuButtonText}>Go to Expenses</Text>
+          <TouchableOpacity onPress={() => openExpensesForFeature("Settings")} style={styles.settingsMenuBtn}>
+            <Text style={styles.settingsMenuBtnText}>Settings</Text>
           </TouchableOpacity>
 
-          <TouchableOpacity
-            onPress={() => {
-              closeMenu();
-              navigation.navigate("BankStatements");
-            }}
-            style={[styles.menuButton, { marginTop: 10 }]}
-          >
-            <Text style={styles.menuButtonText}>Go to Bank</Text>
-          </TouchableOpacity>
+          <View style={{ marginTop: 20 }}>
+            <TouchableOpacity
+              onPress={() => openExpensesForFeature("Notify Accountant")}
+              style={styles.notifyBtnFilled}
+            >
+              <Text style={styles.filledBtnText}>Notify Accountant</Text>
+            </TouchableOpacity>
+          </View>
 
-          <TouchableOpacity
-            onPress={() => {
-              closeMenu();
-              navigation.navigate("Summary");
-            }}
-            style={[styles.menuButton, { marginTop: 10 }]}
-          >
-            <Text style={styles.menuButtonText}>Go to Summary</Text>
-          </TouchableOpacity>
+          <View style={{ marginTop: 6 }}>
+            <TouchableOpacity onPress={() => openExpensesForFeature("Add ID Image")} style={styles.secondaryMenuButton}>
+              <Text style={styles.secondaryMenuButtonText}>Add ID Image</Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              onPress={() => openExpensesForFeature("Add Address")}
+              style={[styles.secondaryMenuButton, { marginTop: 10 }]}
+            >
+              <Text style={styles.secondaryMenuButtonText}>Add Address</Text>
+            </TouchableOpacity>
+          </View>
 
           <View style={styles.footerContainer}>
-            <TouchableOpacity onPress={handleLogout} style={styles.redButton}>
+            <TouchableOpacity
+              onPress={() => openExpensesForFeature("Enter Client Code")}
+              style={styles.referralBtn}
+            >
+              <Text style={styles.filledBtnText}>Enter Client Code</Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity onPress={handleLogout} style={[styles.redButton, { marginTop: 10 }]}>
               <Text style={styles.redButtonText}>Sign Out</Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              onPress={() => openExpensesForFeature("Leave Feedback")}
+              style={[styles.signOutLink, { marginTop: 12, marginBottom: 0 }]}
+            >
+              <Text style={[styles.linkBtnText, { textDecorationLine: "none" }]}>Leave Feedback</Text>
             </TouchableOpacity>
           </View>
         </View>
@@ -392,30 +411,78 @@ const styles = StyleSheet.create({
     marginBottom: 6,
     fontWeight: "600",
   },
-  menuButton: {
-    backgroundColor: "#f4d7e4",
-    paddingVertical: 12,
-    borderRadius: 24,
+  settingsMenuBtn: {
+    backgroundColor: "#9999AA",
+    paddingVertical: 14,
+    paddingHorizontal: 16,
+    borderRadius: 10,
+    marginTop: 16,
     alignItems: "center",
   },
-  menuButtonText: {
-    color: Colors.textPrimary,
+  settingsMenuBtnText: {
+    color: "white",
     fontWeight: "700",
+    textAlign: "center",
+  },
+  notifyBtnFilled: {
+    backgroundColor: "#2e86de",
+    paddingVertical: 12,
+    paddingHorizontal: 16,
+    borderRadius: 10,
+    marginBottom: 10,
+  },
+  filledBtnText: {
+    color: "white",
+    fontWeight: "700",
+    textAlign: "center",
+  },
+  secondaryMenuButton: {
+    backgroundColor: Colors.surface,
+    borderColor: Colors.border,
+    borderWidth: 1,
+    borderRadius: 10,
+    paddingVertical: 12,
+    paddingHorizontal: 16,
+    alignItems: "center",
+  },
+  secondaryMenuButtonText: {
+    color: Colors.textPrimary,
+    fontWeight: "600",
+    textAlign: "center",
   },
   footerContainer: {
     marginTop: "auto",
     paddingBottom: Platform.OS === "android" ? (StatusBar.currentHeight || 0) + 16 : 24,
   },
+  referralBtn: {
+    backgroundColor: "#27ae60",
+    paddingVertical: 14,
+    paddingHorizontal: 16,
+    borderRadius: 10,
+    alignItems: "center",
+  },
   redButton: {
-    backgroundColor: "#b00020",
-    paddingVertical: 12,
-    borderRadius: 24,
+    backgroundColor: Colors.accent,
+    paddingVertical: 14,
+    paddingHorizontal: 16,
+    borderRadius: 10,
     alignItems: "center",
   },
   redButtonText: {
-    color: "#fff",
+    color: "white",
     fontWeight: "700",
-    fontSize: 15,
+    textAlign: "center",
+  },
+  signOutLink: {
+    backgroundColor: "transparent",
+    paddingVertical: 10,
+    marginBottom: 20,
+  },
+  linkBtnText: {
+    color: Colors.textPrimary,
+    fontWeight: "600",
+    textAlign: "center",
+    textDecorationLine: "underline",
   },
   emptyState: { alignItems: "center", justifyContent: "center", paddingTop: 20 },
   addButton: {

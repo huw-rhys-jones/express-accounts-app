@@ -1,3 +1,4 @@
+/* eslint-disable max-len, require-jsdoc, no-useless-escape */
 const MONTHS = {
   JAN: 1,
   FEB: 2,
@@ -44,10 +45,12 @@ function toIsoDate(day, month, year) {
   if (y < 1990 || y > currentYear + 1) return null;
 
   const dt = new Date(`${String(y).padStart(4, "0")}-${String(m).padStart(2, "0")}-${String(
-    d
+      d,
   ).padStart(2, "0")}`);
   if (Number.isNaN(dt.getTime())) return null;
-  if (dt.getUTCDate() !== d || dt.getUTCMonth() + 1 !== m || dt.getUTCFullYear() !== y) return null;
+  if (dt.getUTCDate() !== d || dt.getUTCMonth() + 1 !== m || dt.getUTCFullYear() !== y) {
+    return null;
+  }
 
   return `${String(y).padStart(4, "0")}-${String(m).padStart(2, "0")}-${String(d).padStart(2, "0")}`;
 }
@@ -56,11 +59,10 @@ function parseAmount(raw) {
   if (!raw) return null;
   const original = String(raw);
   const normalized = original
-    .replace(/[, ]+/g, "")
-    .replace(/£|GBP/gi, "");
+      .replace(/[, ]+/g, "")
+      .replace(/£|GBP/gi, "");
   let value = Number(normalized);
 
-  // OCR often drops decimal separators for statement totals, e.g. "1,76310".
   if (
     Number.isFinite(value) &&
     !/[.]/.test(original) &&
@@ -97,9 +99,9 @@ function parseTextualDate(dayStr, monthStr, yearStr) {
 function collectNumericDates(text) {
   const matches = [...String(text || "").matchAll(/\b\d{1,2}[\/.-]\d{1,2}[\/.-]\d{2,4}\b/g)];
   const dates = matches
-    .map((m) => parseDateToken(m[0]))
-    .filter(Boolean)
-    .map((iso) => new Date(iso));
+      .map((m) => parseDateToken(m[0]))
+      .filter(Boolean)
+      .map((iso) => new Date(iso));
   if (!dates.length) return [];
   dates.sort((a, b) => a.getTime() - b.getTime());
   return dates;
@@ -109,7 +111,7 @@ function parsePeriodRangeFromText(text) {
   const normalized = String(text || "").replace(/\s+/g, " ");
 
   const rangeMatch = normalized.match(
-    /(\d{1,2})\s+([A-Za-z]{3,9})\s*(\d{4})?\s+(?:to|-|until)\s+(\d{1,2})\s+([A-Za-z]{3,9})\s*(\d{4})?/i
+      /(\d{1,2})\s+([A-Za-z]{3,9})\s*(\d{4})?\s+(?:to|-|until)\s+(\d{1,2})\s+([A-Za-z]{3,9})\s*(\d{4})?/i,
   );
   if (!rangeMatch) return null;
 
@@ -135,12 +137,14 @@ function extractLikelyAccountName(lines) {
     const line = lines[i];
     if (!/\bACCOUNT\s*NAME\b/i.test(line.raw)) continue;
 
-    const inline = line.raw.match(/\bACCOUNT\s*NAME\b\s*[:\-]?\s*(.+)$/i)?.[1]?.trim();
+    const inlineMatch = line.raw.match(/\bACCOUNT\s*NAME\b\s*[:\-]?\s*(.+)$/i);
+    const inline = inlineMatch && inlineMatch[1] ? inlineMatch[1].trim() : "";
     if (inline && !/SORT\s*CODE|ACCOUNT\s*NUMBER|SHEET\s*NUMBER/i.test(inline)) {
       return inline;
     }
 
-    const next = lines[i + 1]?.raw?.trim();
+    const nextLine = lines[i + 1];
+    const next = nextLine && nextLine.raw ? nextLine.raw.trim() : "";
     if (next && !/SORT\s*CODE|ACCOUNT\s*NUMBER|SHEET\s*NUMBER|IBAN|BIC/i.test(next)) {
       return next;
     }
@@ -159,9 +163,9 @@ function extractAmountNearLabel(raw, upper, labelRegexes) {
 
     const tail = raw.slice(found.index);
     const firstAmount = tail.match(
-      /(?:£\s*|GBP\s*)?(\d{1,3}(?:[, ]\d{2,3})*(?:\.\d{2})?|\d{3,}(?:\.\d{2})?)/i
+        /(?:£\s*|GBP\s*)?(\d{1,3}(?:[, ]\d{2,3})*(?:\.\d{2})?|\d{3,}(?:\.\d{2})?)/i,
     );
-    if (firstAmount?.[1]) {
+    if (firstAmount && firstAmount[1]) {
       const parsed = parseAmount(firstAmount[1]);
       if (Number.isFinite(parsed)) return parsed;
     }
@@ -184,7 +188,7 @@ function extractAmountsByLabels(lines, labelRegexes) {
 
     const amounts = [
       ...line.raw.matchAll(
-        /(?:£\s*|GBP\s*)?(\d{1,3}(?:[, ]\d{2,3})*(?:\.\d{2})?|\d{3,}(?:\.\d{2})?)/gi
+          /(?:£\s*|GBP\s*)?(\d{1,3}(?:[, ]\d{2,3})*(?:\.\d{2})?|\d{3,}(?:\.\d{2})?)/gi,
       ),
     ];
     if (!amounts.length) continue;
@@ -201,24 +205,24 @@ function extractAmountsByLabels(lines, labelRegexes) {
   return Math.max(...found);
 }
 
-export function extractBankStatementData(text) {
+function extractBankStatementData(text) {
   const lines = String(text || "")
-    .split("\n")
-    .map((raw) => ({ raw: raw.trim(), upper: raw.trim().toUpperCase() }))
-    .filter((line) => line.raw.length > 0);
+      .split("\n")
+      .map((raw) => ({raw: raw.trim(), upper: raw.trim().toUpperCase()}))
+      .filter((line) => line.raw.length > 0);
 
   const accountName = extractLikelyAccountName(lines);
 
   const rangedDates = parsePeriodRangeFromText(text);
   const allDates = collectNumericDates(text);
-  let statementStartDate = rangedDates?.statementStartDate || null;
-  let statementEndDate = rangedDates?.statementEndDate || null;
+  let statementStartDate = rangedDates ? rangedDates.statementStartDate : null;
+  let statementEndDate = rangedDates ? rangedDates.statementEndDate : null;
 
   if (!statementStartDate || !statementEndDate) {
     const fallbackStart = allDates.length ? allDates[0].toISOString().slice(0, 10) : null;
-    const fallbackEnd = allDates.length
-      ? allDates[allDates.length - 1].toISOString().slice(0, 10)
-      : null;
+    const fallbackEnd = allDates.length ?
+      allDates[allDates.length - 1].toISOString().slice(0, 10) :
+      null;
     statementStartDate = statementStartDate || fallbackStart;
     statementEndDate = statementEndDate || fallbackEnd;
   }
@@ -269,3 +273,7 @@ export function extractBankStatementData(text) {
     moneyOutTotal,
   };
 }
+
+module.exports = {
+  extractBankStatementData,
+};

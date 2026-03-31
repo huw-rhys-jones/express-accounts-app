@@ -20,6 +20,10 @@
       {
         "source": "/submit-feedback",
         "function": "submitFeedback"
+      },
+      {
+        "source": "/extract-bank-statement-pdf",
+        "function": "extractBankStatementPdf"
       }
     ]
   },
