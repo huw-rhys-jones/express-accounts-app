@@ -1440,6 +1440,7 @@ function parseRawTransactionRow(rawRow) {
   let vendor = phraseMatch?.[1] || "Unknown vendor";
   vendor = vendor
     .replace(/[*!]/g, " ")
+    .replace(/\bPAYA?L\b/gi, " ")
     .replace(/\.(?:com|co\.uk|net|org)\b/gi, "")
     .replace(/\s+/g, " ")
     .trim();
@@ -1482,23 +1483,41 @@ const StatementBreakdown = ({ data }) => {
   const transactionRows = transactions.length
     ? transactions
         .map((entry) => ({
-          vendor: entry.vendor || "Unknown vendor",
+          vendor: String(entry.vendor || "Unknown vendor").replace(/\bPAYA?L\b/gi, " ").replace(/\s+/g, " ").trim() || "Unknown vendor",
           direction: entry.direction === "in" ? "in" : "out",
           amount: Number(entry.amount || 0),
         }))
         .filter((entry) => Number.isFinite(entry.amount) && entry.amount > 0)
     : fallbackTransactionRows.map(parseRawTransactionRow).filter(Boolean);
 
+  const moneyInRows = transactionRows.filter((row) => row.direction === "in");
+  const moneyOutRows = transactionRows.filter((row) => row.direction !== "in");
+
   return (
     <View style={styles.breakdownCard}>
       {transactionRows.length ? (
         <View style={styles.breakdownSection}>
-          <Text style={styles.breakdownTitle}>Transactions</Text>
-          {transactionRows.map((row, index) => (
-            <Text key={`${row.vendor}-${row.amount}-${index}`} style={styles.breakdownLine}>
-              {row.vendor} · {row.direction === "in" ? "Money in" : "Money out"} · £{Number(row.amount || 0).toFixed(2)}
+          <Text style={styles.breakdownTitle}>Money in</Text>
+          {moneyInRows.length ? moneyInRows.map((row, index) => (
+            <Text key={`in-${row.vendor}-${row.amount}-${index}`} style={styles.breakdownLine}>
+              {row.vendor} · £{Number(row.amount || 0).toFixed(2)}
             </Text>
-          ))}
+          )) : (
+            <Text style={styles.breakdownRawText}>No money in rows detected.</Text>
+          )}
+        </View>
+      ) : null}
+
+      {transactionRows.length ? (
+        <View style={styles.breakdownSection}>
+          <Text style={styles.breakdownTitle}>Money out</Text>
+          {moneyOutRows.length ? moneyOutRows.map((row, index) => (
+            <Text key={`out-${row.vendor}-${row.amount}-${index}`} style={styles.breakdownLine}>
+              {row.vendor} · £{Number(row.amount || 0).toFixed(2)}
+            </Text>
+          )) : (
+            <Text style={styles.breakdownRawText}>No money out rows detected.</Text>
+          )}
         </View>
       ) : (
         <View style={styles.breakdownSection}>

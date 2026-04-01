@@ -305,6 +305,7 @@ function normaliseVendorName(description) {
   const candidateFromPhrase = directionPhrase?.[1]
     ? directionPhrase[1]
         .replace(/[*!]/g, " ")
+        .replace(/\bPAYA?L\b/gi, " ")
         .replace(/\.(?:com|co\.uk|net|org)\b/gi, "")
         .replace(/\b(?:V\d+[A-Z0-9]+|PA\d+[A-Z0-9]+|J\d+[A-Z0-9]+)\b/gi, " ")
         .replace(/\s+/g, " ")
@@ -320,6 +321,7 @@ function normaliseVendorName(description) {
   }
 
   const raw = String(description || "")
+    .replace(/\bPAYA?L\b/gi, " ")
     .replace(/\b(?:CARD|PAYMENT|PURCHASE|TRANSFER|DIRECT\s+DEBIT|STANDING\s+ORDER|FASTER\s+PAYMENTS?|DEBIT|CREDIT|POS|CONTACTLESS|REF|REFERENCE|FPS|DD|SO|CR|DR|TO|FROM|ON)\b/gi, " ")
     .replace(/\b\d{2,}\b/g, " ")
     .replace(/\s+/g, " ")
@@ -327,7 +329,7 @@ function normaliseVendorName(description) {
 
   const specialCases = [
     ["AMAZON", "Amazon"],
-    ["PAYPAL", "PayPal"],
+    ["PAYPAL", ""],
     ["UBER", "Uber"],
     ["SHELL", "Shell"],
     ["BP", "BP"],
@@ -343,7 +345,7 @@ function normaliseVendorName(description) {
 
   const upper = raw.toUpperCase();
   for (const [needle, label] of specialCases) {
-    if (upper.includes(needle)) return label;
+    if (upper.includes(needle)) return label || "Unknown vendor";
   }
 
   const words = raw.split(" ").filter((word) => word.length > 1).slice(0, 4);
@@ -444,6 +446,245 @@ function extractTransactionAmounts(raw) {
   }
 
   return amounts;
+}
+
+function isDatePrefixedLine(value) {
+  return /^(?:\d{1,2}(?:st|nd|rd|th)?\s+[A-Za-z]{3,9}|\d{1,2}[\/.-]\d{1,2}(?:[\/.-]\d{2,4})?)\b/i.test(
+    String(value || "").trim()
+  );
+}
+
+function parseVendorFromDescription(description) {
+  const text = String(description || "");
+
+  const patterns = [
+    /\bDIRECT\s+DEBIT\s+PAYMENT\s+TO\s+(.+?)(?:\s+REF\b|\s+MANDATE\b|\s+ON\b|$)/i,
+    /\bCARD\s+PAYMENT\s+TO\s+(.+?)(?:\s+ON\b|\s+REF\b|$)/i,
+    /\bBILL\s+PAYMENT\s+VIA\s+FASTER\s+PAYMENT\s+TO\s+(.+?)(?:\s+REFERENCE\b|\s+MANDATE\b|$)/i,
+    /\bTHIRD\s+PARTY\s+PAYMENT\s+MADE\s+VIA\s+FASTER\s+PAYMENT\s+TO\s+(.+?)(?:\s+REFERENCE\b|$)/i,
+    /\bFASTER\s+PAYMENTS?\s+RECEIPT\b.*?\bFROM\s+(.+?)(?:\s+REF\b|$)/i,
+    /\bBANK\s+GIRO\s+CREDIT\s+REF\s+(.+?)(?:,|\s+REF\b|$)/i,
+  ];
+
+  let vendor = "";
+  for (const pattern of patterns) {
+    const match = text.match(pattern);
+    if (match?.[1]) {
+      vendor = match[1];
+      break;
+    }
+  }
+
+  if (!vendor) {
+    vendor = normaliseVendorName(text);
+  }
+
+  vendor = String(vendor || "")
+    .replace(/[*!]/g, " ")
+    .replace(/\.(?:com|co\.uk|net|org)\b/gi, "")
+    .replace(/\bPAYA?L\b/gi, " ")
+    .replace(/\b(?:REF|REFERENCE|MANDATE|NO)\b.*$/i, "")
+    .replace(/\b\d{4,}\b/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+
+  if (!vendor) return "Unknown vendor";
+
+  const upper = vendor.toUpperCase();
+  if (upper.includes("YOUR-SAVING")) return "your-saving";
+  if (upper.includes("NATIONAL TRUST")) return "National Trust";
+  if (upper.includes("ATKINSREALIS")) return "Atkinsrealis";
+  if (upper.includes("AMZN") || upper.includes("AMAZON")) return "Amazon";
+
+  return toTitleCase(vendor);
+}
+
+function extractTransactionsFromTableText(text, { statementStartDate, statementEndDate } = {}) {
+  const rawLines = String(text || "")
+    .split("\n")
+    .map((line) => line.trim())
+    .filter(Boolean);
+  if (!rawLines.length) return [];
+
+  const fallbackYear =
+    Number(String(statementEndDate || statementStartDate || "").slice(0, 4)) ||
+    new Date().getFullYear();
+
+  const startIndex = rawLines.findIndex((line) => /\bYOUR\s+TRANSACTIONS\b/i.test(line));
+  if (startIndex < 0) return [];
+
+  const tableLines = [];
+  for (let i = startIndex + 1; i < rawLines.length; i += 1) {
+    const line = rawLines[i];
+    if (/\bBALANCE\s+CARRIED\s+FORWARD\s+TO\s+NEXT\s+STATEMENT\b/i.test(line)) {
+      tableLines.push(line);
+      break;
+    }
+    tableLines.push(line);
+  }
+
+  const cleaned = tableLines.filter(
+    (line) =>
+      !/^(?:DATE\s*DESCRIPTION|DATE\b|PAGE\s+NUMBER\b|ACCOUNT\s+NAME:|ACCOUNT\s+NUMBER:|STATEMENT\s+NUMBER:|MONEY\s+IN\b|MONEY\s+OUT\b|£\s*BALANCE\b)/i.test(
+        line
+      )
+  );
+
+  const stitchedRows = [];
+  let current = "";
+  for (const line of cleaned) {
+    if (isDatePrefixedLine(line)) {
+      if (current) stitchedRows.push(current);
+      current = line;
+    } else if (current) {
+      current = `${current} ${line}`.replace(/\s+/g, " ").trim();
+    }
+  }
+  if (current) stitchedRows.push(current);
+
+  function normalizeRowForAmounts(row) {
+    return String(row || "")
+      .replace(/(\d{2}[\/.-]\d{2}[\/.-]\d{4})(?=\d)/g, "$1 ")
+      .replace(/(\d{1,2}(?:st|nd|rd|th)?\s+[A-Za-z]{3,9}\s+\d{4})(?=\d)/gi, "$1 ")
+      .replace(/\s+/g, " ")
+      .trim();
+  }
+
+  function extractAmountAndBalance(normalizedRow) {
+    const tailTokens = [...String(normalizedRow || "").matchAll(/(\d[\d,]*\.\d{2})/g)]
+      .map((match) => match[1])
+      .filter(Boolean);
+
+    if (tailTokens.length < 2) return null;
+
+    const balanceToken = tailTokens[tailTokens.length - 1];
+    let amountToken = tailTokens[tailTokens.length - 2];
+
+    let amountValue = parseAmount(amountToken);
+    const balanceValue = parseAmount(balanceToken);
+
+    // Repair OCR collisions like "3241792,872.093,473.12" where reference digits join amount.
+    if (!Number.isFinite(amountValue) || amountValue > 1000000) {
+      const rescue = String(normalizedRow).match(
+        /(\d{1,4}(?:,\d{3})?\.\d{2})(?=\d{1,3}(?:,\d{3})*\.\d{2}\s*$)/
+      );
+      if (rescue?.[1]) {
+        amountToken = rescue[1];
+        amountValue = parseAmount(amountToken);
+      }
+    }
+
+    if (!Number.isFinite(amountValue) || !Number.isFinite(balanceValue)) return null;
+
+    return {
+      amount: amountValue,
+      balance: balanceValue,
+    };
+  }
+
+  function repairAmountToken(token) {
+    let value = String(token || "").trim();
+    if (!value) return null;
+
+    // OCR can glue long reference prefixes before comma/amount.
+    if ((value.match(/,/g) || []).length >= 2) {
+      value = value.slice(value.lastIndexOf(",") + 1);
+    }
+
+    // OCR can glue trailing year from "ON dd-mm-yyyy" into the amount, e.g. 202696.00 -> 96.00.
+    if (/^(?:19|20)\d{2}\d+\.\d{2}$/.test(value)) {
+      value = value.slice(4);
+    }
+
+    return parseAmount(value);
+  }
+
+  const transactions = [];
+  let previousBalance = null;
+  for (const row of stitchedRows) {
+    if (/\bBALANCE\s+BROUGHT\s+FORWARD\b/i.test(row)) {
+      const openingBalanceMatch = [...row.matchAll(/(\d[\d,]*\.\d{2})/g)].pop();
+      const openingBalance = openingBalanceMatch?.[1] ? parseAmount(openingBalanceMatch[1]) : null;
+      if (Number.isFinite(openingBalance) && openingBalance > 0) {
+        previousBalance = openingBalance;
+      }
+      continue;
+    }
+
+    if (/\bBALANCE\s+CARRIED\s+FORWARD\b/i.test(row)) continue;
+
+    const normalizedRow = normalizeRowForAmounts(row);
+    const transactionDate = parseLeadingTransactionDate(normalizedRow, fallbackYear);
+    if (!transactionDate) continue;
+
+    const parsedTail = extractAmountAndBalance(normalizedRow);
+    if (!parsedTail) continue;
+
+    const rawAmountToken = [...normalizedRow.matchAll(/(\d[\d,]*\.\d{2})/g)]
+      .map((match) => match[1])
+      .slice(-2)[0];
+
+    const repairedAmount = repairAmountToken(rawAmountToken);
+    const currentBalance = Number(parsedTail.balance);
+    if (!Number.isFinite(currentBalance) || currentBalance <= 0) continue;
+
+    const description = normalizedRow
+      .replace(/^\s*\d{1,2}[\/.-]\d{1,2}(?:[\/.-]\d{2,4})?\s*/i, "")
+      .replace(/^\s*\d{1,2}(?:st|nd|rd|th)?\s+[A-Za-z]{3,9}(?:\s+\d{4})?\s*/i, "")
+      .replace(/\d[\d,]*\.\d{2}/g, " ")
+      .replace(/\bBALANCE\s+CARRIED\s+FORWARD.*$/i, "")
+      .replace(/\s+/g, " ")
+      .trim();
+
+    if (!description) continue;
+
+    let direction = "out";
+    if (/\b(BANK\s+GIRO\s+CREDIT|FASTER\s+PAYMENTS?\s+RECEIPT|\bFROM\b|\bCREDIT\b)\b/i.test(description)) {
+      direction = "in";
+    }
+
+    let amountFromBalance = null;
+    if (Number.isFinite(previousBalance)) {
+      const delta = Number((currentBalance - previousBalance).toFixed(2));
+      if (delta > 0) {
+        amountFromBalance = delta;
+        direction = "in";
+      } else if (delta < 0) {
+        amountFromBalance = Math.abs(delta);
+        direction = "out";
+      }
+    }
+
+    const amount = Number(
+      (Number.isFinite(amountFromBalance) && amountFromBalance > 0
+        ? amountFromBalance
+        : repairedAmount || parsedTail.amount || 0).toFixed(2)
+    );
+    if (!Number.isFinite(amount) || amount <= 0) {
+      previousBalance = currentBalance;
+      continue;
+    }
+
+    const vendor = parseVendorFromDescription(description);
+    const category = direction === "out"
+      ? inferCategoryFromText(`${vendor} ${description}`)
+      : "Income";
+
+    transactions.push({
+      id: `${transactionDate}-${vendor}-${transactions.length}`,
+      date: transactionDate,
+      description,
+      vendor,
+      paymentLabel: direction === "in" ? "from" : "to",
+      amount: Number(amount.toFixed(2)),
+      direction,
+      category,
+    });
+
+    previousBalance = currentBalance;
+  }
+
+  return transactions;
 }
 
 function extractTransactions(lines, { statementStartDate, statementEndDate } = {}) {
@@ -586,10 +827,16 @@ export function extractBankStatementData(text) {
     statementEndDate = statementEndDate || fallbackEnd;
   }
 
-  const transactions = extractTransactions(lines, {
+  const transactionsFromTable = extractTransactionsFromTableText(text, {
     statementStartDate,
     statementEndDate,
   });
+  const transactions = transactionsFromTable.length
+    ? transactionsFromTable
+    : extractTransactions(lines, {
+      statementStartDate,
+      statementEndDate,
+    });
   const { vendorTotals, categoryTotals } = summariseTransactions(transactions);
 
   const transactionMoneyIn = transactions
