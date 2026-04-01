@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useState } from "react";
 import {
+  ActivityIndicator,
   Alert,
   Image,
   Modal,
@@ -73,6 +74,8 @@ export default function IncomeFormScreen({ navigation, route, mode }) {
   const [fullScreenImage, setFullScreenImage] = useState(null);
   const [returnToOcrAfterFullscreen, setReturnToOcrAfterFullscreen] = useState(false);
   const [showTip, setShowTip] = useState(false);
+  const [pickerBusy, setPickerBusy] = useState(false);
+  const [pickerBusyText, setPickerBusyText] = useState("Opening attachment options…");
 
   const {
     ensureFileFromAsset,
@@ -128,6 +131,15 @@ export default function IncomeFormScreen({ navigation, route, mode }) {
     }
   };
 
+  const beginPickerHold = (text = "Opening attachment options…") => {
+    setPickerBusyText(text);
+    setPickerBusy(true);
+  };
+
+  const endPickerHold = () => {
+    setPickerBusy(false);
+  };
+
   const handleConfirmDate = (date) => {
     setDatePickerVisibility(false);
     setTimeout(() => {
@@ -143,11 +155,14 @@ export default function IncomeFormScreen({ navigation, route, mode }) {
   };
 
   const requestCameraAndLaunch = async () => {
+    beginPickerHold("Opening camera…");
+
     if (Platform.OS === "android") {
       const granted = await PermissionsAndroid.request(
         PermissionsAndroid.PERMISSIONS.CAMERA
       );
       if (granted !== PermissionsAndroid.RESULTS.GRANTED) {
+        endPickerHold();
         Alert.alert("Permission Denied", "Camera access is required.");
         return;
       }
@@ -156,16 +171,24 @@ export default function IncomeFormScreen({ navigation, route, mode }) {
     ImagePicker.launchCamera(
       { mediaType: "photo", includeBase64: true, quality: 0.9 },
       async (response) => {
-        if (!response?.assets?.length) return;
-        const asset = response.assets[0];
-        const localUri = await ensureFileFromAsset(asset);
-        const attachment = {
-          ...createImageAttachment(asset),
-          id: localUri,
-          localUri,
-        };
-        setAttachments((current) => [...current, attachment]);
-        await openOcrModal(localUri, { autoScan: true, newSession: true });
+        if (!response?.assets?.length) {
+          endPickerHold();
+          return;
+        }
+        try {
+          const asset = response.assets[0];
+          const localUri = await ensureFileFromAsset(asset);
+          const attachment = {
+            ...createImageAttachment(asset),
+            id: localUri,
+            localUri,
+          };
+          setAttachments((current) => [...current, attachment]);
+          endPickerHold();
+          await openOcrModal(localUri, { autoScan: true, newSession: true });
+        } finally {
+          endPickerHold();
+        }
       }
     );
   };
@@ -175,33 +198,59 @@ export default function IncomeFormScreen({ navigation, route, mode }) {
       dismissTip().catch(() => {});
     }
 
-    Alert.alert("Add Image", "Choose an option", [
-      { text: "Camera", onPress: () => requestCameraAndLaunch().catch(() => {}) },
-      {
-        text: "Gallery",
-        onPress: () =>
-          ImagePicker.launchImageLibrary(
-            {
-              mediaType: "photo",
-              includeBase64: true,
-              selectionLimit: 0,
-              quality: 0.9,
-            },
-            (response) => {
-              if (!response?.assets?.length) {
-                return;
-              }
-              const mapped = response.assets.map(createImageAttachment);
-              setAttachments((current) => [...current, ...mapped]);
-              const first = mapped[0];
-              if (first?.localUri) {
-                openOcrModal(first.localUri, { autoScan: true, newSession: true }).catch(() => {});
-              }
-            }
-          ),
-      },
-      { text: "Cancel", style: "cancel" },
-    ]);
+    beginPickerHold("Opening attachment options…");
+    requestAnimationFrame(() => {
+      Alert.alert("Add Image", "Choose an option", [
+        {
+          text: "Camera",
+          onPress: () => {
+            requestAnimationFrame(() => {
+              requestCameraAndLaunch().catch(() => {
+                endPickerHold();
+              });
+            });
+          },
+        },
+        {
+          text: "Gallery",
+          onPress: () => {
+            beginPickerHold("Opening gallery…");
+            requestAnimationFrame(() => {
+              ImagePicker.launchImageLibrary(
+                {
+                  mediaType: "photo",
+                  includeBase64: true,
+                  selectionLimit: 0,
+                  quality: 0.9,
+                },
+                async (response) => {
+                  if (!response?.assets?.length) {
+                    endPickerHold();
+                    return;
+                  }
+                  try {
+                    const mapped = response.assets.map(createImageAttachment);
+                    setAttachments((current) => [...current, ...mapped]);
+                    const first = mapped[0];
+                    endPickerHold();
+                    if (first?.localUri) {
+                      await openOcrModal(first.localUri, {
+                        autoScan: true,
+                        newSession: true,
+                      });
+                    }
+                  } finally {
+                    endPickerHold();
+                  }
+                }
+              );
+            });
+          },
+        },
+        { text: "Cancel", style: "cancel" },
+      ]);
+      setTimeout(() => endPickerHold(), 140);
+    });
   };
 
   const saveIncome = async () => {
@@ -623,10 +672,11 @@ export default function IncomeFormScreen({ navigation, route, mode }) {
         ) : null}
       </Modal>
 
-      {isSaving ? (
+      {isSaving || pickerBusy ? (
         <View style={styles.loadingOverlay}>
           <View style={styles.loadingCard}>
-            <Text style={styles.loadingText}>Saving income…</Text>
+            <ActivityIndicator size="large" color={Colors.accent} />
+            <Text style={styles.loadingText}>{isSaving ? "Saving income…" : pickerBusyText}</Text>
           </View>
         </View>
       ) : null}
@@ -722,8 +772,9 @@ const styles = StyleSheet.create({
     paddingHorizontal: 24,
     paddingVertical: 18,
     borderRadius: 12,
+    alignItems: "center",
   },
-  loadingText: { color: Colors.textPrimary, fontWeight: "600" },
+  loadingText: { color: Colors.textPrimary, fontWeight: "600", marginTop: 10 },
 });
 
 const ScannerTooltip = ({ onDismiss, text }) => (

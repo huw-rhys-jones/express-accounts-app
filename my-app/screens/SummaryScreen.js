@@ -13,9 +13,9 @@ import {
   StatusBar,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
-import { signOut } from "firebase/auth";
 import { collection, query, where, getDocs } from "firebase/firestore";
 import SideMenu from "../components/SideMenu";
+import SharedTabMenu from "../components/SharedTabMenu";
 import { db, auth } from "../firebaseConfig";
 import { PieChart, BarChart } from "react-native-chart-kit";
 import { groupCashflowByMonth } from "../utils/groupByMonth";
@@ -234,17 +234,6 @@ export default function SummaryScreen({ navigation }) {
 
   const closeMenu = () => setMenuOpen(false);
 
-  const handleLogout = async () => {
-    closeMenu();
-    try {
-      await signOut(auth);
-      navigation.replace("SignIn");
-    } catch (error) {
-      console.error("Error signing out", error);
-      Alert.alert("Sign Out Failed", "Could not sign out right now.");
-    }
-  };
-
   // ===== Data for charts =====
   const pieData = Object.entries(totals.byCategory).map(([cat, val], i) => ({
     name: cat,
@@ -431,48 +420,11 @@ export default function SummaryScreen({ navigation }) {
       )}
 
       <SideMenu open={menuOpen} onClose={closeMenu}>
-        <View style={{ flex: 1 }}>
-          <View style={styles.userInfo}>
-            <Text style={styles.userEmail}>{auth.currentUser?.displayName || "User"}</Text>
-            <Text style={styles.userEmail}>{auth.currentUser?.email}</Text>
-          </View>
-
-          <TouchableOpacity
-            onPress={() => {
-              closeMenu();
-              navigation.navigate("Expenses");
-            }}
-            style={styles.menuButton}
-          >
-            <Text style={styles.menuButtonText}>Go to Expenses</Text>
-          </TouchableOpacity>
-
-          <TouchableOpacity
-            onPress={() => {
-              closeMenu();
-              navigation.navigate("Income");
-            }}
-            style={[styles.menuButton, { marginTop: 10 }]}
-          >
-            <Text style={styles.menuButtonText}>Go to Income</Text>
-          </TouchableOpacity>
-
-          <TouchableOpacity
-            onPress={() => {
-              closeMenu();
-              navigation.navigate("BankStatements");
-            }}
-            style={[styles.menuButton, { marginTop: 10 }]}
-          >
-            <Text style={styles.menuButtonText}>Go to Bank</Text>
-          </TouchableOpacity>
-
-          <View style={styles.footerContainer}>
-            <TouchableOpacity onPress={handleLogout} style={styles.redButton}>
-              <Text style={styles.redButtonText}>Sign Out</Text>
-            </TouchableOpacity>
-          </View>
-        </View>
+        <SharedTabMenu
+          navigation={navigation}
+          closeMenu={closeMenu}
+          displayName={auth.currentUser?.displayName || "User"}
+        />
       </SideMenu>
     </SafeAreaView>
   );

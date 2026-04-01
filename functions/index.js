@@ -160,11 +160,13 @@ exports.extractBankStatementPdf = functions.https.onRequest((req, res) => {
 
       const parsedPdf = await extractTextFromPdf(pdfBase64, mimeType);
       const documentText = parsedPdf.text || "";
+      console.log("BANK_STATEMENT_RAW_TEXT_START\n%s\nBANK_STATEMENT_RAW_TEXT_END", documentText);
       const extracted = extractBankStatementData(documentText);
 
       return res.status(200).json({
         fileName: fileName || null,
         extracted,
+        rawText: documentText,
         pageCount: parsedPdf.pageCount || 0,
         textLength: documentText.length,
         provider: parsedPdf.provider,

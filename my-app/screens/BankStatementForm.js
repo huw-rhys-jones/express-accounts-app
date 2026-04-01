@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useState } from "react";
 import {
+  ActivityIndicator,
   Alert,
   Image,
   Linking,
@@ -89,14 +90,21 @@ export default function BankStatementForm({ navigation, route, mode }) {
   const [showTip, setShowTip] = useState(false);
   const [tipStatusLoaded, setTipStatusLoaded] = useState(false);
   const [attachmentPickerVisible, setAttachmentPickerVisible] = useState(false);
+  const [pickerBusy, setPickerBusy] = useState(false);
+  const [pickerBusyText, setPickerBusyText] = useState("Opening attachment options…");
   const [fullScreenImage, setFullScreenImage] = useState(null);
   const [returnToOcrAfterFullscreen, setReturnToOcrAfterFullscreen] = useState(false);
 
   const [ocrModalVisible, setOcrModalVisible] = useState(false);
   const [ocrLoading, setOcrLoading] = useState(false);
   const [ocrPreviewUri, setOcrPreviewUri] = useState(null);
+  const [ocrPreviewUris, setOcrPreviewUris] = useState([]);
+  const [ocrPreviewIndex, setOcrPreviewIndex] = useState(0);
+  const [ocrSessionUris, setOcrSessionUris] = useState([]);
   const [ocrNewImageSession, setOcrNewImageSession] = useState(false);
   const [ocrResult, setOcrResult] = useState(null);
+  const [showOcrMore, setShowOcrMore] = useState(false);
+  const [showSavedBreakdown, setShowSavedBreakdown] = useState(false);
   const [acceptFlags, setAcceptFlags] = useState({
     accountName: false,
     startDate: false,
@@ -108,6 +116,24 @@ export default function BankStatementForm({ navigation, route, mode }) {
   const existingRemoteAttachments = useMemo(
     () => normalizeStoredAttachments(statement?.attachments || []),
     [statement?.attachments]
+  );
+
+  const currentStatementInsights = useMemo(
+    () => ({
+      rawText: statement?.rawText || "",
+      transactions: statement?.transactions || [],
+      vendorTotals: statement?.vendorTotals || [],
+      categoryTotals: statement?.categoryTotals || [],
+    }),
+    [statement?.categoryTotals, statement?.rawText, statement?.transactions, statement?.vendorTotals]
+  );
+
+  const displayInsights = ocrResult || currentStatementInsights;
+  const hasDisplayInsights = Boolean(
+    displayInsights?.rawText ||
+      displayInsights?.transactions?.length ||
+      displayInsights?.vendorTotals?.length ||
+      displayInsights?.categoryTotals?.length
   );
 
   useEffect(() => {
@@ -153,6 +179,15 @@ export default function BankStatementForm({ navigation, route, mode }) {
     }
   };
 
+  const beginPickerHold = (text = "Opening attachment options…") => {
+    setPickerBusyText(text);
+    setPickerBusy(true);
+  };
+
+  const endPickerHold = () => {
+    setPickerBusy(false);
+  };
+
   const ensureLocalImageUri = async (asset) => {
     if (!asset) throw new Error("No image asset provided");
     const { base64, fileName, uri } = asset;
@@ -193,13 +228,25 @@ export default function BankStatementForm({ navigation, route, mode }) {
     });
   };
 
-  const runBankOcr = async (localUri) => {
+  const runBankOcr = async (localUriOrUris) => {
+    const uris = (Array.isArray(localUriOrUris) ? localUriOrUris : [localUriOrUris]).filter(Boolean);
+
     try {
       setOcrLoading(true);
-      const result = await TextRecognition.recognize(localUri);
-      const reconstructedText = reconstructLines(result?.blocks || []);
-      const text = reconstructedText || result?.text || "";
-      const extracted = extractBankStatementData(text);
+      const allTextParts = [];
+
+      for (const localUri of uris) {
+        const result = await TextRecognition.recognize(localUri);
+        const reconstructedText = reconstructLines(result?.blocks || []);
+        const text = reconstructedText || result?.text || "";
+        if (text) {
+          allTextParts.push(text);
+        }
+      }
+
+      const combinedText = allTextParts.join("\n\n");
+      console.log("BANK_STATEMENT_IMAGE_OCR_TEXT_START\n%s\nBANK_STATEMENT_IMAGE_OCR_TEXT_END", combinedText);
+      const extracted = extractBankStatementData(combinedText);
       setOcrResult(extracted);
       setAcceptFlagsFromResult(extracted);
     } catch (error) {
@@ -218,20 +265,33 @@ export default function BankStatementForm({ navigation, route, mode }) {
     }
   };
 
-  const openOcrModal = async (uri, { newSession = false } = {}) => {
-    setOcrPreviewUri(uri);
+  const openOcrModal = async (uriOrUris, { newSession = false, initialIndex = 0 } = {}) => {
+    const uris = (Array.isArray(uriOrUris) ? uriOrUris : [uriOrUris]).filter(Boolean);
+    if (!uris.length) {
+      return;
+    }
+
+    const safeIndex = Math.max(0, Math.min(initialIndex, uris.length - 1));
+    setOcrPreviewUris(uris);
+    setOcrPreviewIndex(safeIndex);
+    setOcrPreviewUri(uris[safeIndex] || null);
+    setOcrSessionUris(newSession ? uris : []);
     setOcrNewImageSession(newSession);
+    setShowOcrMore(false);
     setOcrResult(null);
     setOcrModalVisible(true);
-    await runBankOcr(uri);
+    await runBankOcr(uris);
   };
 
   const requestCameraAndLaunch = async () => {
+    beginPickerHold("Opening camera…");
+
     if (Platform.OS === "android") {
       const granted = await PermissionsAndroid.request(
         PermissionsAndroid.PERMISSIONS.CAMERA
       );
       if (granted !== PermissionsAndroid.RESULTS.GRANTED) {
+        endPickerHold();
         Alert.alert("Permission Denied", "Camera access is required.");
         return;
       }
@@ -240,7 +300,10 @@ export default function BankStatementForm({ navigation, route, mode }) {
     ImagePicker.launchCamera(
       { mediaType: "photo", includeBase64: true, quality: 0.9 },
       async (response) => {
-        if (!response?.assets?.length) return;
+        if (!response?.assets?.length) {
+          endPickerHold();
+          return;
+        }
         try {
           const firstAsset = response.assets[0];
           const localUri = await ensureLocalImageUri(firstAsset);
@@ -250,16 +313,21 @@ export default function BankStatementForm({ navigation, route, mode }) {
             localUri,
           };
           setAttachments((current) => [...current, attachment]);
+          endPickerHold();
           await openOcrModal(localUri, { newSession: true });
         } catch (error) {
           console.error("Camera attachment handling failed", error);
           Alert.alert("Image Error", "Could not process this captured image.");
+        } finally {
+          endPickerHold();
         }
       }
     );
   };
 
   const pickGalleryImages = () => {
+    beginPickerHold("Opening gallery…");
+
     ImagePicker.launchImageLibrary(
       {
         mediaType: "photo",
@@ -268,7 +336,10 @@ export default function BankStatementForm({ navigation, route, mode }) {
         quality: 0.9,
       },
       async (response) => {
-        if (!response?.assets?.length) return;
+        if (!response?.assets?.length) {
+          endPickerHold();
+          return;
+        }
         try {
           const mapped = await Promise.all(
             response.assets.map(async (asset, idx) => {
@@ -281,19 +352,24 @@ export default function BankStatementForm({ navigation, route, mode }) {
             })
           );
           setAttachments((current) => [...current, ...mapped]);
-          const first = mapped[0];
-          if (first?.localUri) {
-            await openOcrModal(first.localUri, { newSession: true });
+          const selectedUris = mapped.map((item) => item.localUri).filter(Boolean);
+          endPickerHold();
+          if (selectedUris.length) {
+            await openOcrModal(selectedUris, { newSession: true, initialIndex: 0 });
           }
         } catch (error) {
           console.error("Gallery attachment handling failed", error);
           Alert.alert("Image Error", "Could not process one or more selected images.");
+        } finally {
+          endPickerHold();
         }
       }
     );
   };
 
   const pickPdfOption = async () => {
+    beginPickerHold("Opening PDF picker…");
+
     try {
       const moduleName = "expo-document-picker";
       const documentPicker = require(moduleName);
@@ -315,6 +391,7 @@ export default function BankStatementForm({ navigation, route, mode }) {
 
       const createdAttachments = result.assets.map(createDocumentAttachment);
       setAttachments((current) => [...current, ...createdAttachments]);
+      endPickerHold();
 
       if (createdAttachments[0]) {
         await runPdfCloudOcr(createdAttachments[0]);
@@ -332,11 +409,15 @@ export default function BankStatementForm({ navigation, route, mode }) {
         "PDF Upload Unavailable",
         error?.message || "PDF picker is not available in this build yet. Please rebuild the app client and try again."
       );
+    } finally {
+      endPickerHold();
     }
   };
 
   const openPdfAttachment = async (uri) => {
     if (!uri) return;
+
+    beginPickerHold("Opening PDF…");
 
     try {
       const supported = await Linking.canOpenURL(uri);
@@ -355,6 +436,8 @@ export default function BankStatementForm({ navigation, route, mode }) {
         "Open PDF Failed",
         "This PDF is attached, but it could not be opened from here. Please try the scan option or open it from your files app."
       );
+    } finally {
+      endPickerHold();
     }
   };
 
@@ -367,6 +450,9 @@ export default function BankStatementForm({ navigation, route, mode }) {
 
     try {
       setOcrPreviewUri(null);
+      setOcrPreviewUris([]);
+      setOcrPreviewIndex(0);
+      setOcrSessionUris([]);
       setOcrNewImageSession(false);
       setOcrResult(null);
       setOcrModalVisible(true);
@@ -377,7 +463,13 @@ export default function BankStatementForm({ navigation, route, mode }) {
         fileName: attachment?.name,
       });
 
-      const extracted = response?.extracted || null;
+      const rawText = typeof response?.rawText === "string" ? response.rawText : "";
+      if (rawText) {
+        console.log("BANK_STATEMENT_PDF_OCR_TEXT_START\n%s\nBANK_STATEMENT_PDF_OCR_TEXT_END", rawText);
+      }
+
+      const extracted = rawText ? extractBankStatementData(rawText) : response?.extracted || null;
+      setShowOcrMore(false);
       setOcrResult(extracted);
       setAcceptFlagsFromResult(extracted);
 
@@ -409,51 +501,80 @@ export default function BankStatementForm({ navigation, route, mode }) {
 
   const showPdfAttachmentActions = (attachment) => {
     const uri = getAttachmentUri(attachment);
-    Alert.alert("PDF Attachment", "Choose what you want to do with this statement.", [
-      {
-        text: "Scan PDF",
-        onPress: () => {
-          runPdfCloudOcr(attachment).catch(() => {});
+    beginPickerHold("Opening attachment options…");
+    requestAnimationFrame(() => {
+      Alert.alert("PDF Attachment", "Choose what you want to do with this statement.", [
+        {
+          text: "Scan PDF",
+          onPress: () => {
+            runPdfCloudOcr(attachment).catch(() => {});
+          },
         },
-      },
-      {
-        text: "Open PDF",
-        onPress: () => {
-          openPdfAttachment(uri).catch(() => {});
+        {
+          text: "Open PDF",
+          onPress: () => {
+            openPdfAttachment(uri).catch(() => {});
+          },
         },
-      },
-      { text: "Cancel", style: "cancel" },
-    ]);
+        { text: "Cancel", style: "cancel" },
+      ]);
+      setTimeout(() => endPickerHold(), 140);
+    });
   };
 
   const pickAttachmentOption = () => {
     if (showTip) {
       dismissTip().catch(() => {});
     }
-    setAttachmentPickerVisible(true);
+    beginPickerHold("Opening attachment options…");
+    requestAnimationFrame(() => {
+      setAttachmentPickerVisible(true);
+      setTimeout(() => endPickerHold(), 140);
+    });
   };
 
   const closeAttachmentPicker = () => setAttachmentPickerVisible(false);
 
   const closeOcrModal = () => {
-    if (ocrNewImageSession && ocrPreviewUri) {
+    if (ocrNewImageSession && ocrSessionUris.length > 0) {
       setAttachments((current) =>
-        current.filter((item) => getAttachmentUri(item) !== ocrPreviewUri)
+        current.filter((item) => !ocrSessionUris.includes(getAttachmentUri(item)))
       );
     }
     setOcrModalVisible(false);
     setOcrPreviewUri(null);
+    setOcrPreviewUris([]);
+    setOcrPreviewIndex(0);
+    setOcrSessionUris([]);
     setOcrNewImageSession(false);
+    setShowOcrMore(false);
   };
 
   const deletePreviewImage = () => {
     if (!ocrPreviewUri) return;
+
+    const nextUris = ocrPreviewUris.filter((uri) => uri !== ocrPreviewUri);
     setAttachments((current) =>
       current.filter((item) => getAttachmentUri(item) !== ocrPreviewUri)
     );
-    setOcrModalVisible(false);
-    setOcrPreviewUri(null);
-    setOcrNewImageSession(false);
+
+    if (!nextUris.length) {
+      setOcrModalVisible(false);
+      setOcrPreviewUri(null);
+      setOcrPreviewUris([]);
+      setOcrPreviewIndex(0);
+      setOcrSessionUris([]);
+      setOcrNewImageSession(false);
+      setShowOcrMore(false);
+      return;
+    }
+
+    const nextIndex = Math.min(ocrPreviewIndex, nextUris.length - 1);
+    setOcrPreviewUris(nextUris);
+    setOcrPreviewIndex(nextIndex);
+    setOcrPreviewUri(nextUris[nextIndex]);
+    setOcrSessionUris((current) => current.filter((uri) => uri !== ocrPreviewUri));
+    runBankOcr(nextUris).catch(() => {});
   };
 
   const toggleAccept = (key) => {
@@ -490,7 +611,11 @@ export default function BankStatementForm({ navigation, route, mode }) {
 
     setOcrModalVisible(false);
     setOcrPreviewUri(null);
+    setOcrPreviewUris([]);
+    setOcrPreviewIndex(0);
+    setOcrSessionUris([]);
     setOcrNewImageSession(false);
+    setShowOcrMore(false);
   };
 
   const saveStatement = async () => {
@@ -540,7 +665,10 @@ export default function BankStatementForm({ navigation, route, mode }) {
         netMovement: incomingMoney - outgoingMoney,
         notes: notes.trim(),
         attachments: uploadedAttachments,
-        transactions: statement?.transactions || [],
+        transactions: ocrResult?.transactions || statement?.transactions || [],
+        vendorTotals: ocrResult?.vendorTotals || statement?.vendorTotals || [],
+        categoryTotals: ocrResult?.categoryTotals || statement?.categoryTotals || [],
+        rawText: ocrResult?.rawText || statement?.rawText || "",
         extractionStatus: uploadedAttachments.length > 0 ? "manual-review-needed" : "manual-entry",
         userId: user.uid,
         updatedAt: serverTimestamp(),
@@ -598,7 +726,15 @@ export default function BankStatementForm({ navigation, route, mode }) {
         <TouchableOpacity
           onPress={() => {
             if (isImageAttachment(attachment)) {
-              openOcrModal(uri, { newSession: false }).catch(() => {});
+              const imageUris = attachments
+                .filter((item) => isImageAttachment(item))
+                .map((item) => getAttachmentUri(item))
+                .filter(Boolean);
+              const initialIndex = Math.max(0, imageUris.findIndex((imageUri) => imageUri === uri));
+              openOcrModal(imageUris.length ? imageUris : uri, {
+                newSession: false,
+                initialIndex,
+              }).catch(() => {});
               return;
             }
 
@@ -735,6 +871,15 @@ export default function BankStatementForm({ navigation, route, mode }) {
               </ScrollView>
             </View>
 
+            {hasDisplayInsights ? (
+              <View style={styles.fieldGroup}>
+                <Button mode="text" textColor={Colors.accent} onPress={() => setShowSavedBreakdown((current) => !current)}>
+                  {showSavedBreakdown ? "Hide statement breakdown" : "See statement breakdown"}
+                </Button>
+                {showSavedBreakdown ? <StatementBreakdown data={displayInsights} /> : null}
+              </View>
+            ) : null}
+
             <View style={styles.actionRow}>
               <Button mode="outlined" onPress={() => navigateBackToBankStatements(navigation)}>
                 Cancel
@@ -789,23 +934,48 @@ export default function BankStatementForm({ navigation, route, mode }) {
           <View style={[ReceiptStyles.modalContent, { maxHeight: "88%" }]}>
             <Text style={ReceiptStyles.modalTitle}>Bank Statement OCR Preview</Text>
             <ScrollView keyboardShouldPersistTaps="handled">
-              {ocrPreviewUri ? (
+              {ocrPreviewUris.length > 0 ? (
                 <View style={{ alignItems: "center" }}>
-                  <TouchableOpacity
-                    style={{ alignSelf: "stretch", opacity: ocrLoading ? 0.6 : 1 }}
-                    activeOpacity={0.7}
-                    disabled={ocrLoading}
-                    onPress={() => {
-                      if (!ocrPreviewUri) return;
-                      setReturnToOcrAfterFullscreen(true);
-                      setOcrModalVisible(false);
-                      requestAnimationFrame(() => setFullScreenImage({ uri: ocrPreviewUri }));
+                  <ScrollView
+                    horizontal
+                    pagingEnabled
+                    showsHorizontalScrollIndicator={false}
+                    contentOffset={{ x: ocrPreviewIndex * 260, y: 0 }}
+                    onMomentumScrollEnd={(event) => {
+                      const nextIndex = Math.round(event.nativeEvent.contentOffset.x / 260);
+                      setOcrPreviewIndex(nextIndex);
+                      setOcrPreviewUri(ocrPreviewUris[nextIndex] || null);
                     }}
                   >
-                    <Image source={{ uri: ocrPreviewUri }} style={ReceiptStyles.modalImage} />
-                  </TouchableOpacity>
+                    {ocrPreviewUris.map((uri, index) => (
+                      <TouchableOpacity
+                        key={`${uri}-${index}`}
+                        style={{ width: 260, opacity: ocrLoading ? 0.6 : 1 }}
+                        activeOpacity={0.7}
+                        disabled={ocrLoading}
+                        onPress={() => {
+                          if (!ocrPreviewUri) return;
+                          setReturnToOcrAfterFullscreen(true);
+                          setOcrModalVisible(false);
+                          requestAnimationFrame(() =>
+                            setFullScreenImage({
+                              uri: ocrPreviewUri,
+                              images: ocrPreviewUris.map((imageUri) => ({ url: imageUri })),
+                              index: ocrPreviewIndex,
+                            })
+                          );
+                        }}
+                      >
+                        <Image source={{ uri }} style={[ReceiptStyles.modalImage, styles.ocrCarouselImage]} />
+                      </TouchableOpacity>
+                    ))}
+                  </ScrollView>
                   {!ocrLoading ? (
-                    <Text style={ReceiptStyles.fullscreenHint}>Tap image to view full screen</Text>
+                    <Text style={ReceiptStyles.fullscreenHint}>
+                      {ocrPreviewUris.length > 1
+                        ? `Image ${ocrPreviewIndex + 1} of ${ocrPreviewUris.length} • swipe to review`
+                        : "Tap image to view full screen"}
+                    </Text>
                   ) : null}
                 </View>
               ) : null}
@@ -896,6 +1066,14 @@ export default function BankStatementForm({ navigation, route, mode }) {
                       Accept
                     </Button>
                   </View>
+
+                  {ocrResult ? (
+                    <Button mode="text" textColor={Colors.accent} onPress={() => setShowOcrMore((current) => !current)}>
+                      {showOcrMore ? "Hide details" : "See more"}
+                    </Button>
+                  ) : null}
+
+                  {showOcrMore ? <StatementBreakdown data={ocrResult} /> : null}
                 </>
               )}
             </ScrollView>
@@ -917,7 +1095,9 @@ export default function BankStatementForm({ navigation, route, mode }) {
               style={styles.pickerOption}
               onPress={() => {
                 closeAttachmentPicker();
-                pickPdfOption().catch(() => {});
+                requestAnimationFrame(() => {
+                  pickPdfOption().catch(() => {});
+                });
               }}
             >
               <Text style={styles.pickerOptionText}>PDF</Text>
@@ -927,7 +1107,9 @@ export default function BankStatementForm({ navigation, route, mode }) {
               style={styles.pickerOption}
               onPress={() => {
                 closeAttachmentPicker();
-                requestCameraAndLaunch().catch(() => {});
+                requestAnimationFrame(() => {
+                  requestCameraAndLaunch().catch(() => {});
+                });
               }}
             >
               <Text style={styles.pickerOptionText}>Camera</Text>
@@ -937,7 +1119,9 @@ export default function BankStatementForm({ navigation, route, mode }) {
               style={styles.pickerOption}
               onPress={() => {
                 closeAttachmentPicker();
-                pickGalleryImages();
+                requestAnimationFrame(() => {
+                  pickGalleryImages();
+                });
               }}
             >
               <Text style={styles.pickerOptionText}>Gallery</Text>
@@ -966,7 +1150,8 @@ export default function BankStatementForm({ navigation, route, mode }) {
         {fullScreenImage ? (
           <>
             <ImageViewer
-              imageUrls={[{ url: fullScreenImage.uri }]}
+              imageUrls={fullScreenImage.images || [{ url: fullScreenImage.uri }]}
+              index={fullScreenImage.index || 0}
               enableSwipeDown
               onSwipeDown={() => {
                 setFullScreenImage(null);
@@ -1004,10 +1189,13 @@ export default function BankStatementForm({ navigation, route, mode }) {
         ) : null}
       </Modal>
 
-      {isSaving ? (
+      {isSaving || pickerBusy ? (
         <View style={styles.loadingOverlay}>
           <View style={styles.loadingCard}>
-            <Text style={styles.loadingText}>Saving bank statement…</Text>
+            <ActivityIndicator size="large" color={Colors.accent} />
+            <Text style={styles.loadingText}>
+              {isSaving ? "Saving bank statement…" : pickerBusyText}
+            </Text>
           </View>
         </View>
       ) : null}
@@ -1059,6 +1247,33 @@ const styles = StyleSheet.create({
   pdfLabel: { color: Colors.accent, fontWeight: "700", fontSize: 18 },
   pdfName: { color: Colors.textPrimary, fontSize: 11, marginTop: 8, textAlign: "center" },
   pdfHint: { color: Colors.textMuted, fontSize: 10, marginTop: 6, textAlign: "center" },
+  ocrCarouselImage: { width: 250, alignSelf: "center", marginRight: 10 },
+  breakdownCard: {
+    backgroundColor: Colors.card,
+    borderWidth: 1,
+    borderColor: Colors.border,
+    borderRadius: 12,
+    padding: 12,
+    marginTop: 8,
+  },
+  breakdownSection: {
+    marginBottom: 10,
+  },
+  breakdownTitle: {
+    color: Colors.textPrimary,
+    fontWeight: "700",
+    marginBottom: 4,
+  },
+  breakdownLine: {
+    color: Colors.textSecondary,
+    fontSize: 12,
+    lineHeight: 18,
+  },
+  breakdownRawText: {
+    color: Colors.textSecondary,
+    fontSize: 11,
+    lineHeight: 16,
+  },
   removeAttachmentButton: {
     position: "absolute",
     top: 4,
@@ -1160,8 +1375,9 @@ const styles = StyleSheet.create({
     paddingHorizontal: 24,
     paddingVertical: 18,
     borderRadius: 12,
+    alignItems: "center",
   },
-  loadingText: { color: Colors.textPrimary, fontWeight: "600" },
+  loadingText: { color: Colors.textPrimary, fontWeight: "600", marginTop: 10 },
 });
 
 const ScannerTooltip = ({ onDismiss, text }) => (
@@ -1175,3 +1391,121 @@ const ScannerTooltip = ({ onDismiss, text }) => (
     </View>
   </View>
 );
+
+function extractTransactionRowsFromRawText(rawText) {
+  const lines = String(rawText || "")
+    .split("\n")
+    .map((line) => line.trim())
+    .filter(Boolean);
+
+  const rows = [];
+  for (let i = 0; i < lines.length; i += 1) {
+    const line = lines[i];
+    const upper = line.toUpperCase();
+
+    const startsWithDate = /^(?:\d{1,2}[\/.-]\d{1,2}(?:[\/.-]\d{2,4})?|\d{1,2}(?:st|nd|rd|th)?\s+[A-Za-z]{3,9}(?:\s+\d{4})?)\b/i.test(line);
+    if (!startsWithDate) continue;
+    if (/\b(ACCOUNT\s+SUMMARY|TOTAL\s+MONEY|BALANCE\s+BROUGHT\s+FORWARD|BALANCE\s+AT\s+CLOSE|YOUR\s+TRANSACTIONS?)\b/i.test(upper)) {
+      continue;
+    }
+
+    let combined = line;
+    if (!/(?:£|GBP|\d+[.,]\d{2})/i.test(combined) && lines[i + 1]) {
+      combined = `${combined} ${lines[i + 1]}`.replace(/\s+/g, " ").trim();
+      i += 1;
+    }
+
+    if (!/(?:£|GBP|\d+[.,]\d{2})/i.test(combined)) continue;
+    rows.push(combined);
+  }
+
+  return Array.from(new Set(rows));
+}
+
+function parseRawTransactionRow(rawRow) {
+  const normalized = String(rawRow || "")
+    .replace(/(\d{1,2}[\/.-]\d{1,2}[\/.-]\d{2,4})(?=\d)/g, "$1 ")
+    .replace(/(\d{1,2}(?:st|nd|rd|th)?\s+[A-Za-z]{3,9})(?=\d)/gi, "$1 ")
+    .replace(/\s+/g, " ")
+    .trim();
+
+  const direction = /\b(CREDIT|CR|FROM|PAID\s*IN|RECEIVED|REFUND|DEPOSIT|SALARY|INTEREST)\b/i.test(normalized)
+    ? "in"
+    : "out";
+
+  const phraseMatch = normalized.match(
+    /\b(?:PAYMENT\s+TO|PAYMENT\s+FROM|DIRECT\s+DEBIT\s+PAYMENT\s+TO|TO|FROM)\s+(.+?)(?:\s+ON\b|\s+REF\b|\s+MANDATE\b|$)/i
+  );
+
+  let vendor = phraseMatch?.[1] || "Unknown vendor";
+  vendor = vendor
+    .replace(/[*!]/g, " ")
+    .replace(/\.(?:com|co\.uk|net|org)\b/gi, "")
+    .replace(/\s+/g, " ")
+    .trim();
+
+  if (/your-saving/i.test(vendor)) vendor = "your-saving";
+  else if (/national trust/i.test(vendor)) vendor = "National Trust";
+  else if (/amazon/i.test(vendor)) vendor = "Amazon";
+
+  const pair = normalized.match(/(\d{1,3}(?:,\d{3})*\.\d{2})(\d{1,3}(?:,\d{3})*\.\d{2})\b/);
+  let amount = null;
+  if (pair) {
+    amount = Number(pair[1].replace(/,/g, ""));
+  } else {
+    const amounts = [...normalized.matchAll(/\b(\d{1,3}(?:,\d{3})*\.\d{2})\b/g)].map((m) =>
+      Number(m[1].replace(/,/g, ""))
+    );
+    if (amounts.length >= 2) {
+      amount = amounts[amounts.length - 2];
+    } else if (amounts.length === 1) {
+      amount = amounts[0];
+    }
+  }
+
+  if (!Number.isFinite(amount) || amount <= 0) return null;
+  if (!vendor) vendor = "Unknown vendor";
+
+  return {
+    vendor,
+    direction,
+    amount: Number(amount.toFixed(2)),
+  };
+}
+
+const StatementBreakdown = ({ data }) => {
+  if (!data) return null;
+
+  const transactions = Array.isArray(data.transactions) ? data.transactions : [];
+  const rawText = String(data.rawText || "").trim();
+  const fallbackTransactionRows = extractTransactionRowsFromRawText(rawText);
+  const transactionRows = transactions.length
+    ? transactions
+        .map((entry) => ({
+          vendor: entry.vendor || "Unknown vendor",
+          direction: entry.direction === "in" ? "in" : "out",
+          amount: Number(entry.amount || 0),
+        }))
+        .filter((entry) => Number.isFinite(entry.amount) && entry.amount > 0)
+    : fallbackTransactionRows.map(parseRawTransactionRow).filter(Boolean);
+
+  return (
+    <View style={styles.breakdownCard}>
+      {transactionRows.length ? (
+        <View style={styles.breakdownSection}>
+          <Text style={styles.breakdownTitle}>Transactions</Text>
+          {transactionRows.map((row, index) => (
+            <Text key={`${row.vendor}-${row.amount}-${index}`} style={styles.breakdownLine}>
+              {row.vendor} · {row.direction === "in" ? "Money in" : "Money out"} · £{Number(row.amount || 0).toFixed(2)}
+            </Text>
+          ))}
+        </View>
+      ) : (
+        <View style={styles.breakdownSection}>
+          <Text style={styles.breakdownTitle}>Transactions</Text>
+          <Text style={styles.breakdownRawText}>No transaction rows detected yet.</Text>
+        </View>
+      )}
+    </View>
+  );
+};

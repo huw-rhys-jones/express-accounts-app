@@ -12,9 +12,9 @@ import {
   View,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
-import { signOut } from "firebase/auth";
 import { collection, getDocs, onSnapshot, query, where } from "firebase/firestore";
 import SideMenu from "../components/SideMenu";
+import SharedTabMenu from "../components/SharedTabMenu";
 import { auth, db } from "../firebaseConfig";
 import { Colors } from "../utils/sharedStyles";
 import { formatDate } from "../utils/format_style";
@@ -112,26 +112,6 @@ export default function BankStatementList({ navigation }) {
 
   const closeMenu = () => setMenuOpen(false);
 
-  const handleLogout = async () => {
-    closeMenu();
-    try {
-      await signOut(auth);
-      navigation.replace("SignIn");
-    } catch (error) {
-      console.error("Error signing out", error);
-      Alert.alert("Sign Out Failed", "Could not sign out right now.");
-    }
-  };
-
-  const openExpensesForFeature = (featureName) => {
-    closeMenu();
-    Alert.alert(
-      "Open in Expenses",
-      `${featureName} is managed from the Expenses menu. Opening Expenses now.`
-    );
-    navigation.navigate("Expenses");
-  };
-
   const renderItem = ({ item }) => (
     <View style={styles.rowOuter}>
       <View style={styles.listContainer}>
@@ -227,58 +207,11 @@ export default function BankStatementList({ navigation }) {
       </TouchableOpacity>
 
       <SideMenu open={menuOpen} onClose={closeMenu}>
-        <View style={{ flex: 1 }}>
-          <View style={styles.userInfo}>
-            <Text style={styles.userEmail}>{auth.currentUser?.displayName || "User"}</Text>
-            <Text style={styles.userEmail}>{auth.currentUser?.email}</Text>
-          </View>
-
-          <TouchableOpacity onPress={() => openExpensesForFeature("Settings")} style={styles.settingsMenuBtn}>
-            <Text style={styles.settingsMenuBtnText}>Settings</Text>
-          </TouchableOpacity>
-
-          <View style={{ marginTop: 20 }}>
-            <TouchableOpacity
-              onPress={() => openExpensesForFeature("Notify Accountant")}
-              style={styles.notifyBtnFilled}
-            >
-              <Text style={styles.filledBtnText}>Notify Accountant</Text>
-            </TouchableOpacity>
-          </View>
-
-          <View style={{ marginTop: 6 }}>
-            <TouchableOpacity onPress={() => openExpensesForFeature("Add ID Image")} style={styles.secondaryMenuButton}>
-              <Text style={styles.secondaryMenuButtonText}>Add ID Image</Text>
-            </TouchableOpacity>
-
-            <TouchableOpacity
-              onPress={() => openExpensesForFeature("Add Address")}
-              style={[styles.secondaryMenuButton, { marginTop: 10 }]}
-            >
-              <Text style={styles.secondaryMenuButtonText}>Add Address</Text>
-            </TouchableOpacity>
-          </View>
-
-          <View style={styles.footerContainer}>
-            <TouchableOpacity
-              onPress={() => openExpensesForFeature("Enter Client Code")}
-              style={styles.referralBtn}
-            >
-              <Text style={styles.filledBtnText}>Enter Client Code</Text>
-            </TouchableOpacity>
-
-            <TouchableOpacity onPress={handleLogout} style={[styles.redButton, { marginTop: 10 }]}>
-              <Text style={styles.redButtonText}>Sign Out</Text>
-            </TouchableOpacity>
-
-            <TouchableOpacity
-              onPress={() => openExpensesForFeature("Leave Feedback")}
-              style={[styles.signOutLink, { marginTop: 12, marginBottom: 0 }]}
-            >
-              <Text style={[styles.linkBtnText, { textDecorationLine: "none" }]}>Leave Feedback</Text>
-            </TouchableOpacity>
-          </View>
-        </View>
+        <SharedTabMenu
+          navigation={navigation}
+          closeMenu={closeMenu}
+          displayName={auth.currentUser?.displayName || "User"}
+        />
       </SideMenu>
 
       {loading ? (

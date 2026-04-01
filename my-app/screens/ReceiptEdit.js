@@ -82,6 +82,8 @@ export default function ReceiptDetailsScreen({ route, navigation }) {
   const [isDatePickerVisible, setDatePickerVisibility] = useState(false);
 
   const [isUploading, setIsUploading] = useState(false);
+  const [isPickerBusy, setIsPickerBusy] = useState(false);
+  const [pickerBusyText, setPickerBusyText] = useState("Opening image options…");
   const [showOcrCheckboxTip, setShowOcrCheckboxTip] = useState(false);
 
   // VAT helper used by hook as well as local logic
@@ -92,6 +94,15 @@ export default function ReceiptDetailsScreen({ route, navigation }) {
     const net = gross / (1 + rate / 100);
     const vat = gross - net;
     return vat.toFixed(2);
+  };
+
+  const beginPickerHold = (text = "Opening image options…") => {
+    setPickerBusyText(text);
+    setIsPickerBusy(true);
+  };
+
+  const endPickerHold = () => {
+    setIsPickerBusy(false);
   };
 
   // OCR state and helpers provided by shared hook
@@ -250,74 +261,79 @@ export default function ReceiptDetailsScreen({ route, navigation }) {
 
   // handleCancelModal provided by hook
   const pickImageOption = () => {
-    Alert.alert(
-      "Add Image",
-      "Choose an option",
-      [
-        {
-          text: "Camera",
-          onPress: async () => {
-            try {
-              if (Platform.OS === "android") {
-                // 1. Request Camera Permission
-                const granted = await PermissionsAndroid.request(
-                  PermissionsAndroid.PERMISSIONS.CAMERA,
-                  {
-                    title: "Camera Permission",
-                    message:
-                      "Express Accounts needs camera access to scan receipts.",
-                    buttonPositive: "OK",
-                  }
-                );
+    beginPickerHold("Opening image options…");
+    requestAnimationFrame(() => {
+      Alert.alert(
+        "Add Image",
+        "Choose an option",
+        [
+          {
+            text: "Camera",
+            onPress: async () => {
+              try {
+                beginPickerHold("Opening camera…");
 
-                if (granted !== PermissionsAndroid.RESULTS.GRANTED) {
-                  Alert.alert(
-                    "Permission Denied",
-                    "Camera access is required."
+                if (Platform.OS === "android") {
+                  const granted = await PermissionsAndroid.request(
+                    PermissionsAndroid.PERMISSIONS.CAMERA,
+                    {
+                      title: "Camera Permission",
+                      message:
+                        "Express Accounts needs camera access to scan receipts.",
+                      buttonPositive: "OK",
+                    }
                   );
-                  return;
-                }
-              }
 
-              // 2. Launch Camera - Use a tiny timeout to ensure the Alert has fully dismissed
-              // This prevents the "Activity is not focused" error on Android
-              setTimeout(() => {
-                ImagePicker.launchCamera(
-                  { mediaType: "photo", includeBase64: true, quality: 0.9 },
+                  if (granted !== PermissionsAndroid.RESULTS.GRANTED) {
+                    endPickerHold();
+                    Alert.alert(
+                      "Permission Denied",
+                      "Camera access is required."
+                    );
+                    return;
+                  }
+                }
+
+                requestAnimationFrame(() => {
+                  ImagePicker.launchCamera(
+                    { mediaType: "photo", includeBase64: true, quality: 0.9 },
+                    (res) => handleImagePickedWrapper(res)
+                  );
+                });
+              } catch (err) {
+                endPickerHold();
+                console.warn(err);
+              }
+            },
+          },
+          {
+            text: "Gallery",
+            onPress: () => {
+              beginPickerHold("Opening gallery…");
+              requestAnimationFrame(() => {
+                ImagePicker.launchImageLibrary(
+                  {
+                    mediaType: "photo",
+                    includeBase64: true,
+                    selectionLimit: 1,
+                    quality: 0.9,
+                  },
                   (res) => handleImagePickedWrapper(res)
                 );
-              }, 100);
-            } catch (err) {
-              console.warn(err);
-            }
+              });
+            },
           },
-        },
-        {
-          text: "Gallery",
-          onPress: () => {
-            // Gallery usually doesn't need explicit PermissionsAndroid on SDK 33+
-            // because it uses the System Picker, but it's safer to wrap in a timeout.
-            setTimeout(() => {
-              ImagePicker.launchImageLibrary(
-                {
-                  mediaType: "photo",
-                  includeBase64: true,
-                  selectionLimit: 1,
-                  quality: 0.9,
-                },
-                (res) => handleImagePickedWrapper(res)
-              );
-            }, 100);
-          },
-        },
-        { text: "Cancel", style: "cancel" },
-      ],
-      { cancelable: true }
-    );
+          { text: "Cancel", style: "cancel" },
+        ],
+        { cancelable: true }
+      );
+      setTimeout(() => endPickerHold(), 140);
+    });
   };
 
   // wrapper that delegates to hook version
   const handleImagePickedWrapper = (response) => {
+    endPickerHold();
     handleImagePicked(response, setImages);
   };
 
@@ -989,7 +1005,7 @@ export default function ReceiptDetailsScreen({ route, navigation }) {
 
       {/* Uploading overlay */}
       <Modal
-        visible={isUploading}
+        visible={isUploading || isPickerBusy}
         transparent
         animationType="fade"
         onRequestClose={() => {}}
@@ -997,7 +1013,9 @@ export default function ReceiptDetailsScreen({ route, navigation }) {
         <View style={ReceiptStyles.uploadOverlay}>
           <View style={ReceiptStyles.uploadCard}>
             <ActivityIndicator size="large" color="#a60d49" />
-            <Text style={{ marginTop: 12, fontWeight: "600" }}>Uploading…</Text>
+            <Text style={{ marginTop: 12, fontWeight: "600" }}>
+              {isUploading ? "Uploading…" : pickerBusyText}
+            </Text>
           </View>
         </View>
       </Modal>

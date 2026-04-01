@@ -70,6 +70,8 @@ const ReceiptAdd = ({ navigation }) => {
   // (hook invocation inserted later).
 
   const [isUploading, setIsUploading] = useState(false);
+  const [isPickerBusy, setIsPickerBusy] = useState(false);
+  const [pickerBusyText, setPickerBusyText] = useState("Opening image options…");
 
   // Fullscreen viewer (separate, top-level modal)
   const [fullScreenImage, setFullScreenImage] = useState(null);
@@ -105,6 +107,15 @@ const ReceiptAdd = ({ navigation }) => {
   const categoryWrapperRef = useRef(null);
 
   const [categoryY, setCategoryY] = useState(0);
+
+  const beginPickerHold = (text = "Opening image options…") => {
+    setPickerBusyText(text);
+    setIsPickerBusy(true);
+  };
+
+  const endPickerHold = () => {
+    setIsPickerBusy(false);
+  };
 
   // ------- helpers -------
   // ensureFileFromAsset is now provided by the OCR hook; no local copy needed.
@@ -506,55 +517,68 @@ const ReceiptAdd = ({ navigation }) => {
   const pickImageOption = () => {
     if (showTip) dismissTip();
 
-    Alert.alert(
-      "Add Image",
-      "Choose an option",
-      [
-        {
-          text: "Camera",
-          onPress: async () => {
-            if (Platform.OS === "android") {
-              const granted = await PermissionsAndroid.request(
-                PermissionsAndroid.PERMISSIONS.CAMERA
-              );
+    beginPickerHold("Opening image options…");
+    requestAnimationFrame(() => {
+      Alert.alert(
+        "Add Image",
+        "Choose an option",
+        [
+          {
+            text: "Camera",
+            onPress: async () => {
+              beginPickerHold("Opening camera…");
 
-              if (granted !== PermissionsAndroid.RESULTS.GRANTED) {
-                Alert.alert(
-                  "Permission Denied",
-                  "You need to allow camera access to take photos of receipts."
+              if (Platform.OS === "android") {
+                const granted = await PermissionsAndroid.request(
+                  PermissionsAndroid.PERMISSIONS.CAMERA
                 );
-                return;
-              }
-            }
 
-            // Launch camera only after permission is confirmed
-            ImagePicker.launchCamera(
-              { mediaType: "photo", includeBase64: true, quality: 0.9 },
-              handleImagePickedWrapper
-            );
+                if (granted !== PermissionsAndroid.RESULTS.GRANTED) {
+                  endPickerHold();
+                  Alert.alert(
+                    "Permission Denied",
+                    "You need to allow camera access to take photos of receipts."
+                  );
+                  return;
+                }
+              }
+
+              requestAnimationFrame(() => {
+                ImagePicker.launchCamera(
+                  { mediaType: "photo", includeBase64: true, quality: 0.9 },
+                  handleImagePickedWrapper
+                );
+              });
+            },
           },
-        },
-        {
-          text: "Gallery",
-          onPress: () =>
-            ImagePicker.launchImageLibrary(
-              {
-                mediaType: "photo",
-                includeBase64: true,
-                selectionLimit: 1,
-                quality: 0.9,
-              },
-              handleImagePickedWrapper
-            ),
-        },
-        { text: "Cancel", style: "cancel" },
-      ],
-      { cancelable: true }
-    );
+          {
+            text: "Gallery",
+            onPress: () => {
+              beginPickerHold("Opening gallery…");
+              requestAnimationFrame(() => {
+                ImagePicker.launchImageLibrary(
+                  {
+                    mediaType: "photo",
+                    includeBase64: true,
+                    selectionLimit: 1,
+                    quality: 0.9,
+                  },
+                  handleImagePickedWrapper
+                );
+              });
+            },
+          },
+          { text: "Cancel", style: "cancel" },
+        ],
+        { cancelable: true }
+      );
+      setTimeout(() => endPickerHold(), 140);
+    });
   };
 
   // use hook-supplied image handler
   const handleImagePickedWrapper = (response) => {
+    endPickerHold();
     handleImagePicked(response, setImages);
   };
 
@@ -1336,7 +1360,7 @@ const ReceiptAdd = ({ navigation }) => {
 
       {/* Uploading overlay (spinner/holding animation) */}
       <Modal
-        visible={isUploading}
+        visible={isUploading || isPickerBusy}
         transparent
         animationType="fade"
         presentationStyle="overFullScreen" // 👈 important on iOS
@@ -1346,7 +1370,9 @@ const ReceiptAdd = ({ navigation }) => {
         <View style={ReceiptStyles.uploadOverlay}>
           <View style={ReceiptStyles.uploadCard}>
             <ActivityIndicator size="large" color="#a60d49" />
-            <Text style={{ marginTop: 12, fontWeight: "600" }}>Uploading…</Text>
+            <Text style={{ marginTop: 12, fontWeight: "600" }}>
+              {isUploading ? "Uploading…" : pickerBusyText}
+            </Text>
           </View>
         </View>
       </Modal>
