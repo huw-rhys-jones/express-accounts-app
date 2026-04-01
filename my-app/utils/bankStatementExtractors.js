@@ -377,15 +377,189 @@ function normaliseVendorName(description) {
   return words.length ? toTitleCase(words.join(" ")) : "Unknown vendor";
 }
 
+const BANK_VENDOR_ALIASES = {
+  Fuel: ["shell", "bp", "esso", "texaco", "gulf", "applegreen"],
+  "Vehicle Hire": [
+    "hertz",
+    "avis",
+    "budget rent a car",
+    "enterprise rent a car",
+    "enterprise",
+    "europcar",
+    "sixt",
+    "alamo",
+    "national car rental",
+  ],
+  "Travel (bus, train, taxi)": [
+    "tfl",
+    "uber",
+    "bolt",
+    "trainline",
+    "national rail",
+    "avanti west coast",
+    "crosscountry",
+    "lner",
+    "great western railway",
+    "gwr",
+    "northern trains",
+    "southeastern",
+    "south western railway",
+    "transpennine express",
+    "transport for wales",
+    "west midlands railway",
+    "london northwestern railway",
+    "greater anglia",
+    "c2c",
+    "chiltern railways",
+    "gatwick express",
+    "heathrow express",
+    "merseyrail",
+    "scotrail",
+    "eurostar",
+    "stagecoach",
+    "national express",
+    "arriva",
+    "first bus",
+    "go-ahead",
+    "metroline",
+    "transdev",
+    "flixbus",
+    "megabus",
+    "citylink",
+  ],
+  Accommodation: [
+    "premier inn",
+    "travelodge",
+    "holiday inn",
+    "ibis",
+    "hilton",
+    "marriott",
+    "hyatt",
+    "radisson",
+    "mercure",
+    "novotel",
+    "crowne plaza",
+    "doubletree",
+    "hampton by hilton",
+    "airbnb",
+    "booking.com",
+  ],
+  Subsistence: [
+    "tesco",
+    "sainsbury",
+    "asda",
+    "morrisons",
+    "aldi",
+    "lidl",
+    "waitrose",
+    "co-op",
+    "coop",
+    "marks and spencer",
+    "m&s",
+    "greggs",
+    "mcdonald",
+    "kfc",
+    "subway",
+    "costa",
+    "starbucks",
+    "pret",
+    "deliveroo",
+    "just eat",
+    "justeat",
+    "uber eats",
+  ],
+  Parking: ["ncp", "ringgo", "paybyphone", "apcoa", "q park", "horizon parking", "euro car parks", "justpark"],
+  Materials: ["screwfix", "toolstation", "wickes", "b&q", "travis perkins", "jewson", "selco", "howdens"],
+  Telephone: [
+    "o2",
+    "vodafone",
+    "ee",
+    "three",
+    "giffgaff",
+    "lebara",
+    "lycamobile",
+    "tesco mobile",
+    "voxi",
+    "smarty",
+    "talkmobile",
+    "sky mobile",
+    "virgin mobile",
+  ],
+  Software: [
+    "adobe",
+    "microsoft",
+    "google workspace",
+    "xero",
+    "quickbooks",
+    "intuit",
+    "zoom",
+    "slack",
+    "notion",
+    "dropbox",
+    "github",
+    "openai",
+    "canva",
+  ],
+  "Business Insurance": ["aviva", "axa", "direct line", "zurich", "allianz", "hiscox", "admiral", "legal and general"],
+  "Professional Fees": ["hmrc", "companies house", "deloitte", "pwc", "kpmg", "ernst and young", "ey"],
+  Utilities: [
+    "british gas",
+    "eon",
+    "e.on",
+    "scottish power",
+    "octopus energy",
+    "ovo energy",
+    "thames water",
+    "severn trent",
+    "united utilities",
+    "southern water",
+    "yorkshire water",
+  ],
+  Postage: ["royal mail", "post office", "dhl", "dpd", "evri", "hermes", "yodel", "fedex", "ups", "parcelforce"],
+};
+
+function escapeRegExp(value) {
+  return String(value || "").replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function normalizeSignal(value) {
+  return String(value || "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function containsSignal(haystack, compactHaystack, signal) {
+  const normalizedSignal = normalizeSignal(signal);
+  if (!normalizedSignal) return false;
+
+  const compactSignal = normalizedSignal.replace(/\s+/g, "");
+
+  if (normalizedSignal.length <= 3) {
+    return new RegExp(`\\b${escapeRegExp(normalizedSignal)}\\b`, "i").test(haystack);
+  }
+
+  return haystack.includes(normalizedSignal) || compactHaystack.includes(compactSignal);
+}
+
 function inferCategoryFromText(text) {
-  const haystack = String(text || "").toLowerCase();
+  const haystack = normalizeSignal(text);
+  const compactHaystack = haystack.replace(/\s+/g, "");
   let bestMatch = { name: "Sundry items", score: 0 };
 
   for (const category of categories_meta) {
     let score = 0;
+
     for (const keyword of category.meta || []) {
-      if (haystack.includes(String(keyword).toLowerCase())) {
+      if (containsSignal(haystack, compactHaystack, keyword)) {
         score += String(keyword).includes(" ") ? 3 : 1;
+      }
+    }
+
+    for (const alias of BANK_VENDOR_ALIASES[category.name] || []) {
+      if (containsSignal(haystack, compactHaystack, alias)) {
+        score += String(alias).includes(" ") ? 4 : 2;
       }
     }
 
