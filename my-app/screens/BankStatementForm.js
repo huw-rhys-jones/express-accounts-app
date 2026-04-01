@@ -1440,10 +1440,20 @@ function parseRawTransactionRow(rawRow) {
   let vendor = phraseMatch?.[1] || "Unknown vendor";
   vendor = vendor
     .replace(/[*!]/g, " ")
-    .replace(/\bPAYA?L\b/gi, " ")
+    .replace(/(?:PAYPAL|PAYAL)/gi, " ")
     .replace(/\.(?:com|co\.uk|net|org)\b/gi, "")
+    .replace(/\b(?:REF|REFERENCE|MANDATE|NO)\b.*$/i, "")
     .replace(/\s+/g, " ")
-    .trim();
+    .trim()
+    .replace(/[.,:;\-]+$/g, "");
+
+  vendor = vendor
+    .split(" ")
+    .filter(Boolean)
+    .filter((word, index, arr) => index === 0 || word.toLowerCase() !== arr[index - 1].toLowerCase())
+    .join(" ");
+
+  if (/\bcredit\s+card\s+payment\b/i.test(normalized)) vendor = "Credit card payment";
 
   if (/your-saving/i.test(vendor)) vendor = "your-saving";
   else if (/national trust/i.test(vendor)) vendor = "National Trust";
@@ -1465,7 +1475,7 @@ function parseRawTransactionRow(rawRow) {
   }
 
   if (!Number.isFinite(amount) || amount <= 0) return null;
-  if (!vendor) vendor = "Unknown vendor";
+  if (!vendor || /^(?:un?known|unkown)\s+vendor$/i.test(vendor)) vendor = "Unknown vendor";
 
   return {
     vendor,
@@ -1483,7 +1493,15 @@ const StatementBreakdown = ({ data }) => {
   const transactionRows = transactions.length
     ? transactions
         .map((entry) => ({
-          vendor: String(entry.vendor || "Unknown vendor").replace(/\bPAYA?L\b/gi, " ").replace(/\s+/g, " ").trim() || "Unknown vendor",
+          vendor: String(entry.vendor || "Unknown vendor")
+            .replace(/(?:PAYPAL|PAYAL)/gi, " ")
+            .replace(/\s+/g, " ")
+            .trim()
+            .split(" ")
+            .filter(Boolean)
+            .filter((word, index, arr) => index === 0 || word.toLowerCase() !== arr[index - 1].toLowerCase())
+            .join(" ")
+            .replace(/^(?:un?known|unkown)\s+vendor$/i, "Unknown vendor") || "Unknown vendor",
           direction: entry.direction === "in" ? "in" : "out",
           amount: Number(entry.amount || 0),
         }))
@@ -1493,14 +1511,29 @@ const StatementBreakdown = ({ data }) => {
   const moneyInRows = transactionRows.filter((row) => row.direction === "in");
   const moneyOutRows = transactionRows.filter((row) => row.direction !== "in");
 
+  const sumByVendor = (rows) => {
+    const totals = new Map();
+    for (const row of rows) {
+      const key = row.vendor || "Unknown vendor";
+      totals.set(key, (totals.get(key) || 0) + Number(row.amount || 0));
+    }
+
+    return Array.from(totals.entries())
+      .map(([vendor, total]) => ({ vendor, total: Number(total.toFixed(2)) }))
+      .sort((a, b) => b.total - a.total);
+  };
+
+  const moneyInTotals = sumByVendor(moneyInRows);
+  const moneyOutTotals = sumByVendor(moneyOutRows);
+
   return (
     <View style={styles.breakdownCard}>
       {transactionRows.length ? (
         <View style={styles.breakdownSection}>
           <Text style={styles.breakdownTitle}>Money in</Text>
-          {moneyInRows.length ? moneyInRows.map((row, index) => (
-            <Text key={`in-${row.vendor}-${row.amount}-${index}`} style={styles.breakdownLine}>
-              {row.vendor} · £{Number(row.amount || 0).toFixed(2)}
+          {moneyInTotals.length ? moneyInTotals.map((row, index) => (
+            <Text key={`in-${row.vendor}-${row.total}-${index}`} style={styles.breakdownLine}>
+              {row.vendor} · £{Number(row.total || 0).toFixed(2)}
             </Text>
           )) : (
             <Text style={styles.breakdownRawText}>No money in rows detected.</Text>
@@ -1511,9 +1544,9 @@ const StatementBreakdown = ({ data }) => {
       {transactionRows.length ? (
         <View style={styles.breakdownSection}>
           <Text style={styles.breakdownTitle}>Money out</Text>
-          {moneyOutRows.length ? moneyOutRows.map((row, index) => (
-            <Text key={`out-${row.vendor}-${row.amount}-${index}`} style={styles.breakdownLine}>
-              {row.vendor} · £{Number(row.amount || 0).toFixed(2)}
+          {moneyOutTotals.length ? moneyOutTotals.map((row, index) => (
+            <Text key={`out-${row.vendor}-${row.total}-${index}`} style={styles.breakdownLine}>
+              {row.vendor} · £{Number(row.total || 0).toFixed(2)}
             </Text>
           )) : (
             <Text style={styles.breakdownRawText}>No money out rows detected.</Text>

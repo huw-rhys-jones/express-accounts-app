@@ -297,6 +297,32 @@ function toTitleCase(value) {
     .join(" ");
 }
 
+function dedupeAdjacentWords(value) {
+  const words = String(value || "").split(/\s+/).filter(Boolean);
+  const deduped = [];
+  for (const word of words) {
+    if (deduped.length && deduped[deduped.length - 1].toLowerCase() === word.toLowerCase()) {
+      continue;
+    }
+    deduped.push(word);
+  }
+  return deduped.join(" ");
+}
+
+function cleanVendorText(value) {
+  const cleaned = String(value || "")
+    .replace(/[*!]/g, " ")
+    .replace(/\.(?:com|co\.uk|net|org)\b/gi, "")
+    .replace(/(?:PAYPAL|PAYAL)/gi, " ")
+    .replace(/\b(?:REF|REFERENCE|MANDATE|NO)\b.*$/i, "")
+    .replace(/\b\d{4,}\b/g, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+    .replace(/[.,:;\-]+$/g, "");
+
+  return dedupeAdjacentWords(cleaned);
+}
+
 function normaliseVendorName(description) {
   const directionPhrase = String(description || "").match(
     /\b(?:PAYMENT\s+TO|PAYMENT\s+FROM|DIRECT\s+DEBIT\s+PAYMENT\s+TO|TO|FROM)\s+(.+?)(?:\s+ON\b|\s+REF\b|\s+MANDATE\b|$)/i
@@ -304,28 +330,27 @@ function normaliseVendorName(description) {
 
   const candidateFromPhrase = directionPhrase?.[1]
     ? directionPhrase[1]
-        .replace(/[*!]/g, " ")
-        .replace(/\bPAYA?L\b/gi, " ")
-        .replace(/\.(?:com|co\.uk|net|org)\b/gi, "")
+        .replace(/(?:PAYPAL|PAYAL)/gi, " ")
         .replace(/\b(?:V\d+[A-Z0-9]+|PA\d+[A-Z0-9]+|J\d+[A-Z0-9]+)\b/gi, " ")
-        .replace(/\s+/g, " ")
         .trim()
     : "";
 
-  if (candidateFromPhrase) {
-    const upperCandidate = candidateFromPhrase.toUpperCase();
+  const cleanedCandidate = cleanVendorText(candidateFromPhrase);
+
+  if (cleanedCandidate) {
+    const upperCandidate = cleanedCandidate.toUpperCase();
     if (upperCandidate.includes("YOUR-SAVING")) return "your-saving";
     if (upperCandidate.includes("NATIONAL TRUST")) return "National Trust";
     if (upperCandidate.includes("AMAZON")) return "Amazon";
-    return toTitleCase(candidateFromPhrase);
+    return toTitleCase(cleanedCandidate);
   }
 
-  const raw = String(description || "")
-    .replace(/\bPAYA?L\b/gi, " ")
+  const raw = cleanVendorText(String(description || "")
+    .replace(/(?:PAYPAL|PAYAL)/gi, " ")
     .replace(/\b(?:CARD|PAYMENT|PURCHASE|TRANSFER|DIRECT\s+DEBIT|STANDING\s+ORDER|FASTER\s+PAYMENTS?|DEBIT|CREDIT|POS|CONTACTLESS|REF|REFERENCE|FPS|DD|SO|CR|DR|TO|FROM|ON)\b/gi, " ")
     .replace(/\b\d{2,}\b/g, " ")
     .replace(/\s+/g, " ")
-    .trim();
+    .trim());
 
   const specialCases = [
     ["AMAZON", "Amazon"],
@@ -399,7 +424,7 @@ function parseLeadingTransactionDate(raw, fallbackYear) {
     return toIsoDate(numeric[1], numeric[2], year);
   }
 
-  const textual = source.match(/^(\d{1,2}(?:st|nd|rd|th)?)\s+([A-Za-z]{3,9})(?:\s+(\d{4}))?\b/i);
+  const textual = source.match(/^(\d{1,2}(?:st|nd|rd|th)?)\s+([A-Za-z]{3})[A-Za-z]*(?:\s+(\d{4}))?\b/i);
   if (textual) {
     const year = textual[3] ? Number(textual[3]) : Number(fallbackYear);
     if (!Number.isFinite(year)) return null;
@@ -449,13 +474,17 @@ function extractTransactionAmounts(raw) {
 }
 
 function isDatePrefixedLine(value) {
-  return /^(?:\d{1,2}(?:st|nd|rd|th)?\s+[A-Za-z]{3,9}|\d{1,2}[\/.-]\d{1,2}(?:[\/.-]\d{2,4})?)\b/i.test(
+  return /^(?:\d{1,2}(?:st|nd|rd|th)?\s+[A-Za-z]{3}[A-Za-z]*|\d{1,2}[\/.-]\d{1,2}(?:[\/.-]\d{2,4})?)\b/i.test(
     String(value || "").trim()
   );
 }
 
 function parseVendorFromDescription(description) {
   const text = String(description || "");
+
+  if (/\bCREDIT\s+CARD\s+PAYMENT\b/i.test(text)) {
+    return "Credit card payment";
+  }
 
   const patterns = [
     /\bDIRECT\s+DEBIT\s+PAYMENT\s+TO\s+(.+?)(?:\s+REF\b|\s+MANDATE\b|\s+ON\b|$)/i,
@@ -479,16 +508,9 @@ function parseVendorFromDescription(description) {
     vendor = normaliseVendorName(text);
   }
 
-  vendor = String(vendor || "")
-    .replace(/[*!]/g, " ")
-    .replace(/\.(?:com|co\.uk|net|org)\b/gi, "")
-    .replace(/\bPAYA?L\b/gi, " ")
-    .replace(/\b(?:REF|REFERENCE|MANDATE|NO)\b.*$/i, "")
-    .replace(/\b\d{4,}\b/g, " ")
-    .replace(/\s+/g, " ")
-    .trim();
+  vendor = cleanVendorText(vendor);
 
-  if (!vendor) return "Unknown vendor";
+  if (!vendor || /^(?:un?known|unkown)\s+vendor$/i.test(vendor)) return "Unknown vendor";
 
   const upper = vendor.toUpperCase();
   if (upper.includes("YOUR-SAVING")) return "your-saving";
@@ -545,6 +567,7 @@ function extractTransactionsFromTableText(text, { statementStartDate, statementE
   function normalizeRowForAmounts(row) {
     return String(row || "")
       .replace(/(\d{2}[\/.-]\d{2}[\/.-]\d{4})(?=\d)/g, "$1 ")
+      .replace(/(\d{1,2}(?:st|nd|rd|th)?\s+(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec))(?=[A-Za-z])/gi, "$1 ")
       .replace(/(\d{1,2}(?:st|nd|rd|th)?\s+[A-Za-z]{3,9}\s+\d{4})(?=\d)/gi, "$1 ")
       .replace(/\s+/g, " ")
       .trim();
@@ -630,7 +653,7 @@ function extractTransactionsFromTableText(text, { statementStartDate, statementE
 
     const description = normalizedRow
       .replace(/^\s*\d{1,2}[\/.-]\d{1,2}(?:[\/.-]\d{2,4})?\s*/i, "")
-      .replace(/^\s*\d{1,2}(?:st|nd|rd|th)?\s+[A-Za-z]{3,9}(?:\s+\d{4})?\s*/i, "")
+      .replace(/^\s*\d{1,2}(?:st|nd|rd|th)?\s+(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[A-Za-z]*(?:\s+\d{4})?\s*/i, "")
       .replace(/\d[\d,]*\.\d{2}/g, " ")
       .replace(/\bBALANCE\s+CARRIED\s+FORWARD.*$/i, "")
       .replace(/\s+/g, " ")
@@ -708,7 +731,7 @@ function extractTransactions(lines, { statementStartDate, statementEndDate } = {
 
     const description = line.raw
       .replace(/^\s*\d{1,2}[\/.-]\d{1,2}(?:[\/.-]\d{2,4})?\s*/, "")
-      .replace(/^\s*\d{1,2}(?:st|nd|rd|th)?\s+[A-Za-z]{3,9}(?:\s+\d{4})?\s*/i, "")
+      .replace(/^\s*\d{1,2}(?:st|nd|rd|th)?\s+(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[A-Za-z]*(?:\s+\d{4})?\s*/i, "")
       .replace(/(?:£\s*|GBP\s*)?\d{1,3}(?:[, ]\d{2,3})*(?:\.\d{2})?/g, " ")
       .replace(/\b(?:CR|DR)\b/g, " ")
       .replace(/\s+/g, " ")
