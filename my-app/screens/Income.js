@@ -320,10 +320,10 @@ const styles = StyleSheet.create({
     alignSelf: "center",
     flexDirection: "row",
     justifyContent: "space-between",
-    alignItems: "center",
+    alignItems: "flex-end",
     minHeight: 60,
   },
-  rowDate: { fontSize: 14, color: "#555" },
+  rowDate: { fontSize: 14, color: "#555", minWidth: 90 },
   referenceWrap: {
     flex: 1,
     alignItems: "flex-start",
@@ -344,6 +344,7 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: "bold",
     color: Colors.accent,
+    minWidth: 90,
     textAlign: "right",
   },
   userInfo: {

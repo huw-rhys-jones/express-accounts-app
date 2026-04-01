@@ -569,18 +569,6 @@ export default function IncomeFormScreen({ navigation, route, mode }) {
               />
             </View>
 
-            <View style={styles.fieldGroup}>
-              <Text style={ReceiptStyles.label}>Notes:</Text>
-              <TextInput
-                value={notes}
-                onChangeText={setNotes}
-                placeholder="Optional notes"
-                placeholderTextColor={stylesConst.placeholder}
-                style={[ReceiptStyles.input, styles.notesInput]}
-                multiline
-              />
-            </View>
-
             <View style={[styles.fieldGroup, styles.attachmentSection]}>
               <ScrollView
                 horizontal
@@ -609,6 +597,18 @@ export default function IncomeFormScreen({ navigation, route, mode }) {
               >
                 Save
               </Button>
+            </View>
+
+            <View style={styles.fieldGroup}>
+              <Text style={ReceiptStyles.label}>Notes:</Text>
+              <TextInput
+                value={notes}
+                onChangeText={setNotes}
+                placeholder="Optional notes"
+                placeholderTextColor={stylesConst.placeholder}
+                style={[ReceiptStyles.input, styles.notesInput]}
+                multiline
+              />
             </View>
 
             {mode === "edit" ? (

@@ -1304,10 +1304,10 @@ const styles = StyleSheet.create({
     alignSelf: "center",
     flexDirection: "row",
     justifyContent: "space-between",
-    alignItems: "center",
+    alignItems: "flex-end",
     minHeight: 60,
   },
-  receiptDate: { fontSize: 14, color: "#555" },
+  receiptDate: { fontSize: 14, color: "#555", minWidth: 90 },
   receiptLabel: {
     fontSize: 12,
     color: Colors.textMuted,
@@ -1319,7 +1319,13 @@ const styles = StyleSheet.create({
     color: "#000",
     width: "100%",
   },
-  receiptAmount: { fontSize: 16, fontWeight: "bold", color: Colors.accent },
+  receiptAmount: {
+    fontSize: 16,
+    fontWeight: "bold",
+    color: Colors.accent,
+    minWidth: 90,
+    textAlign: "right",
+  },
 
   floatingButton: {
     position: "absolute",

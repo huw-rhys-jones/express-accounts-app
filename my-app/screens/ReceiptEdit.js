@@ -729,7 +729,7 @@ export default function ReceiptDetailsScreen({ route, navigation }) {
                 Label (optional):
               </Text>
               <TextInput
-                style={[ReceiptStyles.input, localStyles.inputAligned]}
+                style={[ReceiptStyles.input, localStyles.labelInputAligned]}
                 value={label}
                 onChangeText={setLabel}
                 placeholder="An optional label"
@@ -1082,6 +1082,9 @@ const localStyles = StyleSheet.create({
   },
   inputAligned: {
     margin: 0,
+  },
+  labelInputAligned: {
+    marginHorizontal: 10,
   },
   dropdownAligned: {
     marginHorizontal: 10,
