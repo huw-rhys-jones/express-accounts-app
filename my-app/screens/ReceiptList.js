@@ -673,12 +673,21 @@ const ExpensesScreen = ({ navigation, route }) => {
             </Text>
 
             <View style={{ flex: 1, alignItems: "flex-start", marginLeft: 25 }}>
+              {item.label ? (
+                <Text
+                  style={styles.receiptLabel}
+                  numberOfLines={1}
+                  ellipsizeMode="tail"
+                >
+                  {String(item.label)}
+                </Text>
+              ) : null}
               <Text
                 style={styles.receiptCategory}
                 numberOfLines={1}
                 ellipsizeMode="tail"
               >
-                {String(item.category || "")}
+                {String(item.category || "Uncategorized")}
               </Text>
             </View>
 
@@ -1299,6 +1308,11 @@ const styles = StyleSheet.create({
     minHeight: 60,
   },
   receiptDate: { fontSize: 14, color: "#555" },
+  receiptLabel: {
+    fontSize: 12,
+    color: Colors.textMuted,
+    marginBottom: 2,
+  },
   receiptCategory: {
     fontSize: 16,
     fontWeight: "500",

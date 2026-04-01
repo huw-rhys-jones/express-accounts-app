@@ -136,15 +136,18 @@ export default function IncomeScreen({ navigation }) {
           style={styles.row}
           onPress={() => navigation.navigate("IncomeDetails", { income: item })}
         >
-          <View style={styles.rowTop}>
-            <Text style={styles.rowDate}>{formatDate(new Date(item.date))}</Text>
-            <View style={styles.referenceWrap}>
-              <Text style={styles.rowReference} numberOfLines={1}>
-                {String(item.reference || "No reference")}
+          <Text style={styles.rowDate}>{formatDate(new Date(item.date))}</Text>
+          <View style={styles.referenceWrap}>
+            {item.label ? (
+              <Text style={styles.rowLabel} numberOfLines={1}>
+                {String(item.label)}
               </Text>
-            </View>
-            <Text style={styles.rowAmount}>£{Number(item.amount || 0).toFixed(2)}</Text>
+            ) : null}
+            <Text style={styles.rowReference} numberOfLines={1}>
+              {String(item.reference || "No reference")}
+            </Text>
           </View>
+          <Text style={styles.rowAmount}>£{Number(item.amount || 0).toFixed(2)}</Text>
         </TouchableOpacity>
       </View>
     </View>
@@ -311,29 +314,37 @@ const styles = StyleSheet.create({
   row: {
     backgroundColor: "#f0f0f0",
     borderRadius: 8,
-    paddingHorizontal: 14,
-    paddingVertical: 11,
-    minHeight: 62,
-    width: "100%",
+    padding: 12,
+    marginBottom: 12,
+    width: "95%",
+    alignSelf: "center",
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    minHeight: 60,
   },
-  rowTop: { flexDirection: "row", alignItems: "center" },
-  rowDate: { width: 90, color: Colors.textMuted, fontSize: 14 },
+  rowDate: { fontSize: 14, color: "#555" },
   referenceWrap: {
     flex: 1,
-    paddingHorizontal: 14,
     alignItems: "flex-start",
+    marginLeft: 25,
   },
   rowReference: {
     color: "#000",
     fontWeight: "500",
-    fontSize: 14,
+    fontSize: 16,
+    width: "100%",
+  },
+  rowLabel: {
+    color: Colors.textMuted,
+    fontSize: 12,
+    marginBottom: 2,
   },
   rowAmount: {
-    minWidth: 110,
-    textAlign: "right",
+    fontSize: 16,
+    fontWeight: "bold",
     color: Colors.accent,
-    fontWeight: "700",
-    fontSize: 15,
+    textAlign: "right",
   },
   userInfo: {
     marginBottom: 20,

@@ -66,6 +66,7 @@ export default function ReceiptDetailsScreen({ route, navigation }) {
   const [selectedCategory, setSelectedCategory] = useState(
     receipt?.category || ""
   );
+  const [label, setLabel] = useState(receipt?.label || "");
   const [images, setImages] = useState(
     (receipt?.images || []).map((url) => ({ uri: url }))
   );
@@ -390,6 +391,7 @@ export default function ReceiptDetailsScreen({ route, navigation }) {
         amount: parseFloat(amount),
         date: selectedDate.toISOString(),
         category: selectedCategory,
+        label: label.trim(),
         vatAmount: vatAmount ? parseFloat(vatAmount) : null,
         vatRate: vatRate ? parseFloat(vatRate) : null,
         images: uploadedImageUrls,
@@ -444,6 +446,15 @@ export default function ReceiptDetailsScreen({ route, navigation }) {
       },
     ]);
   };
+
+  const isReceiptFormValid =
+    selectedCategory &&
+    amount.trim().length > 0 &&
+    vatAmount.trim().length > 0 &&
+    vatRate.trim().length > 0 &&
+    !Number.isNaN(parseFloat(amount)) &&
+    !Number.isNaN(parseFloat(vatAmount)) &&
+    !Number.isNaN(parseFloat(vatRate));
 
   return (
     <SafeAreaView style={ReceiptStyles.safeArea}>
@@ -713,6 +724,19 @@ export default function ReceiptDetailsScreen({ route, navigation }) {
               />
             </View>
 
+            <View style={localStyles.fieldGroup}>
+              <Text style={[ReceiptStyles.label, localStyles.labelAligned]}>
+                Label (optional):
+              </Text>
+              <TextInput
+                style={[ReceiptStyles.input, localStyles.inputAligned]}
+                value={label}
+                onChangeText={setLabel}
+                placeholder="An optional label"
+                placeholderTextColor={Colors.textSecondary}
+              />
+            </View>
+
             {/* Images */}
             <FlatList
               data={[...images, { addButton: true }]}
@@ -744,7 +768,7 @@ export default function ReceiptDetailsScreen({ route, navigation }) {
                   </TouchableOpacity>
                 )
               }
-              contentContainerStyle={{ marginVertical: 20 }}
+              contentContainerStyle={{ marginVertical: 20, paddingHorizontal: 10 }}
               showsHorizontalScrollIndicator
             />
 
@@ -764,6 +788,7 @@ export default function ReceiptDetailsScreen({ route, navigation }) {
                   onPress={saveChanges}
                   buttonColor="#a60d49"
                   style={ReceiptStyles.actionBtn}
+                  disabled={!isReceiptFormValid}
                 >
                   Save
                 </Button>

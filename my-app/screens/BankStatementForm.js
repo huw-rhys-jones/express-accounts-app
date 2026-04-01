@@ -140,7 +140,7 @@ export default function BankStatementForm({ navigation, route, mode }) {
     let active = true;
     const loadTipStatus = async () => {
       const user = auth.currentUser;
-      if (!user || attachments.length > 0) {
+      if (!user || (statement?.attachments || []).length > 0) {
         if (active) {
           setShowTip(false);
           setTipStatusLoaded(true);
@@ -166,7 +166,7 @@ export default function BankStatementForm({ navigation, route, mode }) {
     return () => {
       active = false;
     };
-  }, [attachments.length]);
+  }, [statement?.attachments]);
 
   const dismissTip = async () => {
     setShowTip(false);
@@ -581,6 +581,11 @@ export default function BankStatementForm({ navigation, route, mode }) {
     setAcceptFlags((current) => ({ ...current, [key]: !current[key] }));
   };
 
+  const isBankStatementFormValid =
+    accountName.trim().length > 0 &&
+    !Number.isNaN(parseMoneyInput(moneyInTotal)) &&
+    !Number.isNaN(parseMoneyInput(moneyOutTotal));
+
   const applyAcceptedOcr = () => {
     if (!ocrResult) {
       setOcrModalVisible(false);
@@ -888,7 +893,7 @@ export default function BankStatementForm({ navigation, route, mode }) {
                 mode="contained"
                 buttonColor={Colors.accent}
                 onPress={saveStatement}
-                disabled={isSaving}
+                disabled={isSaving || !isBankStatementFormValid}
               >
                 Save
               </Button>

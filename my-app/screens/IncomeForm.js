@@ -17,6 +17,7 @@ import ImageViewer from "react-native-image-zoom-viewer";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { KeyboardAwareScrollView } from "react-native-keyboard-aware-scroll-view";
 import { Button, Checkbox } from "react-native-paper";
+import DropDownPicker from "react-native-dropdown-picker";
 import DateTimePickerModal from "react-native-modal-datetime-picker";
 import * as ImagePicker from "react-native-image-picker";
 import {
@@ -43,6 +44,7 @@ import {
   uploadAttachmentEntries,
 } from "../utils/documentAttachments";
 import { triggerHaptic } from "../utils/haptics";
+import { categories_meta } from "../constants/arrays";
 
 function navigateBackToIncome(navigation) {
   navigation.reset({
@@ -61,7 +63,30 @@ export default function IncomeFormScreen({ navigation, route, mode }) {
   const [amount, setAmount] = useState(
     income?.amount != null ? String(income.amount) : ""
   );
+  const [vatAmount, setVatAmount] = useState(
+    income?.vatAmount != null ? String(income.vatAmount) : ""
+  );
+  const [vatRate, setVatRate] = useState(
+    income?.vatRate != null ? String(income.vatRate) : ""
+  );
+  const [vatAmountEdited, setVatAmountEdited] = useState(
+    income?.vatAmount != null && income?.vatAmount !== ""
+  );
+
+  const deriveVatRateItems = () => {
+    const unique = Array.from(
+      new Set(
+        (categories_meta || [])
+          .map((c) => c?.vatRate)
+          .filter((r) => r !== undefined && r !== null && !Number.isNaN(r))
+      )
+    ).sort((a, b) => Number(a) - Number(b));
+    return unique.map((r) => ({ label: `${r}%`, value: String(r) }));
+  };
+  const [vatRateOpen, setVatRateOpen] = useState(false);
+  const [vatRateItems, setVatRateItems] = useState(deriveVatRateItems);
   const [reference, setReference] = useState(income?.reference || "");
+  const [label, setLabel] = useState(income?.label || "");
   const [notes, setNotes] = useState(income?.notes || "");
   const [selectedDate, setSelectedDate] = useState(
     income?.date ? new Date(income.date) : new Date()
@@ -74,6 +99,7 @@ export default function IncomeFormScreen({ navigation, route, mode }) {
   const [fullScreenImage, setFullScreenImage] = useState(null);
   const [returnToOcrAfterFullscreen, setReturnToOcrAfterFullscreen] = useState(false);
   const [showTip, setShowTip] = useState(false);
+  const [tipStatusLoaded, setTipStatusLoaded] = useState(false);
   const [pickerBusy, setPickerBusy] = useState(false);
   const [pickerBusyText, setPickerBusyText] = useState("Opening attachment options…");
 
@@ -89,7 +115,16 @@ export default function IncomeFormScreen({ navigation, route, mode }) {
     toggleAccept,
     applyAcceptedValues,
     setOcrModalVisible,
-  } = useReceiptOcr({ computeVat: () => "" });
+  } = useReceiptOcr({
+    computeVat: (grossStr, rateStr) => {
+      const gross = parseFloat(grossStr);
+      const rate = parseFloat(rateStr);
+      if (!isFinite(gross) || !isFinite(rate)) return "";
+      const net = gross / (1 + rate / 100);
+      const vat = gross - net;
+      return vat.toFixed(2);
+    },
+  });
 
   const existingRemoteAttachments = useMemo(
     () => normalizeStoredAttachments(income?.attachments || []),
@@ -100,17 +135,25 @@ export default function IncomeFormScreen({ navigation, route, mode }) {
     let active = true;
     const loadTipStatus = async () => {
       const user = auth.currentUser;
-      if (!user || attachments.length > 0) return;
-
-      if (active) setShowTip(true);
+      if (!user || attachments.length > 0) {
+        if (active) {
+          setShowTip(false);
+          setTipStatusLoaded(true);
+        }
+        return;
+      }
 
       try {
         const userSnap = await getDoc(doc(db, "users", user.uid));
-        if (active && userSnap.data()?.hasSeenIncomeScannerTip) {
-          setShowTip(false);
+        if (active) {
+          setShowTip(!userSnap.data()?.hasSeenIncomeScannerTip);
+          setTipStatusLoaded(true);
         }
       } catch {
-        // keep tip visible when profile read fails
+        if (active) {
+          setShowTip(true);
+          setTipStatusLoaded(true);
+        }
       }
     };
 
@@ -119,6 +162,23 @@ export default function IncomeFormScreen({ navigation, route, mode }) {
       active = false;
     };
   }, [attachments.length]);
+
+  useEffect(() => {
+    if (attachments.length > 0) {
+      setShowTip(false);
+    }
+  }, [attachments.length]);
+
+  useEffect(() => {
+    if (!vatAmountEdited && amount && vatRate) {
+      const gross = parseFloat(amount);
+      const rate = parseFloat(vatRate);
+      if (isFinite(gross) && isFinite(rate)) {
+        const net = gross / (1 + rate / 100);
+        setVatAmount((gross - net).toFixed(2));
+      }
+    }
+  }, [amount, vatRate, vatAmountEdited]);
 
   const dismissTip = async () => {
     setShowTip(false);
@@ -259,6 +319,16 @@ export default function IncomeFormScreen({ navigation, route, mode }) {
       return;
     }
 
+    if (!reference.trim()) {
+      Alert.alert("Invalid Input", "Please enter a reference number.");
+      return;
+    }
+
+    if (!vatAmount || Number(vatAmount) < 0 || !vatRate || Number(vatRate) < 0) {
+      Alert.alert("Invalid Input", "Please enter valid VAT amount and VAT rate.");
+      return;
+    }
+
     const user = auth.currentUser;
     if (!user) {
       Alert.alert("Authentication Error", "Please sign in again.");
@@ -285,8 +355,11 @@ export default function IncomeFormScreen({ navigation, route, mode }) {
 
       const payload = {
         amount: Number(amount),
+        vatAmount: Number(vatAmount),
+        vatRate: Number(vatRate),
         date: selectedDate.toISOString(),
         reference: reference.trim(),
+        label: label.trim(),
         notes: notes.trim(),
         attachments: uploadedAttachments,
         userId: user.uid,
@@ -382,6 +455,14 @@ export default function IncomeFormScreen({ navigation, route, mode }) {
     setOcrModalVisible(false);
   };
 
+  const isIncomeFormValid =
+    Number(amount) > 0 &&
+    reference.trim().length > 0 &&
+    vatAmount.trim().length > 0 &&
+    vatRate.trim().length > 0 &&
+    !Number.isNaN(Number(vatAmount)) &&
+    !Number.isNaN(Number(vatRate));
+
   return (
     <SafeAreaView style={ReceiptStyles.safeArea}>
       <KeyboardAwareScrollView
@@ -433,6 +514,61 @@ export default function IncomeFormScreen({ navigation, route, mode }) {
               />
             </View>
 
+            <View style={styles.moneyRow}>
+              <View style={styles.moneyColumn}>
+                <Text style={ReceiptStyles.label}>VAT Amount:</Text>
+                <View style={[ReceiptStyles.inputRow, styles.currencyField]}>
+                  <View style={styles.currencyWrapper}>
+                    <Text style={styles.currencyText}>£</Text>
+                  </View>
+                  <TextInput
+                    value={vatAmount}
+                    onChangeText={(value) => {
+                      setVatAmount(value);
+                      setVatAmountEdited(value.trim().length > 0);
+                    }}
+                    keyboardType="decimal-pad"
+                    placeholder="0.00"
+                    placeholderTextColor={Colors.textSecondary}
+                    style={[ReceiptStyles.input, styles.inputWithCurrency]}
+                  />
+                </View>
+              </View>
+              <View style={[styles.moneyColumn, { zIndex: 3000 }]}>
+                <Text style={ReceiptStyles.label}>VAT Rate (%):</Text>
+                <DropDownPicker
+                  open={vatRateOpen}
+                  value={vatRate}
+                  items={vatRateItems}
+                  setOpen={setVatRateOpen}
+                  setValue={(callback) => {
+                    const next = callback(vatRate);
+                    setVatRate(next ?? "");
+                    setVatAmountEdited(false);
+                  }}
+                  setItems={setVatRateItems}
+                  placeholder="Select"
+                  style={ReceiptStyles.vatRatePicker}
+                  dropDownContainerStyle={ReceiptStyles.vatRateDropdown}
+                  zIndex={3000}
+                  zIndexInverse={1000}
+                  listMode="SCROLLVIEW"
+                  scrollViewProps={{ keyboardShouldPersistTaps: "always" }}
+                />
+              </View>
+            </View>
+
+            <View style={styles.fieldGroup}>
+              <Text style={ReceiptStyles.label}>Label (optional):</Text>
+              <TextInput
+                value={label}
+                onChangeText={setLabel}
+                placeholder="An optional label"
+                placeholderTextColor={stylesConst.placeholder}
+                style={ReceiptStyles.input}
+              />
+            </View>
+
             <View style={styles.fieldGroup}>
               <Text style={ReceiptStyles.label}>Notes:</Text>
               <TextInput
@@ -456,7 +592,7 @@ export default function IncomeFormScreen({ navigation, route, mode }) {
                   <TouchableOpacity style={ReceiptStyles.uploadPlaceholder} onPress={pickImageOption}>
                     <Text style={ReceiptStyles.plus}>+</Text>
                   </TouchableOpacity>
-                  {showTip ? <ScannerTooltip onDismiss={dismissTip} text="Tap here to scan an invoice" /> : null}
+                  {tipStatusLoaded && showTip ? <ScannerTooltip onDismiss={dismissTip} text="Tap here to scan an invoice" /> : null}
                 </View>
               </ScrollView>
             </View>
@@ -469,7 +605,7 @@ export default function IncomeFormScreen({ navigation, route, mode }) {
                 mode="contained"
                 buttonColor={Colors.accent}
                 onPress={saveIncome}
-                disabled={isSaving}
+                disabled={isSaving || !isIncomeFormValid}
               >
                 Save
               </Button>
@@ -577,6 +713,20 @@ export default function IncomeFormScreen({ navigation, route, mode }) {
                     </Text>
                   </View>
 
+                  <View style={ReceiptStyles.ocrRow}>
+                    <Checkbox
+                      status={acceptFlags.vat ? "checked" : "unchecked"}
+                      onPress={() => toggleAccept("vat")}
+                      color={Colors.accent}
+                      disabled={ocrResult?.vat?.value == null && ocrResult?.vat?.rate == null}
+                    />
+                    <Text style={ReceiptStyles.ocrLabel}>VAT:</Text>
+                    <Text style={ReceiptStyles.ocrValue}>
+                      {ocrResult?.vat?.value != null ? `£${Number(ocrResult.vat.value).toFixed(2)}` : "Not detected"}
+                      {`  (Rate ${ocrResult?.vat?.rate ?? "—"}%)`}
+                    </Text>
+                  </View>
+
                   <View style={ReceiptStyles.modalButtons}>
                     {!isNewImageSession ? (
                       <Button
@@ -596,14 +746,14 @@ export default function IncomeFormScreen({ navigation, route, mode }) {
                       onPress={() =>
                         applyAcceptedValues({
                           setAmount,
-                          setVatAmount: () => {},
-                          setVatRate: () => {},
+                          setVatAmount,
+                          setVatRate,
                           setSelectedDate,
                           setReference,
                           setSelectedCategory: () => {},
-                          vatAmountEdited: false,
+                          vatAmountEdited,
                           amount,
-                          vatRate: "",
+                          vatRate,
                           setVatRateItems: () => {},
                         })
                       }
@@ -708,6 +858,8 @@ const styles = StyleSheet.create({
   amountInput: { flex: 1 },
   inputWithCurrency: { paddingLeft: 28 },
   notesInput: { height: 110, textAlignVertical: "top", paddingTop: 10 },
+  moneyRow: { flexDirection: "row", justifyContent: "space-between", gap: 12, marginBottom: 18, zIndex: 2000 },
+  moneyColumn: { flex: 1 },
   attachmentCard: { marginRight: 12, position: "relative" },
   removeAttachmentButton: {
     position: "absolute",

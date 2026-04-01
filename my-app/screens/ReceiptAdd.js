@@ -53,6 +53,7 @@ const ReceiptAdd = ({ navigation }) => {
   const [images, setImages] = useState([]); // [{ uri }]
   const [open, setOpen] = useState(false);
   const [selectedCategory, setSelectedCategory] = useState(null);
+  const [label, setLabel] = useState("");
   const [vatAmountEdited, setVatAmountEdited] = useState(false);
   const [showTip, setShowTip] = useState(false);
   const [showOcrCheckboxTip, setShowOcrCheckboxTip] = useState(false);
@@ -65,6 +66,11 @@ const ReceiptAdd = ({ navigation }) => {
   const [showConfirmModal, setShowConfirmModal] = useState(false);
   const [showDuplicateModal, setShowDuplicateModal] = useState(false);
   const [duplicateReceiptDate, setDuplicateReceiptDate] = useState(null);
+  const [recurringEnabled, setRecurringEnabled] = useState(false);
+  const [recurrenceModalVisible, setRecurrenceModalVisible] = useState(false);
+  const [recurrenceFrequency, setRecurrenceFrequency] = useState(null);
+  const [customEvery, setCustomEvery] = useState("1");
+  const [customUnit, setCustomUnit] = useState("months");
 
   // OCR modal state and helpers will be provided by useReceiptOcr
   // (hook invocation inserted later).
@@ -334,6 +340,48 @@ const ReceiptAdd = ({ navigation }) => {
     return `${yyyy}-${mm}-${dd}`;
   };
 
+  const getRecurrenceConfig = () => {
+    if (!recurringEnabled || !recurrenceFrequency) return null;
+    if (recurrenceFrequency === "custom") {
+      const interval = Math.max(1, parseInt(customEvery, 10) || 1);
+      return { frequency: "custom", interval, unit: customUnit };
+    }
+    const map = {
+      daily: { frequency: "daily", interval: 1, unit: "days" },
+      weekly: { frequency: "weekly", interval: 1, unit: "weeks" },
+      monthly: { frequency: "monthly", interval: 1, unit: "months" },
+      annually: { frequency: "annually", interval: 1, unit: "years" },
+    };
+    return map[recurrenceFrequency] || null;
+  };
+
+  const buildRecurringDates = (startDate, config) => {
+    if (!config) return [];
+    const interval = Math.max(1, Number(config.interval) || 1);
+    const unit = config.unit || "months";
+    const occurrences = [];
+    const current = new Date(startDate);
+
+    const limitByUnit = {
+      days: 30,
+      weeks: 26,
+      months: 12,
+      years: 5,
+    };
+    const max = limitByUnit[unit] || 12;
+
+    for (let i = 0; i < max; i += 1) {
+      if (unit === "days") current.setDate(current.getDate() + interval);
+      else if (unit === "weeks") current.setDate(current.getDate() + interval * 7);
+      else if (unit === "months") current.setMonth(current.getMonth() + interval);
+      else current.setFullYear(current.getFullYear() + interval);
+
+      occurrences.push(new Date(current));
+    }
+
+    return occurrences;
+  };
+
   const findDuplicateReceipt = async () => {
     const user = auth.currentUser;
     if (!user) return null;
@@ -376,7 +424,9 @@ const ReceiptAdd = ({ navigation }) => {
       !amount ||
       isNaN(parseFloat(amount)) ||
       parseFloat(amount) <= 0 ||
-      !selectedCategory
+      !selectedCategory ||
+      !vatRate ||
+      !vatAmount
     ) {
       Alert.alert("Invalid Input", "Please fill in all fields correctly.");
       return;
@@ -416,9 +466,11 @@ const ReceiptAdd = ({ navigation }) => {
         amount,
         date: selectedDate,
         category: selectedCategory,
+        label,
         vatAmount: vatAmount ? vatAmount : calculateVatFromRate(),
         vatRate,
         images,
+        recurrenceConfig: getRecurrenceConfig(),
       });
 
       // 4) Hide uploading, reset form
@@ -446,19 +498,26 @@ const ReceiptAdd = ({ navigation }) => {
     setVatRate("");
     setSelectedDate(new Date());
     setSelectedCategory(null);
+    setLabel("");
     setImages([]);
     setConfirmReset(false);
     setShowConfirmModal(false);
     setVatAmountEdited(false);
+    setRecurringEnabled(false);
+    setRecurrenceFrequency(null);
+    setCustomEvery("1");
+    setCustomUnit("months");
   };
 
   const uploadReceipt = async ({
     amount,
     date,
     category,
+    label,
     vatAmount,
     vatRate,
     images,
+    recurrenceConfig,
   }) => {
     const user = auth.currentUser;
     const storage = getStorage();
@@ -477,16 +536,32 @@ const ReceiptAdd = ({ navigation }) => {
       imageUrls.push(downloadURL);
     }
 
-    await addDoc(collection(db, "receipts"), {
+    const basePayload = {
       amount: parseFloat(amount),
       date: date.toISOString(),
       category,
+      label: String(label || "").trim(),
       vatAmount: vatAmount ? parseFloat(vatAmount) : null,
       vatRate: vatRate ? parseFloat(vatRate) : null,
       images: imageUrls,
+      recurrence: recurrenceConfig,
       userId: user.uid,
       createdAt: serverTimestamp(),
-    });
+    };
+
+    const baseDoc = await addDoc(collection(db, "receipts"), basePayload);
+
+    if (recurrenceConfig) {
+      const recurringDates = buildRecurringDates(date, recurrenceConfig);
+      for (const nextDate of recurringDates) {
+        await addDoc(collection(db, "receipts"), {
+          ...basePayload,
+          date: nextDate.toISOString(),
+          recurringParentId: baseDoc.id,
+          createdAt: serverTimestamp(),
+        });
+      }
+    }
   };
 
   // ------- date & image picking -------
@@ -591,6 +666,15 @@ const ReceiptAdd = ({ navigation }) => {
       <Image source={{ uri: item.uri }} style={ReceiptStyles.receiptImage} />
     </TouchableOpacity>
   );
+
+  const isReceiptFormValid =
+    selectedCategory &&
+    amount.trim().length > 0 &&
+    vatAmount.trim().length > 0 &&
+    vatRate.trim().length > 0 &&
+    !Number.isNaN(parseFloat(amount)) &&
+    !Number.isNaN(parseFloat(vatAmount)) &&
+    !Number.isNaN(parseFloat(vatRate));
 
   // ------- render -------
   return (
@@ -865,12 +949,48 @@ const ReceiptAdd = ({ navigation }) => {
               />
             </View>
 
+            <View style={localStyles.fieldGroup}>
+              <Text style={[ReceiptStyles.label, localStyles.labelAligned]}>Label (optional):</Text>
+              <TextInput
+                style={[ReceiptStyles.input, localStyles.inputAligned]}
+                value={label}
+                onChangeText={setLabel}
+                placeholder="An optional label"
+                placeholderTextColor={Colors.textSecondary}
+              />
+            </View>
+
+            <View style={localStyles.fieldGroup}>
+              <View style={ReceiptStyles.ocrRow}>
+                <Checkbox
+                  status={recurringEnabled ? "checked" : "unchecked"}
+                  onPress={() => {
+                    if (recurringEnabled) {
+                      setRecurringEnabled(false);
+                      setRecurrenceFrequency(null);
+                      return;
+                    }
+                    setRecurrenceModalVisible(true);
+                  }}
+                  color={Colors.accent}
+                />
+                <Text style={ReceiptStyles.ocrLabel}>Recurring expense</Text>
+                <Text style={ReceiptStyles.ocrValue}>
+                  {recurringEnabled
+                    ? recurrenceFrequency === "custom"
+                      ? `Every ${Math.max(1, parseInt(customEvery, 10) || 1)} ${customUnit}`
+                      : recurrenceFrequency
+                    : "Off"}
+                </Text>
+              </View>
+            </View>
+
             {/* Images Section */}
             <View style={[localStyles.fieldGroup, { zIndex: 1, elevation: 1 }]}>
               <ScrollView
                 horizontal
                 showsHorizontalScrollIndicator={false}
-                contentContainerStyle={{ alignItems: "center" }}
+                contentContainerStyle={{ alignItems: "center", paddingHorizontal: 10 }}
               >
                 {/* Map through images instead of using FlatList to avoid nesting errors */}
                 {images.map((item, index) => (
@@ -925,7 +1045,7 @@ const ReceiptAdd = ({ navigation }) => {
                 onPress={handleSavePress}
                 buttonColor="#a60d49"
                 style={ReceiptStyles.button}
-                disabled={!selectedCategory || amount.trim() === ""}
+                disabled={!isReceiptFormValid}
               >
                 Save
               </Button>
@@ -1124,6 +1244,107 @@ const ReceiptAdd = ({ navigation }) => {
       </Modal>
 
       {/* OCR Preview + Accept Modal */}
+      <Modal
+        visible={recurrenceModalVisible}
+        transparent
+        animationType="slide"
+        onRequestClose={() => setRecurrenceModalVisible(false)}
+      >
+        <View style={ReceiptStyles.modalOverlay}>
+          <View style={ReceiptStyles.modalContent}>
+            <Text style={ReceiptStyles.modalTitle}>Recurring expense</Text>
+            {[
+              { key: "daily", label: "Daily" },
+              { key: "weekly", label: "Weekly" },
+              { key: "monthly", label: "Monthly" },
+              { key: "annually", label: "Annually" },
+              { key: "custom", label: "Custom" },
+            ].map((item) => (
+              <TouchableOpacity
+                key={item.key}
+                style={localStyles.recurrenceOption}
+                onPress={() => setRecurrenceFrequency(item.key)}
+              >
+                <Text style={localStyles.recurrenceOptionText}>{item.label}</Text>
+                <Text>{recurrenceFrequency === item.key ? "✓" : ""}</Text>
+              </TouchableOpacity>
+            ))}
+
+            {recurrenceFrequency === "custom" ? (
+              <View style={localStyles.customRecurrenceWrap}>
+                <Text style={localStyles.customRecurrenceTitle}>Repeat every</Text>
+                <ScrollView
+                  horizontal
+                  showsHorizontalScrollIndicator={false}
+                  contentContainerStyle={localStyles.everyChipRow}
+                >
+                  {Array.from({ length: 24 }, (_, i) => String(i + 1)).map((value) => {
+                    const selected = customEvery === value;
+                    return (
+                      <TouchableOpacity
+                        key={value}
+                        onPress={() => setCustomEvery(value)}
+                        style={[
+                          localStyles.everyChip,
+                          selected ? localStyles.everyChipSelected : null,
+                        ]}
+                      >
+                        <Text
+                          style={[
+                            localStyles.everyChipText,
+                            selected ? localStyles.everyChipTextSelected : null,
+                          ]}
+                        >
+                          {value}
+                        </Text>
+                      </TouchableOpacity>
+                    );
+                  })}
+                </ScrollView>
+
+                <View style={localStyles.customUnitRow}>
+                  {["days", "weeks", "months", "years"].map((unit) => {
+                    const selected = customUnit === unit;
+                    return (
+                      <TouchableOpacity
+                        key={unit}
+                        onPress={() => setCustomUnit(unit)}
+                        style={[
+                          localStyles.customUnitChip,
+                          selected ? localStyles.customUnitChipSelected : null,
+                        ]}
+                      >
+                        <Text
+                          style={[
+                            localStyles.customUnitChipText,
+                            selected ? localStyles.customUnitChipTextSelected : null,
+                          ]}
+                        >
+                          {unit}
+                        </Text>
+                      </TouchableOpacity>
+                    );
+                  })}
+                </View>
+              </View>
+            ) : null}
+
+            <View style={ReceiptStyles.modalButtons}>
+              <RNButton title="Cancel" color="#555" onPress={() => setRecurrenceModalVisible(false)} />
+              <RNButton
+                title="Confirm"
+                color="#a60d49"
+                onPress={() => {
+                  if (!recurrenceFrequency) return;
+                  setRecurringEnabled(true);
+                  setRecurrenceModalVisible(false);
+                }}
+              />
+            </View>
+          </View>
+        </View>
+      </Modal>
+
       <Modal
         visible={ocrModalVisible}
         transparent
@@ -1577,6 +1798,78 @@ const localStyles = StyleSheet.create({
     borderTopColor: "transparent",
     borderBottomColor: "transparent",
     borderRightColor: "#F0D1FF",
+  },
+  recurrenceOption: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    paddingVertical: 10,
+    borderBottomWidth: 1,
+    borderBottomColor: "#ececf0",
+  },
+  recurrenceOptionText: {
+    color: Colors.textPrimary,
+    fontSize: 16,
+  },
+  customRecurrenceWrap: {
+    marginTop: 10,
+  },
+  customRecurrenceTitle: {
+    color: Colors.textPrimary,
+    fontSize: 14,
+    fontWeight: "600",
+    marginBottom: 8,
+  },
+  everyChipRow: {
+    paddingBottom: 6,
+  },
+  everyChip: {
+    minWidth: 44,
+    height: 44,
+    borderRadius: 22,
+    borderWidth: 1,
+    borderColor: Colors.border,
+    alignItems: "center",
+    justifyContent: "center",
+    marginRight: 8,
+    backgroundColor: Colors.card,
+  },
+  everyChipSelected: {
+    backgroundColor: Colors.accent,
+    borderColor: Colors.accent,
+  },
+  everyChipText: {
+    color: Colors.textPrimary,
+    fontSize: 16,
+    fontWeight: "600",
+  },
+  everyChipTextSelected: {
+    color: "#fff",
+  },
+  customUnitRow: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    marginTop: 10,
+    gap: 8,
+  },
+  customUnitChip: {
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 999,
+    borderWidth: 1,
+    borderColor: Colors.border,
+    backgroundColor: Colors.card,
+  },
+  customUnitChipSelected: {
+    backgroundColor: Colors.accent,
+    borderColor: Colors.accent,
+  },
+  customUnitChipText: {
+    color: Colors.textPrimary,
+    fontWeight: "600",
+  },
+  customUnitChipTextSelected: {
+    color: "#fff",
   },
 });
 
