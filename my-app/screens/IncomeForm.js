@@ -599,7 +599,7 @@ export default function IncomeFormScreen({ navigation, route, mode }) {
               </Button>
             </View>
 
-            <View style={styles.fieldGroup}>
+            <View style={[styles.fieldGroup, styles.notesSection]}>
               <Text style={ReceiptStyles.label}>Notes:</Text>
               <TextInput
                 value={notes}
@@ -912,6 +912,7 @@ const styles = StyleSheet.create({
     justifyContent: "space-between",
     marginTop: 6,
   },
+  notesSection: { marginTop: 10 },
   deleteButton: { marginTop: 16 },
   loadingOverlay: {
     ...StyleSheet.absoluteFillObject,

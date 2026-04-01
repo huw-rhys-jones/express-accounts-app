@@ -131,9 +131,14 @@ export default function IncomeScreen({ navigation }) {
 
   const renderItem = ({ item }) => (
     <View style={styles.rowOuter}>
-      <View style={styles.listContainer}>
+      <View
+        style={[
+          styles.listContainer,
+          { width: "98%", marginTop: 0, marginBottom: 5 },
+        ]}
+      >
         <TouchableOpacity
-          style={styles.row}
+          style={[styles.row, { width: "100%", marginBottom: 0 }]}
           onPress={() => navigation.navigate("IncomeDetails", { income: item })}
         >
           <Text style={styles.rowDate}>{formatDate(new Date(item.date))}</Text>
