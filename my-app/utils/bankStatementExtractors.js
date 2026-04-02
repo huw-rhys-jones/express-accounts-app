@@ -581,6 +581,7 @@ const BANK_VENDOR_ALIASES = {
     "just eat",
     "justeat",
     "uber eats",
+    "restaurant",
   ],
   Parking: ["ncp", "ringgo", "paybyphone", "apcoa", "q park", "horizon parking", "euro car parks", "justpark"],
   Materials: ["screwfix", "toolstation", "wickes", "b&q", "travis perkins", "jewson", "selco", "howdens"],
@@ -628,6 +629,8 @@ const BANK_VENDOR_ALIASES = {
     "united utilities",
     "southern water",
     "yorkshire water",
+    "dwr",
+    "edf"
   ],
   Postage: ["royal mail", "post office", "dhl", "dpd", "evri", "hermes", "yodel", "fedex", "ups", "parcelforce"],
 };
