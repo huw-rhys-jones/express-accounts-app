@@ -18,6 +18,7 @@ import SharedTabMenu from "../components/SharedTabMenu";
 import { auth, db } from "../firebaseConfig";
 import { Colors } from "../utils/sharedStyles";
 import { formatDate } from "../utils/format_style";
+import { useTabSwipeNavigation } from "../utils/tabSwipeNavigation";
 
 export default function BankStatementList({ navigation }) {
   const [statements, setStatements] = useState([]);
@@ -26,6 +27,7 @@ export default function BankStatementList({ navigation }) {
   const [sortKey, setSortKey] = useState("date");
   const [sortDir, setSortDir] = useState("desc");
   const [menuOpen, setMenuOpen] = useState(false);
+  const swipeResponder = useTabSwipeNavigation(navigation, "BankStatements");
 
   const fetchStatements = useCallback(async () => {
     const user = auth.currentUser;
@@ -151,7 +153,7 @@ export default function BankStatementList({ navigation }) {
   );
 
   return (
-    <SafeAreaView style={styles.container}>
+    <SafeAreaView style={styles.container} {...swipeResponder.panHandlers}>
       <View style={[styles.topBar, { paddingTop: 5 }]}> 
         <TouchableOpacity style={styles.topBarButton} onPress={() => setMenuOpen(true)}>
           <Text style={styles.topBarButtonText}>≡</Text>

@@ -241,12 +241,13 @@ export default function BankStatementForm({ navigation, route, mode }) {
   };
 
   const setAcceptFlagsFromResult = (result) => {
+    const isCredit = result?.statementType === "credit";
     setAcceptFlags({
       accountName: Boolean(result?.accountName),
-      startDate: Boolean(result?.statementStartDate),
+      startDate: !isCredit && Boolean(result?.statementStartDate),
       endDate: Boolean(result?.statementIssueDate || result?.statementEndDate),
-      moneyInTotal: Number.isFinite(result?.moneyInTotal),
-      moneyOutTotal: Number.isFinite(result?.moneyOutTotal),
+      moneyInTotal: !isCredit && Number.isFinite(result?.moneyInTotal),
+      moneyOutTotal: !isCredit && Number.isFinite(result?.moneyOutTotal),
       statementBalance: Number.isFinite(result?.statementBalance),
     });
   };
@@ -270,6 +271,13 @@ export default function BankStatementForm({ navigation, route, mode }) {
       const combinedText = allTextParts.join("\n\n");
       console.log("BANK_STATEMENT_IMAGE_OCR_TEXT_START\n%s\nBANK_STATEMENT_IMAGE_OCR_TEXT_END", combinedText);
       const extracted = extractBankStatementData(combinedText);
+      if (extracted?.statementType === "credit") {
+        console.log("CREDIT_CARD_OCR_RAW_TEXT_START\n%s\nCREDIT_CARD_OCR_RAW_TEXT_END", combinedText);
+        console.log(
+          "CREDIT_CARD_OCR_PARSED_TRANSACTIONS\n%s",
+          JSON.stringify(extracted.transactions || [], null, 2)
+        );
+      }
       setOcrResult(extracted);
       setAcceptFlagsFromResult(extracted);
     } catch (error) {
@@ -493,6 +501,13 @@ export default function BankStatementForm({ navigation, route, mode }) {
       }
 
       const extracted = rawText ? extractBankStatementData(rawText) : response?.extracted || null;
+      if (extracted?.statementType === "credit" && rawText) {
+        console.log("CREDIT_CARD_PDF_OCR_RAW_TEXT_START\n%s\nCREDIT_CARD_PDF_OCR_RAW_TEXT_END", rawText);
+        console.log(
+          "CREDIT_CARD_PDF_PARSED_TRANSACTIONS\n%s",
+          JSON.stringify(extracted.transactions || [], null, 2)
+        );
+      }
       setShowOcrMore(false);
       setOcrResult(extracted);
       setAcceptFlagsFromResult(extracted);
@@ -663,8 +678,12 @@ export default function BankStatementForm({ navigation, route, mode }) {
       return;
     }
 
-    const incomingMoney = parseMoneyInput(moneyInTotal || 0);
-    const outgoingMoney = parseMoneyInput(moneyOutTotal || 0);
+    const incomingMoney = isCreditStatement
+      ? (Number.isFinite(ocrResult?.moneyInTotal) ? Number(ocrResult.moneyInTotal) : 0)
+      : parseMoneyInput(moneyInTotal || 0);
+    const outgoingMoney = isCreditStatement
+      ? (Number.isFinite(ocrResult?.moneyOutTotal) ? Number(ocrResult.moneyOutTotal) : 0)
+      : parseMoneyInput(moneyOutTotal || 0);
     const hasStatementBalance = String(statementBalance || "").trim().length > 0;
     const parsedStatementBalance = hasStatementBalance ? parseMoneyInput(statementBalance) : null;
 
@@ -933,17 +952,6 @@ export default function BankStatementForm({ navigation, route, mode }) {
                   </View>
                 </View>
 
-                <View style={styles.fieldGroup}>
-                  <Text style={ReceiptStyles.label}>Notes:</Text>
-                  <TextInput
-                    value={notes}
-                    onChangeText={setNotes}
-                    placeholder="Statement notes or review reminders"
-                    placeholderTextColor={stylesConst.placeholder}
-                    style={[ReceiptStyles.input, styles.notesInput]}
-                    multiline
-                  />
-                </View>
               </>
             )}
 
@@ -983,6 +991,20 @@ export default function BankStatementForm({ navigation, route, mode }) {
                 Save
               </Button>
             </View>
+
+            {!isCreditStatement ? (
+              <View style={[styles.fieldGroup, styles.notesSection]}>
+                <Text style={ReceiptStyles.label}>Notes:</Text>
+                <TextInput
+                  value={notes}
+                  onChangeText={setNotes}
+                  placeholder="Statement notes or review reminders"
+                  placeholderTextColor={stylesConst.placeholder}
+                  style={[ReceiptStyles.input, styles.notesInput]}
+                  multiline
+                />
+              </View>
+            ) : null}
 
             {mode === "edit" ? (
               <Button
@@ -1126,20 +1148,6 @@ export default function BankStatementForm({ navigation, route, mode }) {
                         </Text>
                       </View>
 
-                      {ocrResult?.statementStartDate ? (
-                        <View style={ReceiptStyles.ocrRow}>
-                          <Checkbox
-                            status={acceptFlags.startDate ? "checked" : "unchecked"}
-                            onPress={() => toggleAccept("startDate")}
-                            color={Colors.accent}
-                            disabled={!ocrResult?.statementStartDate}
-                          />
-                          <Text style={ReceiptStyles.ocrLabel}>Period Start:</Text>
-                          <Text style={ReceiptStyles.ocrValue}>
-                            {formatDate(new Date(ocrResult.statementStartDate))}
-                          </Text>
-                        </View>
-                      ) : null}
                     </>
                   ) : (
                     <>
@@ -1171,39 +1179,39 @@ export default function BankStatementForm({ navigation, route, mode }) {
                     </>
                   )}
 
-                  <View style={ReceiptStyles.ocrRow}>
-                    <Checkbox
-                      status={acceptFlags.moneyInTotal ? "checked" : "unchecked"}
-                      onPress={() => toggleAccept("moneyInTotal")}
-                      color={Colors.accent}
-                      disabled={!Number.isFinite(ocrResult?.moneyInTotal)}
-                    />
-                    <Text style={ReceiptStyles.ocrLabel}>
-                      {ocrResult?.statementType === "credit" ? "Payments/Credits:" : "Money In:"}
-                    </Text>
-                    <Text style={ReceiptStyles.ocrValue}>
-                      {Number.isFinite(ocrResult?.moneyInTotal)
-                        ? `£${Number(ocrResult.moneyInTotal).toFixed(2)}`
-                        : "Not detected"}
-                    </Text>
-                  </View>
+                  {ocrResult?.statementType !== "credit" ? (
+                    <>
+                      <View style={ReceiptStyles.ocrRow}>
+                        <Checkbox
+                          status={acceptFlags.moneyInTotal ? "checked" : "unchecked"}
+                          onPress={() => toggleAccept("moneyInTotal")}
+                          color={Colors.accent}
+                          disabled={!Number.isFinite(ocrResult?.moneyInTotal)}
+                        />
+                        <Text style={ReceiptStyles.ocrLabel}>Money In:</Text>
+                        <Text style={ReceiptStyles.ocrValue}>
+                          {Number.isFinite(ocrResult?.moneyInTotal)
+                            ? `£${Number(ocrResult.moneyInTotal).toFixed(2)}`
+                            : "Not detected"}
+                        </Text>
+                      </View>
 
-                  <View style={ReceiptStyles.ocrRow}>
-                    <Checkbox
-                      status={acceptFlags.moneyOutTotal ? "checked" : "unchecked"}
-                      onPress={() => toggleAccept("moneyOutTotal")}
-                      color={Colors.accent}
-                      disabled={!Number.isFinite(ocrResult?.moneyOutTotal)}
-                    />
-                    <Text style={ReceiptStyles.ocrLabel}>
-                      {ocrResult?.statementType === "credit" ? "Spending:" : "Money Out:"}
-                    </Text>
-                    <Text style={ReceiptStyles.ocrValue}>
-                      {Number.isFinite(ocrResult?.moneyOutTotal)
-                        ? `£${Number(ocrResult.moneyOutTotal).toFixed(2)}`
-                        : "Not detected"}
-                    </Text>
-                  </View>
+                      <View style={ReceiptStyles.ocrRow}>
+                        <Checkbox
+                          status={acceptFlags.moneyOutTotal ? "checked" : "unchecked"}
+                          onPress={() => toggleAccept("moneyOutTotal")}
+                          color={Colors.accent}
+                          disabled={!Number.isFinite(ocrResult?.moneyOutTotal)}
+                        />
+                        <Text style={ReceiptStyles.ocrLabel}>Money Out:</Text>
+                        <Text style={ReceiptStyles.ocrValue}>
+                          {Number.isFinite(ocrResult?.moneyOutTotal)
+                            ? `£${Number(ocrResult.moneyOutTotal).toFixed(2)}`
+                            : "Not detected"}
+                        </Text>
+                      </View>
+                    </>
+                  ) : null}
 
                   <View style={ReceiptStyles.modalButtons}>
                     {!ocrNewImageSession ? (
@@ -1363,6 +1371,7 @@ const styles = StyleSheet.create({
   scrollContent: { flexGrow: 1, paddingBottom: 120 },
   fieldGroup: { marginBottom: 18 },
   attachmentSection: { marginTop: 16 },
+  notesSection: { marginTop: 10 },
   dateButtonAligned: { marginHorizontal: 0 },
   notesInput: {
     height: 110,

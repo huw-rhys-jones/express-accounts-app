@@ -398,6 +398,7 @@ function isLikelyTransactionLine(line) {
   if (!upper) return false;
   if (!collectOrderedDates(line.raw).length) return false;
   if (!/(?:£|GBP|\d)/i.test(line.raw)) return false;
+  if (isNonTransactionRow(upper)) return false;
 
   return !/\b(SORT\s*CODE|ACCOUNT\s*NUMBER|STATEMENT\s*DATE|OPENING\s*BALANCE|CLOSING\s*BALANCE|BALANCE\s*BROUGHT\s*FORWARD|BALANCE\s*CARRIED\s*FORWARD|AVAILABLE\s*BALANCE|MONEY\s*IN|MONEY\s*OUT|PAYMENTS?\s*IN|PAYMENTS?\s*OUT|TOTAL\s*IN|TOTAL\s*OUT|TOTAL\s+DEBITS?|TOTAL\s+CREDITS?|ARRANGED\s*OVERDRAFT|UNARRANGED\s*OVERDRAFT|ACCOUNT\s*SUMMARY|PAGE\s+\d+|IBAN|BIC)\b/i.test(upper);
 }
@@ -492,7 +493,20 @@ function normaliseVendorName(description) {
 }
 
 const BANK_VENDOR_ALIASES = {
-  Fuel: ["shell", "bp", "esso", "texaco", "gulf", "applegreen"],
+  Fuel: ["shell", "bp", "esso", "texaco", "gulf", "applegreen", "petrol station", "service station"],
+  "Vehicle Costs and Maintenance": [
+    "halfords",
+    "kwik fit",
+    "ats euromaster",
+    "euro car parts",
+    "national tyres",
+    "protyre",
+    "blackcircles",
+    "autocentre",
+    "garage",
+    "service",
+    "mot",
+  ],
   "Vehicle Hire": [
     "hertz",
     "avis",
@@ -503,11 +517,13 @@ const BANK_VENDOR_ALIASES = {
     "sixt",
     "alamo",
     "national car rental",
+    "van hire",
   ],
   "Travel (bus, train, taxi)": [
     "tfl",
     "uber",
     "bolt",
+    "free now",
     "trainline",
     "national rail",
     "avanti west coast",
@@ -540,6 +556,7 @@ const BANK_VENDOR_ALIASES = {
     "flixbus",
     "megabus",
     "citylink",
+    "taxi",
   ],
   Accommodation: [
     "premier inn",
@@ -557,6 +574,8 @@ const BANK_VENDOR_ALIASES = {
     "hampton by hilton",
     "airbnb",
     "booking.com",
+    "hotels.com",
+    "expedia",
   ],
   Subsistence: [
     "tesco",
@@ -575,16 +594,26 @@ const BANK_VENDOR_ALIASES = {
     "kfc",
     "subway",
     "costa",
+    "caffe nero",
+    "nero",
     "starbucks",
     "pret",
+    "leon",
     "deliveroo",
     "just eat",
     "justeat",
     "uber eats",
     "restaurant",
+    "supermarket",
+    "pub",
   ],
-  Parking: ["ncp", "ringgo", "paybyphone", "apcoa", "q park", "horizon parking", "euro car parks", "justpark"],
-  Materials: ["screwfix", "toolstation", "wickes", "b&q", "travis perkins", "jewson", "selco", "howdens"],
+  Parking: ["ncp", "ringgo", "paybyphone", "apcoa", "q park", "horizon parking", "euro car parks", "justpark", "parkingeye", "smart parking"],
+  "Plant & Machinery Hire": ["hss", "speedy", "sunbelt", "a plant", "boels", "plant hire", "generator hire", "digger hire", "tool hire", "skip hire"],
+  Materials: ["screwfix", "toolstation", "wickes", "b&q", "travis perkins", "jewson", "selco", "howdens", "city plumbing", "tile giant", "electrical direct"],
+  "Tools and Equipment": ["machine mart", "dewalt", "makita", "milwaukee", "stanley", "toolbox", "ppe", "safety boots", "workwear"],
+  "Client Entertaining": ["ticketmaster", "eventbrite", "see tickets", "odeon", "vue", "theatre", "concert", "hospitality"],
+  "Business Rental": ["regus", "wework", "workspace", "serviced office", "business rates", "unit rent", "self storage"],
+  "Waste Disposal": ["biffa", "veolia", "suez", "skip", "waste", "recycling", "refuse"],
   Telephone: [
     "o2",
     "vodafone",
@@ -599,10 +628,14 @@ const BANK_VENDOR_ALIASES = {
     "talkmobile",
     "sky mobile",
     "virgin mobile",
+    "bt mobile",
+    "talktalk",
+    "plusnet",
   ],
   Software: [
     "adobe",
     "microsoft",
+    "office 365",
     "google workspace",
     "xero",
     "quickbooks",
@@ -614,9 +647,15 @@ const BANK_VENDOR_ALIASES = {
     "github",
     "openai",
     "canva",
+    "figma",
+    "mailchimp",
+    "monday.com",
+    "asana",
   ],
   "Business Insurance": ["aviva", "axa", "direct line", "zurich", "allianz", "hiscox", "admiral", "legal and general"],
-  "Professional Fees": ["hmrc", "companies house", "deloitte", "pwc", "kpmg", "ernst and young", "ey"],
+  "Training costs": ["citb", "cscs", "city and guilds", "udemy", "coursera", "training", "seminar", "workshop", "nvq"],
+  "Professional Fees": ["hmrc", "companies house", "deloitte", "pwc", "kpmg", "ernst and young", "ey", "solicitor", "accountant", "bookkeeping", "consulting"],
+  "Trade Subscriptions": ["checkatrade", "gas safe", "fmb", "membership", "subscription", "chartered institute", "trade association"],
   Utilities: [
     "british gas",
     "eon",
@@ -630,10 +669,17 @@ const BANK_VENDOR_ALIASES = {
     "southern water",
     "yorkshire water",
     "dwr",
-    "edf"
+    "edf",
+    "opus energy",
+    "sewerage"
   ],
+  "Cleaning and Upkeep": ["flash", "dettol", "domestos", "cif", "janitorial", "cleaner", "cleaning supplies", "hygiene"],
+  "Sundry items": ["paypal", "sumup", "izettle", "cash withdrawal", "misc", "other", "charity", "donation"],
   Postage: ["royal mail", "post office", "dhl", "dpd", "evri", "hermes", "yodel", "fedex", "ups", "parcelforce"],
+  Stationary: ["ryman", "staples", "office depot", "paperchase", "printerland", "cartridge people", "stationery", "office supplies"],
 };
+
+const NON_TRANSACTION_ROW_REGEX = /\b(?:STATEMENT\s+DATE|ISSUE\s+DATE|DATE\s+ISSUED|PAYMENT\s+DUE(?:\s+DATE)?|MINIMUM\s+PAYMENT|NEW\s+BALANCE|STATEMENT\s+BALANCE|PREVIOUS\s+BALANCE|AVAILABLE\s+CREDIT|CREDIT\s+LIMIT|ACCOUNT\s+SUMMARY|TRANSACTION\s+SUMMARY|PAYMENTS?\s+AND\s+CREDITS?|TOTAL\s+PURCHASES?|TOTAL\s+FEES?|TOTAL\s+INTEREST|TOTAL\s+CHARGES?|TOTAL\s+CASH\s+ADVANCES?|PROMOTIONAL\s+RATE|HOW\s+TO\s+PAY|IMPORTANT\s+INFORMATION|DIRECT\s+DEBIT\s+INSTRUCTION)\b/i;
 
 function escapeRegExp(value) {
   return String(value || "").replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
@@ -725,6 +771,19 @@ function parseLeadingTransactionDate(raw, fallbackYear) {
   return null;
 }
 
+function stripLeadingTransactionDates(value) {
+  return String(value || "")
+    .replace(
+      /^\s*(?:(?:\d{1,2}[\/.-]\d{1,2}(?:[\/.-]\d{2,4})?|\d{1,2}(?:st|nd|rd|th)?\s+[A-Za-z]{3,9}(?:\s+\d{4})?)\s+){1,2}/i,
+      ""
+    )
+    .trim();
+}
+
+function isNonTransactionRow(value) {
+  return NON_TRANSACTION_ROW_REGEX.test(String(value || ""));
+}
+
 function extractTransactionAmounts(raw) {
   const normalizedRaw = String(raw || "")
     .replace(/(\d{1,2}[\/.-]\d{1,2}[\/.-]\d{2,4})(?=\d)/g, "$1 ")
@@ -801,7 +860,20 @@ function parseVendorFromDescription(description) {
 
   vendor = cleanVendorText(vendor);
 
-  if (!vendor || /^(?:un?known|unkown)\s+vendor$/i.test(vendor)) return "Unknown vendor";
+  if (!vendor || /^(?:un?known|unkown)\s+vendor$/i.test(vendor)) {
+    const fallback = cleanVendorText(
+      text
+        .replace(/\b(?:card|payment|purchase|transaction|authorised|posted|reference|ref|pending)\b/gi, " ")
+        .replace(/\s+/g, " ")
+        .trim()
+    );
+    const fallbackWords = fallback.split(" ").filter((word) => /[A-Za-z]/.test(word)).slice(0, 4);
+    if (fallbackWords.length) {
+      vendor = fallbackWords.join(" ");
+    } else {
+      return "Unknown vendor";
+    }
+  }
 
   const upper = vendor.toUpperCase();
   if (upper.includes("YOUR-SAVING")) return "your-saving";
@@ -1004,6 +1076,55 @@ function extractTransactionsFromTableText(text, { statementStartDate, statementE
   return transactions;
 }
 
+function extractCreditCardTransactions(lines, { statementStartDate, statementEndDate } = {}) {
+  const transactions = [];
+  const fallbackYear =
+    Number(String(statementEndDate || statementStartDate || "").slice(0, 4)) ||
+    new Date().getFullYear();
+
+  for (const line of lines) {
+    if (!isDatePrefixedLine(line.raw)) continue;
+    if (isNonTransactionRow(line.raw)) continue;
+    if (!/[A-Za-z]/.test(line.raw)) continue;
+
+    const transactionDate = parseLeadingTransactionDate(line.raw, fallbackYear);
+    const amountMatches = extractTransactionAmounts(line.raw);
+    const amount = chooseTransactionAmount(amountMatches);
+    if (!transactionDate || !Number.isFinite(amount) || amount <= 0) continue;
+
+    const description = stripLeadingTransactionDates(line.raw)
+      .replace(/(?:£\s*|GBP\s*)?[-+−]?(?:\d{1,3}(?:[, ]\d{2,3})+|\d+)(?:\.\d{2})?(?:CR)?/gi, " ")
+      .replace(/\b(?:CR|DR)\b/gi, " ")
+      .replace(/\s+/g, " ")
+      .trim();
+
+    if (!description || isNonTransactionRow(description) || description.length < 2) continue;
+
+    let direction = "out";
+    if (/\b(CR|CREDIT|REFUND|PAYMENT\s+RECEIVED|RECEIVED|REVERSAL|CASHBACK)\b/i.test(line.upper)) {
+      direction = "in";
+    }
+
+    const vendor = parseVendorFromDescription(description);
+    const category = direction === "out"
+      ? inferCategoryFromText(`${vendor} ${description}`)
+      : "Income";
+
+    transactions.push({
+      id: `${transactionDate}-${vendor}-${transactions.length}`,
+      date: transactionDate,
+      description,
+      vendor,
+      paymentLabel: direction === "in" ? "from" : "to",
+      amount: Number(amount.toFixed(2)),
+      direction,
+      category,
+    });
+  }
+
+  return transactions;
+}
+
 function extractTransactions(lines, { statementStartDate, statementEndDate } = {}) {
   const transactions = [];
   const fallbackYear =
@@ -1023,15 +1144,13 @@ function extractTransactions(lines, { statementStartDate, statementEndDate } = {
     const amount = chooseTransactionAmount(amountMatches);
     if (!transactionDate || !Number.isFinite(amount) || amount <= 0) continue;
 
-    const description = line.raw
-      .replace(/^\s*\d{1,2}[\/.-]\d{1,2}(?:[\/.-]\d{2,4})?\s*/, "")
-      .replace(/^\s*\d{1,2}(?:st|nd|rd|th)?\s+(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[A-Za-z]*(?:\s+\d{4})?\s*/i, "")
+    const description = stripLeadingTransactionDates(line.raw)
       .replace(/(?:£\s*|GBP\s*)?\d{1,3}(?:[, ]\d{2,3})*(?:\.\d{2})?/g, " ")
       .replace(/\b(?:CR|DR)\b/g, " ")
       .replace(/\s+/g, " ")
       .trim();
 
-    if (!description) continue;
+    if (!description || isNonTransactionRow(description)) continue;
 
     let direction = "out";
     if (/\b(CR|CREDIT|PAID\s*IN|FROM|REFUND|RECEIVED|DEPOSIT|SALARY|INTEREST)\b/i.test(line.upper)) {
@@ -1155,16 +1274,23 @@ export function extractBankStatementData(text) {
     statementEndDate = issueDate;
   }
 
-  const transactionsFromTable = extractTransactionsFromTableText(text, {
-    statementStartDate,
-    statementEndDate,
-  });
-  const transactions = transactionsFromTable.length
-    ? transactionsFromTable
-    : extractTransactions(lines, {
+  const transactionsFromTable = statementType === "credit"
+    ? []
+    : extractTransactionsFromTableText(text, {
       statementStartDate,
       statementEndDate,
     });
+  const transactions = statementType === "credit"
+    ? extractCreditCardTransactions(lines, {
+      statementStartDate,
+      statementEndDate,
+    })
+    : transactionsFromTable.length
+      ? transactionsFromTable
+      : extractTransactions(lines, {
+        statementStartDate,
+        statementEndDate,
+      });
   const { vendorTotals, categoryTotals } = summariseTransactions(transactions);
 
   const balanceFromTransactions = Number.isFinite(

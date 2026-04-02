@@ -52,6 +52,7 @@ import {
 } from "../utils/haptics";
 import { getReceiptFilterKey, setReceiptFilterKey } from "../utils/appSettings";
 import { verifyClientCode } from "../utils/verificationCodes";
+import { useTabSwipeNavigation } from "../utils/tabSwipeNavigation";
 
 // Inside your component
 const appVersion = appPackage?.version || Constants.expoConfig?.version || "unknown";
@@ -88,6 +89,7 @@ const ExpensesScreen = ({ navigation, route }) => {
   const [nameChangeModalVisible, setNameChangeModalVisible] = useState(false);
   const [newName, setNewName] = useState(displayName);
   const [federatedPromptMode, setFederatedPromptMode] = useState(false);
+  const swipeResponder = useTabSwipeNavigation(navigation, "Expenses");
 
   const handleSendFeedback = async () => {
   // 1. Validation
@@ -725,7 +727,7 @@ const ExpensesScreen = ({ navigation, route }) => {
   const hasReceipts = !loading && sortedReceipts.length > 0;
 
   return (
-    <SafeAreaView style={styles.container}>
+    <SafeAreaView style={styles.container} {...swipeResponder.panHandlers}>
       {/* Top App Bar */}
       <View style={[styles.topBar, { paddingTop: 5 }]}>
         <TouchableOpacity

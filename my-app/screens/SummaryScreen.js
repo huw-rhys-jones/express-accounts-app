@@ -26,6 +26,7 @@ import {
 } from "../utils/financialPeriods";
 import { formatDate } from "../utils/format_style";
 import { getReceiptFilterKey } from "../utils/appSettings";
+import { useTabSwipeNavigation } from "../utils/tabSwipeNavigation";
 
 const screenWidth = Dimensions.get("window").width;
 const CHART_CARD_WIDTH = screenWidth * 0.9;
@@ -47,6 +48,7 @@ export default function SummaryScreen({ navigation }) {
   const [bankStatements, setBankStatements] = useState([]);
   const [activeFilterKey, setActiveFilterKey] = useState("current-quarter");
   const [menuOpen, setMenuOpen] = useState(false);
+  const swipeResponder = useTabSwipeNavigation(navigation, "Summary");
 
   const barChartScrollRef = React.useRef(null);
   
@@ -253,7 +255,7 @@ export default function SummaryScreen({ navigation }) {
   const { yTicks } = getYAxisTicks(monthlyTotals, 5);
 
   return (
-    <SafeAreaView style={styles.container}>
+    <SafeAreaView style={styles.container} {...swipeResponder.panHandlers}>
       <View style={[styles.topBar, { paddingTop: 5 }]}> 
         <TouchableOpacity style={styles.topBarButton} onPress={() => setMenuOpen(true)}>
           <Text style={styles.topBarButtonText}>≡</Text>
