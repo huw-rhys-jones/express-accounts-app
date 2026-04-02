@@ -571,7 +571,7 @@
       </div>
 
       <div id="clientBoard" class="board"></div>
-      <div id="statusLine" class="statusline">Select a client tile to export their receipt data.</div>
+      <div id="statusLine" class="statusline">Select a client tile to export receipt, income, and bank statement data.</div>
       </div>
 
       <div id="managementTabPanel" class="tab-panel">
@@ -688,9 +688,20 @@
       return (Number(pence) || 0) / 100;
     }
 
-    function toDateTimeString(isoString) {
-      const d = new Date(isoString);
+    function toDateTimeString(value) {
+      if (!value) return "";
+      const d = value instanceof Date ? value : new Date(value);
+      if (Number.isNaN(d.getTime())) return String(value);
       return d.toLocaleString();
+    }
+
+    function toDateOnlyString(value) {
+      if (!value) return "";
+      const d = value instanceof Date ? value : new Date(value);
+      if (Number.isNaN(d.getTime())) {
+        return String(value).split("T")[0];
+      }
+      return toLocalYmd(d);
     }
 
     function startOfLocalDay(date) {
@@ -793,15 +804,33 @@
     }
 
     function userLatestUploadMs(user) {
-      const times = user.receipts
-        .map((r) => new Date(r.loggedAt).getTime())
+      const times = [
+        ...(user.receipts || []).map((item) => item.loggedAt || item.date),
+        ...(user.income || []).map((item) => item.loggedAt || item.date),
+        ...(user.bankStatements || []).map(
+          (item) => item.loggedAt || item.updatedAt || item.date || item.statementEndDate || item.statementStartDate
+        ),
+      ]
+        .map((value) => new Date(value).getTime())
         .filter((ms) => Number.isFinite(ms));
       if (times.length === 0) return 0;
       return Math.max(...times);
     }
 
+    function filterEntriesByPeriod(entries, startDate, endDate, getDateValue) {
+      return (entries || []).filter((entry) => {
+        if (!startDate || !endDate) return true;
+        const rawDate = typeof getDateValue === "function" ? getDateValue(entry) : entry && entry.date;
+        const dateValue = toDateOnlyString(rawDate);
+        if (!dateValue) return false;
+        return dateValue >= startDate && dateValue <= endDate;
+      });
+    }
+
     function hasNewUploadsSince(user, loginDate) {
-      if (!loginDate) return user.receipts.length > 0;
+      if (!loginDate) {
+        return (user.receipts || []).length > 0 || (user.income || []).length > 0 || (user.bankStatements || []).length > 0;
+      }
       return userLatestUploadMs(user) > loginDate.getTime();
     }
 
@@ -843,8 +872,10 @@
 
     async function loadRealData() {
       try {
-        const [receiptsSnapshot, usersSnapshot] = await Promise.all([
+        const [receiptsSnapshot, incomeSnapshot, bankStatementsSnapshot, usersSnapshot] = await Promise.all([
           db.collection("receipts").get(),
+          db.collection("income").get(),
+          db.collection("bankStatements").get(),
           db.collection("users").get(),
         ]);
 
@@ -872,8 +903,67 @@
           });
         });
 
+        const incomeByUser = {};
+        incomeSnapshot.forEach((snap) => {
+          const data = snap.data();
+          const uid = data.userId;
+          if (!uid) return;
+          if (!incomeByUser[uid]) incomeByUser[uid] = [];
+
+          const createdDate = data.createdAt ? data.createdAt.toDate() : null;
+          incomeByUser[uid].push({
+            id: snap.id,
+            amount: Number(data.amount) || 0,
+            vatAmount: data.vatAmount != null ? Number(data.vatAmount) : 0,
+            vatRate: data.vatRate != null ? Number(data.vatRate) : 0,
+            date: data.date ? String(data.date).split("T")[0] : "",
+            reference: data.reference || "",
+            label: data.label || "",
+            notes: data.notes || "",
+            attachmentsCount: Array.isArray(data.attachments) ? data.attachments.length : 0,
+            loggedAt: createdDate ? createdDate.toISOString() : (data.date || ""),
+          });
+        });
+
+        const bankStatementsByUser = {};
+        bankStatementsSnapshot.forEach((snap) => {
+          const data = snap.data();
+          const uid = data.userId;
+          if (!uid) return;
+          if (!bankStatementsByUser[uid]) bankStatementsByUser[uid] = [];
+
+          const createdDate = data.createdAt ? data.createdAt.toDate() : null;
+          const updatedDate = data.updatedAt ? data.updatedAt.toDate() : null;
+          bankStatementsByUser[uid].push({
+            id: snap.id,
+            accountName: data.accountName || "",
+            statementType: data.statementType || "bank",
+            statementBalance: data.statementBalance != null ? Number(data.statementBalance) : null,
+            statementStartDate: data.statementStartDate ? String(data.statementStartDate).split("T")[0] : "",
+            statementEndDate: data.statementEndDate ? String(data.statementEndDate).split("T")[0] : "",
+            date: data.date
+              ? String(data.date).split("T")[0]
+              : (data.statementEndDate ? String(data.statementEndDate).split("T")[0] : ""),
+            moneyInTotal: Number(data.moneyInTotal) || 0,
+            moneyOutTotal: Number(data.moneyOutTotal) || 0,
+            netMovement: Number(data.netMovement) || 0,
+            notes: data.notes || "",
+            rawText: data.rawText || "",
+            attachmentsCount: Array.isArray(data.attachments) ? data.attachments.length : 0,
+            transactions: Array.isArray(data.transactions) ? data.transactions : [],
+            vendorTotals: Array.isArray(data.vendorTotals) ? data.vendorTotals : [],
+            categoryTotals: Array.isArray(data.categoryTotals) ? data.categoryTotals : [],
+            loggedAt: createdDate
+              ? createdDate.toISOString()
+              : (updatedDate ? updatedDate.toISOString() : (data.date || data.statementEndDate || "")),
+            updatedAt: updatedDate ? updatedDate.toISOString() : "",
+          });
+        });
+
         const userIds = Array.from(new Set([
           ...Object.keys(receiptsByUser),
+          ...Object.keys(incomeByUser),
+          ...Object.keys(bankStatementsByUser),
           ...Object.keys(profilesById),
         ]));
 
@@ -892,6 +982,8 @@
             notifyAccountant: profile.notifyAccountant || false,
             processedAt: toJsDate(profile.processedAt),
             receipts: receiptsByUser[uid] || [],
+            income: incomeByUser[uid] || [],
+            bankStatements: bankStatementsByUser[uid] || [],
           };
         });
       } catch (error) {
@@ -966,7 +1058,7 @@
           "<div class='card-title-row'><strong>" + user.name + "</strong>" + verifiedBadge + "</div>" +
           (user.email ? "<small style='opacity:0.8'>" + user.email + "</small>" : "") +
           "<small>" + status.label + "</small>" +
-          "<small>Receipts: " + user.receipts.length + "</small>";
+          "<small>Receipts: " + user.receipts.length + " • Income: " + (user.income || []).length + " • Statements: " + (user.bankStatements || []).length + "</small>";
 
         button.addEventListener("click", () => openDateModal(user));
         clientBoard.appendChild(button);
@@ -1092,7 +1184,7 @@
       periodSelect.value = periods[0] ? periods[0].key : "";
       resetNotifyBtn.style.display = "inline-block";
 
-      document.getElementById("modalTitle").textContent = "Export receipts for " + user.name;
+      document.getElementById("modalTitle").textContent = "Export data for " + user.name;
       dateModal.style.display = "flex";
     }
 
@@ -1153,7 +1245,7 @@
       );
     }
 
-    function buildWorkbookRows(user, filteredReceipts) {
+    function buildReceiptWorkbookRows(filteredReceipts) {
       const rows = filteredReceipts.map((receipt) => {
         const vatAmount = Number.isFinite(Number(receipt.vatAmount))
           ? Number(receipt.vatAmount)
@@ -1196,17 +1288,205 @@
       return aoa;
     }
 
+    function calculateIncomeTotals(entries) {
+      return entries.reduce(
+        (acc, item) => {
+          const label = (item.label || "Unlabelled").trim() || "Unlabelled";
+          acc.totalAmountPence += toPence(item.amount);
+          acc.totalVatPence += toPence(item.vatAmount);
+          acc.byLabelPence[label] = (acc.byLabelPence[label] || 0) + toPence(item.amount);
+          return acc;
+        },
+        { totalAmountPence: 0, totalVatPence: 0, byLabelPence: {} }
+      );
+    }
+
+    function buildIncomeWorkbookRows(filteredIncome) {
+      const rows = filteredIncome.map((entry) => [
+        toMoney(entry.amount),
+        toMoney(entry.vatAmount),
+        entry.vatRate + "%",
+        entry.date,
+        entry.reference || "",
+        entry.label || "",
+        entry.notes || "",
+        toDateTimeString(entry.loggedAt),
+      ]);
+
+      const totals = calculateIncomeTotals(filteredIncome);
+      const labelSummaryRows = Object.entries(totals.byLabelPence)
+        .sort(([a], [b]) => a.localeCompare(b, undefined, { sensitivity: "base" }))
+        .map(([label, amountPence]) => [label, toMoney(fromPence(amountPence))]);
+
+      const aoa = [
+        ["Amount", "VAT Amount", "VAT Rate", "Date", "Reference", "Label", "Notes", "Logged At"],
+        ...rows,
+        [],
+        ["Summary", ""],
+        ["Total Amount", toMoney(fromPence(totals.totalAmountPence))],
+        ["Total VAT Amount", toMoney(fromPence(totals.totalVatPence))],
+        ["", ""],
+        ["Totals by Label", ""],
+        ...labelSummaryRows,
+      ];
+
+      if (rows.length === 0) {
+        aoa.splice(1, 0, ["No income records found for this period.", "", "", "", "", "", "", ""]);
+      }
+
+      return aoa;
+    }
+
+    function buildBankStatementWorkbookRows(filteredStatements) {
+      const typeLabel = (statementType) => statementType === "credit" ? "Credit card" : "Bank";
+
+      const summaryRows = filteredStatements.map((statement) => [
+        statement.accountName || "",
+        typeLabel(statement.statementType),
+        statement.statementStartDate || "",
+        statement.statementEndDate || statement.date || "",
+        Number.isFinite(Number(statement.statementBalance)) ? toMoney(statement.statementBalance) : "",
+        toMoney(statement.moneyInTotal || 0),
+        toMoney(statement.moneyOutTotal || 0),
+        toMoney(
+          Number.isFinite(Number(statement.netMovement))
+            ? Number(statement.netMovement)
+            : (Number(statement.moneyInTotal) || 0) - (Number(statement.moneyOutTotal) || 0)
+        ),
+        statement.notes || "",
+        String(statement.attachmentsCount || 0),
+        String((statement.transactions || []).length),
+        String((statement.vendorTotals || []).length),
+        String((statement.categoryTotals || []).length),
+        toDateTimeString(statement.loggedAt || statement.updatedAt),
+      ]);
+
+      const categoryRows = filteredStatements.flatMap((statement) => {
+        const totals = Array.isArray(statement.categoryTotals) ? statement.categoryTotals : [];
+        if (!totals.length) {
+          return [[
+            statement.accountName || "",
+            typeLabel(statement.statementType),
+            statement.statementEndDate || statement.date || "",
+            "No category totals",
+            "",
+            "",
+          ]];
+        }
+        return totals.map((entry) => [
+          statement.accountName || "",
+          typeLabel(statement.statementType),
+          statement.statementEndDate || statement.date || "",
+          entry.category || "Uncategorized",
+          toMoney(entry.total || 0),
+          entry.count != null ? String(entry.count) : "",
+        ]);
+      });
+
+      const vendorRows = filteredStatements.flatMap((statement) => {
+        const totals = Array.isArray(statement.vendorTotals) ? statement.vendorTotals : [];
+        if (!totals.length) {
+          return [[
+            statement.accountName || "",
+            typeLabel(statement.statementType),
+            statement.statementEndDate || statement.date || "",
+            "",
+            "No vendor totals",
+            "",
+            "",
+          ]];
+        }
+        return totals.map((entry) => [
+          statement.accountName || "",
+          typeLabel(statement.statementType),
+          statement.statementEndDate || statement.date || "",
+          entry.category || "Uncategorized",
+          entry.vendor || "Unknown vendor",
+          toMoney(entry.total || 0),
+          entry.count != null ? String(entry.count) : "",
+        ]);
+      });
+
+      const transactionRows = filteredStatements.flatMap((statement) => {
+        const transactions = Array.isArray(statement.transactions) ? statement.transactions : [];
+        if (!transactions.length) {
+          return [[
+            statement.accountName || "",
+            typeLabel(statement.statementType),
+            statement.statementEndDate || statement.date || "",
+            "",
+            "No transaction rows extracted",
+            "",
+            "",
+            "",
+            "",
+          ]];
+        }
+        return transactions.map((entry) => [
+          statement.accountName || "",
+          typeLabel(statement.statementType),
+          statement.statementEndDate || statement.date || "",
+          entry.date || "",
+          entry.description || "",
+          entry.vendor || "",
+          entry.category || "",
+          Number.isFinite(Number(entry.amount)) ? toMoney(entry.amount) : "",
+          Number.isFinite(Number(entry.balance)) ? toMoney(entry.balance) : "",
+        ]);
+      });
+
+      const rawTextRows = filteredStatements.map((statement) => [
+        statement.accountName || "",
+        typeLabel(statement.statementType),
+        statement.statementEndDate || statement.date || "",
+        statement.rawText || "",
+      ]);
+
+      const aoa = [
+        ["Statement Summary"],
+        ["Account", "Type", "Start Date", "End / Issue Date", "Statement Balance", "Money In", "Money Out", "Net Movement", "Notes", "Attachments", "Transactions", "Vendors", "Categories", "Logged At"],
+        ...summaryRows,
+        [],
+        ["Category Totals"],
+        ["Account", "Type", "Statement Date", "Category", "Total", "Entries"],
+        ...categoryRows,
+        [],
+        ["Vendor Totals"],
+        ["Account", "Type", "Statement Date", "Category", "Vendor", "Total", "Entries"],
+        ...vendorRows,
+        [],
+        ["Transactions"],
+        ["Account", "Type", "Statement Date", "Transaction Date", "Description", "Vendor", "Category", "Amount", "Balance"],
+        ...transactionRows,
+        [],
+        ["Raw OCR Text"],
+        ["Account", "Type", "Statement Date", "Raw Text"],
+        ...rawTextRows,
+      ];
+
+      if (!summaryRows.length) {
+        aoa.splice(2, 0, ["No bank statements found for this period."]);
+      }
+
+      return aoa;
+    }
+
     function downloadUserData(user, selectedPeriod) {
       const startDate = selectedPeriod && selectedPeriod.startDate ? toLocalYmd(selectedPeriod.startDate) : null;
       const endDate = selectedPeriod && selectedPeriod.endDate ? toLocalYmd(selectedPeriod.endDate) : null;
-      const filtered = user.receipts.filter((receipt) => {
-        if (!startDate || !endDate) return true;
-        return receipt.date >= startDate && receipt.date <= endDate;
-      });
-      const aoa = buildWorkbookRows(user, filtered);
-      const worksheet = XLSX.utils.aoa_to_sheet(aoa);
+      const filteredReceipts = filterEntriesByPeriod(user.receipts, startDate, endDate, (receipt) => receipt.date);
+      const filteredIncome = filterEntriesByPeriod(user.income, startDate, endDate, (entry) => entry.date);
+      const filteredStatements = filterEntriesByPeriod(
+        user.bankStatements,
+        startDate,
+        endDate,
+        (statement) => statement.date || statement.statementEndDate || statement.statementStartDate || statement.loggedAt
+      );
+
       const workbook = XLSX.utils.book_new();
-      XLSX.utils.book_append_sheet(workbook, worksheet, "Receipts");
+      XLSX.utils.book_append_sheet(workbook, XLSX.utils.aoa_to_sheet(buildReceiptWorkbookRows(filteredReceipts)), "Receipts");
+      XLSX.utils.book_append_sheet(workbook, XLSX.utils.aoa_to_sheet(buildIncomeWorkbookRows(filteredIncome)), "Income");
+      XLSX.utils.book_append_sheet(workbook, XLSX.utils.aoa_to_sheet(buildBankStatementWorkbookRows(filteredStatements)), "Bank Statements");
 
       const safeName = user.name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/(^-|-$)/g, "");
       const fileSuffix = startDate && endDate
@@ -1215,7 +1495,7 @@
       const fileName = safeName + "-" + fileSuffix + ".xlsx";
       XLSX.writeFile(workbook, fileName);
 
-      statusLine.textContent = "Downloaded " + filtered.length + " receipts for " + user.name + " (" + (selectedPeriod ? selectedPeriod.label : "All time") + ").";
+      statusLine.textContent = "Downloaded " + user.name + " data: " + filteredReceipts.length + " receipts, " + filteredIncome.length + " income record(s), and " + filteredStatements.length + " bank statement(s) (" + (selectedPeriod ? selectedPeriod.label : "All time") + ").";
     }
 
     async function attemptLogin() {
@@ -1274,7 +1554,7 @@
       dashboardSection.style.display = "none";
       loginSection.style.display = "block";
       passwordInput.value = "";
-      statusLine.textContent = "Select a client tile to export their receipt data.";
+      statusLine.textContent = "Select a client tile to export receipt, income, and bank statement data.";
       closeDateModal();
       liveUsers = [];
       currentAccountant = null;

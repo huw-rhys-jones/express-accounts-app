@@ -607,7 +607,7 @@ const BANK_VENDOR_ALIASES = {
     "supermarket",
     "pub",
   ],
-  Parking: ["ncp", "ringgo", "paybyphone", "apcoa", "q park", "horizon parking", "euro car parks", "justpark", "parkingeye", "smart parking"],
+  Parking: ["parkin", "ncp", "ringgo", "paybyphone", "apcoa", "q park", "horizon parking", "euro car parks", "justpark", "parkingeye", "smart parking"],
   "Plant & Machinery Hire": ["hss", "speedy", "sunbelt", "a plant", "boels", "plant hire", "generator hire", "digger hire", "tool hire", "skip hire"],
   Materials: ["screwfix", "toolstation", "wickes", "b&q", "travis perkins", "jewson", "selco", "howdens", "city plumbing", "tile giant", "electrical direct"],
   "Tools and Equipment": ["machine mart", "dewalt", "makita", "milwaukee", "stanley", "toolbox", "ppe", "safety boots", "workwear"],
