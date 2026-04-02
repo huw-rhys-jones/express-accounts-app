@@ -112,6 +112,20 @@ export default function BankStatementList({ navigation }) {
 
   const closeMenu = () => setMenuOpen(false);
 
+  const openAddStatementSelector = () => {
+    Alert.alert("Add Statement", "Choose the type of statement to add.", [
+      {
+        text: "Bank statement",
+        onPress: () => navigation.navigate("BankStatement", { initialStatementType: "bank" }),
+      },
+      {
+        text: "Credit card statement",
+        onPress: () => navigation.navigate("BankStatement", { initialStatementType: "credit" }),
+      },
+      { text: "Cancel", style: "cancel" },
+    ]);
+  };
+
   const renderItem = ({ item }) => (
     <View style={styles.rowOuter}>
       <View style={styles.listContainer}>
@@ -187,9 +201,9 @@ export default function BankStatementList({ navigation }) {
               <View style={styles.emptyState}>
                 <TouchableOpacity
                   style={styles.addButton}
-                  onPress={() => navigation.navigate("BankStatement")}
+                  onPress={openAddStatementSelector}
                 >
-                  <Text style={styles.addButtonText}>Add Bank Statement</Text>
+                  <Text style={styles.addButtonText}>Add Statement</Text>
                 </TouchableOpacity>
               </View>
             ) : null
@@ -204,7 +218,7 @@ export default function BankStatementList({ navigation }) {
 
       <TouchableOpacity
         style={styles.floatingButton}
-        onPress={() => navigation.navigate("BankStatement")}
+        onPress={openAddStatementSelector}
       >
         <Text style={styles.floatingButtonText}>+</Text>
       </TouchableOpacity>

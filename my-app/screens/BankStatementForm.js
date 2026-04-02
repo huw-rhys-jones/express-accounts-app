@@ -68,8 +68,9 @@ function parseMoneyInput(value) {
 
 export default function BankStatementForm({ navigation, route, mode }) {
   const statement = route?.params?.statement;
+  const initialStatementType = route?.params?.initialStatementType || statement?.statementType || "bank";
   const [accountName, setAccountName] = useState(statement?.accountName || "");
-  const [statementType, setStatementType] = useState(statement?.statementType || "bank");
+  const [statementType, setStatementType] = useState(initialStatementType);
   const [statementStartDate, setStatementStartDate] = useState(
     statement?.statementStartDate ? new Date(statement.statementStartDate) : new Date()
   );
@@ -142,6 +143,7 @@ export default function BankStatementForm({ navigation, route, mode }) {
     ]
   );
 
+  const isCreditStatement = statementType === "credit";
   const displayInsights = ocrResult || currentStatementInsights;
   const hasDisplayInsights = Boolean(
     displayInsights?.rawText ||
@@ -149,6 +151,12 @@ export default function BankStatementForm({ navigation, route, mode }) {
       displayInsights?.vendorTotals?.length ||
       displayInsights?.categoryTotals?.length
   );
+
+  useEffect(() => {
+    if (mode === "create") {
+      setStatementType(initialStatementType);
+    }
+  }, [initialStatementType, mode]);
 
   useEffect(() => {
     let active = true;
@@ -598,10 +606,11 @@ export default function BankStatementForm({ navigation, route, mode }) {
     setAcceptFlags((current) => ({ ...current, [key]: !current[key] }));
   };
 
-  const isBankStatementFormValid =
-    accountName.trim().length > 0 &&
-    !Number.isNaN(parseMoneyInput(moneyInTotal)) &&
-    !Number.isNaN(parseMoneyInput(moneyOutTotal));
+  const isBankStatementFormValid = isCreditStatement
+    ? accountName.trim().length > 0 && String(statementBalance || "").trim().length > 0
+    : accountName.trim().length > 0 &&
+      !Number.isNaN(parseMoneyInput(moneyInTotal)) &&
+      !Number.isNaN(parseMoneyInput(moneyOutTotal));
 
   const applyAcceptedOcr = () => {
     if (!ocrResult) {
@@ -622,8 +631,8 @@ export default function BankStatementForm({ navigation, route, mode }) {
       if (!Number.isNaN(nextStart.getTime())) setStatementStartDate(nextStart);
     }
 
-    if (acceptFlags.endDate && ocrResult.statementEndDate) {
-      const nextEnd = new Date(ocrResult.statementEndDate);
+    if (acceptFlags.endDate && (ocrResult.statementIssueDate || ocrResult.statementEndDate)) {
+      const nextEnd = new Date(ocrResult.statementIssueDate || ocrResult.statementEndDate);
       if (!Number.isNaN(nextEnd.getTime())) setStatementEndDate(nextEnd);
     }
 
@@ -656,10 +665,15 @@ export default function BankStatementForm({ navigation, route, mode }) {
 
     const incomingMoney = parseMoneyInput(moneyInTotal || 0);
     const outgoingMoney = parseMoneyInput(moneyOutTotal || 0);
-    const parsedStatementBalance = String(statementBalance || "").trim()
-      ? parseMoneyInput(statementBalance)
-      : null;
-    if (Number.isNaN(incomingMoney) || Number.isNaN(outgoingMoney)) {
+    const hasStatementBalance = String(statementBalance || "").trim().length > 0;
+    const parsedStatementBalance = hasStatementBalance ? parseMoneyInput(statementBalance) : null;
+
+    if (isCreditStatement) {
+      if (!hasStatementBalance || Number.isNaN(parsedStatementBalance)) {
+        Alert.alert("Invalid Input", "Please enter a valid statement balance.");
+        return;
+      }
+    } else if (Number.isNaN(incomingMoney) || Number.isNaN(outgoingMoney)) {
       Alert.alert("Invalid Input", "Please enter valid totals for money in and money out.");
       return;
     }
@@ -721,7 +735,7 @@ export default function BankStatementForm({ navigation, route, mode }) {
       navigateBackToBankStatements(navigation);
     } catch (error) {
       console.error("Error saving bank statement", error);
-      Alert.alert("Save Failed", "Could not save this bank statement.");
+      Alert.alert("Save Failed", "Could not save this statement.");
     } finally {
       setIsSaving(false);
     }
@@ -730,7 +744,7 @@ export default function BankStatementForm({ navigation, route, mode }) {
   const deleteStatement = async () => {
     if (!(mode === "edit" && statement?.id)) return;
 
-    Alert.alert("Delete Bank Statement", "Delete this statement and its attachments?", [
+    Alert.alert("Delete Statement", "Delete this statement and its attachments?", [
       { text: "Cancel", style: "cancel" },
       {
         text: "Delete",
@@ -811,86 +825,127 @@ export default function BankStatementForm({ navigation, route, mode }) {
         <View style={ReceiptStyles.container}>
           <View style={ReceiptStyles.borderContainer}>
             <Text style={ReceiptStyles.header}>
-              {mode === "edit" ? "Edit Statement" : "Add Statement"}
+              {mode === "edit"
+                ? isCreditStatement
+                  ? "Edit Credit Card Statement"
+                  : "Edit Bank Statement"
+                : isCreditStatement
+                  ? "Add Credit Card Statement"
+                  : "Add Bank Statement"}
             </Text>
 
             <View style={styles.fieldGroup}>
-              <Text style={ReceiptStyles.label}>Account Name:</Text>
+              <Text style={ReceiptStyles.label}>
+                {isCreditStatement ? "Credit Card Account:" : "Account Name:"}
+              </Text>
               <TextInput
                 value={accountName}
                 onChangeText={setAccountName}
-                placeholder="Main business account"
+                placeholder={isCreditStatement ? "Santander credit card" : "Main business account"}
                 placeholderTextColor={stylesConst.placeholder}
                 style={ReceiptStyles.input}
               />
             </View>
 
-            <View style={styles.fieldGroup}>
-              <Text style={ReceiptStyles.label}>Statement Start:</Text>
-              <TouchableOpacity
-                style={[ReceiptStyles.dateButton, styles.dateButtonAligned]}
-                onPress={() => setDatePickerTarget("start")}
-              >
-                <Text style={ReceiptStyles.dateText}>{formatDate(statementStartDate)}</Text>
-              </TouchableOpacity>
-            </View>
+            {isCreditStatement ? (
+              <>
+                <View style={styles.fieldGroup}>
+                  <Text style={ReceiptStyles.label}>Issue Date:</Text>
+                  <TouchableOpacity
+                    style={[ReceiptStyles.dateButton, styles.dateButtonAligned]}
+                    onPress={() => setDatePickerTarget("end")}
+                  >
+                    <Text style={ReceiptStyles.dateText}>{formatDate(statementEndDate)}</Text>
+                  </TouchableOpacity>
+                </View>
 
-            <View style={styles.fieldGroup}>
-              <Text style={ReceiptStyles.label}>Statement End:</Text>
-              <TouchableOpacity
-                style={[ReceiptStyles.dateButton, styles.dateButtonAligned]}
-                onPress={() => setDatePickerTarget("end")}
-              >
-                <Text style={ReceiptStyles.dateText}>{formatDate(statementEndDate)}</Text>
-              </TouchableOpacity>
-            </View>
-
-            <View style={styles.moneyRow}>
-              <View style={styles.moneyColumn}>
-                <Text style={ReceiptStyles.label}>Money In:</Text>
-                <View style={[ReceiptStyles.inputRow, styles.currencyField]}>
-                  <View style={styles.currencyWrapper}>
-                    <Text style={styles.currencyText}>£</Text>
+                <View style={styles.fieldGroup}>
+                  <Text style={ReceiptStyles.label}>Statement Balance:</Text>
+                  <View style={[ReceiptStyles.inputRow, styles.currencyField]}>
+                    <View style={styles.currencyWrapper}>
+                      <Text style={styles.currencyText}>£</Text>
+                    </View>
+                    <TextInput
+                      value={statementBalance}
+                      onChangeText={setStatementBalance}
+                      keyboardType="decimal-pad"
+                      placeholder="0.00"
+                      placeholderTextColor={stylesConst.placeholder}
+                      style={[ReceiptStyles.input, styles.inputWithCurrency]}
+                    />
                   </View>
+                </View>
+              </>
+            ) : (
+              <>
+                <View style={styles.fieldGroup}>
+                  <Text style={ReceiptStyles.label}>Statement Start:</Text>
+                  <TouchableOpacity
+                    style={[ReceiptStyles.dateButton, styles.dateButtonAligned]}
+                    onPress={() => setDatePickerTarget("start")}
+                  >
+                    <Text style={ReceiptStyles.dateText}>{formatDate(statementStartDate)}</Text>
+                  </TouchableOpacity>
+                </View>
+
+                <View style={styles.fieldGroup}>
+                  <Text style={ReceiptStyles.label}>Statement End:</Text>
+                  <TouchableOpacity
+                    style={[ReceiptStyles.dateButton, styles.dateButtonAligned]}
+                    onPress={() => setDatePickerTarget("end")}
+                  >
+                    <Text style={ReceiptStyles.dateText}>{formatDate(statementEndDate)}</Text>
+                  </TouchableOpacity>
+                </View>
+
+                <View style={styles.moneyRow}>
+                  <View style={styles.moneyColumn}>
+                    <Text style={ReceiptStyles.label}>Money In:</Text>
+                    <View style={[ReceiptStyles.inputRow, styles.currencyField]}>
+                      <View style={styles.currencyWrapper}>
+                        <Text style={styles.currencyText}>£</Text>
+                      </View>
+                      <TextInput
+                        value={moneyInTotal}
+                        onChangeText={setMoneyInTotal}
+                        keyboardType="decimal-pad"
+                        placeholder="0.00"
+                        placeholderTextColor={stylesConst.placeholder}
+                        style={[ReceiptStyles.input, styles.inputWithCurrency]}
+                      />
+                    </View>
+                  </View>
+                  <View style={styles.moneyColumn}>
+                    <Text style={ReceiptStyles.label}>Money Out:</Text>
+                    <View style={[ReceiptStyles.inputRow, styles.currencyField]}>
+                      <View style={styles.currencyWrapper}>
+                        <Text style={styles.currencyText}>£</Text>
+                      </View>
+                      <TextInput
+                        value={moneyOutTotal}
+                        onChangeText={setMoneyOutTotal}
+                        keyboardType="decimal-pad"
+                        placeholder="0.00"
+                        placeholderTextColor={stylesConst.placeholder}
+                        style={[ReceiptStyles.input, styles.inputWithCurrency]}
+                      />
+                    </View>
+                  </View>
+                </View>
+
+                <View style={styles.fieldGroup}>
+                  <Text style={ReceiptStyles.label}>Notes:</Text>
                   <TextInput
-                    value={moneyInTotal}
-                    onChangeText={setMoneyInTotal}
-                    keyboardType="decimal-pad"
-                    placeholder="0.00"
+                    value={notes}
+                    onChangeText={setNotes}
+                    placeholder="Statement notes or review reminders"
                     placeholderTextColor={stylesConst.placeholder}
-                    style={[ReceiptStyles.input, styles.inputWithCurrency]}
+                    style={[ReceiptStyles.input, styles.notesInput]}
+                    multiline
                   />
                 </View>
-              </View>
-              <View style={styles.moneyColumn}>
-                <Text style={ReceiptStyles.label}>Money Out:</Text>
-                <View style={[ReceiptStyles.inputRow, styles.currencyField]}>
-                  <View style={styles.currencyWrapper}>
-                    <Text style={styles.currencyText}>£</Text>
-                  </View>
-                  <TextInput
-                    value={moneyOutTotal}
-                    onChangeText={setMoneyOutTotal}
-                    keyboardType="decimal-pad"
-                    placeholder="0.00"
-                    placeholderTextColor={stylesConst.placeholder}
-                    style={[ReceiptStyles.input, styles.inputWithCurrency]}
-                  />
-                </View>
-              </View>
-            </View>
-
-            <View style={styles.fieldGroup}>
-              <Text style={ReceiptStyles.label}>Notes:</Text>
-              <TextInput
-                value={notes}
-                onChangeText={setNotes}
-                placeholder="Statement notes or review reminders"
-                placeholderTextColor={stylesConst.placeholder}
-                style={[ReceiptStyles.input, styles.notesInput]}
-                multiline
-              />
-            </View>
+              </>
+            )}
 
             <View style={[styles.fieldGroup, styles.attachmentSection]}>
               <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ alignItems: "center" }}>
@@ -1291,7 +1346,7 @@ export default function BankStatementForm({ navigation, route, mode }) {
           <View style={styles.loadingCard}>
             <ActivityIndicator size="large" color={Colors.accent} />
             <Text style={styles.loadingText}>
-              {isSaving ? "Saving bank statement…" : pickerBusyText}
+              {isSaving ? "Saving statement…" : pickerBusyText}
             </Text>
           </View>
         </View>
@@ -1371,6 +1426,25 @@ const styles = StyleSheet.create({
     color: Colors.textSecondary,
     fontSize: 12,
     lineHeight: 18,
+  },
+  categoryGroupCard: {
+    backgroundColor: Colors.surface,
+    borderRadius: 10,
+    padding: 10,
+    marginTop: 8,
+    borderWidth: 1,
+    borderColor: Colors.border,
+  },
+  categoryGroupTitle: {
+    color: Colors.textPrimary,
+    fontWeight: "700",
+    marginBottom: 4,
+  },
+  breakdownIndentedLine: {
+    color: Colors.textSecondary,
+    fontSize: 12,
+    lineHeight: 18,
+    paddingLeft: 8,
   },
   breakdownRawText: {
     color: Colors.textSecondary,
@@ -1584,81 +1658,133 @@ function parseRawTransactionRow(rawRow) {
     vendor,
     direction,
     amount: Number(amount.toFixed(2)),
+    category: direction === "in" ? "Income" : "Sundry items",
   };
 }
 
 const StatementBreakdown = ({ data }) => {
   if (!data) return null;
 
+  const cleanVendor = (value) =>
+    String(value || "Unknown vendor")
+      .replace(/(?:PAYPAL|PAYAL)/gi, " ")
+      .replace(/\s+/g, " ")
+      .trim()
+      .split(" ")
+      .filter(Boolean)
+      .filter((word, index, arr) => index === 0 || word.toLowerCase() !== arr[index - 1].toLowerCase())
+      .join(" ")
+      .replace(/^(?:un?known|unkown)\s+vendor$/i, "Unknown vendor") || "Unknown vendor";
+
   const transactions = Array.isArray(data.transactions) ? data.transactions : [];
+  const vendorTotals = Array.isArray(data.vendorTotals) ? data.vendorTotals : [];
+  const categoryTotals = Array.isArray(data.categoryTotals) ? data.categoryTotals : [];
   const rawText = String(data.rawText || "").trim();
   const fallbackTransactionRows = extractTransactionRowsFromRawText(rawText);
-  const transactionRows = transactions.length
-    ? transactions
+
+  const vendorRows = transactions.length
+    ? Array.from(
+        transactions.reduce((map, entry) => {
+          const vendor = cleanVendor(entry.vendor);
+          const category = entry.category || (entry.direction === "in" ? "Income" : "Sundry items");
+          const key = `${category}::${vendor}`;
+          const current = map.get(key) || { vendor, category, moneyIn: 0, moneyOut: 0 };
+          if (entry.direction === "in") {
+            current.moneyIn += Number(entry.amount || 0);
+          } else {
+            current.moneyOut += Number(entry.amount || 0);
+          }
+          map.set(key, current);
+          return map;
+        }, new Map()).values()
+      )
         .map((entry) => ({
-          vendor: String(entry.vendor || "Unknown vendor")
-            .replace(/(?:PAYPAL|PAYAL)/gi, " ")
-            .replace(/\s+/g, " ")
-            .trim()
-            .split(" ")
-            .filter(Boolean)
-            .filter((word, index, arr) => index === 0 || word.toLowerCase() !== arr[index - 1].toLowerCase())
-            .join(" ")
-            .replace(/^(?:un?known|unkown)\s+vendor$/i, "Unknown vendor") || "Unknown vendor",
-          direction: entry.direction === "in" ? "in" : "out",
-          amount: Number(entry.amount || 0),
+          ...entry,
+          moneyIn: Number(entry.moneyIn.toFixed(2)),
+          moneyOut: Number(entry.moneyOut.toFixed(2)),
         }))
-        .filter((entry) => Number.isFinite(entry.amount) && entry.amount > 0)
-    : fallbackTransactionRows.map(parseRawTransactionRow).filter(Boolean);
+        .filter((entry) => entry.moneyIn > 0 || entry.moneyOut > 0)
+    : vendorTotals.length
+      ? vendorTotals
+          .map((entry) => ({
+            vendor: cleanVendor(entry.vendor),
+            category: entry.category || ((Number(entry.moneyIn || 0) > 0 && Number(entry.moneyOut || 0) <= 0) ? "Income" : "Sundry items"),
+            moneyIn: Number(entry.moneyIn || 0),
+            moneyOut: Number(entry.moneyOut || 0),
+          }))
+          .filter((entry) => entry.moneyIn > 0 || entry.moneyOut > 0)
+      : fallbackTransactionRows
+          .map(parseRawTransactionRow)
+          .filter(Boolean)
+          .map((entry) => ({
+            vendor: cleanVendor(entry.vendor),
+            category: entry.category,
+            moneyIn: entry.direction === "in" ? Number(entry.amount || 0) : 0,
+            moneyOut: entry.direction === "in" ? 0 : Number(entry.amount || 0),
+          }));
+  const paymentRows = vendorRows
+    .filter((row) => row.moneyIn > 0)
+    .sort((a, b) => b.moneyIn - a.moneyIn);
 
-  const moneyInRows = transactionRows.filter((row) => row.direction === "in");
-  const moneyOutRows = transactionRows.filter((row) => row.direction !== "in");
+  const categoryOrder = new Map(categoryTotals.map((entry, index) => [entry.category, index]));
+  const expenseGroups = new Map();
+  for (const row of vendorRows.filter((entry) => entry.moneyOut > 0)) {
+    const category = row.category || "Sundry items";
+    const current = expenseGroups.get(category) || { category, total: 0, vendors: [] };
+    current.total += row.moneyOut;
+    current.vendors.push({ vendor: row.vendor, total: Number(row.moneyOut.toFixed(2)) });
+    expenseGroups.set(category, current);
+  }
 
-  const sumByVendor = (rows) => {
-    const totals = new Map();
-    for (const row of rows) {
-      const key = row.vendor || "Unknown vendor";
-      totals.set(key, (totals.get(key) || 0) + Number(row.amount || 0));
-    }
-
-    return Array.from(totals.entries())
-      .map(([vendor, total]) => ({ vendor, total: Number(total.toFixed(2)) }))
-      .sort((a, b) => b.total - a.total);
-  };
-
-  const moneyInTotals = sumByVendor(moneyInRows);
-  const moneyOutTotals = sumByVendor(moneyOutRows);
+  const categorizedExpenses = Array.from(expenseGroups.values())
+    .map((group) => ({
+      ...group,
+      total: Number(group.total.toFixed(2)),
+      vendors: group.vendors.sort((a, b) => b.total - a.total),
+    }))
+    .sort((left, right) => {
+      const leftOrder = categoryOrder.has(left.category) ? categoryOrder.get(left.category) : Number.MAX_SAFE_INTEGER;
+      const rightOrder = categoryOrder.has(right.category) ? categoryOrder.get(right.category) : Number.MAX_SAFE_INTEGER;
+      if (leftOrder !== rightOrder) return leftOrder - rightOrder;
+      return right.total - left.total;
+    });
 
   return (
     <View style={styles.breakdownCard}>
-      {transactionRows.length ? (
+      {paymentRows.length ? (
         <View style={styles.breakdownSection}>
-          <Text style={styles.breakdownTitle}>Money in</Text>
-          {moneyInTotals.length ? moneyInTotals.map((row, index) => (
-            <Text key={`in-${row.vendor}-${row.total}-${index}`} style={styles.breakdownLine}>
-              {row.vendor} · £{Number(row.total || 0).toFixed(2)}
+          <Text style={styles.breakdownTitle}>Payments / credits</Text>
+          {paymentRows.map((row, index) => (
+            <Text key={`in-${row.vendor}-${row.moneyIn}-${index}`} style={styles.breakdownLine}>
+              {row.vendor} · £{Number(row.moneyIn || 0).toFixed(2)}
             </Text>
-          )) : (
-            <Text style={styles.breakdownRawText}>No money in rows detected.</Text>
-          )}
+          ))}
         </View>
       ) : null}
 
-      {transactionRows.length ? (
+      {categorizedExpenses.length ? (
         <View style={styles.breakdownSection}>
-          <Text style={styles.breakdownTitle}>Money out</Text>
-          {moneyOutTotals.length ? moneyOutTotals.map((row, index) => (
-            <Text key={`out-${row.vendor}-${row.total}-${index}`} style={styles.breakdownLine}>
-              {row.vendor} · £{Number(row.total || 0).toFixed(2)}
-            </Text>
-          )) : (
-            <Text style={styles.breakdownRawText}>No money out rows detected.</Text>
-          )}
+          <Text style={styles.breakdownTitle}>Categories</Text>
+          {categorizedExpenses.map((group, index) => (
+            <View key={`${group.category}-${group.total}-${index}`} style={styles.categoryGroupCard}>
+              <Text style={styles.categoryGroupTitle}>
+                {group.category} · £{Number(group.total || 0).toFixed(2)}
+              </Text>
+              {group.vendors.map((vendorRow, vendorIndex) => (
+                <Text
+                  key={`${group.category}-${vendorRow.vendor}-${vendorRow.total}-${vendorIndex}`}
+                  style={styles.breakdownIndentedLine}
+                >
+                  {vendorRow.vendor} · £{Number(vendorRow.total || 0).toFixed(2)}
+                </Text>
+              ))}
+            </View>
+          ))}
         </View>
       ) : (
         <View style={styles.breakdownSection}>
           <Text style={styles.breakdownTitle}>Transactions</Text>
-          <Text style={styles.breakdownRawText}>No transaction rows detected yet.</Text>
+          <Text style={styles.breakdownRawText}>No categorized vendor rows detected yet.</Text>
         </View>
       )}
     </View>
