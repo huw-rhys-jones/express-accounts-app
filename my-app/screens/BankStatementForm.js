@@ -69,6 +69,7 @@ function parseMoneyInput(value) {
 export default function BankStatementForm({ navigation, route, mode }) {
   const statement = route?.params?.statement;
   const [accountName, setAccountName] = useState(statement?.accountName || "");
+  const [statementType, setStatementType] = useState(statement?.statementType || "bank");
   const [statementStartDate, setStatementStartDate] = useState(
     statement?.statementStartDate ? new Date(statement.statementStartDate) : new Date()
   );
@@ -81,6 +82,9 @@ export default function BankStatementForm({ navigation, route, mode }) {
   );
   const [moneyOutTotal, setMoneyOutTotal] = useState(
     statement?.moneyOutTotal != null ? String(statement.moneyOutTotal) : ""
+  );
+  const [statementBalance, setStatementBalance] = useState(
+    statement?.statementBalance != null ? String(statement.statementBalance) : ""
   );
   const [notes, setNotes] = useState(statement?.notes || "");
   const [attachments, setAttachments] = useState(
@@ -111,6 +115,7 @@ export default function BankStatementForm({ navigation, route, mode }) {
     endDate: false,
     moneyInTotal: false,
     moneyOutTotal: false,
+    statementBalance: false,
   });
 
   const existingRemoteAttachments = useMemo(
@@ -124,8 +129,17 @@ export default function BankStatementForm({ navigation, route, mode }) {
       transactions: statement?.transactions || [],
       vendorTotals: statement?.vendorTotals || [],
       categoryTotals: statement?.categoryTotals || [],
+      statementType: statement?.statementType || "bank",
+      statementBalance: statement?.statementBalance ?? null,
     }),
-    [statement?.categoryTotals, statement?.rawText, statement?.transactions, statement?.vendorTotals]
+    [
+      statement?.categoryTotals,
+      statement?.rawText,
+      statement?.statementBalance,
+      statement?.statementType,
+      statement?.transactions,
+      statement?.vendorTotals,
+    ]
   );
 
   const displayInsights = ocrResult || currentStatementInsights;
@@ -222,9 +236,10 @@ export default function BankStatementForm({ navigation, route, mode }) {
     setAcceptFlags({
       accountName: Boolean(result?.accountName),
       startDate: Boolean(result?.statementStartDate),
-      endDate: Boolean(result?.statementEndDate),
+      endDate: Boolean(result?.statementIssueDate || result?.statementEndDate),
       moneyInTotal: Number.isFinite(result?.moneyInTotal),
       moneyOutTotal: Number.isFinite(result?.moneyOutTotal),
+      statementBalance: Number.isFinite(result?.statementBalance),
     });
   };
 
@@ -258,6 +273,7 @@ export default function BankStatementForm({ navigation, route, mode }) {
         endDate: false,
         moneyInTotal: false,
         moneyOutTotal: false,
+        statementBalance: false,
       });
       Alert.alert("OCR Failed", "Could not scan this image. Please enter values manually.");
     } finally {
@@ -488,6 +504,7 @@ export default function BankStatementForm({ navigation, route, mode }) {
         endDate: false,
         moneyInTotal: false,
         moneyOutTotal: false,
+        statementBalance: false,
       });
       Alert.alert(
         "PDF OCR Failed",
@@ -592,6 +609,10 @@ export default function BankStatementForm({ navigation, route, mode }) {
       return;
     }
 
+    if (ocrResult?.statementType) {
+      setStatementType(ocrResult.statementType);
+    }
+
     if (acceptFlags.accountName && ocrResult.accountName) {
       setAccountName(ocrResult.accountName);
     }
@@ -614,6 +635,10 @@ export default function BankStatementForm({ navigation, route, mode }) {
       setMoneyOutTotal(String(Number(ocrResult.moneyOutTotal).toFixed(2)));
     }
 
+    if (acceptFlags.statementBalance && Number.isFinite(ocrResult.statementBalance)) {
+      setStatementBalance(String(Number(ocrResult.statementBalance).toFixed(2)));
+    }
+
     setOcrModalVisible(false);
     setOcrPreviewUri(null);
     setOcrPreviewUris([]);
@@ -631,6 +656,9 @@ export default function BankStatementForm({ navigation, route, mode }) {
 
     const incomingMoney = parseMoneyInput(moneyInTotal || 0);
     const outgoingMoney = parseMoneyInput(moneyOutTotal || 0);
+    const parsedStatementBalance = String(statementBalance || "").trim()
+      ? parseMoneyInput(statementBalance)
+      : null;
     if (Number.isNaN(incomingMoney) || Number.isNaN(outgoingMoney)) {
       Alert.alert("Invalid Input", "Please enter valid totals for money in and money out.");
       return;
@@ -662,6 +690,8 @@ export default function BankStatementForm({ navigation, route, mode }) {
 
       const payload = {
         accountName: accountName.trim(),
+        statementType,
+        statementBalance: Number.isFinite(parsedStatementBalance) ? parsedStatementBalance : null,
         statementStartDate: statementStartDate.toISOString(),
         statementEndDate: statementEndDate.toISOString(),
         date: statementEndDate.toISOString(),
@@ -781,7 +811,7 @@ export default function BankStatementForm({ navigation, route, mode }) {
         <View style={ReceiptStyles.container}>
           <View style={ReceiptStyles.borderContainer}>
             <Text style={ReceiptStyles.header}>
-              {mode === "edit" ? "Edit Bank Statement" : "Add Bank Statement"}
+              {mode === "edit" ? "Edit Statement" : "Add Statement"}
             </Text>
 
             <View style={styles.fieldGroup}>
@@ -870,7 +900,7 @@ export default function BankStatementForm({ navigation, route, mode }) {
                     <Text style={ReceiptStyles.plus}>+</Text>
                   </TouchableOpacity>
                   {tipStatusLoaded && showTip ? (
-                    <ScannerTooltip onDismiss={dismissTip} text="Tap here to upload your bank statement" />
+                    <ScannerTooltip onDismiss={dismissTip} text="Tap here to upload your bank or credit statement" />
                   ) : null}
                 </View>
               </ScrollView>
@@ -937,7 +967,14 @@ export default function BankStatementForm({ navigation, route, mode }) {
       >
         <View style={ReceiptStyles.modalOverlay}>
           <View style={[ReceiptStyles.modalContent, { maxHeight: "88%" }]}>
-            <Text style={ReceiptStyles.modalTitle}>Bank Statement OCR Preview</Text>
+            <Text style={ReceiptStyles.modalTitle}>
+              {ocrResult?.statementType === "credit" ? "Credit Card Statement OCR Preview" : "Bank Statement OCR Preview"}
+            </Text>
+            {ocrResult?.statementType ? (
+              <Text style={styles.detectedStatementText}>
+                Detected: {ocrResult.statementType === "credit" ? "Credit statement" : "Bank statement"}
+              </Text>
+            ) : null}
             <ScrollView keyboardShouldPersistTaps="handled">
               {ocrPreviewUris.length > 0 ? (
                 <View style={{ alignItems: "center" }}>
@@ -1002,31 +1039,82 @@ export default function BankStatementForm({ navigation, route, mode }) {
                     <Text style={ReceiptStyles.ocrValue}>{ocrResult?.accountName || "Not detected"}</Text>
                   </View>
 
-                  <View style={ReceiptStyles.ocrRow}>
-                    <Checkbox
-                      status={acceptFlags.startDate ? "checked" : "unchecked"}
-                      onPress={() => toggleAccept("startDate")}
-                      color={Colors.accent}
-                      disabled={!ocrResult?.statementStartDate}
-                    />
-                    <Text style={ReceiptStyles.ocrLabel}>Start Date:</Text>
-                    <Text style={ReceiptStyles.ocrValue}>
-                      {ocrResult?.statementStartDate ? formatDate(new Date(ocrResult.statementStartDate)) : "Not detected"}
-                    </Text>
-                  </View>
+                  {ocrResult?.statementType === "credit" ? (
+                    <>
+                      <View style={ReceiptStyles.ocrRow}>
+                        <Checkbox
+                          status={acceptFlags.endDate ? "checked" : "unchecked"}
+                          onPress={() => toggleAccept("endDate")}
+                          color={Colors.accent}
+                          disabled={!(ocrResult?.statementIssueDate || ocrResult?.statementEndDate)}
+                        />
+                        <Text style={ReceiptStyles.ocrLabel}>Issue Date:</Text>
+                        <Text style={ReceiptStyles.ocrValue}>
+                          {ocrResult?.statementIssueDate || ocrResult?.statementEndDate
+                            ? formatDate(new Date(ocrResult.statementIssueDate || ocrResult.statementEndDate))
+                            : "Not detected"}
+                        </Text>
+                      </View>
 
-                  <View style={ReceiptStyles.ocrRow}>
-                    <Checkbox
-                      status={acceptFlags.endDate ? "checked" : "unchecked"}
-                      onPress={() => toggleAccept("endDate")}
-                      color={Colors.accent}
-                      disabled={!ocrResult?.statementEndDate}
-                    />
-                    <Text style={ReceiptStyles.ocrLabel}>End Date:</Text>
-                    <Text style={ReceiptStyles.ocrValue}>
-                      {ocrResult?.statementEndDate ? formatDate(new Date(ocrResult.statementEndDate)) : "Not detected"}
-                    </Text>
-                  </View>
+                      <View style={ReceiptStyles.ocrRow}>
+                        <Checkbox
+                          status={acceptFlags.statementBalance ? "checked" : "unchecked"}
+                          onPress={() => toggleAccept("statementBalance")}
+                          color={Colors.accent}
+                          disabled={!Number.isFinite(ocrResult?.statementBalance)}
+                        />
+                        <Text style={ReceiptStyles.ocrLabel}>Balance:</Text>
+                        <Text style={ReceiptStyles.ocrValue}>
+                          {Number.isFinite(ocrResult?.statementBalance)
+                            ? `£${Number(ocrResult.statementBalance).toFixed(2)}`
+                            : "Not detected"}
+                        </Text>
+                      </View>
+
+                      {ocrResult?.statementStartDate ? (
+                        <View style={ReceiptStyles.ocrRow}>
+                          <Checkbox
+                            status={acceptFlags.startDate ? "checked" : "unchecked"}
+                            onPress={() => toggleAccept("startDate")}
+                            color={Colors.accent}
+                            disabled={!ocrResult?.statementStartDate}
+                          />
+                          <Text style={ReceiptStyles.ocrLabel}>Period Start:</Text>
+                          <Text style={ReceiptStyles.ocrValue}>
+                            {formatDate(new Date(ocrResult.statementStartDate))}
+                          </Text>
+                        </View>
+                      ) : null}
+                    </>
+                  ) : (
+                    <>
+                      <View style={ReceiptStyles.ocrRow}>
+                        <Checkbox
+                          status={acceptFlags.startDate ? "checked" : "unchecked"}
+                          onPress={() => toggleAccept("startDate")}
+                          color={Colors.accent}
+                          disabled={!ocrResult?.statementStartDate}
+                        />
+                        <Text style={ReceiptStyles.ocrLabel}>Start Date:</Text>
+                        <Text style={ReceiptStyles.ocrValue}>
+                          {ocrResult?.statementStartDate ? formatDate(new Date(ocrResult.statementStartDate)) : "Not detected"}
+                        </Text>
+                      </View>
+
+                      <View style={ReceiptStyles.ocrRow}>
+                        <Checkbox
+                          status={acceptFlags.endDate ? "checked" : "unchecked"}
+                          onPress={() => toggleAccept("endDate")}
+                          color={Colors.accent}
+                          disabled={!ocrResult?.statementEndDate}
+                        />
+                        <Text style={ReceiptStyles.ocrLabel}>End Date:</Text>
+                        <Text style={ReceiptStyles.ocrValue}>
+                          {ocrResult?.statementEndDate ? formatDate(new Date(ocrResult.statementEndDate)) : "Not detected"}
+                        </Text>
+                      </View>
+                    </>
+                  )}
 
                   <View style={ReceiptStyles.ocrRow}>
                     <Checkbox
@@ -1035,7 +1123,9 @@ export default function BankStatementForm({ navigation, route, mode }) {
                       color={Colors.accent}
                       disabled={!Number.isFinite(ocrResult?.moneyInTotal)}
                     />
-                    <Text style={ReceiptStyles.ocrLabel}>Money In:</Text>
+                    <Text style={ReceiptStyles.ocrLabel}>
+                      {ocrResult?.statementType === "credit" ? "Payments/Credits:" : "Money In:"}
+                    </Text>
                     <Text style={ReceiptStyles.ocrValue}>
                       {Number.isFinite(ocrResult?.moneyInTotal)
                         ? `£${Number(ocrResult.moneyInTotal).toFixed(2)}`
@@ -1050,7 +1140,9 @@ export default function BankStatementForm({ navigation, route, mode }) {
                       color={Colors.accent}
                       disabled={!Number.isFinite(ocrResult?.moneyOutTotal)}
                     />
-                    <Text style={ReceiptStyles.ocrLabel}>Money Out:</Text>
+                    <Text style={ReceiptStyles.ocrLabel}>
+                      {ocrResult?.statementType === "credit" ? "Spending:" : "Money Out:"}
+                    </Text>
                     <Text style={ReceiptStyles.ocrValue}>
                       {Number.isFinite(ocrResult?.moneyOutTotal)
                         ? `£${Number(ocrResult.moneyOutTotal).toFixed(2)}`
@@ -1253,6 +1345,12 @@ const styles = StyleSheet.create({
   pdfName: { color: Colors.textPrimary, fontSize: 11, marginTop: 8, textAlign: "center" },
   pdfHint: { color: Colors.textMuted, fontSize: 10, marginTop: 6, textAlign: "center" },
   ocrCarouselImage: { width: 250, alignSelf: "center", marginRight: 10 },
+  detectedStatementText: {
+    color: Colors.textSecondary,
+    textAlign: "center",
+    marginBottom: 10,
+    fontWeight: "600",
+  },
   breakdownCard: {
     backgroundColor: Colors.card,
     borderWidth: 1,

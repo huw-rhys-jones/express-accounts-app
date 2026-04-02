@@ -122,8 +122,11 @@ export default function BankStatementList({ navigation }) {
           <View style={styles.rowTop}>
             <Text style={styles.rowDate}>{formatDate(new Date(item.date))}</Text>
             <View style={styles.accountWrap}>
+              <Text style={styles.statementKindLabel}>
+                {item.statementType === "credit" ? "Credit statement" : "Bank statement"}
+              </Text>
               <Text style={styles.rowTitle} numberOfLines={1}>
-                {item.accountName || "Bank statement"}
+                {item.accountName || (item.statementType === "credit" ? "Credit card" : "Bank statement")}
               </Text>
             </View>
             <Text style={styles.rowNet}>£{Number(item.netMovement || 0).toFixed(2)}</Text>
@@ -147,10 +150,10 @@ export default function BankStatementList({ navigation }) {
 
       <View style={styles.content}>
         <View style={styles.card}>
-          <Text style={styles.title}>Bank Statements</Text>
+          <Text style={styles.title}>Bank & Credit Statements</Text>
           <Text style={styles.subtitle}>
             {sortedStatements.length > 0
-              ? "Your bank statement records are shown below."
+              ? "Your bank and credit statement records are shown below."
               : "Upload statements to track money in and money out."}
           </Text>
         </View>
@@ -311,18 +314,26 @@ const styles = StyleSheet.create({
     borderRadius: 8,
     paddingHorizontal: 14,
     paddingVertical: 11,
-    minHeight: 62,
+    minHeight: 68,
     width: "100%",
   },
   rowTop: {
     flexDirection: "row",
-    alignItems: "center",
+    alignItems: "flex-start",
   },
-  rowDate: { width: 90, color: Colors.textMuted, fontSize: 14 },
+  rowDate: { width: 90, color: Colors.textMuted, fontSize: 14, paddingTop: 12 },
   accountWrap: {
     flex: 1,
     paddingHorizontal: 14,
     alignItems: "flex-start",
+  },
+  statementKindLabel: {
+    color: Colors.textMuted,
+    fontSize: 10,
+    fontWeight: "700",
+    letterSpacing: 0.4,
+    marginBottom: 2,
+    textTransform: "uppercase",
   },
   rowTitle: { color: "#000", fontWeight: "500", fontSize: 14 },
   rowNet: {
@@ -331,6 +342,7 @@ const styles = StyleSheet.create({
     color: Colors.accent,
     fontWeight: "700",
     fontSize: 15,
+    paddingTop: 12,
   },
   userInfo: {
     marginBottom: 20,

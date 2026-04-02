@@ -35,6 +35,24 @@ const UK_BANKS = [
   "VIRGIN MONEY",
 ];
 
+const UK_CARD_ISSUERS = [
+  "AMERICAN EXPRESS",
+  "AMEX",
+  "BARCLAYCARD",
+  "CAPITAL ONE",
+  "MBNA",
+  "VANQUIS",
+  "NEWDAY",
+  "TESCO BANK",
+  "M&S BANK",
+  "SANTANDER",
+  "LLOYDS",
+  "HALIFAX",
+  "NATWEST",
+  "HSBC",
+  "VIRGIN MONEY",
+];
+
 function toIsoDate(day, month, year) {
   const d = Number(day);
   const m = Number(month);
@@ -185,10 +203,28 @@ function extractStatementDatesFromLines(lines) {
   return { statementStartDate, statementEndDate };
 }
 
+function toDisplayIssuerName(value) {
+  const issuer = String(value || "").trim();
+  if (!issuer) return "";
+  if (/^AMEX$/i.test(issuer)) return "Amex";
+  if (/^AMERICAN EXPRESS$/i.test(issuer)) return "American Express";
+  if (/^BARCLAYCARD$/i.test(issuer)) return "Barclaycard";
+  return toTitleCase(issuer);
+}
+
 function extractLikelyAccountName(lines) {
   const allUpper = lines.map((line) => line.upper).join("\n");
-  for (const bank of UK_BANKS) {
-    if (allUpper.includes(bank)) return bank;
+  const matchedBank = UK_BANKS.find((bank) => allUpper.includes(bank));
+  const matchedIssuer = UK_CARD_ISSUERS.find((issuer) => allUpper.includes(issuer));
+
+  for (const line of lines) {
+    const cardEndingMatch = line.raw.match(
+      /\b(?:card|account)\s+(?:ending|number)\b[^\d]*(?:\*+\s*)?(\d{4})\b/i
+    );
+    if (cardEndingMatch?.[1]) {
+      const issuerLabel = toDisplayIssuerName(matchedIssuer || matchedBank || "Credit Card");
+      return `${issuerLabel} •••• ${cardEndingMatch[1]}`;
+    }
   }
 
   for (let i = 0; i < lines.length; i += 1) {
@@ -206,10 +242,88 @@ function extractLikelyAccountName(lines) {
     }
   }
 
+  if (matchedIssuer) {
+    return `${toDisplayIssuerName(matchedIssuer)} Credit Card`;
+  }
+
+  if (matchedBank) {
+    return matchedBank;
+  }
+
   const titleLine = lines.find((line) => /^(MR|MRS|MS|MISS|DR)\b/i.test(line.raw));
   if (titleLine) return titleLine.raw;
 
   return null;
+}
+
+function detectStatementType(text, lines = []) {
+  const haystack = [String(text || ""), ...lines.map((line) => line.raw || "")].join("\n").toUpperCase();
+  let creditScore = 0;
+  let bankScore = 0;
+
+  const creditSignals = [
+    [/\bCREDIT\s+CARD\b/g, 4],
+    [/\bCARD\s+ENDING\b/g, 3],
+    [/\bPAYMENT\s+DUE(?:\s+DATE)?\b/g, 3],
+    [/\bMINIMUM\s+PAYMENT\b/g, 3],
+    [/\bCREDIT\s+LIMIT\b/g, 3],
+    [/\bAVAILABLE\s+(?:CREDIT|TO\s+SPEND)\b/g, 3],
+    [/\bSTATEMENT\s+BALANCE\b/g, 3],
+    [/\bNEW\s+BALANCE\b/g, 3],
+    [/\bCARDHOLDER\b/g, 2],
+    [/\bPURCHASES?\b/g, 1],
+  ];
+
+  const bankSignals = [
+    [/\bSORT\s*CODE\b/g, 4],
+    [/\bACCOUNT\s*NUMBER\b/g, 3],
+    [/\bIBAN\b/g, 2],
+    [/\bBIC\b/g, 2],
+    [/\bOVERDRAFT\b/g, 2],
+    [/\bMONEY\s+IN\b/g, 2],
+    [/\bMONEY\s+OUT\b/g, 2],
+    [/\bBALANCE\s+BROUGHT\s+FORWARD\b/g, 1],
+  ];
+
+  for (const [pattern, weight] of creditSignals) {
+    if (pattern.test(haystack)) creditScore += weight;
+  }
+
+  for (const [pattern, weight] of bankSignals) {
+    if (pattern.test(haystack)) bankScore += weight;
+  }
+
+  return creditScore >= 4 && creditScore >= bankScore ? "credit" : "bank";
+}
+
+function extractStatementIssueDate(lines, fallbackDate = null) {
+  for (const line of lines) {
+    if (!/\b(?:statement\s*date|date\s*issued|issue\s*date|closing\s*date|date\s*of\s*issue)\b/i.test(line.raw)) {
+      continue;
+    }
+
+    const orderedDates = collectOrderedDates(line.raw);
+    if (orderedDates.length) {
+      return orderedDates[orderedDates.length - 1];
+    }
+  }
+
+  return fallbackDate;
+}
+
+function extractStatementBalance(lines, fallbackBalance = null) {
+  const explicitBalance = extractExplicitSummaryAmount(lines, [
+    /\bSTATEMENT\s+BALANCE\b/i,
+    /\bNEW\s+BALANCE\b/i,
+    /\bCURRENT\s+BALANCE\b/i,
+    /\bCLOSING\s+BALANCE\b/i,
+    /\bOUTSTANDING\s+BALANCE\b/i,
+    /\bBALANCE\s+DUE\b/i,
+    /\bTOTAL\s+BALANCE\b/i,
+  ]);
+
+  if (Number.isFinite(explicitBalance)) return explicitBalance;
+  return Number.isFinite(fallbackBalance) ? fallbackBalance : null;
 }
 
 function extractAmountNearLabel(raw, upper, labelRegexes) {
@@ -219,7 +333,7 @@ function extractAmountNearLabel(raw, upper, labelRegexes) {
 
     const tail = raw.slice(found.index);
     const firstAmount = tail.match(
-      /([-+−]?\s*(?:£\s*|GBP\s*)?\d{1,3}(?:[, ]\d{2,3})*(?:\.\d{2})?|[-+−]?\s*(?:£\s*|GBP\s*)?\d+(?:\.\d{2})?)/i
+      /([-+−]?\s*(?:£\s*|GBP\s*)?(?:\d{1,3}(?:[, ]\d{3})+|\d+)(?:\.\d{2})?)/i
     );
     if (firstAmount?.[1]) {
       const parsed = parseAmount(firstAmount[1].replace(/−/g, "-"));
@@ -233,7 +347,7 @@ function extractAmountNearLabel(raw, upper, labelRegexes) {
 function extractExplicitSummaryAmount(lines, regexes) {
   for (const line of lines) {
     if (!regexes.some((regex) => regex.test(line.raw))) continue;
-    const match = line.raw.match(/[:\-]?\s*([-+−]?\s*(?:£\s*|GBP\s*)?\d{1,3}(?:[, ]\d{2,3})*(?:\.\d{2})?)/i);
+    const match = line.raw.match(/[:\-]?\s*([-+−]?\s*(?:£\s*|GBP\s*)?(?:\d{1,3}(?:[, ]\d{3})+|\d+)(?:\.\d{2})?)/i);
     if (!match?.[1]) continue;
     const parsed = parseAmount(match[1].replace(/−/g, "-"));
     if (Number.isFinite(parsed)) return Math.abs(parsed);
@@ -285,7 +399,7 @@ function isLikelyTransactionLine(line) {
   if (!collectOrderedDates(line.raw).length) return false;
   if (!/(?:£|GBP|\d)/i.test(line.raw)) return false;
 
-  return !/\b(SORT\s*CODE|ACCOUNT\s*NUMBER|STATEMENT\s*DATE|OPENING\s*BALANCE|CLOSING\s*BALANCE|BALANCE\s*BROUGHT\s*FORWARD|BALANCE\s*CARRIED\s*FORWARD|AVAILABLE\s*BALANCE|MONEY\s*IN|MONEY\s*OUT|PAYMENTS?\s*IN|PAYMENTS?\s*OUT|TOTAL\s*IN|TOTAL\s*OUT|DEBITS?|CREDITS?|ARRANGED\s*OVERDRAFT|UNARRANGED\s*OVERDRAFT|ACCOUNT\s*SUMMARY|PAGE\s+\d+|IBAN|BIC)\b/i.test(upper);
+  return !/\b(SORT\s*CODE|ACCOUNT\s*NUMBER|STATEMENT\s*DATE|OPENING\s*BALANCE|CLOSING\s*BALANCE|BALANCE\s*BROUGHT\s*FORWARD|BALANCE\s*CARRIED\s*FORWARD|AVAILABLE\s*BALANCE|MONEY\s*IN|MONEY\s*OUT|PAYMENTS?\s*IN|PAYMENTS?\s*OUT|TOTAL\s*IN|TOTAL\s*OUT|TOTAL\s+DEBITS?|TOTAL\s+CREDITS?|ARRANGED\s*OVERDRAFT|UNARRANGED\s*OVERDRAFT|ACCOUNT\s*SUMMARY|PAGE\s+\d+|IBAN|BIC)\b/i.test(upper);
 }
 
 function toTitleCase(value) {
@@ -706,13 +820,15 @@ function extractTransactionsFromTableText(text, { statementStartDate, statementE
     Number(String(statementEndDate || statementStartDate || "").slice(0, 4)) ||
     new Date().getFullYear();
 
-  const startIndex = rawLines.findIndex((line) => /\bYOUR\s+TRANSACTIONS\b/i.test(line));
+  const startIndex = rawLines.findIndex((line) =>
+    /\b(?:YOUR\s+TRANSACTIONS?|TRANSACTIONS?(?:\s+DETAILS)?|CARD\s+ACTIVITY|ACCOUNT\s+ACTIVITY)\b/i.test(line)
+  );
   if (startIndex < 0) return [];
 
   const tableLines = [];
   for (let i = startIndex + 1; i < rawLines.length; i += 1) {
     const line = rawLines[i];
-    if (/\bBALANCE\s+CARRIED\s+FORWARD\s+TO\s+NEXT\s+STATEMENT\b/i.test(line)) {
+    if (/\b(?:BALANCE\s+CARRIED\s+FORWARD\s+TO\s+NEXT\s+STATEMENT|PAYMENT\s+INFORMATION|HOW\s+TO\s+PAY|IMPORTANT\s+INFORMATION)\b/i.test(line)) {
       tableLines.push(line);
       break;
     }
@@ -876,6 +992,7 @@ function extractTransactionsFromTableText(text, { statementStartDate, statementE
       amount: Number(amount.toFixed(2)),
       direction,
       category,
+      balanceAfter: Number(currentBalance.toFixed(2)),
     });
 
     previousBalance = currentBalance;
@@ -988,11 +1105,18 @@ export function extractBankStatementData(text) {
     .map((raw) => ({ raw: raw.trim(), upper: raw.trim().toUpperCase() }))
     .filter((line) => line.raw.length > 0);
 
-  const accountName = extractLikelyAccountName(lines);
+  const statementType = detectStatementType(text, lines);
+  const detectedAccountName = extractLikelyAccountName(lines);
+  const accountName = detectedAccountName || (statementType === "credit" ? "Credit Card" : null);
 
   const rangedDates = parsePeriodRangeFromText(text);
   const lineDates = extractStatementDatesFromLines(lines);
   const allDates = collectNumericDates(text);
+  const issueDate = extractStatementIssueDate(
+    lines,
+    rangedDates?.statementEndDate || lineDates.statementEndDate || null
+  );
+
   let statementStartDate = rangedDates?.statementStartDate || lineDates.statementStartDate || null;
   let statementEndDate = rangedDates?.statementEndDate || lineDates.statementEndDate || null;
 
@@ -1024,6 +1148,10 @@ export function extractBankStatementData(text) {
     statementEndDate = statementEndDate || fallbackEnd;
   }
 
+  if (statementType === "credit" && issueDate) {
+    statementEndDate = issueDate;
+  }
+
   const transactionsFromTable = extractTransactionsFromTableText(text, {
     statementStartDate,
     statementEndDate,
@@ -1035,6 +1163,12 @@ export function extractBankStatementData(text) {
       statementEndDate,
     });
   const { vendorTotals, categoryTotals } = summariseTransactions(transactions);
+
+  const balanceFromTransactions = Number.isFinite(
+    transactionsFromTable[transactionsFromTable.length - 1]?.balanceAfter
+  )
+    ? Number(transactionsFromTable[transactionsFromTable.length - 1].balanceAfter)
+    : null;
 
   const transactionMoneyIn = transactions
     .filter((item) => item.direction === "in")
@@ -1050,6 +1184,8 @@ export function extractBankStatementData(text) {
     /\bCREDITS?\b/i,
     /\bPAID\s*IN\b/i,
     /\bDEPOSITS?\b/i,
+    /\bPAYMENTS?\s+AND\s+CREDITS?\b/i,
+    /\bREFUNDS?\b/i,
   ]);
 
   let moneyOutTotal = extractAmountsByLabels(lines, [
@@ -1065,11 +1201,16 @@ export function extractBankStatementData(text) {
     /\bDEBITS?\b/i,
     /\bWITHDRAWALS?\b/i,
     /\bSPENT\b/i,
+    /\bPURCHASES?\b/i,
+    /\bCARD\s+SPEND\b/i,
+    /\bTOTAL\s+SPENT\b/i,
+    /\bCASH\s+ADVANCES?\b/i,
   ]);
 
   const explicitMoneyIn = extractExplicitSummaryAmount(lines, [
     /\bTOTAL\s+MONEY\s+IN\b/i,
     /\bTOTAL\s+PAYMENTS?\s+IN\b/i,
+    /\bTOTAL\s+PAYMENTS?\s+AND\s+CREDITS?\b/i,
   ]);
   if (Number.isFinite(explicitMoneyIn)) {
     moneyInTotal = explicitMoneyIn;
@@ -1080,19 +1221,23 @@ export function extractBankStatementData(text) {
     /\bTOTAL\s+MONEY\s+OU?T\b/i,
     /\bTOTAL\s+PAYMENTS?\s+OUT\b/i,
     /\bTOTAL\s+PAYMENTS?\s+OU?T\b/i,
+    /\bTOTAL\s+PURCHASES?\b/i,
+    /\bTOTAL\s+CARD\s+SPEND\b/i,
   ]);
   if (Number.isFinite(explicitMoneyOut)) {
     moneyOutTotal = explicitMoneyOut;
   }
 
-  if ((!statementStartDate || !statementEndDate) && transactions.length) {
-    const transactionDates = transactions
-      .map((item) => new Date(item.date))
-      .filter((value) => !Number.isNaN(value.getTime()))
-      .sort((left, right) => left.getTime() - right.getTime());
+  const transactionDates = transactions
+    .map((item) => new Date(item.date))
+    .filter((value) => !Number.isNaN(value.getTime()))
+    .sort((left, right) => left.getTime() - right.getTime());
 
-    if (transactionDates.length) {
-      statementStartDate = statementStartDate || transactionDates[0].toISOString().slice(0, 10);
+  if (transactionDates.length) {
+    statementStartDate = statementStartDate || transactionDates[0].toISOString().slice(0, 10);
+    if (statementType === "credit") {
+      statementEndDate = issueDate || statementEndDate || transactionDates[transactionDates.length - 1].toISOString().slice(0, 10);
+    } else {
       statementEndDate = statementEndDate || transactionDates[transactionDates.length - 1].toISOString().slice(0, 10);
     }
   }
@@ -1113,8 +1258,13 @@ export function extractBankStatementData(text) {
     moneyOutTotal = Number(transactionMoneyOut.toFixed(2));
   }
 
+  const statementBalance = extractStatementBalance(lines, balanceFromTransactions);
+
   return {
     accountName,
+    statementType,
+    statementIssueDate: statementType === "credit" ? issueDate || statementEndDate : null,
+    statementBalance,
     statementStartDate,
     statementEndDate,
     moneyInTotal,
