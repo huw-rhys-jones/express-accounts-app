@@ -2,6 +2,8 @@ import 'dotenv/config';
 
 const { version: appVersion } = require("./package.json");
 
+const internalBuildLabel = "I-001";
+
 const [major = 0, minor = 0, patch = 0] = String(appVersion)
   .split(".")
   .map((part) => Number.parseInt(part, 10) || 0);
@@ -98,6 +100,7 @@ export default ({ config }) => ({
 
   extra: {
     eas: { projectId: "5b149386-fb46-4d4d-8308-fde7bcff2f37" },
+    internalBuildLabel,
     FIREBASE_API_KEY: process.env.FIREBASE_API_KEY,
     FIREBASE_AUTH_DOMAIN: process.env.FIREBASE_AUTH_DOMAIN,
     FIREBASE_PROJECT_ID: process.env.FIREBASE_PROJECT_ID,

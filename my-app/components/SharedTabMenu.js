@@ -33,6 +33,8 @@ import { getHapticsEnabled, setHapticsEnabled, triggerHaptic } from "../utils/ha
 import { verifyClientCode } from "../utils/verificationCodes";
 
 const appVersion = appPackage?.version || Constants.expoConfig?.version || "unknown";
+const internalBuildLabel = Constants.expoConfig?.extra?.internalBuildLabel || "";
+const versionLabel = internalBuildLabel ? `${appVersion} (${internalBuildLabel})` : appVersion;
 
 export default function SharedTabMenu({ navigation, closeMenu, displayName = "User" }) {
   const [busy, setBusy] = useState(false);
@@ -310,7 +312,7 @@ export default function SharedTabMenu({ navigation, closeMenu, displayName = "Us
           </TouchableOpacity>
 
           <View style={styles.versionContainer}>
-            <Text style={styles.versionText}>Version {appVersion}</Text>
+            <Text style={styles.versionText}>Version {versionLabel}</Text>
             <Text style={styles.versionText}> · </Text>
             <TouchableOpacity onPress={handleOpenPrivacyPolicy}>
               <Text style={[styles.versionText, { textDecorationLine: "underline", color: Colors.accent }]}>Privacy Policy</Text>
