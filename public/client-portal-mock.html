@@ -1501,7 +1501,7 @@
           statement.statementEndDate || statement.date || "",
           entry.category || "Uncategorized",
           entry.vendor || "Unknown vendor",
-          toMoney(entry.total || 0),
+          toMoney((entry.moneyOut || 0) + (entry.moneyIn || 0)),
           entry.count != null ? String(entry.count) : "",
         ]);
       });
