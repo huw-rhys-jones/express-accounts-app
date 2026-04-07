@@ -500,6 +500,8 @@
   <script>
     const auth = firebase.auth();
     const db = firebase.firestore();
+    // Session-only persistence: signing out automatically when the tab/browser closes
+    auth.setPersistence(firebase.auth.Auth.Persistence.SESSION);
   </script>
 </head>
 <body>
@@ -699,6 +701,34 @@
     let selectedUser = null;
     const activeStatusFilters = new Set();
     let currentTab = "activity";
+
+    // Inactivity timeout: sign out after 30 minutes of no mouse/keyboard activity
+    const INACTIVITY_TIMEOUT_MS = 30 * 60 * 1000;
+    let inactivityTimer = null;
+
+    function resetInactivityTimer() {
+      if (!currentAccountant) return;
+      clearTimeout(inactivityTimer);
+      inactivityTimer = setTimeout(async () => {
+        await auth.signOut();
+        loginError.textContent = "You were signed out due to inactivity.";
+      }, INACTIVITY_TIMEOUT_MS);
+    }
+
+    function startInactivityTimer() {
+      resetInactivityTimer();
+      ["mousemove", "mousedown", "keydown", "touchstart", "scroll"].forEach((event) => {
+        document.addEventListener(event, resetInactivityTimer, { passive: true });
+      });
+    }
+
+    function stopInactivityTimer() {
+      clearTimeout(inactivityTimer);
+      inactivityTimer = null;
+      ["mousemove", "mousedown", "keydown", "touchstart", "scroll"].forEach((event) => {
+        document.removeEventListener(event, resetInactivityTimer);
+      });
+    }
 
     // 2FA state
     const TWO_FACTOR_TIMEOUT_MS = 5 * 60 * 1000;
@@ -1647,12 +1677,14 @@
         ? "Signed in as " + user.email + " | Previous login: " + previousLoginDate.toLocaleString()
         : "Signed in as " + user.email + " | First portal login";
 
+      startInactivityTimer();
       setActiveTab(currentTab);
       await reloadAndRenderBoard();
     }
 
     function resetToLoginScreen() {
       cleanUpChallenge();
+      stopInactivityTimer();
       dashboardSection.style.display = "none";
       twoFactorSection.style.display = "none";
       loginSection.style.display = "block";
