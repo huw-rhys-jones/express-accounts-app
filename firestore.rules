@@ -76,6 +76,18 @@ service cloud.firestore {
       allow read, update: if isAccountant();
     }
 
+    // 2FA challenges: users create and approve/deny their own challenges.
+    match /twoFactorChallenges/{challengeId} {
+      allow create: if request.auth != null &&
+                       request.resource.data.userId == request.auth.uid;
+      allow read: if request.auth != null &&
+                     resource.data.userId == request.auth.uid;
+      allow update: if request.auth != null &&
+                       resource.data.userId == request.auth.uid &&
+                       request.resource.data.status in ["approved", "denied"] &&
+                       request.resource.data.userId == resource.data.userId;
+    }
+
     // Verification codes: accountants manage the catalog; authenticated users can validate a single code.
     match /VerificationCodes/{codeId} {
       allow get: if request.auth != null;

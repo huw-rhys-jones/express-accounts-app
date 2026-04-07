@@ -488,6 +488,7 @@
       .login-head,
       .login-body { padding-left: 20px; padding-right: 20px; }
     }
+    @keyframes spin { to { transform: rotate(360deg); } }
   </style>
   <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-app-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-auth-compat.js"></script>
@@ -520,6 +521,25 @@
             <button id="loginBtn" class="btn-primary" type="button">Log in</button>
         </div>
         <div id="loginError" class="error"></div>
+      </div>
+    </section>
+
+    <section id="twoFactorSection" class="panel login-wrap" style="display:none">
+      <div class="login-head" style="background: linear-gradient(135deg, #1a3a5c, #0f2742)">
+        <h1>Verify Your Identity</h1>
+        <p>Open the Express Accounts app on your phone and approve the login request.</p>
+      </div>
+      <div class="login-body">
+        <div style="display:flex; align-items:center; gap:12px; margin-bottom:16px">
+          <div id="twoFactorSpinner" style="width:24px;height:24px;border:3px solid #d4e2f0;border-top-color:#2e86de;border-radius:50%;animation:spin 0.9s linear infinite;flex-shrink:0"></div>
+          <span id="twoFactorStatus" style="font-weight:600;color:#17324d">Waiting for phone approval…</span>
+        </div>
+        <p id="twoFactorDevice" class="hint" style="margin-top:0"></p>
+        <p id="twoFactorTimer" class="hint" style="margin-top:4px; font-variant-numeric: tabular-nums"></p>
+        <div class="actions" style="margin-top:20px">
+          <button id="cancelTwoFactorBtn" class="btn-secondary" type="button">Cancel Login</button>
+        </div>
+        <div id="twoFactorError" class="error"></div>
       </div>
     </section>
 
@@ -635,6 +655,12 @@
 
     const loginSection = document.getElementById("loginSection");
     const dashboardSection = document.getElementById("dashboardSection");
+    const twoFactorSection = document.getElementById("twoFactorSection");
+    const twoFactorStatus = document.getElementById("twoFactorStatus");
+    const twoFactorDevice = document.getElementById("twoFactorDevice");
+    const twoFactorTimer = document.getElementById("twoFactorTimer");
+    const twoFactorError = document.getElementById("twoFactorError");
+    const cancelTwoFactorBtn = document.getElementById("cancelTwoFactorBtn");
     const emailInput = document.getElementById("emailInput");
     const passwordInput = document.getElementById("passwordInput");
     const loginBtn = document.getElementById("loginBtn");
@@ -673,6 +699,79 @@
     let selectedUser = null;
     const activeStatusFilters = new Set();
     let currentTab = "activity";
+
+    // 2FA state
+    const TWO_FACTOR_TIMEOUT_MS = 5 * 60 * 1000;
+    let justLoggedIn = false;
+    let activeChallengeId = null;
+    let challengeUnsubscribe = null;
+    let twoFactorTimeout = null;
+    let twoFactorCountdownInterval = null;
+
+    function cleanUpChallenge() {
+      if (challengeUnsubscribe) { challengeUnsubscribe(); challengeUnsubscribe = null; }
+      if (twoFactorTimeout) { clearTimeout(twoFactorTimeout); twoFactorTimeout = null; }
+      if (twoFactorCountdownInterval) { clearInterval(twoFactorCountdownInterval); twoFactorCountdownInterval = null; }
+      activeChallengeId = null;
+    }
+
+    async function startChallengeFlow(user) {
+      const expiresAt = new Date(Date.now() + TWO_FACTOR_TIMEOUT_MS);
+      const challengeRef = await db.collection("twoFactorChallenges").add({
+        userId: user.uid,
+        email: user.email || null,
+        status: "pending",
+        createdAt: firebase.firestore.FieldValue.serverTimestamp(),
+        expiresAt: firebase.firestore.Timestamp.fromDate(expiresAt),
+        deviceInfo: navigator.userAgent,
+      });
+      activeChallengeId = challengeRef.id;
+
+      loginSection.style.display = "none";
+      twoFactorSection.style.display = "block";
+      twoFactorError.textContent = "";
+      twoFactorStatus.textContent = "Waiting for phone approval…";
+      twoFactorDevice.textContent = "Sign-in from: " + window.location.hostname;
+
+      const startTime = Date.now();
+      twoFactorCountdownInterval = setInterval(() => {
+        const remaining = Math.max(0, TWO_FACTOR_TIMEOUT_MS - (Date.now() - startTime));
+        const m = Math.floor(remaining / 60000);
+        const s = Math.floor((remaining % 60000) / 1000);
+        twoFactorTimer.textContent = "Expires in " + m + ":" + String(s).padStart(2, "0");
+      }, 1000);
+
+      twoFactorTimeout = setTimeout(async () => {
+        cleanUpChallenge();
+        await auth.signOut();
+        twoFactorSection.style.display = "none";
+        loginSection.style.display = "block";
+        loginError.textContent = "Login timed out — no response on phone. Please try again.";
+      }, TWO_FACTOR_TIMEOUT_MS);
+
+      challengeUnsubscribe = challengeRef.onSnapshot((snap) => {
+        const data = snap.data();
+        if (!data) return;
+        if (data.status === "approved") {
+          cleanUpChallenge();
+          twoFactorSection.style.display = "none";
+          startAuthenticatedSession(user);
+        } else if (data.status === "denied") {
+          cleanUpChallenge();
+          auth.signOut();
+          twoFactorSection.style.display = "none";
+          loginSection.style.display = "block";
+          loginError.textContent = "Login was denied on your phone. Please try again.";
+        }
+      });
+    }
+
+    cancelTwoFactorBtn.addEventListener("click", async () => {
+      cleanUpChallenge();
+      await auth.signOut();
+      twoFactorSection.style.display = "none";
+      resetToLoginScreen();
+    });
 
     function toMoney(value) {
       return Number(value).toFixed(2);
@@ -1513,9 +1612,11 @@
       loginBtn.disabled = true;
       loginError.textContent = "Signing in...";
       try {
+        justLoggedIn = true;
         await auth.signInWithEmailAndPassword(email, password);
         loginError.textContent = "";
       } catch (error) {
+        justLoggedIn = false;
         loginError.textContent = "Login failed: " + error.message;
       } finally {
         loginBtn.disabled = false;
@@ -1551,7 +1652,9 @@
     }
 
     function resetToLoginScreen() {
+      cleanUpChallenge();
       dashboardSection.style.display = "none";
+      twoFactorSection.style.display = "none";
       loginSection.style.display = "block";
       passwordInput.value = "";
       statusLine.textContent = "Select a client tile to export receipt, income, and bank statement data.";
@@ -1620,9 +1723,18 @@
         resetToLoginScreen();
         return;
       }
-      loginError.textContent = "";
-      updateStatusFilterButtonState();
-      await startAuthenticatedSession(user);
+      if (justLoggedIn) {
+        // Fresh login — require 2FA approval on phone
+        justLoggedIn = false;
+        loginError.textContent = "";
+        updateStatusFilterButtonState();
+        await startChallengeFlow(user);
+      } else {
+        // Page reload with existing session — skip 2FA, restore dashboard
+        loginError.textContent = "";
+        updateStatusFilterButtonState();
+        await startAuthenticatedSession(user);
+      }
     });
   </script>
 </body>

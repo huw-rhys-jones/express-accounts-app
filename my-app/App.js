@@ -2,9 +2,9 @@ import React, { useEffect, useState } from "react";
 import { NavigationContainer } from "@react-navigation/native";
 import { createStackNavigator } from "@react-navigation/stack";
 import { createBottomTabNavigator } from "@react-navigation/bottom-tabs";
-import { View, Text, TouchableOpacity, StyleSheet, Platform, Alert } from "react-native";
+import { View, Text, TouchableOpacity, StyleSheet, Platform, Alert, Modal } from "react-native";
 import { onAuthStateChanged, reload, sendEmailVerification, signOut } from "firebase/auth";
-import { doc, serverTimestamp, setDoc } from "firebase/firestore";
+import { doc, serverTimestamp, setDoc, collection, query, where, onSnapshot, updateDoc } from "firebase/firestore";
 import { Ionicons } from "@expo/vector-icons";
 import { auth, db } from "./firebaseConfig";
 import SignUpScreen from "./screens/Register";
@@ -249,6 +249,15 @@ export default function App() {
   const [user, setUser] = useState(null);
   const [checkingAuth, setCheckingAuth] = useState(true);
   const [authRefreshTick, setAuthRefreshTick] = useState(0);
+  const [pendingChallenge, setPendingChallenge] = useState(null);
+
+  const handleChallengeResponse = async (challengeId, status) => {
+    try {
+      await updateDoc(doc(db, "twoFactorChallenges", challengeId), { status });
+    } catch (error) {
+      console.error("Could not respond to 2FA challenge", error);
+    }
+  };
 
   useEffect(() => {
     ensureHapticsDefaultEnabled().catch((error) => {
@@ -278,6 +287,29 @@ export default function App() {
 
     return unsubscribe;
   }, []);
+
+  // Listen for pending 2FA challenges created from the web portal
+  useEffect(() => {
+    if (!user) {
+      setPendingChallenge(null);
+      return;
+    }
+    const now = new Date();
+    const challengesQuery = query(
+      collection(db, "twoFactorChallenges"),
+      where("userId", "==", user.uid),
+      where("status", "==", "pending")
+    );
+    const unsubscribe = onSnapshot(challengesQuery, (snapshot) => {
+      const valid = snapshot.docs
+        .map((d) => ({ id: d.id, ...d.data() }))
+        .filter((c) => c.expiresAt && c.expiresAt.toDate() > new Date());
+      setPendingChallenge(valid.length > 0 ? valid[0] : null);
+    }, (error) => {
+      console.warn("Could not listen for 2FA challenges", error);
+    });
+    return unsubscribe;
+  }, [user]);
 
   if (checkingAuth) return null;
 
@@ -317,6 +349,37 @@ export default function App() {
           <Stack.Screen name="BankStatementDetails" component={BankStatementEdit} />
         </Stack.Navigator>
       </NavigationContainer>
+
+      <Modal visible={!!pendingChallenge} transparent animationType="fade">
+        <View style={styles.twoFactorOverlay}>
+          <View style={styles.twoFactorCard}>
+            <Text style={styles.twoFactorTitle}>Login Request</Text>
+            <Text style={styles.twoFactorText}>
+              Someone is trying to sign in to the accountant portal using your account.
+            </Text>
+            {pendingChallenge?.deviceInfo ? (
+              <Text style={styles.twoFactorDevice} numberOfLines={3}>
+                {pendingChallenge.deviceInfo}
+              </Text>
+            ) : null}
+            <Text style={styles.twoFactorPrompt}>Was this you?</Text>
+            <View style={styles.twoFactorActions}>
+              <TouchableOpacity
+                style={[styles.twoFactorButton, styles.twoFactorApprove]}
+                onPress={() => handleChallengeResponse(pendingChallenge.id, "approved")}
+              >
+                <Text style={styles.twoFactorButtonText}>Approve</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[styles.twoFactorButton, styles.twoFactorDeny]}
+                onPress={() => handleChallengeResponse(pendingChallenge.id, "denied")}
+              >
+                <Text style={styles.twoFactorButtonText}>Deny</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
     </PaperProvider>
   );
 }
@@ -404,4 +467,66 @@ const styles = StyleSheet.create({
     zIndex: 10,
   },
   plusText: { color: "#fff", fontSize: 32, fontWeight: "bold" },
+  twoFactorOverlay: {
+    flex: 1,
+    backgroundColor: "rgba(0,0,0,0.6)",
+    alignItems: "center",
+    justifyContent: "center",
+    paddingHorizontal: 20,
+  },
+  twoFactorCard: {
+    width: "90%",
+    maxWidth: 420,
+    backgroundColor: "#fff",
+    borderRadius: 20,
+    padding: 24,
+    alignItems: "center",
+  },
+  twoFactorTitle: {
+    fontSize: 20,
+    fontWeight: "800",
+    color: "#1C1C4E",
+    marginBottom: 10,
+  },
+  twoFactorText: {
+    fontSize: 15,
+    color: "#333",
+    textAlign: "center",
+    marginBottom: 12,
+  },
+  twoFactorDevice: {
+    fontSize: 12,
+    color: "#666",
+    textAlign: "center",
+    marginBottom: 12,
+    fontFamily: Platform.OS === "ios" ? "Menlo" : "monospace",
+  },
+  twoFactorPrompt: {
+    fontSize: 16,
+    fontWeight: "700",
+    color: "#1C1C4E",
+    marginBottom: 16,
+  },
+  twoFactorActions: {
+    flexDirection: "row",
+    gap: 12,
+    width: "100%",
+  },
+  twoFactorButton: {
+    flex: 1,
+    borderRadius: 24,
+    paddingVertical: 13,
+    alignItems: "center",
+  },
+  twoFactorApprove: {
+    backgroundColor: "#1f7a3f",
+  },
+  twoFactorDeny: {
+    backgroundColor: "#b42318",
+  },
+  twoFactorButtonText: {
+    color: "#fff",
+    fontWeight: "700",
+    fontSize: 15,
+  },
 });
