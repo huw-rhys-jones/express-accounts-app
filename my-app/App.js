@@ -3,7 +3,7 @@ import { NavigationContainer } from "@react-navigation/native";
 import { createStackNavigator } from "@react-navigation/stack";
 import { createBottomTabNavigator } from "@react-navigation/bottom-tabs";
 import { View, Text, TouchableOpacity, StyleSheet, Platform, Alert } from "react-native";
-import { onAuthStateChanged, reload, sendEmailVerification } from "firebase/auth";
+import { onAuthStateChanged, reload, sendEmailVerification, signOut } from "firebase/auth";
 import { doc, serverTimestamp, setDoc } from "firebase/firestore";
 import { Ionicons } from "@expo/vector-icons";
 import { auth, db } from "./firebaseConfig";
@@ -60,7 +60,7 @@ function VerifyEmailGate({ onRefreshAuth }) {
     try {
       setBusy(true);
       await sendEmailVerification(user);
-      Alert.alert("Verification Email Sent", "Please check your inbox and click the verification link.");
+      // Email sent silently — the modal itself confirms the action
     } catch (error) {
       console.error("Could not send verification email", error);
       Alert.alert("Could not send email", "Please try again in a moment.");
@@ -123,6 +123,14 @@ function VerifyEmailGate({ onRefreshAuth }) {
           onPress={checkVerification}
         >
           <Text style={styles.verifyPrimaryText}>I've Verified, Unlock App</Text>
+        </TouchableOpacity>
+
+        <TouchableOpacity
+          disabled={busy}
+          style={[styles.verifyPrimaryButton, styles.verifyLogoutButton]}
+          onPress={() => signOut(auth).catch(console.error)}
+        >
+          <Text style={styles.verifyPrimaryText}>Log Out</Text>
         </TouchableOpacity>
       </View>
     </View>
@@ -366,6 +374,10 @@ const styles = StyleSheet.create({
   verifyPrimaryText: {
     color: "#fff",
     fontWeight: "700",
+  },
+  verifyLogoutButton: {
+    backgroundColor: "#555",
+    marginTop: 16,
   },
   verifySecondaryButton: {
     display: "none",

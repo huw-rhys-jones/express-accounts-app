@@ -25,7 +25,8 @@ import {
   filterReceiptsByDateRange,
 } from "../utils/financialPeriods";
 import { formatDate } from "../utils/format_style";
-import { getReceiptFilterKey } from "../utils/appSettings";
+import { getReceiptFilterKey, setReceiptFilterKey } from "../utils/appSettings";
+import DropDownPicker from "react-native-dropdown-picker";
 import { useTabSwipeNavigation } from "../utils/tabSwipeNavigation";
 
 const screenWidth = Dimensions.get("window").width;
@@ -47,6 +48,8 @@ export default function SummaryScreen({ navigation }) {
   const [incomeItems, setIncomeItems] = useState([]);
   const [bankStatements, setBankStatements] = useState([]);
   const [activeFilterKey, setActiveFilterKey] = useState("current-quarter");
+  const [filterOpen, setFilterOpen] = useState(false);
+  const [filterItems, setFilterItems] = useState([]);
   const [menuOpen, setMenuOpen] = useState(false);
   const swipeResponder = useTabSwipeNavigation(navigation, "Summary");
 
@@ -137,6 +140,8 @@ export default function SummaryScreen({ navigation }) {
     if (!filterOptions.some((option) => option.key === activeFilterKey)) {
       setActiveFilterKey(filterOptions[0].key);
     }
+
+    setFilterItems(filterOptions.map((opt) => ({ label: opt.label, value: opt.key })));
   }, [activeFilterKey, filterOptions]);
 
   const filteredReceipts = useMemo(() => {
@@ -279,71 +284,39 @@ export default function SummaryScreen({ navigation }) {
           }
         >
           {/* Summary totals card */}
-          <View style={styles.card}>
+          <View style={[styles.card, { zIndex: 10, overflow: "visible" }]}>
             <Text style={styles.title}>Summary</Text>
-            {activeFilter ? (
-              <Text style={styles.activeFilterText}>
-                Showing data for {activeFilter.label}: {formatDate(activeFilter.startDate)} to {formatDate(activeFilter.endDate)}.
-              </Text>
-            ) : null}
+
+            <DropDownPicker
+              open={filterOpen}
+              value={activeFilterKey}
+              items={filterItems}
+              setOpen={setFilterOpen}
+              setValue={(callback) => {
+                const nextKey = typeof callback === "function" ? callback(activeFilterKey) : callback;
+                setActiveFilterKey(nextKey);
+                setReceiptFilterKey(nextKey).catch(() => {});
+              }}
+              setItems={setFilterItems}
+              listMode="SCROLLVIEW"
+              style={styles.filterDropdown}
+              dropDownContainerStyle={styles.filterDropdownContainer}
+              textStyle={styles.filterDropdownText}
+              zIndex={3000}
+              zIndexInverse={1000}
+            />
+
             <Text style={styles.subtitle}>
-              Total Spent: £{totals.overall.toFixed(2)}
-            </Text>
-            <Text style={styles.subtitleVat}>
-              Total VAT: £{totals.totalVat.toFixed(2)}
+              Total Spent: £{totals.overall.toFixed(2)}{" "}
+              <Text style={styles.subtitleVat}>(£{totals.totalVat.toFixed(2)} VAT)</Text>
             </Text>
             <Text style={styles.subtitleIncome}>
               Total Income: £{totals.incomeTotal.toFixed(2)}
             </Text>
-            <Text style={styles.subtitleIncome}>
+            <Text style={styles.subtitleNet}>
               Net Position: £{totals.netPosition.toFixed(2)}
             </Text>
-            <Text style={styles.subtitleBank}>
-              Bank In / Out: £{totals.bankMoneyIn.toFixed(2)} / £{totals.bankMoneyOut.toFixed(2)}
-            </Text>
           </View>
-          {/* Pie chart card */}
-          <View style={styles.chartCard}>
-            <Text style={styles.chartTitle}>Spending by Category</Text>
-            {pieData.length > 0 ? (
-              <>
-                <View style={styles.pieChartWrapper}>
-                  <PieChart
-                    data={pieData.map((d) => ({
-                      name: d.name,
-                      population: Number(d.amount.toFixed(2)),
-                      color: d.color,
-                      legendFontColor: d.legendFontColor,
-                      legendFontSize: d.legendFontSize,
-                    }))}
-                    width={PIE_CHART_SIZE}
-                    height={PIE_CHART_SIZE}
-                    chartConfig={chartConfig}
-                    accessor="population"
-                    backgroundColor="transparent"
-                    paddingLeft={PIE_CHART_PADDING_LEFT}
-                    absolute
-                    hasLegend={false}
-                    center={[PIE_CHART_CENTER_X, 0]}
-                    style={styles.pieChart}
-                  />
-                </View>
-                <View style={styles.legendContainer}>
-                  {pieData.map((d) => (
-                    <View key={d.name} style={styles.legendItem}>
-                      <View style={[styles.legendDot, { backgroundColor: d.color }]} />
-                      <Text style={styles.legendText}>
-                        {d.name}: £{Number(d.amount).toFixed(2)}
-                      </Text>
-                    </View>
-                  ))}
-                </View>
-              </>
-            ) : (
-              <Text style={styles.noData}>No receipts yet!</Text>
-            )}
-          </View>
-
           {/* Monthly bar chart card */}
           <View style={styles.chartCard}>
             <Text style={styles.chartTitle}>Monthly Income vs Spending (Current FY)</Text>
@@ -417,6 +390,48 @@ export default function SummaryScreen({ navigation }) {
                 </View>
               </ScrollView>
             </View>
+          </View>
+
+          {/* Pie chart card */}
+          <View style={styles.chartCard}>
+            <Text style={styles.chartTitle}>Spending by Category</Text>
+            {pieData.length > 0 ? (
+              <>
+                <View style={styles.pieChartWrapper}>
+                  <PieChart
+                    data={pieData.map((d) => ({
+                      name: d.name,
+                      population: Number(d.amount.toFixed(2)),
+                      color: d.color,
+                      legendFontColor: d.legendFontColor,
+                      legendFontSize: d.legendFontSize,
+                    }))}
+                    width={PIE_CHART_SIZE}
+                    height={PIE_CHART_SIZE}
+                    chartConfig={chartConfig}
+                    accessor="population"
+                    backgroundColor="transparent"
+                    paddingLeft={PIE_CHART_PADDING_LEFT}
+                    absolute
+                    hasLegend={false}
+                    center={[PIE_CHART_CENTER_X, 0]}
+                    style={styles.pieChart}
+                  />
+                </View>
+                <View style={styles.legendContainer}>
+                  {pieData.map((d) => (
+                    <View key={d.name} style={styles.legendItem}>
+                      <View style={[styles.legendDot, { backgroundColor: d.color }]} />
+                      <Text style={styles.legendText}>
+                        {d.name}: £{Number(d.amount).toFixed(2)}
+                      </Text>
+                    </View>
+                  ))}
+                </View>
+              </>
+            ) : (
+              <Text style={styles.noData}>No receipts yet!</Text>
+            )}
           </View>
         </ScrollView>
       )}
@@ -498,10 +513,10 @@ const styles = StyleSheet.create({
   topBarTitle: { fontSize: 18, fontWeight: "800", color: Colors.textPrimary },
   content: {
   ...SharedStyles.content,
-  paddingTop: 10,
+  paddingTop: 5,
   paddingBottom: 40, 
 },
-  card: SharedStyles.card,
+  card: { ...SharedStyles.card, marginTop: 20, backgroundColor: Colors.surface },
   title: SharedStyles.title,
   subtitle: SharedStyles.subtitle,
   activeFilterText: {
@@ -511,9 +526,23 @@ const styles = StyleSheet.create({
     fontSize: 13,
     lineHeight: 18,
   },
-  subtitleVat: { fontSize: 16, color: Colors.textPrimary, marginTop: 6 },
-  subtitleIncome: { fontSize: 16, color: Colors.textPrimary, marginTop: 6 },
-  subtitleBank: { fontSize: 15, color: Colors.textMuted, marginTop: 6 },
+  subtitleVat: { fontSize: 15, color: Colors.textPrimary },
+  subtitleIncome: { fontSize: 15, color: "#2e7d32", marginTop: 6 },
+  subtitleNet: { fontSize: 15, color: Colors.textPrimary, marginTop: 6 },
+  filterDropdown: {
+    backgroundColor: Colors.surface,
+    borderColor: Colors.border,
+    marginTop: 10,
+    marginBottom: 4,
+    minHeight: 38,
+  },
+  filterDropdownContainer: {
+    backgroundColor: Colors.surface,
+    borderColor: Colors.border,
+  },
+  filterDropdownText: {
+    fontSize: 13,
+  },
   chartCard: { ...SharedStyles.chartCard, overflow: "visible" },
   chartTitle: { fontSize: 16, fontWeight: "bold", marginBottom: 12, textAlign: "center", color: "black" },
   noData: { fontSize: 15, color: "#666", marginTop: 10, textAlign: "center" },

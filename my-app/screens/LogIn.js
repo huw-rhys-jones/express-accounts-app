@@ -182,7 +182,9 @@ const LoginScreen = ({ navigation }) => {
   let request, promptAsync;
   if (Platform.OS === "android" && useGoogleSignIn) {
       [request, promptAsync] = useGoogleSignIn(async (userCredential) => {
-        await handlePostFederatedLogin(userCredential);
+        await runWithLoading("Signing you in…", async () => {
+          await handlePostFederatedLogin(userCredential);
+        });
       });
   }
 
@@ -273,28 +275,6 @@ const LoginScreen = ({ navigation }) => {
         );
 
         triggerHaptic("success").catch(() => {});
-
-        if (isPasswordProviderUser(signedInUser) && !signedInUser.emailVerified) {
-          Alert.alert(
-            "Email Not Verified",
-            "Please verify your email before using the app. You can resend the verification email now.",
-            [
-              {
-                text: "Resend",
-                onPress: async () => {
-                  try {
-                    await sendEmailVerification(signedInUser);
-                    Alert.alert("Verification Email Sent", "Please check your inbox.");
-                  } catch (verificationError) {
-                    console.error("Failed to send verification email", verificationError);
-                    Alert.alert("Could not send email", "Please try again in a moment.");
-                  }
-                },
-              },
-              { text: "OK" },
-            ]
-          );
-        }
 
         navigateToExpenses();
       });
