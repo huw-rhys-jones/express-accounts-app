@@ -598,39 +598,68 @@
 
       <div id="managementTabPanel" class="tab-panel">
         <div class="management-panel">
+
+          <!-- ── Generate new codes ───────────────────────────── -->
+          <h3 style="margin:0 0 14px; font-family:'Space Grotesk',sans-serif; font-size:1.05rem; color:var(--ink)">Generate &amp; Email Client Codes</h3>
           <div class="split-layout">
             <div class="stack">
               <label for="verificationCsvInput">Upload CSV</label>
               <input id="verificationCsvInput" type="file" accept=".csv,text/csv" />
-              <p class="hint" style="margin-top:0">The first column in each CSV row is treated as the client name.</p>
+              <p class="hint" style="margin-top:0">Two columns: <strong>Name</strong> and <strong>Email</strong>. First row may be a header.</p>
             </div>
             <div class="stack">
-              <label for="bulkNamesInput">Enter names separated by semicolons</label>
-              <textarea id="bulkNamesInput" placeholder="Jane Smith; John Patel; Example Ltd"></textarea>
-              <p class="hint" style="margin-top:0">CSV names and typed names are combined and deduplicated before code generation.</p>
+              <label for="bulkNamesInput">Enter clients (one per line, semicolon-separated)</label>
+              <textarea id="bulkNamesInput" placeholder="Jane Smith, jane@example.com;&#10;John Patel, john@example.com;&#10;Example Ltd, contact@example.com"></textarea>
+              <p class="hint" style="margin-top:0">Format: <strong>Name, email@address.com;</strong> — email is optional but needed to send invites.</p>
             </div>
           </div>
           <div class="actions">
             <button id="generateCodesBtn" type="button" class="btn-primary">Generate Client Codes</button>
+            <button id="sendAllEmailsBtn" type="button" class="btn-success" style="display:none">✉ Send All Emails</button>
             <button id="clearManagementBtn" type="button" class="btn-secondary">Clear</button>
           </div>
           <div id="managementStatus" class="statusline">Generate verification codes for active clients here.</div>
-          <div class="table-wrap">
+          <div class="table-wrap" id="generatedCodesWrap" style="display:none">
             <table id="generatedCodesTable">
               <thead>
                 <tr>
                   <th>Client name</th>
+                  <th>Email</th>
                   <th>Client code</th>
                   <th>Status</th>
+                  <th></th>
                 </tr>
               </thead>
               <tbody>
-                <tr>
-                  <td colspan="3" class="empty-cell">No codes generated yet.</td>
-                </tr>
+                <tr><td colspan="5" class="empty-cell">No codes generated yet.</td></tr>
               </tbody>
             </table>
           </div>
+
+          <!-- ── All existing codes ──────────────────────────── -->
+          <div style="margin-top:28px; display:flex; align-items:center; gap:12px; flex-wrap:wrap">
+            <h3 style="margin:0; font-family:'Space Grotesk',sans-serif; font-size:1.05rem; color:var(--ink)">All Existing Codes</h3>
+            <button id="loadAllCodesBtn" type="button" class="btn-secondary" style="padding:7px 16px; font-size:0.88rem">Load / Refresh</button>
+          </div>
+          <div id="allCodesStatus" class="statusline" style="margin-top:8px"></div>
+          <div class="table-wrap" id="allCodesWrap" style="display:none; margin-top:10px">
+            <table id="allCodesTable">
+              <thead>
+                <tr>
+                  <th>Client name</th>
+                  <th>Email</th>
+                  <th>Code</th>
+                  <th>Status</th>
+                  <th>Used by</th>
+                  <th></th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr><td colspan="6" class="empty-cell">Click "Load / Refresh" to fetch codes.</td></tr>
+              </tbody>
+            </table>
+          </div>
+
         </div>
       </div>
     </section>
@@ -685,9 +714,13 @@
     const verificationCsvInput = document.getElementById("verificationCsvInput");
     const bulkNamesInput = document.getElementById("bulkNamesInput");
     const generateCodesBtn = document.getElementById("generateCodesBtn");
+    const sendAllEmailsBtn = document.getElementById("sendAllEmailsBtn");
     const clearManagementBtn = document.getElementById("clearManagementBtn");
+    const loadAllCodesBtn = document.getElementById("loadAllCodesBtn");
     const managementStatus = document.getElementById("managementStatus");
+    const allCodesStatus = document.getElementById("allCodesStatus");
     const generatedCodesTableBody = document.querySelector("#generatedCodesTable tbody");
+    const allCodesTableBody = document.querySelector("#allCodesTable tbody");
 
     const dateModal = document.getElementById("dateModal");
     const periodSelect = document.getElementById("periodSelect");
@@ -1201,20 +1234,77 @@
     }
 
     function renderGeneratedCodesTable(rows) {
+      const wrap = document.getElementById("generatedCodesWrap");
       if (!rows.length) {
-        generatedCodesTableBody.innerHTML = '<tr><td colspan="3" class="empty-cell">No codes generated yet.</td></tr>';
+        generatedCodesTableBody.innerHTML = '<tr><td colspan="5" class="empty-cell">No codes generated yet.</td></tr>';
+        wrap.style.display = "none";
+        sendAllEmailsBtn.style.display = "none";
         return;
       }
 
-      generatedCodesTableBody.innerHTML = rows
-        .map((row) => (
+      generatedCodesTableBody.innerHTML = rows.map((row) => {
+        const emailCell = row.email
+          ? '<a href="' + buildMailtoLink(row) + '" style="color:var(--blue)">' + escHtml(row.email) + '</a>'
+          : '<span style="color:#aaa">—</span>';
+        const sendBtn = row.email
+          ? '<a href="' + buildMailtoLink(row) + '" class="btn-secondary" style="padding:5px 12px;font-size:0.82rem;border-radius:8px;text-decoration:none;display:inline-block">✉ Send</a>'
+          : "";
+        return (
           "<tr>" +
-            "<td>" + row.name + "</td>" +
-            "<td><strong>" + row.code + "</strong></td>" +
-            "<td>" + row.status + "</td>" +
+            "<td>" + escHtml(row.name) + "</td>" +
+            "<td>" + emailCell + "</td>" +
+            "<td><strong>" + escHtml(row.code) + "</strong></td>" +
+            "<td>" + escHtml(row.status) + "</td>" +
+            "<td>" + sendBtn + "</td>" +
           "</tr>"
-        ))
-        .join("");
+        );
+      }).join("");
+
+      wrap.style.display = "";
+      const hasEmails = rows.some((r) => r.email);
+      sendAllEmailsBtn.style.display = hasEmails ? "inline-flex" : "none";
+    }
+
+    function escHtml(str) {
+      return String(str || "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+    }
+
+    function buildMailtoLink(row) {
+      const subject = encodeURIComponent("Welcome to Express Accounts");
+      const body = encodeURIComponent(buildEmailBody(row.name, row.code));
+      return "mailto:" + encodeURIComponent(row.email) + "?subject=" + subject + "&body=" + body;
+    }
+
+    function buildEmailBody(clientName, code) {
+      return [
+        "Hi " + clientName + ",",
+        "",
+        "Welcome to Express Accounts — the simple way to track your receipts, income and expenses.",
+        "",
+        "Download the app for your device:",
+        "  • Android: https://play.google.com/store/apps/details?id=com.caistec.expressaccounts",
+        "  • iPhone: https://apps.apple.com/us/app/express-accounts/id6749811043",
+        "",
+        "Your unique client code is:",
+        "",
+        "    " + code,
+        "",
+        "Please enter this code when you sign up so we can link your account to your client profile. If you have already signed up, you can enter it via the side menu inside the app.",
+        "",
+        "If you have any questions, feel free to reply to this email.",
+        "",
+        "Warmest regards,",
+        "The Express Accounts Team",
+      ].join("\n");
+    }
+
+    function sendAllEmails(rows) {
+      const withEmail = rows.filter((r) => r.email);
+      withEmail.forEach((row, i) => {
+        setTimeout(() => {
+          window.open(buildMailtoLink(row), "_blank");
+        }, i * 600);
+      });
     }
 
     function readTextFile(file) {
@@ -1226,17 +1316,16 @@
       });
     }
 
-    async function collectVerificationNames() {
+    async function collectVerificationClients() {
       const csvFile = verificationCsvInput.files && verificationCsvInput.files[0];
-      const csvNames = csvFile
-        ? ClientVerification.parseCsvNames(await readTextFile(csvFile))
+      const csvClients = csvFile
+        ? ClientVerification.parseCsvClients(await readTextFile(csvFile))
         : [];
-      const typedNames = ClientVerification.parseDelimitedNames(bulkNamesInput.value);
-      const combined = [...typedNames, ...csvNames];
+      const typedClients = ClientVerification.parseDelimitedClients(bulkNamesInput.value);
+      const combined = [...typedClients, ...csvClients];
       const seen = new Set();
-
-      return combined.filter((name) => {
-        const key = name.toLowerCase();
+      return combined.filter((c) => {
+        const key = c.name.toLowerCase();
         if (seen.has(key)) return false;
         seen.add(key);
         return true;
@@ -1264,19 +1353,20 @@
       managementStatus.textContent = "Generating verification codes…";
 
       try {
-        const names = await collectVerificationNames();
-        if (!names.length) {
-          managementStatus.textContent = "Add at least one client name via CSV or semicolon-separated text.";
+        const clients = await collectVerificationClients();
+        if (!clients.length) {
+          managementStatus.textContent = "Add at least one client via CSV or the text box above.";
           renderGeneratedCodesTable([]);
           return;
         }
 
         const rows = [];
-        for (const name of names) {
+        for (const client of clients) {
           const code = await generateUniqueClientCode();
           await db.collection("VerificationCodes").doc(code).set({
             code,
-            accountantSubmittedName: name,
+            accountantSubmittedName: client.name,
+            accountantSubmittedEmail: client.email || null,
             createdAt: firebase.firestore.FieldValue.serverTimestamp(),
             createdByUid: currentAccountant.uid,
             createdByEmail: currentAccountant.email || null,
@@ -1284,11 +1374,12 @@
             usedAt: null,
             verificationStatus: "available",
           }, { merge: true });
-          rows.push({ name, code, status: "Created" });
+          rows.push({ name: client.name, email: client.email || "", code, status: "Created" });
         }
 
         renderGeneratedCodesTable(rows);
-        managementStatus.textContent = "Generated " + rows.length + " verification code(s).";
+        managementStatus.textContent = "Generated " + rows.length + " code(s). Click ✉ Send to email each client.";
+        sendAllEmailsBtn._rows = rows;
       } catch (error) {
         console.error("Code generation error:", error);
         managementStatus.textContent = "Code generation failed: " + error.message;
@@ -1302,6 +1393,69 @@
       verificationCsvInput.value = "";
       managementStatus.textContent = "Generate verification codes for active clients here.";
       renderGeneratedCodesTable([]);
+      sendAllEmailsBtn.style.display = "none";
+      sendAllEmailsBtn._rows = [];
+    }
+
+    async function loadAllCodes() {
+      if (!currentAccountant) { allCodesStatus.textContent = "You must be signed in."; return; }
+      loadAllCodesBtn.disabled = true;
+      allCodesStatus.textContent = "Loading codes…";
+      try {
+        const snap = await db.collection("VerificationCodes").orderBy("createdAt", "desc").get();
+        const codes = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+        renderAllCodesTable(codes);
+        allCodesStatus.textContent = codes.length + " code(s) found.";
+        document.getElementById("allCodesWrap").style.display = "";
+      } catch (err) {
+        console.error("loadAllCodes error", err);
+        allCodesStatus.textContent = "Failed to load codes: " + err.message;
+      } finally {
+        loadAllCodesBtn.disabled = false;
+      }
+    }
+
+    function renderAllCodesTable(codes) {
+      if (!codes.length) {
+        allCodesTableBody.innerHTML = '<tr><td colspan="6" class="empty-cell">No codes found.</td></tr>';
+        return;
+      }
+      allCodesTableBody.innerHTML = codes.map((c) => {
+        const statusLabel = c.verificationStatus === "verified"
+          ? '<span style="color:var(--success-green);font-weight:600">Verified</span>'
+          : c.verificationStatus === "available"
+          ? '<span style="color:#888">Available</span>'
+          : escHtml(c.verificationStatus || "—");
+        const emailVal = c.accountantSubmittedEmail || "";
+        const emailCell = emailVal
+          ? '<a href="mailto:' + encodeURIComponent(emailVal) + '?subject=' + encodeURIComponent("Welcome to Express Accounts") + '&body=' + encodeURIComponent(buildEmailBody(c.accountantSubmittedName || "", c.code)) + '" style="color:var(--blue)">' + escHtml(emailVal) + '</a>'
+          : '<span style="color:#aaa">—</span>';
+        return (
+          "<tr>" +
+            "<td>" + escHtml(c.accountantSubmittedName || "—") + "</td>" +
+            "<td>" + emailCell + "</td>" +
+            "<td><strong>" + escHtml(c.code || c.id) + "</strong></td>" +
+            "<td>" + statusLabel + "</td>" +
+            "<td>" + escHtml(c.usedBy || "—") + "</td>" +
+            '<td><button class="btn-secondary" style="padding:5px 12px;font-size:0.82rem;border-radius:8px;color:#b42318;border-color:#f5c6c3" data-delete-code="' + escHtml(c.id) + '">Delete</button></td>' +
+          "</tr>"
+        );
+      }).join("");
+
+      allCodesTableBody.querySelectorAll("[data-delete-code]").forEach((btn) => {
+        btn.addEventListener("click", () => deleteCode(btn.dataset.deleteCode));
+      });
+    }
+
+    async function deleteCode(codeId) {
+      if (!confirm("Delete code " + codeId + "? This cannot be undone.")) return;
+      try {
+        await db.collection("VerificationCodes").doc(codeId).delete();
+        allCodesStatus.textContent = "Deleted code " + codeId + ".";
+        await loadAllCodes();
+      } catch (err) {
+        allCodesStatus.textContent = "Delete failed: " + err.message;
+      }
     }
 
     function openDateModal(user) {
@@ -1716,7 +1870,9 @@
     activityTabBtn.addEventListener("click", () => setActiveTab("activity"));
     managementTabBtn.addEventListener("click", () => setActiveTab("management"));
     generateCodesBtn.addEventListener("click", generateVerificationCodes);
+    sendAllEmailsBtn.addEventListener("click", () => sendAllEmails(sendAllEmailsBtn._rows || []));
     clearManagementBtn.addEventListener("click", clearManagementInputs);
+    loadAllCodesBtn.addEventListener("click", loadAllCodes);
 
     cancelDateBtn.addEventListener("click", closeDateModal);
     resetNotifyBtn.addEventListener("click", async () => {
