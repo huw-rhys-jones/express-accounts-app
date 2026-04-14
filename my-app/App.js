@@ -9,8 +9,6 @@ import { Ionicons } from "@expo/vector-icons";
 import { auth, db } from "./firebaseConfig";
 import SignUpScreen from "./screens/Register";
 import SignInScreen from "./screens/LogIn";
-import SMSVerificationScreen from "./screens/SMSVerificationScreen";
-import PhoneEnrollmentScreen from "./screens/PhoneEnrollmentScreen";
 import IncomeScreen from "./screens/Income";
 import ExpensesScreen from "./screens/ReceiptList";
 import BankStatementList from "./screens/BankStatementList";
@@ -299,8 +297,6 @@ export default function App() {
         >
           <Stack.Screen name="SignUp" component={SignUpScreen} />
           <Stack.Screen name="SignIn" component={SignInScreen} />
-          <Stack.Screen name="SMSVerification" component={SMSVerificationScreen} />
-          <Stack.Screen name="PhoneEnrollment" component={PhoneEnrollmentScreen} />
           <Stack.Screen name="MainTabs">
             {() =>
               requiresEmailVerification ? (

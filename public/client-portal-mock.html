@@ -488,6 +488,57 @@
       .login-head,
       .login-body { padding-left: 20px; padding-right: 20px; }
     }
+
+    /* ── SMS 2FA step ── */
+    #smsStep { display: none; }
+
+    .sms-hint {
+      font-size: 0.95rem;
+      color: #4a6080;
+      margin: 0 0 18px;
+      line-height: 1.5;
+    }
+
+    .sms-code-input {
+      width: 100%;
+      border: 2px solid var(--blue);
+      border-radius: 12px;
+      padding: 14px;
+      font-size: 1.6rem;
+      letter-spacing: 0.35em;
+      text-align: center;
+      font-family: "Space Grotesk", monospace;
+      color: var(--ink);
+      background: #fff;
+      margin-bottom: 16px;
+      box-sizing: border-box;
+    }
+
+    .sms-code-input:focus {
+      outline: none;
+      border-color: var(--accent);
+      box-shadow: 0 0 0 3px rgba(255, 109, 0, 0.15);
+    }
+
+    .sms-actions {
+      display: flex;
+      gap: 10px;
+    }
+
+    .btn-ghost {
+      flex: 1;
+      padding: 12px;
+      border: 1px solid var(--outline);
+      border-radius: 10px;
+      background: #fff;
+      color: var(--text);
+      font-size: 0.95rem;
+      font-family: inherit;
+      font-weight: 600;
+      cursor: pointer;
+    }
+
+    .btn-ghost:hover { background: #f0f4f8; }
   </style>
   <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-app-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-auth-compat.js"></script>
@@ -499,6 +550,12 @@
   <script>
     const auth = firebase.auth();
     const db = firebase.firestore();
+
+    // ── TESTING ONLY ──────────────────────────────────────────────────────────
+    // Disables reCAPTCHA verification so phone auth can be tested in the browser
+    // without a deployed domain. Remove or set to false before going to production.
+    auth.settings.appVerificationDisabledForTesting = true;
+    // ─────────────────────────────────────────────────────────────────────────
   </script>
 </head>
 <body>
@@ -508,7 +565,7 @@
         <h1>Client Data Console</h1>
         <p>Portal.</p>
       </div>
-      <div class="login-body">
+      <div id="loginFormBody" class="login-body">
         <label for="emailInput">Account Email</label>
         <input id="emailInput" type="email" placeholder="you@example.com" style="width: 100%; border: 1px solid var(--outline); border-radius: 12px; padding: 12px; margin-top: 8px; margin-bottom: 12px; font-family: inherit;" />
 
@@ -521,6 +578,29 @@
         </div>
         <div id="loginError" class="error"></div>
       </div>
+
+      <!-- SMS 2FA step — shown only after password auth triggers MFA challenge -->
+      <div id="smsStep" class="login-body">
+        <p class="sms-hint" id="smsPhoneHint">Sending verification code…</p>
+        <label for="smsCodeInput">Verification Code</label>
+        <input id="smsCodeInput" class="sms-code-input" type="tel" inputmode="numeric"
+               autocomplete="one-time-code" maxlength="6" placeholder="000000" />
+        <div id="smsError" class="error" style="margin-bottom:12px"></div>
+        <div class="sms-actions">
+          <button id="verifyBtn" class="btn-primary" type="button" style="flex:2">Verify &amp; Sign In</button>
+          <button id="smsBackBtn" class="btn-ghost" type="button">Back</button>
+        </div>
+        <p class="hint" style="margin-top:14px">
+          Didn't receive a code?
+          <button id="resendSmsBtn" type="button"
+                  style="background:none;border:none;color:var(--blue);font-weight:700;cursor:pointer;font-size:inherit;padding:0">
+            Resend
+          </button>
+        </p>
+      </div>
+
+      <!-- Invisible reCAPTCHA anchor required by Firebase Phone Auth -->
+      <div id="recaptcha-container"></div>
     </section>
 
     <section id="dashboardSection" class="panel dashboard">
@@ -639,6 +719,14 @@
     const passwordInput = document.getElementById("passwordInput");
     const loginBtn = document.getElementById("loginBtn");
     const loginError = document.getElementById("loginError");
+    const loginFormBody = document.getElementById("loginFormBody");
+    const smsStep = document.getElementById("smsStep");
+    const smsPhoneHint = document.getElementById("smsPhoneHint");
+    const smsCodeInput = document.getElementById("smsCodeInput");
+    const smsError = document.getElementById("smsError");
+    const verifyBtn = document.getElementById("verifyBtn");
+    const smsBackBtn = document.getElementById("smsBackBtn");
+    const resendSmsBtn = document.getElementById("resendSmsBtn");
     const clientBoard = document.getElementById("clientBoard");
     const loginInfo = document.getElementById("loginInfo");
     const statusLine = document.getElementById("statusLine");
@@ -673,6 +761,11 @@
     let selectedUser = null;
     const activeStatusFilters = new Set();
     let currentTab = "activity";
+
+    // ── MFA state ──
+    let _mfaResolver = null;
+    let _verificationId = null;
+    let _recaptchaVerifier = null;
 
     function toMoney(value) {
       return Number(value).toFixed(2);
@@ -1516,10 +1609,101 @@
         await auth.signInWithEmailAndPassword(email, password);
         loginError.textContent = "";
       } catch (error) {
+        if (error.code === "auth/multi-factor-auth-required") {
+          loginError.textContent = "";
+          loginBtn.disabled = false;
+          await initiateSmsStep(error.resolver);
+          return;
+        }
         loginError.textContent = "Login failed: " + error.message;
       } finally {
         loginBtn.disabled = false;
       }
+    }
+
+    async function initiateSmsStep(resolver) {
+      _mfaResolver = resolver;
+
+      // Destroy any previous reCAPTCHA instance before creating a new one
+      if (_recaptchaVerifier) {
+        try { _recaptchaVerifier.clear(); } catch (_) {}
+        _recaptchaVerifier = null;
+      }
+
+      _recaptchaVerifier = new firebase.auth.RecaptchaVerifier("recaptcha-container", {
+        size: "invisible",
+      });
+
+      const hint = resolver.hints[0];
+      const maskedPhone = (hint && hint.phoneNumber) ? hint.phoneNumber : "your registered number";
+
+      smsPhoneHint.textContent = "Sending a verification code to " + maskedPhone + "…";
+      smsError.textContent = "";
+      smsCodeInput.value = "";
+
+      loginFormBody.style.display = "none";
+      smsStep.style.display = "block";
+      verifyBtn.disabled = true;
+
+      try {
+        const phoneAuthProvider = new firebase.auth.PhoneAuthProvider();
+        _verificationId = await phoneAuthProvider.verifyPhoneNumber(
+          { multiFactorHint: hint, session: resolver.session },
+          _recaptchaVerifier
+        );
+        smsPhoneHint.textContent = "A 6-digit code has been sent to " + maskedPhone + ". Enter it below.";
+        verifyBtn.disabled = false;
+        smsCodeInput.focus();
+      } catch (err) {
+        console.error("SMS send failed:", err);
+        smsError.textContent = "Could not send verification code. Please go back and try again.";
+      }
+    }
+
+    async function verifySmsCode() {
+      const code = smsCodeInput.value.trim();
+      if (code.length < 6) {
+        smsError.textContent = "Please enter the full 6-digit code.";
+        return;
+      }
+      if (!_verificationId || !_mfaResolver) {
+        smsError.textContent = "Session expired — please go back and sign in again.";
+        resetSmsStep();
+        return;
+      }
+
+      verifyBtn.disabled = true;
+      smsError.textContent = "Verifying…";
+      try {
+        const credential = firebase.auth.PhoneAuthProvider.credential(_verificationId, code);
+        const assertion = firebase.auth.PhoneMultiFactorGenerator.assertion(credential);
+        await _mfaResolver.resolveSignIn(assertion);
+        smsError.textContent = "";
+        // onAuthStateChanged will now fire and call startAuthenticatedSession
+      } catch (err) {
+        console.error("MFA verify failed:", err);
+        let msg = "Verification failed. Please check the code and try again.";
+        if (err.code === "auth/invalid-verification-code") {
+          msg = "That code is incorrect. Please check your SMS and try again.";
+        } else if (err.code === "auth/code-expired") {
+          msg = "The code has expired. Use the Resend button to get a new one.";
+        }
+        smsError.textContent = msg;
+        verifyBtn.disabled = false;
+      }
+    }
+
+    function resetSmsStep() {
+      smsStep.style.display = "none";
+      loginFormBody.style.display = "block";
+      _mfaResolver = null;
+      _verificationId = null;
+      if (_recaptchaVerifier) {
+        try { _recaptchaVerifier.clear(); } catch (_) {}
+        _recaptchaVerifier = null;
+      }
+      smsCodeInput.value = "";
+      smsError.textContent = "";
     }
 
     async function startAuthenticatedSession(user) {
@@ -1554,6 +1738,7 @@
       dashboardSection.style.display = "none";
       loginSection.style.display = "block";
       passwordInput.value = "";
+      resetSmsStep();
       statusLine.textContent = "Select a client tile to export receipt, income, and bank statement data.";
       closeDateModal();
       liveUsers = [];
@@ -1566,6 +1751,14 @@
     }
 
     loginBtn.addEventListener("click", attemptLogin);
+    verifyBtn.addEventListener("click", verifySmsCode);
+    smsBackBtn.addEventListener("click", resetSmsStep);
+    resendSmsBtn.addEventListener("click", () => {
+      if (_mfaResolver) initiateSmsStep(_mfaResolver);
+    });
+    smsCodeInput.addEventListener("keydown", (event) => {
+      if (event.key === "Enter") verifySmsCode();
+    });
     emailInput.addEventListener("keydown", (event) => {
       if (event.key === "Enter") attemptLogin();
     });

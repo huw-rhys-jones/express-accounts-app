@@ -13,7 +13,6 @@ import {
 } from "react-native";
 import {
   getAdditionalUserInfo,
-  getMultiFactorResolver,
   sendEmailVerification,
   signInWithEmailAndPassword,
   OAuthProvider,
@@ -22,7 +21,6 @@ import {
   sendPasswordResetEmail,
 } from "firebase/auth";
 import { auth, db } from "../firebaseConfig";
-import { setMfaResolver } from "../utils/mfaState";
 import { doc, setDoc, serverTimestamp } from "firebase/firestore";
 import * as WebBrowser from "expo-web-browser";
 import * as AppleAuthentication from "expo-apple-authentication";
@@ -281,19 +279,6 @@ const LoginScreen = ({ navigation }) => {
         navigateToExpenses();
       });
     } catch (error) {
-      // 2FA required — store the resolver and navigate to SMS verification
-      if (error?.code === "auth/multi-factor-auth-required") {
-        try {
-          const resolver = getMultiFactorResolver(auth, error);
-          setMfaResolver(resolver);
-          navigation.navigate("SMSVerification");
-        } catch (mfaErr) {
-          console.error("❌ MFA resolver setup failed:", mfaErr);
-          Alert.alert("Sign In Error", "Could not initiate two-factor authentication. Please try again.");
-        }
-        return;
-      }
-
       console.error("❌ Email login failed:", error);
       showLoginError(error?.code, error?.message);
     }
