@@ -334,7 +334,6 @@ const styles = StyleSheet.create({
   referenceWrap: {
     flex: 1,
     alignItems: "flex-start",
-    marginLeft: 25,
   },
   rowReference: {
     color: "#000",
