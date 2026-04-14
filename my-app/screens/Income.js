@@ -294,7 +294,7 @@ const styles = StyleSheet.create({
     alignItems: "center",
   },
   headerCellDate: { width: 90, flexDirection: "row", gap: 6, alignItems: "center" },
-  headerCellReference: { flex: 1, flexDirection: "row", gap: 6, alignItems: "center" },
+  headerCellReference: { flex: 1, flexDirection: "row", gap: 6, alignItems: "center", paddingLeft: 16 },
   headerCellAmount: {
     width: 106,
     flexDirection: "row",
@@ -334,6 +334,7 @@ const styles = StyleSheet.create({
   referenceWrap: {
     flex: 1,
     alignItems: "flex-start",
+    paddingLeft: 16,
   },
   rowReference: {
     color: "#000",
