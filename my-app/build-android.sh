@@ -5,3 +5,5 @@ eas build --platform ios --profile production
 echo "iOS build queued. Submit explicitly with: eas submit --platform ios --id <IOS_BUILD_ID>"
 
 npx eas build --profile development --platform android
+
+npx eas build --profile development --platform android
