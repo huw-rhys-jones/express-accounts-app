@@ -1579,16 +1579,9 @@ const ReceiptAdd = ({ navigation }) => {
         ) : null}
       </Modal>
 
-      {/* Uploading overlay (spinner/holding animation) */}
-      <Modal
-        visible={isUploading || isPickerBusy}
-        transparent
-        animationType="fade"
-        presentationStyle="overFullScreen" // 👈 important on iOS
-        statusBarTranslucent // optional, nicer on iOS
-        onRequestClose={() => {}}
-      >
-        <View style={ReceiptStyles.uploadOverlay}>
+      {/* Uploading overlay — plain View avoids iOS modal-stacking conflicts with the native image picker */}
+      {(isUploading || isPickerBusy) && (
+        <View style={localStyles.uploadOverlay}>
           <View style={ReceiptStyles.uploadCard}>
             <ActivityIndicator size="large" color="#a60d49" />
             <Text style={{ marginTop: 12, fontWeight: "600" }}>
@@ -1596,12 +1589,19 @@ const ReceiptAdd = ({ navigation }) => {
             </Text>
           </View>
         </View>
-      </Modal>
+      )}
     </SafeAreaView>
   );
 };
 
 const localStyles = StyleSheet.create({
+  uploadOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: "rgba(0,0,0,0.35)",
+    justifyContent: "center",
+    alignItems: "center",
+    zIndex: 999,
+  },
   labelAligned: {
     marginLeft: 10,
   },
