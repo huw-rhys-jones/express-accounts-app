@@ -83,10 +83,30 @@
     .badge-row {
       display: flex;
       justify-content: center;
-      gap: 12px;
+      gap: 16px;
       flex-wrap: wrap;
+      align-items: center;
     }
 
+    .badge-row a {
+      display: inline-block;
+      transition: opacity 0.2s, transform 0.2s;
+    }
+
+    .badge-row a:hover { opacity: 0.85; transform: scale(1.04); }
+
+    .badge-row .apple-badge img {
+      height: 52px;
+      width: auto;
+    }
+
+    .badge-row .google-badge img {
+      height: 72px;  /* Google badge has more whitespace so needs to be taller to visually match */
+      width: auto;
+      margin: -10px 0; /* trim the built-in whitespace */
+    }
+
+    /* Keep the outline badge style for non-hero uses */
     .badge {
       display: inline-block;
       padding: 9px 22px;
@@ -205,8 +225,12 @@
     <h1>Express <span>Accounts</span></h1>
     <p class="tagline">The smart way to scan receipts, track expenses, and stay on top of your finances — straight from your phone.</p>
     <div class="badge-row">
-      <a class="badge badge-primary" href="https://apps.apple.com/us/app/express-accounts/id6749811043" target="_blank" rel="noopener">Download on iOS</a>
-      <a class="badge badge-outline" href="https://play.google.com/store/apps/details?id=com.caistec.expressaccounts" target="_blank" rel="noopener">Get it on Android</a>
+      <a class="apple-badge" href="https://apps.apple.com/us/app/express-accounts/id6749811043" target="_blank" rel="noopener">
+        <img src="/express-accounts/apple-store-badge.svg" alt="Download on the App Store" />
+      </a>
+      <a class="google-badge" href="https://play.google.com/store/apps/details?id=com.caistec.expressaccounts" target="_blank" rel="noopener">
+        <img src="/express-accounts/google-play-badge.png" alt="Get it on Google Play" />
+      </a>
     </div>
   </header>
 
