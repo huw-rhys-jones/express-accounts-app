@@ -1,0 +1,307 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Express Accounts – Smart Receipt & Expense Tracker</title>
+  <meta name="description" content="Express Accounts is a smart receipt and expense tracking app for iOS and Android. Scan receipts, categorise expenses, and get instant summaries." />
+  <style>
+    *, *::before, *::after { box-sizing: border-box; }
+
+    :root {
+      --brand:    #ff6347;   /* tomato — app primary */
+      --brand-dk: #a60d49;   /* app FAB / accent buttons */
+      --accent:   #ffdd00;   /* yellow — app secondary */
+      --dark:     #302C66;   /* app backgroundColor */
+      --surface:  #1C1C4E;   /* app nav / headings */
+      --card:     #26235a;   /* slightly lighter purple */
+      --text:     #e0e0e0;
+      --muted:    #B5B3C6;   /* app tab bar tint */
+      --radius:   12px;
+    }
+
+    body {
+      margin: 0;
+      padding: 0;
+      background-color: var(--dark);
+      color: var(--text);
+      font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+      line-height: 1.6;
+    }
+
+    /* ── Nav ── */
+    nav {
+      background: var(--surface);
+      padding: 12px 24px;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      border-bottom: 1px solid rgba(255,255,255,0.1);
+    }
+
+    nav a {
+      color: var(--muted);
+      text-decoration: none;
+      font-size: 0.88rem;
+    }
+
+    nav a:hover { color: #fff; }
+    nav .sep { color: var(--muted); font-size: 0.88rem; }
+    nav .current { color: var(--brand); font-size: 0.88rem; }
+
+    /* ── Hero ── */
+    header {
+      background: linear-gradient(160deg, var(--surface) 0%, var(--dark) 100%);
+      text-align: center;
+      padding: 60px 20px 50px;
+      border-bottom: 3px solid var(--brand);
+    }
+
+    header img.logo {
+      width: 110px;
+      height: 110px;
+      border-radius: 24px;
+      box-shadow: 0 8px 32px rgba(255,99,71,0.4);
+      margin-bottom: 20px;
+    }
+
+    header h1 {
+      font-size: 2.6rem;
+      margin: 0 0 10px;
+      color: #fff;
+    }
+
+    header h1 span { color: var(--brand); }
+
+    header p.tagline {
+      font-size: 1.15rem;
+      color: var(--muted);
+      max-width: 520px;
+      margin: 0 auto 30px;
+    }
+
+    .badge-row {
+      display: flex;
+      justify-content: center;
+      gap: 12px;
+      flex-wrap: wrap;
+    }
+
+    .badge {
+      display: inline-block;
+      padding: 9px 22px;
+      border-radius: 30px;
+      font-size: 0.9rem;
+      font-weight: 600;
+      text-decoration: none;
+      transition: opacity 0.2s;
+    }
+
+    .badge:hover { opacity: 0.85; }
+    .badge-primary { background: var(--brand); color: #fff; }
+    .badge-outline  { border: 2px solid var(--brand); color: var(--brand); background: transparent; }
+
+    /* ── Layout ── */
+    .container {
+      max-width: 900px;
+      margin: 0 auto;
+      padding: 0 20px;
+    }
+
+    section { padding: 56px 0; }
+    section + section { border-top: 1px solid rgba(255,255,255,0.07); }
+
+    h2 { font-size: 1.7rem; color: #fff; margin: 0 0 28px; }
+    h2 span { color: var(--brand); }
+
+    /* ── Feature Grid ── */
+    .feature-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+      gap: 20px;
+    }
+
+    .feature-card {
+      background: var(--card);
+      border-radius: var(--radius);
+      padding: 24px;
+      border: 1px solid rgba(255,255,255,0.1);
+    }
+
+    .feature-card .icon { font-size: 2rem; margin-bottom: 12px; }
+    .feature-card h3    { margin: 0 0 8px; font-size: 1.05rem; color: #fff; }
+    .feature-card p     { margin: 0; font-size: 0.92rem; color: var(--muted); }
+
+    /* ── Steps ── */
+    .steps {
+      display: flex;
+      flex-direction: column;
+      gap: 18px;
+    }
+
+    .step {
+      display: flex;
+      align-items: flex-start;
+      gap: 18px;
+      background: var(--surface);
+      border-radius: var(--radius);
+      padding: 20px 24px;
+    }
+
+    .step-num {
+      min-width: 40px;
+      height: 40px;
+      border-radius: 50%;
+      background: var(--brand);
+      color: #fff;
+      font-weight: 700;
+      font-size: 1rem;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .step-body h3 { margin: 0 0 4px; font-size: 1rem; color: #fff; }
+    .step-body p  { margin: 0; font-size: 0.9rem; color: var(--muted); }
+
+    /* ── Info strip ── */
+    .info-strip {
+      background: var(--surface);
+      border-radius: var(--radius);
+      padding: 28px 32px;
+      display: flex;
+      flex-wrap: wrap;
+      gap: 24px;
+      align-items: center;
+      justify-content: space-between;
+    }
+
+    .info-strip p { margin: 0; font-size: 0.95rem; color: var(--muted); }
+
+    /* ── Footer ── */
+    footer {
+      background: var(--surface);
+      border-top: 1px solid rgba(255,255,255,0.07);
+      text-align: center;
+      padding: 32px 20px;
+      font-size: 0.88rem;
+      color: var(--muted);
+    }
+
+    footer a { color: var(--accent); text-decoration: none; margin: 0 10px; }
+    footer a:hover { text-decoration: underline; }
+  </style>
+</head>
+<body>
+
+  <nav>
+    <a href="/">caistec.com</a>
+    <span class="sep">›</span>
+    <span class="current">Express Accounts</span>
+  </nav>
+
+  <header>
+    <img src="/express-accounts/app-icon.png" alt="Express Accounts Logo" class="logo" />
+    <h1>Express <span>Accounts</span></h1>
+    <p class="tagline">The smart way to scan receipts, track expenses, and stay on top of your finances — straight from your phone.</p>
+    <div class="badge-row">
+      <a class="badge badge-primary" href="https://apps.apple.com/us/app/express-accounts/id6749811043" target="_blank" rel="noopener">Download on iOS</a>
+      <a class="badge badge-outline" href="https://play.google.com/store/apps/details?id=com.caistec.expressaccounts" target="_blank" rel="noopener">Get it on Android</a>
+    </div>
+  </header>
+
+  <main class="container">
+
+    <section>
+      <h2>Everything you need to <span>track expenses</span></h2>
+      <div class="feature-grid">
+        <div class="feature-card">
+          <div class="icon">📷</div>
+          <h3>Receipt Scanning</h3>
+          <p>Use your camera to instantly capture and extract data from physical receipts using on-device OCR.</p>
+        </div>
+        <div class="feature-card">
+          <div class="icon">🗂️</div>
+          <h3>Smart Categorisation</h3>
+          <p>Expenses are automatically categorised — travel, food, office, and more — saving you manual effort.</p>
+        </div>
+        <div class="feature-card">
+          <div class="icon">📊</div>
+          <h3>Spending Summaries</h3>
+          <p>Get clear monthly and category breakdowns so you always know where your money is going.</p>
+        </div>
+        <div class="feature-card">
+          <div class="icon">☁️</div>
+          <h3>Cloud Sync</h3>
+          <p>All your receipts are securely synced to the cloud via Firebase so you never lose a record.</p>
+        </div>
+        <div class="feature-card">
+          <div class="icon">🔒</div>
+          <h3>Secure Sign-In</h3>
+          <p>Sign in with Google or Apple. Your data is private and only accessible to you.</p>
+        </div>
+        <div class="feature-card">
+          <div class="icon">📄</div>
+          <h3>Bank Statement Import</h3>
+          <p>Import PDF bank statements and let the app extract and categorise transactions automatically.</p>
+        </div>
+      </div>
+    </section>
+
+    <section>
+      <h2>How it <span>works</span></h2>
+      <div class="steps">
+        <div class="step">
+          <div class="step-num">1</div>
+          <div class="step-body">
+            <h3>Sign in securely</h3>
+            <p>Create a free account using your Google or Apple ID — no separate password needed.</p>
+          </div>
+        </div>
+        <div class="step">
+          <div class="step-num">2</div>
+          <div class="step-body">
+            <h3>Capture or import receipts</h3>
+            <p>Photograph a receipt or upload a bank PDF. The app reads the date, amount, and merchant automatically.</p>
+          </div>
+        </div>
+        <div class="step">
+          <div class="step-num">3</div>
+          <div class="step-body">
+            <h3>Review &amp; categorise</h3>
+            <p>Check the extracted details, tweak the category if needed, and save. It takes seconds.</p>
+          </div>
+        </div>
+        <div class="step">
+          <div class="step-num">4</div>
+          <div class="step-body">
+            <h3>Analyse your spending</h3>
+            <p>Open the Summary tab for a breakdown of monthly spend by category, with VAT estimates where applicable.</p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section>
+      <h2>Your data, <span>your control</span></h2>
+      <div class="info-strip">
+        <p>Express Accounts only collects the data needed to provide the service. We never sell your information.<br>
+          Read our full <a href="/privacy-policy.html" style="color:var(--accent)">Privacy Policy</a> to learn more.</p>
+        <a class="badge badge-outline" href="/express_accounts_support.html">Support &amp; FAQ</a>
+      </div>
+    </section>
+
+  </main>
+
+  <footer>
+    <p>
+      <a href="/privacy-policy.html">Privacy Policy</a>
+      <a href="/express_accounts_support.html">Support</a>
+      <a href="https://www.youtube.com/@CaisTec" target="_blank" rel="noopener">YouTube</a>
+      <a href="mailto:info@caistec.com">Contact</a>
+    </p>
+    <p style="margin-top:10px;">&copy; 2025 CaisTec. All rights reserved.</p>
+  </footer>
+
+</body>
+</html>
