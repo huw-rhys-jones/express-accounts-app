@@ -40,7 +40,6 @@ import { categories_meta } from "../constants/arrays";
 import { formatDate } from "../utils/format_style";
 import { extractData, reconstructLines } from "../utils/extractors";
 import { runOcrOnAssets } from "../utils/ocrHelpers";
-import { runOcrOnAssets } from "../utils/ocrHelpers";
 import ImageViewer from "react-native-image-zoom-viewer";
 import { Colors, ReceiptStyles } from "../utils/sharedStyles";
 import { getCurrentYearAprilSix, startOfDayLocal } from "../utils/financialPeriods";
@@ -88,7 +87,7 @@ const ReceiptAdd = ({ navigation, route }) => {
     animValue.setValue(1);
     Animated.timing(animValue, {
       toValue: 0,
-      duration: 900,
+      duration: 1800,
       useNativeDriver: false,
     }).start();
   };
