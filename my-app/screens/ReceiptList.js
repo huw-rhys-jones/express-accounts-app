@@ -785,12 +785,14 @@ const ExpensesScreen = ({ navigation, route }) => {
       </View>
 
       {/* Floating Add Expenses Button */}
-      <TouchableOpacity
-        style={styles.floatingButton}
-        onPress={() => setAddSheetVisible(true)}
-      >
-        <Text style={styles.floatingButtonText}>+</Text>
-      </TouchableOpacity>
+      {!addSheetVisible && (
+        <TouchableOpacity
+          style={styles.floatingButton}
+          onPress={() => setAddSheetVisible(true)}
+        >
+          <Text style={styles.floatingButtonText}>+</Text>
+        </TouchableOpacity>
+      )}
 
       <AddReceiptSheet
         visible={addSheetVisible}
