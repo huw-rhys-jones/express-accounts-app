@@ -550,12 +550,6 @@
   <script>
     const auth = firebase.auth();
     const db = firebase.firestore();
-
-    // ── TESTING ONLY ──────────────────────────────────────────────────────────
-    // Disables reCAPTCHA verification so phone auth can be tested in the browser
-    // without a deployed domain. Remove or set to false before going to production.
-    auth.settings.appVerificationDisabledForTesting = true;
-    // ─────────────────────────────────────────────────────────────────────────
   </script>
 </head>
 <body>
@@ -1609,6 +1603,7 @@
         await auth.signInWithEmailAndPassword(email, password);
         loginError.textContent = "";
       } catch (error) {
+        console.log("Sign-in error code:", error.code, "| resolver:", error.resolver);
         if (error.code === "auth/multi-factor-auth-required") {
           loginError.textContent = "";
           loginBtn.disabled = false;
@@ -1634,7 +1629,8 @@
         size: "invisible",
       });
 
-      const hint = resolver.hints[0];
+      // Specifically find the phone (SMS) hint — ignore any TOTP/app-based factors
+      const hint = resolver.hints.find(h => h.factorId === "phone") || resolver.hints[0];
       const maskedPhone = (hint && hint.phoneNumber) ? hint.phoneNumber : "your registered number";
 
       smsPhoneHint.textContent = "Sending a verification code to " + maskedPhone + "…";
@@ -1676,8 +1672,8 @@
       smsError.textContent = "Verifying…";
       try {
         const credential = firebase.auth.PhoneAuthProvider.credential(_verificationId, code);
-        const assertion = firebase.auth.PhoneMultiFactorGenerator.assertion(credential);
-        await _mfaResolver.resolveSignIn(assertion);
+        const multiFactorAssertion = firebase.auth.PhoneMultiFactorGenerator.assertion(credential);
+        await _mfaResolver.resolveSignIn(multiFactorAssertion);
         smsError.textContent = "";
         // onAuthStateChanged will now fire and call startAuthenticatedSession
       } catch (err) {
