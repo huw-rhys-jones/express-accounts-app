@@ -15,6 +15,7 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import { collection, getDocs, onSnapshot, query, where } from "firebase/firestore";
 import SideMenu from "../components/SideMenu";
 import SharedTabMenu from "../components/SharedTabMenu";
+import AddReceiptSheet from "../components/AddReceiptSheet";
 import { auth, db } from "../firebaseConfig";
 import { formatDate } from "../utils/format_style";
 import { Colors } from "../utils/sharedStyles";
@@ -27,6 +28,7 @@ export default function IncomeScreen({ navigation }) {
   const [sortKey, setSortKey] = useState("date");
   const [sortDir, setSortDir] = useState("desc");
   const [menuOpen, setMenuOpen] = useState(false);
+  const [addSheetVisible, setAddSheetVisible] = useState(false);
   const swipeResponder = useTabSwipeNavigation(navigation, "Income");
 
   const fetchIncome = useCallback(async () => {
@@ -196,7 +198,7 @@ export default function IncomeScreen({ navigation }) {
               <View style={styles.emptyState}>
                 <TouchableOpacity
                   style={styles.addButton}
-                  onPress={() => navigation.navigate("IncomeRecord")}
+                  onPress={() => setAddSheetVisible(true)}
                 >
                   <Text style={styles.addButtonText}>Add Income</Text>
                 </TouchableOpacity>
@@ -211,12 +213,21 @@ export default function IncomeScreen({ navigation }) {
         />
       </View>
 
-      <TouchableOpacity
-        style={styles.floatingButton}
-        onPress={() => navigation.navigate("IncomeRecord")}
-      >
-        <Text style={styles.floatingButtonText}>+</Text>
-      </TouchableOpacity>
+      {!addSheetVisible && (
+        <TouchableOpacity
+          style={styles.floatingButton}
+          onPress={() => setAddSheetVisible(true)}
+        >
+          <Text style={styles.floatingButtonText}>+</Text>
+        </TouchableOpacity>
+      )}
+
+      <AddReceiptSheet
+        visible={addSheetVisible}
+        onClose={() => setAddSheetVisible(false)}
+        navigation={navigation}
+        targetScreen="IncomeRecord"
+      />
 
       <SideMenu open={menuOpen} onClose={closeMenu}>
         <SharedTabMenu

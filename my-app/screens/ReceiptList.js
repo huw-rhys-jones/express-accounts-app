@@ -714,11 +714,6 @@ const ExpensesScreen = ({ navigation, route }) => {
   const renderEmptyState = () =>
     loading ? null : (
       <View style={styles.emptyState}>
-        <View style={styles.card}>
-          <Text style={styles.description}>
-            Click here to view a short video on how this app works
-          </Text>
-        </View>
         <TouchableOpacity
           style={styles.addButton}
           onPress={() => setAddSheetVisible(true)}

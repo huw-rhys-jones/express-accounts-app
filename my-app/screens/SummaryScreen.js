@@ -433,6 +433,56 @@ export default function SummaryScreen({ navigation }) {
               <Text style={styles.noData}>No receipts yet!</Text>
             )}
           </View>
+
+          {/* Bank statement cashflow pie chart */}
+          {filteredBankStatements.length > 0 && (totals.bankMoneyIn > 0 || totals.bankMoneyOut > 0) && (() => {
+            const bankPieData = [
+              totals.bankMoneyIn > 0 && {
+                name: "Money In",
+                population: Number(totals.bankMoneyIn.toFixed(2)),
+                color: "#4ade80",
+                legendFontColor: "#333",
+                legendFontSize: 13,
+              },
+              totals.bankMoneyOut > 0 && {
+                name: "Money Out",
+                population: Number(totals.bankMoneyOut.toFixed(2)),
+                color: "#f87171",
+                legendFontColor: "#333",
+                legendFontSize: 13,
+              },
+            ].filter(Boolean);
+            return (
+              <View style={styles.chartCard}>
+                <Text style={styles.chartTitle}>Bank / Credit Card Cashflow</Text>
+                <View style={styles.pieChartWrapper}>
+                  <PieChart
+                    data={bankPieData}
+                    width={PIE_CHART_SIZE}
+                    height={PIE_CHART_SIZE}
+                    chartConfig={chartConfig}
+                    accessor="population"
+                    backgroundColor="transparent"
+                    paddingLeft={PIE_CHART_PADDING_LEFT}
+                    absolute
+                    hasLegend={false}
+                    center={[PIE_CHART_CENTER_X, 0]}
+                    style={styles.pieChart}
+                  />
+                </View>
+                <View style={styles.legendContainer}>
+                  {bankPieData.map((d) => (
+                    <View key={d.name} style={styles.legendItem}>
+                      <View style={[styles.legendDot, { backgroundColor: d.color }]} />
+                      <Text style={styles.legendText}>
+                        {d.name}: £{Number(d.population).toFixed(2)}
+                      </Text>
+                    </View>
+                  ))}
+                </View>
+              </View>
+            );
+          })()}
         </ScrollView>
       )}
 

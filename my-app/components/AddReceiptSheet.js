@@ -16,7 +16,7 @@ import { Colors } from "../utils/sharedStyles";
 
 const SHEET_HEIGHT = 240;
 
-export default function AddReceiptSheet({ visible, onClose, navigation }) {
+export default function AddReceiptSheet({ visible, onClose, navigation, targetScreen = "Receipt" }) {
   const translateY = useRef(new Animated.Value(SHEET_HEIGHT)).current;
   const backdropOpacity = useRef(new Animated.Value(0)).current;
   const [busy, setBusy] = React.useState(false);
@@ -60,7 +60,7 @@ export default function AddReceiptSheet({ visible, onClose, navigation }) {
     onClose();
     // Small delay so the sheet close animation plays first
     setTimeout(() => {
-      navigation.navigate("Receipt", { initialImages: assets });
+      navigation.navigate(targetScreen, { initialImages: assets });
     }, 220);
   };
 
@@ -145,7 +145,7 @@ export default function AddReceiptSheet({ visible, onClose, navigation }) {
 
   const handleManual = () => {
     onClose();
-    setTimeout(() => navigation.navigate("Receipt", {}), 220);
+    setTimeout(() => navigation.navigate(targetScreen, {}), 220);
   };
 
   if (!visible && translateY._value === SHEET_HEIGHT) return null;

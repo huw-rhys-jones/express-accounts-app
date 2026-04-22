@@ -1,7 +1,8 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
+  Animated,
   Image,
   Modal,
   PermissionsAndroid,
@@ -34,7 +35,7 @@ import { auth, db } from "../firebaseConfig";
 import { Colors, ReceiptStyles } from "../utils/sharedStyles";
 import { formatDate } from "../utils/format_style";
 import { getCurrentYearAprilSix } from "../utils/financialPeriods";
-import { useReceiptOcr } from "../utils/ocrHelpers";
+import { useReceiptOcr, runOcrOnAssets } from "../utils/ocrHelpers";
 import {
   createImageAttachment,
   deleteStoredAttachments,
@@ -102,8 +103,49 @@ export default function IncomeFormScreen({ navigation, route, mode }) {
   const [tipStatusLoaded, setTipStatusLoaded] = useState(false);
   const [pickerBusy, setPickerBusy] = useState(false);
   const [pickerBusyText, setPickerBusyText] = useState("Opening attachment options…");
+  const [ocrProcessing, setOcrProcessing] = useState(false);
 
-  const {
+  // Flash animations for OCR-populated fields
+  const flashAmount = useRef(new Animated.Value(0)).current;
+  const flashVat = useRef(new Animated.Value(0)).current;
+  const flashDate = useRef(new Animated.Value(0)).current;
+  const flashReference = useRef(new Animated.Value(0)).current;
+
+  const flashField = (animValue) => {
+    animValue.setValue(1);
+    Animated.timing(animValue, {
+      toValue: 0,
+      duration: 1800,
+      useNativeDriver: false,
+    }).start();
+  };
+
+  const applyOcrResult = (extracted) => {
+    if (extracted.amount) {
+      setAmount(String(extracted.amount));
+      flashField(flashAmount);
+    }
+    if (extracted.vat?.value != null) {
+      setVatAmount(String(extracted.vat.value.toFixed(2)));
+      setVatAmountEdited(true);
+      flashField(flashVat);
+    }
+    if (extracted.date) {
+      try {
+        const d = new Date(extracted.date);
+        if (!isNaN(d.getTime())) {
+          setSelectedDate(d);
+          flashField(flashDate);
+        }
+      } catch (_) {}
+    }
+    if (extracted.vendor) {
+      setReference(extracted.vendor);
+      flashField(flashReference);
+    }
+  };
+
+
     ensureFileFromAsset,
     preview,
     ocrResult,
@@ -179,6 +221,34 @@ export default function IncomeFormScreen({ navigation, route, mode }) {
       }
     }
   }, [amount, vatRate, vatAmountEdited]);
+
+  // Process images passed via route params (from AddReceiptSheet)
+  useEffect(() => {
+    const initialImages = route?.params?.initialImages;
+    if (!initialImages?.length) return;
+    let cancelled = false;
+
+    (async () => {
+      setOcrProcessing(true);
+      // Add images to attachments
+      const newAttachments = initialImages.map((asset) =>
+        createImageAttachment(asset.uri)
+      );
+      setAttachments((prev) => [...prev, ...newAttachments]);
+
+      try {
+        const extracted = await runOcrOnAssets(initialImages);
+        if (!cancelled) applyOcrResult(extracted);
+      } catch (err) {
+        console.error("OCR error (income):", err);
+      } finally {
+        if (!cancelled) setOcrProcessing(false);
+      }
+    })();
+
+    return () => { cancelled = true; };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const dismissTip = async () => {
     setShowTip(false);
@@ -476,7 +546,10 @@ export default function IncomeFormScreen({ navigation, route, mode }) {
               {mode === "edit" ? "Edit Income" : "Add Income"}
             </Text>
 
-            <View style={styles.fieldGroup}>
+            <Animated.View style={[styles.fieldGroup, {
+                backgroundColor: flashAmount.interpolate({ inputRange: [0, 1], outputRange: ["transparent", "rgba(253,224,71,0.45)"] }),
+                borderRadius: 6,
+              }]}>
               <Text style={ReceiptStyles.label}>Amount:</Text>
               <View style={[ReceiptStyles.inputRow, styles.currencyField]}>
                 <View style={styles.currencyWrapper}>
@@ -491,9 +564,12 @@ export default function IncomeFormScreen({ navigation, route, mode }) {
                   style={[ReceiptStyles.input, styles.amountInput, styles.inputWithCurrency]}
                 />
               </View>
-            </View>
+            </Animated.View>
 
-            <View style={styles.fieldGroup}>
+            <Animated.View style={[styles.fieldGroup, {
+                backgroundColor: flashDate.interpolate({ inputRange: [0, 1], outputRange: ["transparent", "rgba(253,224,71,0.45)"] }),
+                borderRadius: 6,
+              }]}>
               <Text style={ReceiptStyles.label}>Date:</Text>
               <TouchableOpacity
                 style={[ReceiptStyles.dateButton, styles.dateButtonAligned]}
@@ -501,9 +577,12 @@ export default function IncomeFormScreen({ navigation, route, mode }) {
               >
                 <Text style={ReceiptStyles.dateText}>{formatDate(selectedDate)}</Text>
               </TouchableOpacity>
-            </View>
+            </Animated.View>
 
-            <View style={styles.fieldGroup}>
+            <Animated.View style={[styles.fieldGroup, {
+                backgroundColor: flashReference.interpolate({ inputRange: [0, 1], outputRange: ["transparent", "rgba(253,224,71,0.45)"] }),
+                borderRadius: 6,
+              }]}>
               <Text style={ReceiptStyles.label}>Reference:</Text>
               <TextInput
                 value={reference}
@@ -512,10 +591,13 @@ export default function IncomeFormScreen({ navigation, route, mode }) {
                 placeholderTextColor={stylesConst.placeholder}
                 style={ReceiptStyles.input}
               />
-            </View>
+            </Animated.View>
 
             <View style={styles.moneyRow}>
-              <View style={styles.moneyColumn}>
+              <Animated.View style={[styles.moneyColumn, {
+                  backgroundColor: flashVat.interpolate({ inputRange: [0, 1], outputRange: ["transparent", "rgba(253,224,71,0.45)"] }),
+                  borderRadius: 6,
+                }]}>
                 <Text style={ReceiptStyles.label}>VAT Amount:</Text>
                 <View style={[ReceiptStyles.inputRow, styles.currencyField]}>
                   <View style={styles.currencyWrapper}>
@@ -533,7 +615,7 @@ export default function IncomeFormScreen({ navigation, route, mode }) {
                     style={[ReceiptStyles.input, styles.inputWithCurrency]}
                   />
                 </View>
-              </View>
+              </Animated.View>
               <View style={[styles.moneyColumn, { zIndex: 3000 }]}>
                 <Text style={ReceiptStyles.label}>VAT Rate (%):</Text>
                 <DropDownPicker
@@ -583,6 +665,12 @@ export default function IncomeFormScreen({ navigation, route, mode }) {
                   {tipStatusLoaded && showTip ? <ScannerTooltip onDismiss={dismissTip} text="Tap here to scan an invoice" /> : null}
                 </View>
               </ScrollView>
+              {ocrProcessing && (
+                <View style={{ flexDirection: "row", alignItems: "center", marginTop: 6, gap: 8 }}>
+                  <ActivityIndicator size="small" color={Colors.accent} />
+                  <Text style={{ fontSize: 13, color: Colors.accent }}>Scanning…</Text>
+                </View>
+              )}
             </View>
 
             <View style={styles.actionRow}>

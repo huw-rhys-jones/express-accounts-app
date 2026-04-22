@@ -51,7 +51,7 @@ function isPasswordProviderUser(user) {
   return Boolean(user?.providerData?.some((provider) => provider?.providerId === "password"));
 }
 
-function VerifyEmailGate({ onRefreshAuth }) {
+function VerifyEmailGate({ onRefreshAuth, email }) {
   const [busy, setBusy] = useState(false);
 
   const resendVerification = async () => {
@@ -105,6 +105,11 @@ function VerifyEmailGate({ onRefreshAuth }) {
     <View style={styles.verifyContainer}>
       <View style={styles.verifyCard}>
         <Text style={styles.verifyTitle}>Verify Your Email</Text>
+        {email ? (
+          <Text style={[styles.verifyText, { fontWeight: "600", marginBottom: 4 }]}>
+            Email sent to: {email}
+          </Text>
+        ) : null}
         <Text style={styles.verifyText}>
           Please verify your email address to enable the app.
         </Text>
@@ -334,6 +339,7 @@ export default function App() {
               requiresEmailVerification ? (
                 <VerifyEmailGate
                   onRefreshAuth={() => setAuthRefreshTick((current) => current + 1)}
+                  email={activeUser?.email}
                 />
               ) : (
                 <AppTabs key={`tabs-${authRefreshTick}`} />
