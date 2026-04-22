@@ -4,6 +4,82 @@ import TextRecognition from '@react-native-ml-kit/text-recognition';
 import { categories_meta } from '../constants/arrays';
 import { extractData, reconstructLines } from './extractors';
 
+// ─── Standalone OCR helpers (no hook state) ──────────────────────────────────
+
+export async function ensureFileFromAssetStandalone(asset) {
+  const { base64, fileName, uri } = asset || {};
+  const ext =
+    (fileName && fileName.includes('.') && '.' + fileName.split('.').pop()) ||
+    '.jpg';
+  const dest = FileSystem.cacheDirectory + `ocr-${Date.now()}-${Math.random().toString(36).slice(2)}${ext}`;
+
+  if (base64) {
+    await FileSystem.writeAsStringAsync(dest, base64, {
+      encoding: FileSystem.EncodingType.Base64,
+    });
+    return dest;
+  }
+
+  if (uri) {
+    try {
+      if (/^(file|content):\/\//i.test(uri)) {
+        await FileSystem.copyAsync({ from: uri, to: dest });
+        return dest;
+      }
+      if (/^https?:\/\//i.test(uri)) {
+        const { uri: localUri } = await FileSystem.downloadAsync(uri, dest);
+        return localUri;
+      }
+    } catch {
+      const res = await fetch(uri);
+      const blob = await res.blob();
+      const buf = await blob.arrayBuffer();
+      const b64 = Buffer.from(buf).toString('base64');
+      await FileSystem.writeAsStringAsync(dest, b64, {
+        encoding: FileSystem.EncodingType.Base64,
+      });
+      return dest;
+    }
+  }
+
+  throw new Error('No usable uri/base64 on asset for OCR');
+}
+
+export async function extractRawTextFromFile(fileUri) {
+  const result = await TextRecognition.recognize(fileUri);
+  return reconstructLines(result?.blocks || []) || result?.text || '';
+}
+
+/**
+ * Run OCR on multiple image assets in parallel, combine all extracted text
+ * into one block, then run data extraction once on the combined text.
+ * Returns a structured result object (same shape as ocrResult in the hook).
+ */
+export async function runOcrOnAssets(assets) {
+  const texts = await Promise.all(
+    assets.map(async (asset) => {
+      const filePath = await ensureFileFromAssetStandalone(asset);
+      return extractRawTextFromFile(filePath);
+    })
+  );
+  const combined = texts.filter(Boolean).join('\n\n');
+  const res = extractData(combined);
+  const categoryIndex = typeof res?.category === 'number' ? res.category : -1;
+  const categoryName =
+    categoryIndex >= 0 && categories_meta[categoryIndex]
+      ? categories_meta[categoryIndex].name
+      : null;
+  return {
+    amount: res?.money?.value ?? null,
+    date: res?.date ?? null,
+    reference: res?.reference ?? null,
+    vat: res?.vat ?? null,
+    categoryIndex,
+    categoryName,
+    raw: combined,
+  };
+}
+
 /**
  * Hook that encapsulates OCR modal state and helper functions used by both
  * ReceiptAdd and ReceiptEdit screens.

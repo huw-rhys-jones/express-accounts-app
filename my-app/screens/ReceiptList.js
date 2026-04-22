@@ -53,6 +53,7 @@ import {
 import { getReceiptFilterKey, setReceiptFilterKey } from "../utils/appSettings";
 import { verifyClientCode } from "../utils/verificationCodes";
 import { useTabSwipeNavigation } from "../utils/tabSwipeNavigation";
+import AddReceiptSheet from "../components/AddReceiptSheet";
 
 // Inside your component
 const appVersion = appPackage?.version || Constants.expoConfig?.version || "unknown";
@@ -67,6 +68,7 @@ const ExpensesScreen = ({ navigation, route }) => {
   const [loading, setLoading] = useState(true);
   const [loadingText, setLoadingText] = useState(null);
   const [refreshing, setRefreshing] = useState(false);
+  const [addSheetVisible, setAddSheetVisible] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
 
   // --- sorting state ---
@@ -719,7 +721,7 @@ const ExpensesScreen = ({ navigation, route }) => {
         </View>
         <TouchableOpacity
           style={styles.addButton}
-          onPress={() => navigation.navigate("Receipt")}
+          onPress={() => setAddSheetVisible(true)}
         >
           <Text style={styles.buttonText}>Add Expenses</Text>
         </TouchableOpacity>
@@ -785,10 +787,16 @@ const ExpensesScreen = ({ navigation, route }) => {
       {/* Floating Add Expenses Button */}
       <TouchableOpacity
         style={styles.floatingButton}
-        onPress={() => navigation.navigate("Receipt")}
+        onPress={() => setAddSheetVisible(true)}
       >
         <Text style={styles.floatingButtonText}>+</Text>
       </TouchableOpacity>
+
+      <AddReceiptSheet
+        visible={addSheetVisible}
+        onClose={() => setAddSheetVisible(false)}
+        navigation={navigation}
+      />
 
       {/* Full-screen loading overlay */}
       {loading && (

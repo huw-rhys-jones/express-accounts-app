@@ -1,5 +1,6 @@
 import React, { useRef, useState, useEffect } from "react";
 import {
+  Animated,
   PermissionsAndroid,
   View,
   Text,
@@ -38,13 +39,14 @@ import { getStorage, ref, uploadBytes, getDownloadURL } from "firebase/storage";
 import { categories_meta } from "../constants/arrays";
 import { formatDate } from "../utils/format_style";
 import { extractData, reconstructLines } from "../utils/extractors";
-import { useReceiptOcr } from "../utils/ocrHelpers";
+import { runOcrOnAssets } from "../utils/ocrHelpers";
+import { runOcrOnAssets } from "../utils/ocrHelpers";
 import ImageViewer from "react-native-image-zoom-viewer";
 import { Colors, ReceiptStyles } from "../utils/sharedStyles";
 import { getCurrentYearAprilSix, startOfDayLocal } from "../utils/financialPeriods";
 import { triggerHaptic } from "../utils/haptics";
 
-const ReceiptAdd = ({ navigation }) => {
+const ReceiptAdd = ({ navigation, route }) => {
   const [amount, setAmount] = useState("");
   const [vatAmount, setVatAmount] = useState("");
   const [vatRate, setVatRate] = useState(""); // string
@@ -56,7 +58,6 @@ const ReceiptAdd = ({ navigation }) => {
   const [label, setLabel] = useState("");
   const [vatAmountEdited, setVatAmountEdited] = useState(false);
   const [showTip, setShowTip] = useState(false);
-  const [showOcrCheckboxTip, setShowOcrCheckboxTip] = useState(false);
   const [tipPosition, setTipPosition] = useState({ x: 0, y: 0 });
 
   // success + confirm modals
@@ -72,17 +73,28 @@ const ReceiptAdd = ({ navigation }) => {
   const [customEvery, setCustomEvery] = useState("1");
   const [customUnit, setCustomUnit] = useState("months");
 
-  // OCR modal state and helpers will be provided by useReceiptOcr
-  // (hook invocation inserted later).
-
   const [isUploading, setIsUploading] = useState(false);
   const [isPickerBusy, setIsPickerBusy] = useState(false);
   const [pickerBusyText, setPickerBusyText] = useState("Opening image options…");
+  const [ocrProcessing, setOcrProcessing] = useState(false);
+
+  // Field flash animations — briefly highlight when OCR auto-populates a value
+  const flashAmount = useRef(new Animated.Value(0)).current;
+  const flashVat = useRef(new Animated.Value(0)).current;
+  const flashDate = useRef(new Animated.Value(0)).current;
+  const flashCategory = useRef(new Animated.Value(0)).current;
+
+  const flashField = (animValue) => {
+    animValue.setValue(1);
+    Animated.timing(animValue, {
+      toValue: 0,
+      duration: 900,
+      useNativeDriver: false,
+    }).start();
+  };
 
   // Fullscreen viewer (separate, top-level modal)
   const [fullScreenImage, setFullScreenImage] = useState(null);
-  const [returnToOcrAfterFullscreen, setReturnToOcrAfterFullscreen] =
-    useState(false);
 
   const allCategoryItems = categories_meta.map((cat) => ({
     label: cat.name,
@@ -135,37 +147,60 @@ const ReceiptAdd = ({ navigation }) => {
     return vat.toFixed(2);
   };
 
-  // create OCR hook after computeVat so the function is available
-  const {
-    preview,
-    ocrResult,
-    acceptFlags,
-    ocrLoading,
-    ocrModalVisible,
-    isNewImageSession,
-    ensureFileFromAsset,
-    openOcrModal,
-    runOcr,
-    toggleAccept,
-    applyAcceptedValues,
-    deleteCurrentImage,
-    handleCancelModal,
-    handleImagePicked,
-    setOcrModalVisible,
-    setPreview,
-    setOcrResult,
-    setAcceptFlags,
-    setIsNewImageSession,
-  } = useReceiptOcr({ computeVat });
-
-  // runOcr handled by hook; no local implementation needed.
 
 
-  // OCR helpers (deleteCurrentImage, applyAcceptedValues, toggleAccept,
-  // handleCancelModal) are supplied by the useReceiptOcr hook above; they
-  // are invoked from the UI where needed and are passed the appropriate
-  // setters and state values at that time.
   // ------- effects -------
+
+  // Process images passed in from AddReceiptSheet (camera/gallery flow)
+  useEffect(() => {
+    const initialImages = route?.params?.initialImages;
+    if (!initialImages?.length) return;
+
+    const uriImages = initialImages.map((asset) => ({ uri: asset.uri }));
+    setImages(uriImages);
+    setOcrProcessing(true);
+
+    runOcrOnAssets(initialImages)
+      .then((result) => {
+        if (result.amount != null) {
+          setAmount(String(result.amount));
+          flashField(flashAmount);
+        }
+        if (result.date) {
+          const d = new Date(result.date);
+          if (!isNaN(d.getTime())) {
+            setSelectedDate(d);
+            flashField(flashDate);
+          }
+        }
+        if (result.categoryName) {
+          setSelectedCategory(result.categoryName);
+          flashField(flashCategory);
+          if (typeof result.categoryIndex === 'number' && !vatRate) {
+            const cats = categories_meta;
+            const catRate = cats[result.categoryIndex]?.vatRate ?? '';
+            if (catRate !== '') {
+              const rStr = String(catRate);
+              setVatRate(rStr);
+              setVatRateItems((prev) => {
+                const has = prev.some((it) => it.value === rStr);
+                return has ? prev : [...prev, { label: `${catRate}%`, value: rStr }].sort(
+                  (a, b) => Number(a.value) - Number(b.value)
+                );
+              });
+            }
+          }
+        }
+        if (result.vat?.value != null) {
+          setVatAmount(String(result.vat.value));
+          flashField(flashVat);
+        }
+      })
+      .catch((e) => console.error('❌ Auto-OCR error:', e))
+      .finally(() => setOcrProcessing(false));
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   useEffect(() => {
     if (flatListRef.current) {
       flatListRef.current.scrollToEnd({ animated: false });
@@ -186,10 +221,6 @@ const ReceiptAdd = ({ navigation }) => {
     const backHandler = BackHandler.addEventListener(
       "hardwareBackPress",
       () => {
-        if (ocrModalVisible) {
-          handleCancelModal(setImages);
-          return true;
-        }
         if (showSuccess) {
           setShowSuccess(false);
           return true;
@@ -219,7 +250,6 @@ const ReceiptAdd = ({ navigation }) => {
     amount,
     selectedCategory,
     images,
-    ocrModalVisible,
     showSuccess,
     showConfirmModal,
     showConfirmReset,
@@ -268,50 +298,6 @@ const ReceiptAdd = ({ navigation }) => {
       }
     }
   };
-
-  const dismissOcrCheckboxTip = async () => {
-    setShowOcrCheckboxTip(false);
-    const user = auth.currentUser;
-    if (!user) return;
-
-    try {
-      const userRef = doc(db, "users", user.uid);
-      await setDoc(userRef, { hasSeenOcrCheckboxTip: true }, { merge: true });
-    } catch (error) {
-      console.log("Error updating OCR checkbox tooltip status:", error);
-    }
-  };
-
-  useEffect(() => {
-    if (!ocrModalVisible || ocrLoading) return;
-
-    let isActive = true;
-
-    const checkOcrCheckboxTipStatus = async () => {
-      const user = auth.currentUser;
-      if (!user) {
-        if (isActive) setShowOcrCheckboxTip(true);
-        return;
-      }
-
-      try {
-        const userRef = doc(db, "users", user.uid);
-        const userSnap = await getDoc(userRef);
-        if (isActive) {
-          setShowOcrCheckboxTip(!userSnap.data()?.hasSeenOcrCheckboxTip);
-        }
-      } catch (error) {
-        console.log("Error fetching OCR checkbox tooltip status:", error);
-        if (isActive) setShowOcrCheckboxTip(true);
-      }
-    };
-
-    checkOcrCheckboxTipStatus();
-
-    return () => {
-      isActive = false;
-    };
-  }, [ocrModalVisible, ocrLoading]);
 
   // ------- save helpers -------
   const calculateVatFromRate = () => {
@@ -591,81 +577,122 @@ const ReceiptAdd = ({ navigation }) => {
 
   const pickImageOption = () => {
     if (showTip) dismissTip();
-
-    beginPickerHold("Opening image options…");
-    requestAnimationFrame(() => {
-      Alert.alert(
-        "Add Image",
-        "Choose an option",
-        [
-          {
-            text: "Camera",
-            onPress: async () => {
-              beginPickerHold("Opening camera…");
-
-              if (Platform.OS === "android") {
-                const granted = await PermissionsAndroid.request(
-                  PermissionsAndroid.PERMISSIONS.CAMERA
-                );
-
-                if (granted !== PermissionsAndroid.RESULTS.GRANTED) {
-                  endPickerHold();
-                  Alert.alert(
-                    "Permission Denied",
-                    "You need to allow camera access to take photos of receipts."
-                  );
-                  return;
-                }
+    Alert.alert(
+      "Add Image",
+      "Choose an option",
+      [
+        {
+          text: "Camera",
+          onPress: async () => {
+            if (Platform.OS === "android") {
+              const granted = await PermissionsAndroid.request(
+                PermissionsAndroid.PERMISSIONS.CAMERA
+              );
+              if (granted !== PermissionsAndroid.RESULTS.GRANTED) {
+                Alert.alert("Permission Denied", "Camera access is required.");
+                return;
               }
+            }
 
-              requestAnimationFrame(() => {
-                ImagePicker.launchCamera(
-                  { mediaType: "photo", includeBase64: true, quality: 0.9 },
-                  handleImagePickedWrapper
-                );
+            const newAssets = [];
+            const shootLoop = async () => {
+              const result = await ImagePicker.launchCamera({
+                mediaType: "photo",
+                includeBase64: true,
+                quality: 0.9,
               });
-            },
+              if (!result.didCancel && result.assets?.length) {
+                newAssets.push(...result.assets);
+                await new Promise((resolve) => {
+                  Alert.alert(
+                    "Photo added",
+                    "Add another page?",
+                    [
+                      { text: "Add another", onPress: () => resolve("again") },
+                      { text: "Done", onPress: () => resolve("done"), style: "default" },
+                    ],
+                    { cancelable: false }
+                  );
+                }).then(async (choice) => {
+                  if (choice === "again") await shootLoop();
+                });
+              }
+            };
+            await shootLoop();
+
+            if (newAssets.length > 0) {
+              const uris = newAssets.map((a) => ({ uri: a.uri }));
+              setImages((prev) => [...prev, ...uris]);
+              setOcrProcessing(true);
+              runOcrOnAssets(newAssets)
+                .then((result) => applyOcrResult(result))
+                .catch((e) => console.error("❌ OCR error:", e))
+                .finally(() => setOcrProcessing(false));
+            }
           },
-          {
-            text: "Gallery",
-            onPress: () => {
-              beginPickerHold("Opening gallery…");
-              requestAnimationFrame(() => {
-                ImagePicker.launchImageLibrary(
-                  {
-                    mediaType: "photo",
-                    includeBase64: true,
-                    selectionLimit: 1,
-                    quality: 0.9,
-                  },
-                  handleImagePickedWrapper
-                );
-              });
-            },
+        },
+        {
+          text: "Gallery",
+          onPress: async () => {
+            const result = await ImagePicker.launchImageLibrary({
+              mediaType: "photo",
+              includeBase64: true,
+              selectionLimit: 0,
+              quality: 0.9,
+            });
+            if (!result.didCancel && result.assets?.length) {
+              const uris = result.assets.map((a) => ({ uri: a.uri }));
+              setImages((prev) => [...prev, ...uris]);
+              setOcrProcessing(true);
+              runOcrOnAssets(result.assets)
+                .then((r) => applyOcrResult(r))
+                .catch((e) => console.error("❌ OCR error:", e))
+                .finally(() => setOcrProcessing(false));
+            }
           },
-          { text: "Cancel", style: "cancel" },
-        ],
-        { cancelable: true }
-      );
-      setTimeout(() => endPickerHold(), 140);
-    });
+        },
+        { text: "Cancel", style: "cancel" },
+      ],
+      { cancelable: true }
+    );
   };
 
-  // use hook-supplied image handler
-  const handleImagePickedWrapper = (response) => {
-    endPickerHold();
-    handleImagePicked(response, setImages);
-  };
-
-  const renderImage = ({ item }) => (
-    <TouchableOpacity
-      onPress={() =>
-        openOcrModal(item.uri, { autoScan: true, newSession: false })
+  const applyOcrResult = (result) => {
+    if (result.amount != null) {
+      setAmount(String(result.amount));
+      flashField(flashAmount);
+    }
+    if (result.date) {
+      const d = new Date(result.date);
+      if (!isNaN(d.getTime())) {
+        setSelectedDate(d);
+        flashField(flashDate);
       }
-    >
-      <Image source={{ uri: item.uri }} style={ReceiptStyles.receiptImage} />
-    </TouchableOpacity>
-  );
+    }
+    if (result.categoryName) {
+      setSelectedCategory(result.categoryName);
+      flashField(flashCategory);
+      if (typeof result.categoryIndex === "number" && !vatRate) {
+        const catRate = categories_meta[result.categoryIndex]?.vatRate ?? "";
+        if (catRate !== "") {
+          const rStr = String(catRate);
+          setVatRate(rStr);
+          setVatRateItems((prev) => {
+            const has = prev.some((it) => it.value === rStr);
+            return has
+              ? prev
+              : [...prev, { label: `${catRate}%`, value: rStr }].sort(
+                  (a, b) => Number(a.value) - Number(b.value)
+                );
+          });
+        }
+      }
+    }
+    if (result.vat?.value != null) {
+      setVatAmount(String(result.vat.value));
+      flashField(flashVat);
+    }
+  };
 
   const isReceiptFormValid =
     selectedCategory &&
@@ -693,7 +720,7 @@ const ReceiptAdd = ({ navigation }) => {
             <Text style={ReceiptStyles.header}>Your Receipt</Text>
 
             {/* Amount */}
-            <View style={localStyles.fieldGroup}>
+            <Animated.View style={[localStyles.fieldGroup, { backgroundColor: flashAmount.interpolate({ inputRange: [0, 1], outputRange: ['transparent', 'rgba(253,224,71,0.45)'] }) }]}>
               <Text style={[ReceiptStyles.label, localStyles.labelAligned]}>
                 Amount:
               </Text>
@@ -724,10 +751,10 @@ const ReceiptAdd = ({ navigation }) => {
                   }}
                 />
               </View>
-            </View>
+            </Animated.View>
 
             {/* VAT Section: labels above fields */}
-            <View style={localStyles.fieldGroup}>
+            <Animated.View style={[localStyles.fieldGroup, { backgroundColor: flashVat.interpolate({ inputRange: [0, 1], outputRange: ['transparent', 'rgba(253,224,71,0.45)'] }) }]}>
               <View
                 style={[
                   ReceiptStyles.vatRow,
@@ -799,11 +826,11 @@ const ReceiptAdd = ({ navigation }) => {
                   />
                 </View>
               </View>
-            </View>
+            </Animated.View>
 
             {/* Date */}
-            <View
-              style={localStyles.fieldGroup}
+            <Animated.View
+              style={[localStyles.fieldGroup, { backgroundColor: flashDate.interpolate({ inputRange: [0, 1], outputRange: ['transparent', 'rgba(253,224,71,0.45)'] }) }]}
               pointerEvents={vatRateOpen ? "none" : "auto"}
             >
               <Text style={[ReceiptStyles.label, localStyles.labelAligned]}>
@@ -817,7 +844,7 @@ const ReceiptAdd = ({ navigation }) => {
                   {formatDate(selectedDate)}
                 </Text>
               </TouchableOpacity>
-            </View>
+            </Animated.View>
             <DateTimePickerModal
               isVisible={isDatePickerVisible}
               mode="date"
@@ -827,10 +854,10 @@ const ReceiptAdd = ({ navigation }) => {
               onCancel={hideDatePicker}
             />
 
-            <View
+            <Animated.View
               ref={categoryWrapperRef}
-              collapsable={false} // CRITICAL for Android measurement
-              style={[localStyles.fieldGroup, { zIndex: 1000 }]}
+              collapsable={false}
+              style={[localStyles.fieldGroup, { zIndex: 1000, backgroundColor: flashCategory.interpolate({ inputRange: [0, 1], outputRange: ['transparent', 'rgba(253,224,71,0.45)'] }) }]}
             >
               {/* Category */}
               <Text
@@ -947,7 +974,7 @@ const ReceiptAdd = ({ navigation }) => {
                 zIndex={1000}
                 zIndexInverse={3000}
               />
-            </View>
+            </Animated.View>
 
             <View style={localStyles.fieldGroup}>
               <Text style={[ReceiptStyles.label, localStyles.labelAligned]}>Label (optional):</Text>
@@ -992,16 +1019,16 @@ const ReceiptAdd = ({ navigation }) => {
                 showsHorizontalScrollIndicator={false}
                 contentContainerStyle={{ alignItems: "center", paddingHorizontal: 10 }}
               >
-                {/* Map through images instead of using FlatList to avoid nesting errors */}
+                {ocrProcessing && (
+                  <View style={{ justifyContent: "center", alignItems: "center", paddingHorizontal: 16 }}>
+                    <ActivityIndicator color={Colors.accent} size="small" />
+                    <Text style={{ fontSize: 11, color: Colors.textMuted, marginTop: 4 }}>Scanning…</Text>
+                  </View>
+                )}
                 {images.map((item, index) => (
                   <View key={index.toString()}>
                     <TouchableOpacity
-                      onPress={() =>
-                        openOcrModal(item.uri, {
-                          autoScan: true,
-                          newSession: false,
-                        })
-                      }
+                      onPress={() => setFullScreenImage({ uri: item.uri })}
                     >
                       <Image
                         source={{ uri: item.uri }}
@@ -1023,7 +1050,6 @@ const ReceiptAdd = ({ navigation }) => {
                     <Text style={ReceiptStyles.plus}>+</Text>
                   </TouchableOpacity>
 
-                  {/* This now calls the component defined at the bottom */}
                   {showTip && <ScannerTooltip onDismiss={dismissTip} />}
                 </View>
               </ScrollView>
@@ -1345,218 +1371,21 @@ const ReceiptAdd = ({ navigation }) => {
         </View>
       </Modal>
 
-      <Modal
-        visible={ocrModalVisible}
-        transparent
-        animationType="slide"
-        onRequestClose={() => handleCancelModal(setImages)}
-      >
-        <View style={ReceiptStyles.modalOverlay}>
-          <View style={[ReceiptStyles.modalContent, { maxHeight: "90%" }]}>
-            <Text style={ReceiptStyles.modalTitle}>Receipt Preview</Text>
-
-            <ScrollView
-              showsVerticalScrollIndicator
-              keyboardShouldPersistTaps="handled"
-              contentContainerStyle={{ paddingBottom: 12 }}
-            >
-
-            {preview?.uri ? (
-              <View style={{ alignItems: "center" }}>
-                <TouchableOpacity
-                  style={{
-                    alignSelf: "stretch",
-                    opacity: ocrLoading ? 0.6 : 1,
-                  }}
-                  activeOpacity={0.7}
-                  disabled={ocrLoading}
-                  onPress={() => {
-                    const current = preview?.uri;
-                    if (!current) return;
-                    setReturnToOcrAfterFullscreen(true);
-                    setOcrModalVisible(false);
-                    requestAnimationFrame(() =>
-                      setFullScreenImage({ uri: current })
-                    );
-                  }}
-                >
-                  <Image
-                    source={{ uri: preview.uri }}
-                    style={ReceiptStyles.modalImage}
-                  />
-                </TouchableOpacity>
-                {ocrLoading && (
-                  <Text style={ReceiptStyles.scanningText}>Scanning…</Text>
-                )}
-              </View>
-            ) : null}
-
-            {!ocrLoading && (
-              <Text style={ReceiptStyles.fullscreenHint}>
-                Tap image to view full screen
-              </Text>
-            )}
-
-            {!ocrLoading && showOcrCheckboxTip && (
-              <View style={localStyles.ocrTipWrapper}>
-                <View style={localStyles.ocrTipBox}>
-                  <Text style={localStyles.ocrTipText}>
-                    You can edit these values in the next screen. Uncheck
-                    any you immediately disagree with.
-                  </Text>
-                  <TouchableOpacity onPress={dismissOcrCheckboxTip}>
-                    <Text style={localStyles.ocrTipDismiss}>Got it</Text>
-                  </TouchableOpacity>
-                </View>
-                <View style={localStyles.ocrTipArrow} />
-              </View>
-            )}
-
-            {!ocrLoading && (
-              <>
-                {/* Amount */}
-                <View style={ReceiptStyles.ocrRow}>
-                  <Checkbox
-                    status={acceptFlags.amount ? "checked" : "unchecked"}
-                    onPress={() => toggleAccept("amount")}
-                    color={Colors.accent}
-                    disabled={ocrResult?.amount == null}
-                  />
-                  <Text style={ReceiptStyles.ocrLabel}>Amount:</Text>
-                  <Text style={ReceiptStyles.ocrValue}>
-                    {ocrResult?.amount != null
-                      ? `£${Number(ocrResult.amount).toFixed(2)}`
-                      : "Not detected"}
-                  </Text>
-                </View>
-
-                {/* Date */}
-                <View style={ReceiptStyles.ocrRow}>
-                  <Checkbox
-                    status={acceptFlags.date ? "checked" : "unchecked"}
-                    onPress={() => toggleAccept("date")}
-                    color={Colors.accent}
-                    disabled={!ocrResult?.date}
-                  />
-                  <Text style={ReceiptStyles.ocrLabel}>Date:</Text>
-                  <Text style={ReceiptStyles.ocrValue}>
-                    {ocrResult?.date
-                      ? formatDate(new Date(ocrResult.date))
-                      : "Not detected"}
-                  </Text>
-                </View>
-
-                {/* Category */}
-                <View style={ReceiptStyles.ocrRow}>
-                  <Checkbox
-                    status={acceptFlags.category ? "checked" : "unchecked"}
-                    onPress={() => toggleAccept("category")}
-                    color={Colors.accent}
-                    disabled={!ocrResult?.categoryName}
-                  />
-                  <Text style={ReceiptStyles.ocrLabel}>Category:</Text>
-                  <Text style={ReceiptStyles.ocrValue}>
-                    {ocrResult?.categoryName ?? "Not detected"}
-                  </Text>
-                </View>
-
-                {/* VAT */}
-                <View style={ReceiptStyles.ocrRow}>
-                  <Checkbox
-                    status={acceptFlags.vat ? "checked" : "unchecked"}
-                    onPress={() => toggleAccept("vat")}
-                    color={Colors.accent}
-                    disabled={
-                      ocrResult?.vat?.value == null &&
-                      ocrResult?.vat?.rate == null
-                    }
-                  />
-                  <Text style={ReceiptStyles.ocrLabel}>VAT:</Text>
-                  <Text style={ReceiptStyles.ocrValue}>
-                    {ocrResult?.vat?.value != null
-                      ? `£${ocrResult.vat.value}`
-                      : "Not detected"}
-                    {`  (Rate ${ocrResult?.vat?.rate ?? "—"}%)`}
-                  </Text>
-                </View>
-
-                <View style={ReceiptStyles.modalButtons}>
-                  {!isNewImageSession && (
-                    <Button
-                      mode="outlined"
-                      onPress={() => deleteCurrentImage(setImages)}
-                      textColor={Colors.accent}
-                    >
-                      Delete Image
-                    </Button>
-                  )}
-                  <Button
-                    buttonColor={Colors.accent}
-                    mode="contained"
-                    onPress={() => handleCancelModal(setImages)}
-                  >
-                    Cancel
-                  </Button>
-                  <Button
-                    buttonColor={Colors.accent}
-                    mode="contained"
-                    onPress={() =>
-                      applyAcceptedValues({
-                        setAmount,
-                        setVatAmount,
-                        setVatRate,
-                        setSelectedDate,
-                        setSelectedCategory,
-                        vatAmountEdited,
-                        amount,
-                        vatRate,
-                        setVatRateItems,
-                      })
-                    }
-                  >
-                    Accept
-                  </Button>
-                </View>
-              </>
-            )}
-            </ScrollView>
-          </View>
-        </View>
-      </Modal>
-
       {/* Full-screen Image Modal */}
       <Modal
         visible={!!fullScreenImage}
         animationType="fade"
         presentationStyle="fullScreen"
         transparent={false}
-        onRequestClose={() => {
-          setFullScreenImage(null);
-          if (returnToOcrAfterFullscreen) {
-            requestAnimationFrame(() => setOcrModalVisible(true));
-            setReturnToOcrAfterFullscreen(false);
-          }
-        }}
+        onRequestClose={() => setFullScreenImage(null)}
       >
         {fullScreenImage ? (
           <>
             <ImageViewer
               imageUrls={[{ url: fullScreenImage.uri }]}
               enableSwipeDown
-              onSwipeDown={() => {
-                setFullScreenImage(null);
-                if (returnToOcrAfterFullscreen) {
-                  requestAnimationFrame(() => setOcrModalVisible(true));
-                  setReturnToOcrAfterFullscreen(false);
-                }
-              }}
-              onClick={() => {
-                setFullScreenImage(null);
-                if (returnToOcrAfterFullscreen) {
-                  requestAnimationFrame(() => setOcrModalVisible(true));
-                  setReturnToOcrAfterFullscreen(false);
-                }
-              }}
+              onSwipeDown={() => setFullScreenImage(null)}
+              onClick={() => setFullScreenImage(null)}
               backgroundColor="black"
               renderIndicator={() => null}
               saveToLocalByLongPress={false}
@@ -1564,13 +1393,7 @@ const ReceiptAdd = ({ navigation }) => {
             <View style={ReceiptStyles.fullScreenCloseButtonWrapper}>
               <TouchableOpacity
                 style={ReceiptStyles.fullScreenCloseButton}
-                onPress={() => {
-                  setFullScreenImage(null);
-                  if (returnToOcrAfterFullscreen) {
-                    requestAnimationFrame(() => setOcrModalVisible(true));
-                    setReturnToOcrAfterFullscreen(false);
-                  }
-                }}
+                onPress={() => setFullScreenImage(null)}
               >
                 <Text style={ReceiptStyles.fullScreenCloseText}>Close</Text>
               </TouchableOpacity>
