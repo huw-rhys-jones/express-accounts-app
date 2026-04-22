@@ -1249,13 +1249,16 @@
         const sendBtn = row.email
           ? '<a href="' + buildMailtoLink(row) + '" class="btn-secondary" style="padding:5px 12px;font-size:0.82rem;border-radius:8px;text-decoration:none;display:inline-block">✉ Send</a>'
           : "";
+        const remindBtn = row.email
+          ? '<a href="' + buildReminderMailtoLink(row) + '" class="btn-secondary" style="padding:5px 12px;font-size:0.82rem;border-radius:8px;text-decoration:none;display:inline-block;margin-left:6px">🔔 Remind</a>'
+          : "";
         return (
           "<tr>" +
             "<td>" + escHtml(row.name) + "</td>" +
             "<td>" + emailCell + "</td>" +
             "<td><strong>" + escHtml(row.code) + "</strong></td>" +
             "<td>" + escHtml(row.status) + "</td>" +
-            "<td>" + sendBtn + "</td>" +
+            "<td>" + sendBtn + remindBtn + "</td>" +
           "</tr>"
         );
       }).join("");
@@ -1273,6 +1276,35 @@
       const subject = encodeURIComponent("Welcome to Express Accounts");
       const body = encodeURIComponent(buildEmailBody(row.name, row.code));
       return "mailto:" + encodeURIComponent(row.email) + "?subject=" + subject + "&body=" + body;
+    }
+
+    function buildReminderMailtoLink(row) {
+      const subject = encodeURIComponent("A reminder from Express Accounts");
+      const body = encodeURIComponent(buildReminderEmailBody(row.name, row.code));
+      return "mailto:" + encodeURIComponent(row.email) + "?subject=" + subject + "&body=" + body;
+    }
+
+    function buildReminderEmailBody(clientName, code) {
+      return [
+        "Hi " + clientName + ",",
+        "",
+        "Hello again from Express Accounts!",
+        "",
+        "Just a reminder of the Express Accounts app — the simple way to track your receipts, income and expenses.",
+        "",
+        "Download the app for your device:",
+        "  • Android: https://play.google.com/store/apps/details?id=com.caistec.expressaccounts",
+        "  • iPhone: https://apps.apple.com/us/app/express-accounts/id6749811043",
+        "",
+        "Don't forget to enter your code when you are prompted:",
+        "",
+        "    " + code,
+        "",
+        "If you have any questions, feel free to reply to this email.",
+        "",
+        "Warmest regards,",
+        "The Express Accounts Team",
+      ].join("\n");
     }
 
     function buildEmailBody(clientName, code) {
@@ -1430,6 +1462,9 @@
         const emailCell = emailVal
           ? '<a href="mailto:' + encodeURIComponent(emailVal) + '?subject=' + encodeURIComponent("Welcome to Express Accounts") + '&body=' + encodeURIComponent(buildEmailBody(c.accountantSubmittedName || "", c.code)) + '" style="color:var(--blue)">' + escHtml(emailVal) + '</a>'
           : '<span style="color:#aaa">—</span>';
+        const remindBtn = emailVal
+          ? '<a href="' + buildReminderMailtoLink({ name: c.accountantSubmittedName || "", email: emailVal, code: c.code || c.id }) + '" class="btn-secondary" style="padding:5px 12px;font-size:0.82rem;border-radius:8px;text-decoration:none;display:inline-block;margin-right:6px">🔔 Remind</a>'
+          : "";
         return (
           "<tr>" +
             "<td>" + escHtml(c.accountantSubmittedName || "—") + "</td>" +
@@ -1437,7 +1472,7 @@
             "<td><strong>" + escHtml(c.code || c.id) + "</strong></td>" +
             "<td>" + statusLabel + "</td>" +
             "<td>" + escHtml(c.usedBy || "—") + "</td>" +
-            '<td><button class="btn-secondary" style="padding:5px 12px;font-size:0.82rem;border-radius:8px;color:#b42318;border-color:#f5c6c3" data-delete-code="' + escHtml(c.id) + '">Delete</button></td>' +
+            '<td style="white-space:nowrap">' + remindBtn + '<button class="btn-secondary" style="padding:5px 12px;font-size:0.82rem;border-radius:8px;color:#b42318;border-color:#f5c6c3" data-delete-code="' + escHtml(c.id) + '">Delete</button></td>' +
           "</tr>"
         );
       }).join("");

@@ -340,7 +340,7 @@ const styles = StyleSheet.create({
   rowDate: { width: 90, color: Colors.textMuted, fontSize: 14, paddingTop: 12 },
   accountWrap: {
     flex: 1,
-    paddingHorizontal: 14,
+    paddingRight: 14,
     alignItems: "flex-start",
   },
   statementKindLabel: {

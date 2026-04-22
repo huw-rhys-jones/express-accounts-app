@@ -2,7 +2,7 @@ import 'dotenv/config';
 
 const { version: appVersion } = require("./package.json");
 
-const internalBuildLabel = "I-001";
+const internalBuildLabel = "";
 
 const [major = 0, minor = 0, patch = 0] = String(appVersion)
   .split(".")
