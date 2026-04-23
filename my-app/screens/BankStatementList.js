@@ -43,7 +43,7 @@ export default function BankStatementList({ navigation }) {
 
   useEffect(() => {
     const user = auth.currentUser;
-    if (!user) {
+    if (!user || (user.providerData?.some(p => p.providerId === "password") && !user.emailVerified)) {
       setStatements([]);
       setLoading(false);
       return undefined;

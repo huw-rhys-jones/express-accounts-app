@@ -46,7 +46,7 @@ export default function IncomeScreen({ navigation }) {
 
   useEffect(() => {
     const user = auth.currentUser;
-    if (!user) {
+    if (!user || (user.providerData?.some(p => p.providerId === "password") && !user.emailVerified)) {
       setIncomeItems([]);
       setLoading(false);
       return undefined;
