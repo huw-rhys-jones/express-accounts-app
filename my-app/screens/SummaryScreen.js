@@ -122,6 +122,8 @@ export default function SummaryScreen({ navigation }) {
   }, [activeFilter, incomeItems]);
 
   const filteredBankStatements = useMemo(() => {
+    console.log('[Summary] activeFilterKey:', activeFilterKey, 'activeFilter:', activeFilter?.key, activeFilter?.startDate, activeFilter?.endDate);
+    console.log('[Summary] bankStatements dates:', bankStatements.map(s => s.date));
     if (!activeFilter) return bankStatements;
     return filterReceiptsByDateRange(
       bankStatements,
