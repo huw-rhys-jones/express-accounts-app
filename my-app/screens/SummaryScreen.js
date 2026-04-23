@@ -491,13 +491,13 @@ const styles = StyleSheet.create({
     borderBottomColor: Colors.accent,
   },
   topBarButton: {
-    width: 48,
-    height: 44,
+    width: 52,
+    height: 48,
     alignItems: "center",
     justifyContent: "center",
   },
   topBarButtonText: {
-    fontSize: 24,
+    fontSize: 32,
     color: "#fff",
   },
   topBarTitle: { fontSize: 18, fontWeight: "700", color: "#fff" },
