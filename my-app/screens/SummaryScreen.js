@@ -308,7 +308,7 @@ export default function SummaryScreen({ navigation }) {
                     ) * BAR_CHART_HEIGHT;
 
                     return (
-                      <View key={month.label} style={styles.cashflowMonthColumn}>
+                      <View key={`${month._year}-${month._month}`} style={styles.cashflowMonthColumn}>
                         <View style={styles.cashflowBarsRow}>
                           <View style={styles.singleBarWrap}>
                             <View
