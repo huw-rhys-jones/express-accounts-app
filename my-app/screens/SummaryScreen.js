@@ -197,6 +197,10 @@ export default function SummaryScreen({ navigation }) {
 
   // Aggregate vendor spending across all filtered bank statements (top 8 by moneyOut)
   const vendorPieData = useMemo(() => {
+    console.log('[Summary] filteredBankStatements count:', filteredBankStatements.length);
+    filteredBankStatements.forEach((s, i) => {
+      console.log(`[Summary] statement[${i}] vendorTotals:`, JSON.stringify(s.vendorTotals));
+    });
     const vendorMap = {};
     for (const statement of filteredBankStatements) {
       for (const vt of statement.vendorTotals || []) {
@@ -205,7 +209,7 @@ export default function SummaryScreen({ navigation }) {
         }
       }
     }
-    return Object.entries(vendorMap)
+    const result = Object.entries(vendorMap)
       .sort((a, b) => b[1] - a[1])
       .slice(0, 8)
       .map(([vendor, total], i) => ({
@@ -215,6 +219,8 @@ export default function SummaryScreen({ navigation }) {
         legendFontColor: "#333",
         legendFontSize: 13,
       }));
+    console.log('[Summary] vendorPieData:', JSON.stringify(result));
+    return result;
   }, [filteredBankStatements]);
 
   const monthlyData = groupCashflowByMonth(filteredReceipts, filteredIncome);
