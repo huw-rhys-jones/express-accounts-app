@@ -280,9 +280,9 @@ const styles = StyleSheet.create({
   },
   rowTop: {
     flexDirection: "row",
-    alignItems: "center",
+    alignItems: "flex-start",
   },
-  rowDate: { width: 90, color: Colors.textMuted, fontSize: 14 },
+  rowDate: { width: 90, color: Colors.textMuted, fontSize: 14, marginTop: 16 },
   accountWrap: {
     flex: 1,
     paddingRight: 14,
@@ -303,6 +303,7 @@ const styles = StyleSheet.create({
     color: Colors.accent,
     fontWeight: "700",
     fontSize: 15,
+    marginTop: 16,
   },
   userInfo: {
     marginBottom: 20,
