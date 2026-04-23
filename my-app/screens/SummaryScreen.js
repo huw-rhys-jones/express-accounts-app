@@ -420,12 +420,12 @@ export default function SummaryScreen({ navigation }) {
                       { label: "Money In", value: moneyIn, color: "#4ade80" },
                       { label: "Money Out", value: moneyOut, color: "#f87171" },
                     ].map((row) => (
-                      <View key={row.label} style={{ marginVertical: 6, width: BAR_TRACK_WIDTH }}>
+                      <View key={row.label} style={{ marginVertical: 6, alignSelf: "stretch" }}>
                         <View style={{ flexDirection: "row", alignItems: "center", marginBottom: 3 }}>
                           <Text style={{ width: 90, fontSize: 13, color: Colors.textSecondary }}>{row.label}</Text>
                           <Text style={{ fontSize: 13, fontWeight: "700", color: row.color }}>£{row.value.toFixed(2)}</Text>
                         </View>
-                        <View style={{ height: 22, backgroundColor: "#e8e8e8", borderRadius: 4, overflow: "hidden", width: BAR_TRACK_WIDTH }}>
+                        <View style={{ height: 22, backgroundColor: "#e8e8e8", borderRadius: 4, overflow: "hidden" }}>
                           <View style={{ height: "100%", width: `${(row.value / maxCashflow) * 100}%`, backgroundColor: row.color, borderRadius: 4 }} />
                         </View>
                       </View>
