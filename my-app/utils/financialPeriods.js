@@ -85,6 +85,13 @@ export function buildFinancialFilterOptions(receipts = [], now = new Date()) {
   const orderedYears = Array.from(years).sort((a, b) => b - a);
   const options = [];
 
+  options.push({
+    key: "all-time",
+    label: "All Time",
+    startDate: new Date("2000-01-01"),
+    endDate: new Date("2099-12-31"),
+  });
+
   const currentQuarter = getCurrentFinancialQuarter(now);
   options.push({
     key: "current-quarter",
