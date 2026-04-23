@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import { NavigationContainer } from "@react-navigation/native";
 import { createStackNavigator } from "@react-navigation/stack";
 import { createBottomTabNavigator } from "@react-navigation/bottom-tabs";
@@ -51,7 +51,7 @@ function isPasswordProviderUser(user) {
   return Boolean(user?.providerData?.some((provider) => provider?.providerId === "password"));
 }
 
-function VerifyEmailGate({ onRefreshAuth, email }) {
+function VerifyEmailGate({ onRefreshAuth, onLogout, email }) {
   const [busy, setBusy] = useState(false);
 
   const resendVerification = async () => {
@@ -133,7 +133,7 @@ function VerifyEmailGate({ onRefreshAuth, email }) {
         <TouchableOpacity
           disabled={busy}
           style={[styles.verifyPrimaryButton, styles.verifyLogoutButton]}
-          onPress={() => signOut(auth).catch(console.error)}
+          onPress={onLogout}
         >
           <Text style={styles.verifyPrimaryText}>Log Out</Text>
         </TouchableOpacity>
@@ -255,6 +255,7 @@ export default function App() {
   const [checkingAuth, setCheckingAuth] = useState(true);
   const [authRefreshTick, setAuthRefreshTick] = useState(0);
   const [pendingChallenge, setPendingChallenge] = useState(null);
+  const navigationRef = useRef(null);
 
   const handleChallengeResponse = async (challengeId, status) => {
     try {
@@ -327,7 +328,7 @@ export default function App() {
   return (
     /* Wrap everything in PaperProvider to fix the text color issue */
     <PaperProvider theme={theme}>
-      <NavigationContainer>
+      <NavigationContainer ref={navigationRef}>
         <Stack.Navigator
           initialRouteName={activeUser ? "MainTabs" : "SignIn"}
           screenOptions={{ headerShown: false }}
@@ -339,6 +340,14 @@ export default function App() {
               requiresEmailVerification ? (
                 <VerifyEmailGate
                   onRefreshAuth={() => setAuthRefreshTick((current) => current + 1)}
+                  onLogout={async () => {
+                    try {
+                      await signOut(auth);
+                      navigationRef.current?.reset({ index: 0, routes: [{ name: "SignIn" }] });
+                    } catch (error) {
+                      console.error("Could not sign out", error);
+                    }
+                  }}
                   email={activeUser?.email}
                 />
               ) : (
