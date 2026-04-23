@@ -12,7 +12,7 @@ export function DataProvider({ children }) {
   const [userProfile, setUserProfile] = useState({});
   const [initialLoading, setInitialLoading] = useState(true);
 
-  const loadedRef = useRef({ receipts: false, income: false, bankStatements: false });
+  const loadedRef = useRef({ receipts: false, income: false });
 
   useEffect(() => {
     let unsubReceipts = null;
@@ -41,12 +41,12 @@ export function DataProvider({ children }) {
       }
 
       // Reset loaded flags for new user session
-      loadedRef.current = { receipts: false, income: false, bankStatements: false };
+      loadedRef.current = { receipts: false, income: false };
       setInitialLoading(true);
 
       const checkAllLoaded = () => {
         const l = loadedRef.current;
-        if (l.receipts && l.income && l.bankStatements) {
+        if (l.receipts && l.income) {
           setInitialLoading(false);
         }
       };

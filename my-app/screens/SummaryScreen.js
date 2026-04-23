@@ -24,7 +24,7 @@ import {
   filterReceiptsByDateRange,
 } from "../utils/financialPeriods";
 import { formatDate } from "../utils/format_style";
-import { getReceiptFilterKey, getSummaryFilterKey, setSummaryFilterKey } from "../utils/appSettings";
+import { getReceiptFilterKey } from "../utils/appSettings";
 import DropDownPicker from "react-native-dropdown-picker";
 import { useData } from "../contexts/DataContext";
 
@@ -78,16 +78,7 @@ export default function SummaryScreen({ navigation }) {
   }, [activeFilter, filterOptions]);
 
   useEffect(() => {
-    getSummaryFilterKey()
-      .then(setActiveFilterKey)
-      .catch(() => setActiveFilterKey("current-quarter"));
-
-    const unsubscribeFocus = navigation.addListener("focus", () => {
-      getSummaryFilterKey()
-        .then(setActiveFilterKey)
-        .catch(() => setActiveFilterKey("current-quarter"));
-    });
-
+    const unsubscribeFocus = navigation.addListener("focus", () => {});
     return unsubscribeFocus;
   }, [navigation]);
 
@@ -242,7 +233,6 @@ export default function SummaryScreen({ navigation }) {
               setValue={(callback) => {
                 const nextKey = typeof callback === "function" ? callback(activeFilterKey) : callback;
                 setActiveFilterKey(nextKey);
-                setSummaryFilterKey(nextKey).catch(() => {});
               }}
               setItems={setFilterItems}
               listMode="SCROLLVIEW"
@@ -425,7 +415,7 @@ export default function SummaryScreen({ navigation }) {
                           <Text style={{ width: 90, fontSize: 13, color: Colors.textSecondary }}>{row.label}</Text>
                           <Text style={{ fontSize: 13, fontWeight: "700", color: row.color }}>£{row.value.toFixed(2)}</Text>
                         </View>
-                        <View style={{ height: 22, backgroundColor: "#e8e8e8", borderRadius: 4, overflow: "hidden" }}>
+                        <View style={{ height: 22, backgroundColor: "#e8e8e8", borderRadius: 4, overflow: "hidden", width: "100%" }}>
                           <View style={{ height: "100%", width: `${(row.value / maxCashflow) * 100}%`, backgroundColor: row.color, borderRadius: 4 }} />
                         </View>
                       </View>
