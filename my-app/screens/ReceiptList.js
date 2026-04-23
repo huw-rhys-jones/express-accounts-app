@@ -707,8 +707,8 @@ const ExpensesScreen = ({ navigation, route }) => {
   const hasReceipts = !dataLoading && !loading && sortedReceipts.length > 0;
 
   return (
-    <SafeAreaView style={[styles.container, { backgroundColor: Colors.background }]}>
-      <StatusBar backgroundColor={Colors.background} barStyle="light-content" />
+    <SafeAreaView style={[styles.container, { backgroundColor: '#1C1C4E' }]}>
+      <StatusBar backgroundColor="#1C1C4E" barStyle="light-content" />
       {/* Top App Bar */}
       <View style={[styles.topBar, { paddingTop: 5 }]}>
         <TouchableOpacity
@@ -1356,7 +1356,7 @@ const styles = StyleSheet.create({
   },
   loadingText: { marginTop: 10, fontSize: 16, fontWeight: "600" },
   topBar: {
-    backgroundColor: Colors.background,
+    backgroundColor: '#1C1C4E',
     width: "100%",
     paddingHorizontal: 12,
     paddingBottom: 10,
@@ -1364,7 +1364,7 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "space-between",
     borderBottomWidth: 1,
-    borderBottomColor: 'rgba(255,255,255,0.15)',
+    borderBottomColor: Colors.accent,
   },
   topBarButton: {
     width: 48,
