@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useState } from "react";
+import React, { useCallback, useMemo, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
@@ -12,59 +12,21 @@ import {
   View,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
-import { collection, getDocs, onSnapshot, query, where } from "firebase/firestore";
 import SideMenu from "../components/SideMenu";
 import SharedTabMenu from "../components/SharedTabMenu";
-import { auth, db } from "../firebaseConfig";
+import { auth } from "../firebaseConfig";
 import { Colors } from "../utils/sharedStyles";
 import { formatDate } from "../utils/format_style";
-import { useTabSwipeNavigation } from "../utils/tabSwipeNavigation";
+import { useData } from "../contexts/DataContext";
 
 export default function BankStatementList({ navigation }) {
-  const [statements, setStatements] = useState([]);
-  const [loading, setLoading] = useState(true);
+  const { bankStatements, initialLoading } = useData();
+  const statements = bankStatements;
+  const loading = initialLoading;
   const [refreshing, setRefreshing] = useState(false);
   const [sortKey, setSortKey] = useState("date");
   const [sortDir, setSortDir] = useState("desc");
   const [menuOpen, setMenuOpen] = useState(false);
-  const swipeResponder = useTabSwipeNavigation(navigation, "BankStatements");
-
-  const fetchStatements = useCallback(async () => {
-    const user = auth.currentUser;
-    if (!user) {
-      setStatements([]);
-      return;
-    }
-    const snapshot = await getDocs(
-      query(collection(db, "bankStatements"), where("userId", "==", user.uid))
-    );
-    setStatements(snapshot.docs.map((item) => ({ id: item.id, ...item.data() })));
-  }, []);
-
-  useEffect(() => {
-    const user = auth.currentUser;
-    if (!user || (user.providerData?.some(p => p.providerId === "password") && !user.emailVerified)) {
-      setStatements([]);
-      setLoading(false);
-      return undefined;
-    }
-
-    const unsubscribeSnapshot = onSnapshot(
-      query(collection(db, "bankStatements"), where("userId", "==", user.uid)),
-      (snapshot) => {
-        setStatements(snapshot.docs.map((item) => ({ id: item.id, ...item.data() })));
-        setLoading(false);
-      },
-      (error) => {
-        console.error("Error listening to bank statements", error);
-        setLoading(false);
-      }
-    );
-
-    return () => {
-      unsubscribeSnapshot();
-    };
-  }, [fetchStatements, navigation]);
 
   const sortedStatements = useMemo(() => {
     const data = [...statements];
@@ -91,12 +53,8 @@ export default function BankStatementList({ navigation }) {
 
   const onRefresh = useCallback(async () => {
     setRefreshing(true);
-    try {
-      await fetchStatements();
-    } finally {
-      setRefreshing(false);
-    }
-  }, [fetchStatements]);
+    setTimeout(() => setRefreshing(false), 600);
+  }, []);
 
   const toggleSort = (nextKey) => {
     if (sortKey === nextKey) {
@@ -153,7 +111,7 @@ export default function BankStatementList({ navigation }) {
   );
 
   return (
-    <SafeAreaView style={styles.container} {...swipeResponder.panHandlers}>
+    <SafeAreaView style={styles.container}>
       <View style={[styles.topBar, { paddingTop: 5 }]}> 
         <TouchableOpacity style={styles.topBarButton} onPress={() => setMenuOpen(true)}>
           <Text style={styles.topBarButtonText}>≡</Text>

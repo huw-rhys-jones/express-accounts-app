@@ -52,8 +52,8 @@ import {
 } from "../utils/haptics";
 import { getReceiptFilterKey, setReceiptFilterKey } from "../utils/appSettings";
 import { verifyClientCode } from "../utils/verificationCodes";
-import { useTabSwipeNavigation } from "../utils/tabSwipeNavigation";
 import AddReceiptSheet from "../components/AddReceiptSheet";
+import { useData } from "../contexts/DataContext";
 
 // Inside your component
 const appVersion = appPackage?.version || Constants.expoConfig?.version || "unknown";
@@ -61,11 +61,11 @@ const internalBuildLabel = Constants.expoConfig?.extra?.internalBuildLabel || ""
 const versionLabel = internalBuildLabel ? `${appVersion} (${internalBuildLabel})` : appVersion;
 
 const ExpensesScreen = ({ navigation, route }) => {
+  const { receipts, initialLoading: dataLoading } = useData();
   const [displayName, setDisplayName] = useState("User");
   const [verifiedName, setVerifiedName] = useState("");
   const [verificationStatus, setVerificationStatus] = useState("");
-  const [receipts, setReceipts] = useState([]);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(false);
   const [loadingText, setLoadingText] = useState(null);
   const [refreshing, setRefreshing] = useState(false);
   const [addSheetVisible, setAddSheetVisible] = useState(false);
@@ -93,7 +93,6 @@ const ExpensesScreen = ({ navigation, route }) => {
   const [nameChangeModalVisible, setNameChangeModalVisible] = useState(false);
   const [newName, setNewName] = useState(displayName);
   const [federatedPromptMode, setFederatedPromptMode] = useState(false);
-  const swipeResponder = useTabSwipeNavigation(navigation, "Expenses");
 
   const handleSendFeedback = async () => {
   // 1. Validation
@@ -323,7 +322,7 @@ const ExpensesScreen = ({ navigation, route }) => {
     const checkItemTipStatus = async () => {
       const user = auth.currentUser;
       // Condition: 1 receipt exactly + not loading
-      if (user && !loading && sortedReceipts.length === 1) {
+      if (user && !loading && !dataLoading && sortedReceipts.length === 1) {
         try {
           const userRef = doc(db, "users", user.uid);
           const userSnap = await getDoc(userRef);
@@ -551,7 +550,6 @@ const ExpensesScreen = ({ navigation, route }) => {
     try {
       const user = auth.currentUser;
       if (!user) {
-        setReceipts([]);
         setDisplayName("User");
         setVerifiedName("");
         setVerificationStatus("");
@@ -569,31 +567,14 @@ const ExpensesScreen = ({ navigation, route }) => {
       const profileUpdate = { email: user.email, updatedAt: serverTimestamp() };
       if (user.displayName) profileUpdate.name = user.displayName;
       setDoc(userProfileRef, profileUpdate, { merge: true }).catch(() => {});
-
-
-      const q = query(
-        collection(db, "receipts"),
-        where("userId", "==", user.uid)
-      );
-      const querySnapshot = await getDocs(q);
-      const userReceipts = querySnapshot.docs.map((doc) => ({
-        id: doc.id,
-        ...doc.data(),
-      }));
-      setReceipts(userReceipts);
     } catch (err) {
       console.error("Error fetching receipts:", err);
     }
   }, []);
 
   useEffect(() => {
-    runWithLoading("Loading receipts…", fetchReceipts);
-
-    const unsubscribeFocus = navigation.addListener("focus", () => {
-      fetchReceipts().catch((e) => console.error("Refresh on focus failed", e));
-    });
-    return unsubscribeFocus;
-  }, [navigation, fetchReceipts]);
+    fetchReceipts().catch(console.error);
+  }, [fetchReceipts]);
 
   const onRefresh = useCallback(async () => {
     setRefreshing(true);
@@ -712,7 +693,7 @@ const ExpensesScreen = ({ navigation, route }) => {
   };
 
   const renderEmptyState = () =>
-    loading ? null : (
+    dataLoading ? null : (
       <View style={styles.emptyState}>
         <TouchableOpacity
           style={styles.addButton}
@@ -723,10 +704,10 @@ const ExpensesScreen = ({ navigation, route }) => {
       </View>
     );
 
-  const hasReceipts = !loading && sortedReceipts.length > 0;
+  const hasReceipts = !dataLoading && !loading && sortedReceipts.length > 0;
 
   return (
-    <SafeAreaView style={styles.container} {...swipeResponder.panHandlers}>
+    <SafeAreaView style={styles.container}>
       {/* Top App Bar */}
       <View style={[styles.topBar, { paddingTop: 5 }]}>
         <TouchableOpacity
@@ -743,16 +724,6 @@ const ExpensesScreen = ({ navigation, route }) => {
       </View>
 
       <View style={styles.content}>
-        <View style={styles.card}>
-          <Text style={styles.title}>Welcome, {displayName}!</Text>
-          {loading ? null : sortedReceipts.length === 0 ? (
-            <Text style={styles.subtitle}>
-              You haven't added any expenses yet!
-            </Text>
-          ) : (
-            <Text style={styles.subtitle}>Your receipts are shown below:</Text>
-          )}
-        </View>
 
         {/* Header row OUTSIDE the FlatList to avoid Android sticky bug */}
         {hasReceipts ? (
@@ -762,8 +733,8 @@ const ExpensesScreen = ({ navigation, route }) => {
         ) : null}
 
         <FlatList
-          ListEmptyComponent={!loading ? renderEmptyState : null}
-          data={loading ? [] : sortedReceipts}
+          ListEmptyComponent={(!dataLoading && !loading) ? renderEmptyState : null}
+          data={(loading || dataLoading) ? [] : sortedReceipts}
           keyExtractor={(item) => item.id}
           renderItem={renderReceiptItem}
           contentContainerStyle={[
@@ -796,7 +767,7 @@ const ExpensesScreen = ({ navigation, route }) => {
       />
 
       {/* Full-screen loading overlay */}
-      {loading && (
+      {(loading || dataLoading) && (
         <View style={styles.blockingOverlay} pointerEvents="auto">
           <View style={styles.loadingCard}>
             <ActivityIndicator size="large" />

@@ -146,6 +146,7 @@ export default function IncomeFormScreen({ navigation, route, mode }) {
   };
 
 
+  const {
     ensureFileFromAsset,
     preview,
     ocrResult,

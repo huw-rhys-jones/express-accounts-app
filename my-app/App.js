@@ -1,8 +1,9 @@
 import React, { useEffect, useRef, useState } from "react";
 import { NavigationContainer } from "@react-navigation/native";
 import { createStackNavigator } from "@react-navigation/stack";
-import { createBottomTabNavigator } from "@react-navigation/bottom-tabs";
-import { View, Text, TouchableOpacity, StyleSheet, Platform, Alert, Modal } from "react-native";
+import { createMaterialTopTabNavigator } from "@react-navigation/material-top-tabs";
+import { View, Text, TouchableOpacity, StyleSheet, Platform, Alert, Modal, Image, Animated } from "react-native";
+import * as SplashScreen from 'expo-splash-screen';
 import { onAuthStateChanged, reload, sendEmailVerification, signOut } from "firebase/auth";
 import { doc, serverTimestamp, setDoc, collection, query, where, onSnapshot, updateDoc } from "firebase/firestore";
 import { Ionicons } from "@expo/vector-icons";
@@ -24,11 +25,14 @@ import * as WebBrowser from "expo-web-browser";
 import { MD3LightTheme, PaperProvider } from 'react-native-paper';
 import { useSafeAreaInsets, SafeAreaProvider } from 'react-native-safe-area-context';
 import { ensureHapticsDefaultEnabled } from "./utils/haptics";
+import { DataProvider } from "./contexts/DataContext";
 
 WebBrowser.maybeCompleteAuthSession();
 
+SplashScreen.preventAutoHideAsync().catch(() => {});
+
 const Stack = createStackNavigator();
-const Tab = createBottomTabNavigator();
+const Tab = createMaterialTopTabNavigator();
 
 // Create a custom theme based on the Light Theme
 const theme = {
@@ -217,35 +221,37 @@ function CustomTabBar({ state, descriptors, navigation }) {
 // ---------------- Tabs ----------------
 function AppTabs() {
   return (
-    <Tab.Navigator
-      tabBar={(props) => <CustomTabBar {...props} />}
-      screenOptions={{
-        headerShown: false,
-        // Disable swipe gestures when a modal is open
-        swipeEnabled: !modalOpen,
-      }}
-    >
-      <Tab.Screen
-        name="Expenses"
-        component={ExpensesScreen}
-        options={{ tabBarLabel: "Receipts" }}
-      />
-      <Tab.Screen
-        name="Income"
-        component={IncomeScreen}
-        options={{ tabBarLabel: "Income" }}
-      />
-      <Tab.Screen
-        name="BankStatements"
-        component={BankStatementList}
-        options={{ tabBarLabel: "Bank" }}
-      />
-      <Tab.Screen
-        name="Summary"
-        component={SummaryScreen}
-        options={{ tabBarLabel: "Summary" }}
-      />
-    </Tab.Navigator>
+    <DataProvider>
+      <Tab.Navigator
+        tabBar={(props) => <CustomTabBar {...props} />}
+        tabBarPosition="bottom"
+        screenOptions={{
+          headerShown: false,
+          swipeEnabled: true,
+        }}
+      >
+        <Tab.Screen
+          name="Expenses"
+          component={ExpensesScreen}
+          options={{ tabBarLabel: "Receipts" }}
+        />
+        <Tab.Screen
+          name="Income"
+          component={IncomeScreen}
+          options={{ tabBarLabel: "Income" }}
+        />
+        <Tab.Screen
+          name="BankStatements"
+          component={BankStatementList}
+          options={{ tabBarLabel: "Bank" }}
+        />
+        <Tab.Screen
+          name="Summary"
+          component={SummaryScreen}
+          options={{ tabBarLabel: "Summary" }}
+        />
+      </Tab.Navigator>
+    </DataProvider>
   );
 }
 
@@ -255,6 +261,8 @@ export default function App() {
   const [checkingAuth, setCheckingAuth] = useState(true);
   const [authRefreshTick, setAuthRefreshTick] = useState(0);
   const [pendingChallenge, setPendingChallenge] = useState(null);
+  const [welcomeVisible, setWelcomeVisible] = useState(false);
+  const welcomeOpacity = useRef(new Animated.Value(1)).current;
   const navigationRef = useRef(null);
 
   const handleChallengeResponse = async (challengeId, status) => {
@@ -293,6 +301,27 @@ export default function App() {
 
     return unsubscribe;
   }, []);
+
+  useEffect(() => {
+    if (checkingAuth) return;
+    const run = async () => {
+      if (user) {
+        setWelcomeVisible(true);
+        await SplashScreen.hideAsync().catch(() => {});
+        // Fade out after 1.5s
+        setTimeout(() => {
+          Animated.timing(welcomeOpacity, {
+            toValue: 0,
+            duration: 400,
+            useNativeDriver: true,
+          }).start(() => setWelcomeVisible(false));
+        }, 1500);
+      } else {
+        await SplashScreen.hideAsync().catch(() => {});
+      }
+    };
+    run();
+  }, [checkingAuth]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Listen for pending 2FA challenges created from the web portal
   useEffect(() => {
@@ -365,8 +394,7 @@ export default function App() {
         </Stack.Navigator>
       </NavigationContainer>
 
-      <Modal visible={!!pendingChallenge} transparent animationType="fade">
-        <View style={styles.twoFactorOverlay}>
+      <Modal visible={!!pendingChallenge} transparent animationType="fade">        <View style={styles.twoFactorOverlay}>
           <View style={styles.twoFactorCard}>
             <Text style={styles.twoFactorTitle}>Login Request</Text>
             <Text style={styles.twoFactorText}>
@@ -395,6 +423,22 @@ export default function App() {
           </View>
         </View>
       </Modal>
+
+      {welcomeVisible && (
+        <Animated.View
+          style={[StyleSheet.absoluteFill, styles.welcomeSplash, { opacity: welcomeOpacity }]}
+          pointerEvents="none"
+        >
+          <Image
+            source={require('./assets/splash-icon.png')}
+            style={styles.welcomeLogo}
+            resizeMode="contain"
+          />
+          <Text style={styles.welcomeNameText}>
+            Welcome, {user?.displayName || 'back'}!
+          </Text>
+        </Animated.View>
+      )}
     </PaperProvider>
   );
 }
@@ -543,5 +587,21 @@ const styles = StyleSheet.create({
     color: "#fff",
     fontWeight: "700",
     fontSize: 15,
+  },
+  welcomeSplash: {
+    backgroundColor: '#ffffff',
+    alignItems: 'center',
+    justifyContent: 'center',
+    zIndex: 9999,
+  },
+  welcomeLogo: {
+    width: 180,
+    height: 180,
+    marginBottom: 24,
+  },
+  welcomeNameText: {
+    fontSize: 22,
+    fontWeight: '600',
+    color: '#302C66',
   },
 });

@@ -13,7 +13,6 @@ import {
   StatusBar,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
-import { collection, query, where, getDocs } from "firebase/firestore";
 import SideMenu from "../components/SideMenu";
 import SharedTabMenu from "../components/SharedTabMenu";
 import { db, auth } from "../firebaseConfig";
@@ -27,7 +26,7 @@ import {
 import { formatDate } from "../utils/format_style";
 import { getReceiptFilterKey, setReceiptFilterKey } from "../utils/appSettings";
 import DropDownPicker from "react-native-dropdown-picker";
-import { useTabSwipeNavigation } from "../utils/tabSwipeNavigation";
+import { useData } from "../contexts/DataContext";
 
 const screenWidth = Dimensions.get("window").width;
 const CHART_CARD_WIDTH = screenWidth * 0.9;
@@ -42,16 +41,13 @@ const BAR_CHART_HEIGHT = 220;
 const Y_AXIS_WIDTH = 46;
 
 export default function SummaryScreen({ navigation }) {
-  const [loading, setLoading] = useState(true);
+  const { receipts, incomeItems, bankStatements, initialLoading } = useData();
+  const loading = initialLoading;
   const [refreshing, setRefreshing] = useState(false);
-  const [receipts, setReceipts] = useState([]);
-  const [incomeItems, setIncomeItems] = useState([]);
-  const [bankStatements, setBankStatements] = useState([]);
   const [activeFilterKey, setActiveFilterKey] = useState("current-quarter");
   const [filterOpen, setFilterOpen] = useState(false);
   const [filterItems, setFilterItems] = useState([]);
   const [menuOpen, setMenuOpen] = useState(false);
-  const swipeResponder = useTabSwipeNavigation(navigation, "Summary");
 
   const barChartScrollRef = React.useRef(null);
   
@@ -63,44 +59,6 @@ export default function SummaryScreen({ navigation }) {
     const vat = a - net;
     return vat;
   };
-
-  const fetchSummaryData = useCallback(async () => {
-    try {
-      const user = auth.currentUser;
-      if (!user) {
-        setReceipts([]);
-        setIncomeItems([]);
-        setBankStatements([]);
-        return;
-      }
-
-      const [receiptSnapshot, incomeSnapshot, bankSnapshot] = await Promise.all([
-        getDocs(query(collection(db, "receipts"), where("userId", "==", user.uid))),
-        getDocs(query(collection(db, "income"), where("userId", "==", user.uid))),
-        getDocs(
-          query(collection(db, "bankStatements"), where("userId", "==", user.uid))
-        ),
-      ]);
-
-      const userReceipts = receiptSnapshot.docs.map((doc) => ({
-        id: doc.id,
-        ...doc.data(),
-      }));
-      const userIncome = incomeSnapshot.docs.map((doc) => ({
-        id: doc.id,
-        ...doc.data(),
-      }));
-      const userStatements = bankSnapshot.docs.map((doc) => ({
-        id: doc.id,
-        ...doc.data(),
-      }));
-      setReceipts(userReceipts);
-      setIncomeItems(userIncome);
-      setBankStatements(userStatements);
-    } catch (err) {
-      console.error("Error fetching summary data:", err);
-    }
-  }, []);
 
   const filterOptions = useMemo(
     () => buildFinancialFilterOptions(receipts, new Date()),
@@ -213,15 +171,6 @@ export default function SummaryScreen({ navigation }) {
   }, [filteredBankStatements, filteredIncome, filteredReceipts]);
 
   useEffect(() => {
-    fetchSummaryData().finally(() => setLoading(false));
-
-    const unsubscribeFocus = navigation.addListener("focus", () => {
-      fetchSummaryData().catch((e) => console.error("Refresh on focus failed", e));
-    });
-    return unsubscribeFocus;
-  }, [navigation, fetchSummaryData]);
-
-  useEffect(() => {
   if (!loading && monthlyData.length > 0) {
     // Small timeout ensures the layout has calculated widths before scrolling
     setTimeout(() => {
@@ -232,12 +181,8 @@ export default function SummaryScreen({ navigation }) {
 
   const onRefresh = useCallback(async () => {
     setRefreshing(true);
-    try {
-      await fetchSummaryData();
-    } finally {
-      setRefreshing(false);
-    }
-  }, [fetchSummaryData]);
+    setTimeout(() => setRefreshing(false), 600);
+  }, []);
 
   const closeMenu = () => setMenuOpen(false);
 
@@ -260,7 +205,7 @@ export default function SummaryScreen({ navigation }) {
   const { yTicks } = getYAxisTicks(monthlyTotals, 5);
 
   return (
-    <SafeAreaView style={styles.container} {...swipeResponder.panHandlers}>
+    <SafeAreaView style={styles.container}>
       <View style={[styles.topBar, { paddingTop: 5 }]}> 
         <TouchableOpacity style={styles.topBarButton} onPress={() => setMenuOpen(true)}>
           <Text style={styles.topBarButtonText}>≡</Text>

@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useState } from "react";
+import React, { useCallback, useMemo, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
@@ -12,62 +12,22 @@ import {
   View,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
-import { collection, getDocs, onSnapshot, query, where } from "firebase/firestore";
 import SideMenu from "../components/SideMenu";
 import SharedTabMenu from "../components/SharedTabMenu";
 import AddReceiptSheet from "../components/AddReceiptSheet";
-import { auth, db } from "../firebaseConfig";
+import { auth } from "../firebaseConfig";
 import { formatDate } from "../utils/format_style";
 import { Colors } from "../utils/sharedStyles";
-import { useTabSwipeNavigation } from "../utils/tabSwipeNavigation";
+import { useData } from "../contexts/DataContext";
 
 export default function IncomeScreen({ navigation }) {
-  const [incomeItems, setIncomeItems] = useState([]);
-  const [loading, setLoading] = useState(true);
+  const { incomeItems, initialLoading } = useData();
+  const loading = initialLoading;
   const [refreshing, setRefreshing] = useState(false);
   const [sortKey, setSortKey] = useState("date");
   const [sortDir, setSortDir] = useState("desc");
   const [menuOpen, setMenuOpen] = useState(false);
   const [addSheetVisible, setAddSheetVisible] = useState(false);
-  const swipeResponder = useTabSwipeNavigation(navigation, "Income");
-
-  const fetchIncome = useCallback(async () => {
-    const user = auth.currentUser;
-    if (!user) {
-      setIncomeItems([]);
-      return;
-    }
-
-    const snapshot = await getDocs(
-      query(collection(db, "income"), where("userId", "==", user.uid))
-    );
-    setIncomeItems(snapshot.docs.map((item) => ({ id: item.id, ...item.data() })));
-  }, []);
-
-  useEffect(() => {
-    const user = auth.currentUser;
-    if (!user || (user.providerData?.some(p => p.providerId === "password") && !user.emailVerified)) {
-      setIncomeItems([]);
-      setLoading(false);
-      return undefined;
-    }
-
-    const unsubscribeSnapshot = onSnapshot(
-      query(collection(db, "income"), where("userId", "==", user.uid)),
-      (snapshot) => {
-        setIncomeItems(snapshot.docs.map((item) => ({ id: item.id, ...item.data() })));
-        setLoading(false);
-      },
-      (error) => {
-        console.error("Error listening to income", error);
-        setLoading(false);
-      }
-    );
-
-    return () => {
-      unsubscribeSnapshot();
-    };
-  }, [fetchIncome, navigation]);
 
   const sortedIncome = useMemo(() => {
     const data = [...incomeItems];
@@ -93,12 +53,8 @@ export default function IncomeScreen({ navigation }) {
 
   const onRefresh = useCallback(async () => {
     setRefreshing(true);
-    try {
-      await fetchIncome();
-    } finally {
-      setRefreshing(false);
-    }
-  }, [fetchIncome]);
+    setTimeout(() => setRefreshing(false), 600);
+  }, []);
 
   const toggleSort = (nextKey) => {
     if (sortKey === nextKey) {
@@ -163,7 +119,7 @@ export default function IncomeScreen({ navigation }) {
   );
 
   return (
-    <SafeAreaView style={styles.container} {...swipeResponder.panHandlers}>
+    <SafeAreaView style={styles.container}>
       <View style={[styles.topBar, { paddingTop: 5 }]}>
         <TouchableOpacity style={styles.topBarButton} onPress={() => setMenuOpen(true)}>
           <Text style={styles.topBarButtonText}>≡</Text>
