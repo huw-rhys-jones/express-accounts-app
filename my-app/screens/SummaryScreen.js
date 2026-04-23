@@ -24,14 +24,12 @@ import {
   filterReceiptsByDateRange,
 } from "../utils/financialPeriods";
 import { formatDate } from "../utils/format_style";
-import { getReceiptFilterKey } from "../utils/appSettings";
 import DropDownPicker from "react-native-dropdown-picker";
 import { useData } from "../contexts/DataContext";
 
 const screenWidth = Dimensions.get("window").width;
 const CHART_CARD_WIDTH = screenWidth * 0.9;
 const CHART_CARD_PADDING = 20; // matches SharedStyles.chartCard padding
-const BAR_TRACK_WIDTH = CHART_CARD_WIDTH - CHART_CARD_PADDING * 2;
 const PIE_CHART_SIZE = Math.max(
   0,
   Math.min(screenWidth * 0.7, CHART_CARD_WIDTH - CHART_CARD_PADDING * 2)
@@ -76,11 +74,6 @@ export default function SummaryScreen({ navigation }) {
       setActiveFilterKey(filterOptions[0].key);
     }
   }, [activeFilter, filterOptions]);
-
-  useEffect(() => {
-    const unsubscribeFocus = navigation.addListener("focus", () => {});
-    return unsubscribeFocus;
-  }, [navigation]);
 
   useEffect(() => {
     if (filterOptions.length === 0) {
@@ -256,7 +249,9 @@ export default function SummaryScreen({ navigation }) {
           </View>
           {/* Monthly bar chart card */}
           <View style={styles.chartCard}>
-            <Text style={styles.chartTitle}>Monthly Income vs Spending (Current FY)</Text>
+              <Text style={styles.chartTitle}>
+                Monthly Income vs Spending ({activeFilter?.label || "Current Financial Quarter"})
+              </Text>
             <View style={styles.cashflowLegendRow}>
               <View style={styles.cashflowLegendItem}>
                 <View style={[styles.cashflowLegendSwatch, styles.expenseSwatch]} />
@@ -402,7 +397,7 @@ export default function SummaryScreen({ navigation }) {
             const maxCashflow = Math.max(moneyIn, moneyOut, 1);
 
             return (
-              <View key={type}>
+              <View key={type} style={styles.statementSection}>
                 {(moneyIn > 0 || moneyOut > 0) && (
                   <View style={styles.chartCard}>
                     <Text style={styles.chartTitle}>{label} – Cash Flow</Text>
@@ -558,6 +553,10 @@ const styles = StyleSheet.create({
     fontSize: 13,
   },
   chartCard: { ...SharedStyles.chartCard, overflow: "visible" },
+  statementSection: {
+    width: "100%",
+    alignItems: "center",
+  },
   chartTitle: { fontSize: 16, fontWeight: "bold", marginBottom: 12, textAlign: "center", color: "black" },
   noData: { fontSize: 15, color: "#666", marginTop: 10, textAlign: "center" },
   center: { flex: 1, justifyContent: "center", alignItems: "center" },
