@@ -22,6 +22,7 @@ import { Colors, SharedStyles } from "../utils/sharedStyles";
 import {
   buildFinancialFilterOptions,
   filterReceiptsByDateRange,
+  getFinancialYearStartYear,
 } from "../utils/financialPeriods";
 import { formatDate } from "../utils/format_style";
 import { getReceiptFilterKey, setReceiptFilterKey } from "../utils/appSettings";
@@ -44,7 +45,7 @@ export default function SummaryScreen({ navigation }) {
   const { receipts, incomeItems, bankStatements, initialLoading } = useData();
   const loading = initialLoading;
   const [refreshing, setRefreshing] = useState(false);
-  const [activeFilterKey, setActiveFilterKey] = useState("current-quarter");
+  const [activeFilterKey, setActiveFilterKey] = useState(`year-${getFinancialYearStartYear(new Date())}`);
   const [filterOpen, setFilterOpen] = useState(false);
   const [filterItems, setFilterItems] = useState([]);
   const [menuOpen, setMenuOpen] = useState(false);
@@ -61,8 +62,8 @@ export default function SummaryScreen({ navigation }) {
   };
 
   const filterOptions = useMemo(
-    () => buildFinancialFilterOptions(receipts, new Date()),
-    [receipts]
+    () => buildFinancialFilterOptions([...receipts, ...incomeItems, ...bankStatements], new Date()),
+    [receipts, incomeItems, bankStatements]
   );
 
   const activeFilter = useMemo(
@@ -79,12 +80,12 @@ export default function SummaryScreen({ navigation }) {
   useEffect(() => {
     getReceiptFilterKey()
       .then(setActiveFilterKey)
-      .catch(() => setActiveFilterKey("current-quarter"));
+      .catch(() => setActiveFilterKey(`year-${getFinancialYearStartYear(new Date())}`));
 
     const unsubscribeFocus = navigation.addListener("focus", () => {
       getReceiptFilterKey()
         .then(setActiveFilterKey)
-        .catch(() => setActiveFilterKey("current-quarter"));
+        .catch(() => setActiveFilterKey(`year-${getFinancialYearStartYear(new Date())}`));
     });
 
     return unsubscribeFocus;
