@@ -391,11 +391,6 @@ export default function SummaryScreen({ navigation }) {
             const moneyIn = stmts.reduce((sum, s) => sum + (Number(s.moneyInTotal) || 0), 0);
             const moneyOut = stmts.reduce((sum, s) => sum + (Number(s.moneyOutTotal) || 0), 0);
 
-            const cashflowPieData = [
-              moneyIn > 0 && { name: "Money In", population: Number(moneyIn.toFixed(2)), color: "#4ade80", legendFontColor: "#333", legendFontSize: 13 },
-              moneyOut > 0 && { name: "Money Out", population: Number(moneyOut.toFixed(2)), color: "#f87171", legendFontColor: "#333", legendFontSize: 13 },
-            ].filter(Boolean);
-
             const vendorMap = {};
             for (const s of stmts) {
               for (const vt of s.vendorTotals || []) {
@@ -413,34 +408,37 @@ export default function SummaryScreen({ navigation }) {
                 legendFontSize: 13,
               }));
 
+            const barChartWidth = CHART_CARD_WIDTH - CHART_CARD_PADDING * 2;
+
             return (
               <View key={type}>
-                {cashflowPieData.length > 0 && (
+                {(moneyIn > 0 || moneyOut > 0) && (
                   <View style={styles.chartCard}>
                     <Text style={styles.chartTitle}>{label} – Cash Flow</Text>
-                    <View style={styles.pieChartWrapper}>
-                      <PieChart
-                        data={cashflowPieData}
-                        width={PIE_CHART_SIZE}
-                        height={PIE_CHART_SIZE}
-                        chartConfig={chartConfig}
-                        accessor="population"
-                        backgroundColor="transparent"
-                        paddingLeft={PIE_CHART_PADDING_LEFT}
-                        absolute
-                        hasLegend={false}
-                        center={[PIE_CHART_CENTER_X, 0]}
-                        style={styles.pieChart}
-                      />
-                    </View>
-                    <View style={styles.legendContainer}>
-                      {cashflowPieData.map((d) => (
-                        <View key={d.name} style={styles.legendItem}>
-                          <View style={[styles.legendDot, { backgroundColor: d.color }]} />
-                          <Text style={styles.legendText}>{d.name}: £{Number(d.population).toFixed(2)}</Text>
-                        </View>
-                      ))}
-                    </View>
+                    <BarChart
+                      data={{
+                        labels: ["Money In", "Money Out"],
+                        datasets: [{ data: [moneyIn, moneyOut], colors: [() => "#4ade80", () => "#f87171"] }],
+                      }}
+                      width={barChartWidth}
+                      height={180}
+                      chartConfig={{
+                        backgroundGradientFrom: Colors.surface,
+                        backgroundGradientTo: Colors.surface,
+                        color: (opacity = 1) => `rgba(49, 46, 116, ${opacity})`,
+                        labelColor: (opacity = 1) => `rgba(0,0,0,${opacity})`,
+                        barPercentage: 0.6,
+                        propsForBackgroundLines: { stroke: "#e0e0e0" },
+                      }}
+                      withCustomBarColorFromData
+                      flatColor
+                      showValuesOnTopOfBars
+                      fromZero
+                      yAxisLabel="£"
+                      yAxisSuffix=""
+                      withInnerLines={true}
+                      style={{ borderRadius: 8, alignSelf: "center" }}
+                    />
                   </View>
                 )}
                 {topVendors.length > 0 && (
