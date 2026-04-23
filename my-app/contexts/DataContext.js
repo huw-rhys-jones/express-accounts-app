@@ -20,6 +20,7 @@ export function DataProvider({ children }) {
     let unsubBank = null;
 
     const unsubAuth = onAuthStateChanged(auth, (user) => {
+      console.log('[DataContext] onAuthStateChanged fired, user:', user?.uid ?? 'null');
       // Tear down any existing listeners before re-subscribing
       unsubReceipts?.();
       unsubIncome?.();
@@ -98,6 +99,7 @@ export function DataProvider({ children }) {
       unsubBank = onSnapshot(
         query(collection(db, 'bankStatements'), where('userId', '==', user.uid)),
         (snap) => {
+          console.log('[DataContext] bankStatements snapshot, count:', snap.docs.length);
           setBankStatements(snap.docs.map((d) => ({ id: d.id, ...d.data() })));
           loadedRef.current.bankStatements = true;
           checkAllLoaded();
