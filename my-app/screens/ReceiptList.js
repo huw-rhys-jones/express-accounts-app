@@ -1355,7 +1355,7 @@ const styles = StyleSheet.create({
   },
   loadingText: { marginTop: 10, fontSize: 16, fontWeight: "600" },
   topBar: {
-    backgroundColor: Colors.card,
+    backgroundColor: Colors.accent,
     width: "100%",
     // height is paddingTop (status bar) + this content height
     // keep the content area comfy:
@@ -1382,12 +1382,12 @@ const styles = StyleSheet.create({
   topBarButtonText: {
     fontSize: 18,
     fontWeight: "700",
-    color: Colors.textPrimary,
+    color: "#fff",
   },
   topBarTitle: {
     fontSize: 18,
     fontWeight: "800",
-    color: Colors.textPrimary,
+    color: "#fff",
   },
   menuTitle: {
     fontSize: 22,

@@ -123,14 +123,6 @@ export default function BankStatementList({ navigation }) {
       </View>
 
       <View style={styles.content}>
-        <View style={styles.card}>
-          <Text style={styles.title}>Bank & Credit Statements</Text>
-          <Text style={styles.subtitle}>
-            {sortedStatements.length > 0
-              ? "Your bank and credit statement records are shown below."
-              : "Upload statements to track money in and money out."}
-          </Text>
-        </View>
 
         {sortedStatements.length > 0 ? (
           <View style={{ marginTop: 28, marginBottom: 8 }}>
@@ -206,7 +198,7 @@ export default function BankStatementList({ navigation }) {
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: Colors.background },
   topBar: {
-    backgroundColor: Colors.card,
+    backgroundColor: Colors.accent,
     width: "100%",
     paddingHorizontal: 12,
     paddingBottom: 10,
@@ -230,9 +222,9 @@ const styles = StyleSheet.create({
   topBarButtonText: {
     fontSize: 18,
     fontWeight: "700",
-    color: Colors.textPrimary,
+    color: "#fff",
   },
-  topBarTitle: { fontSize: 18, fontWeight: "800", color: Colors.textPrimary },
+  topBarTitle: { fontSize: 18, fontWeight: "800", color: "#fff" },
   content: { flex: 1, alignItems: "center", paddingBottom: 20 },
   card: {
     backgroundColor: Colors.card,
