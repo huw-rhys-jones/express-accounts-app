@@ -1208,9 +1208,9 @@ const styles = StyleSheet.create({
   },
   addButton: {
     backgroundColor: Colors.accent,
-    paddingVertical: 17,
-    paddingHorizontal: 43,
-    borderRadius: 35,
+    paddingVertical: 16,
+    paddingHorizontal: 28,
+    borderRadius: 28,
     alignSelf: "center",
     marginTop: 20,
     shadowColor: "#a60d49",
@@ -1218,7 +1218,7 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.3,
     shadowRadius: 5,
   },
-  buttonText: { fontSize: 25, fontWeight: "bold", color: "white" },
+  buttonText: { fontSize: 18, fontWeight: "700", color: "white" },
 
   emptyState: {
     flex: 1,
@@ -1274,7 +1274,7 @@ const styles = StyleSheet.create({
     color: Colors.textPrimary,
     textAlign: "right",
   },
-  headerArrow: { fontSize: 12, color: "#555" },
+  headerArrow: { fontSize: 12, color: Colors.textMuted },
 
   receiptItem: {
     backgroundColor: "#f0f0f0",
@@ -1288,7 +1288,7 @@ const styles = StyleSheet.create({
     alignItems: "flex-end",
     minHeight: 60,
   },
-  receiptDate: { fontSize: 14, color: "#555", minWidth: 90 },
+  receiptDate: { fontSize: 14, color: Colors.textMuted, minWidth: 90 },
   receiptLabel: {
     fontSize: 12,
     color: Colors.textMuted,
@@ -1347,14 +1347,14 @@ const styles = StyleSheet.create({
     padding: 20, // Keep card away from screen edges
   },
   loadingCard: {
-    backgroundColor: "white",
+    backgroundColor: Colors.surface,
     paddingVertical: 20,
-    paddingHorizontal: 24,
+    paddingHorizontal: 26,
     borderRadius: 12,
     alignItems: "center",
     minWidth: 200,
   },
-  loadingText: { marginTop: 10, fontSize: 16, fontWeight: "600" },
+  loadingText: { marginTop: 10, fontSize: 16, fontWeight: "600", color: Colors.textPrimary },
   topBar: {
     backgroundColor: '#1C1C4E',
     width: "100%",

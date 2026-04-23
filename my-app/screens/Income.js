@@ -284,7 +284,7 @@ const styles = StyleSheet.create({
     alignItems: "flex-end",
     minHeight: 60,
   },
-  rowDate: { fontSize: 14, color: "#555", minWidth: 90 },
+  rowDate: { fontSize: 14, color: Colors.textMuted, minWidth: 90 },
   referenceWrap: {
     flex: 1,
     alignItems: "flex-start",

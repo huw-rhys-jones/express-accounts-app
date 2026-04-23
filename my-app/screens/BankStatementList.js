@@ -425,5 +425,5 @@ const styles = StyleSheet.create({
     borderRadius: 12,
     alignItems: "center",
   },
-  loadingText: { marginTop: 10, color: Colors.textPrimary, fontSize: 16 },
+  loadingText: { marginTop: 10, color: Colors.textPrimary, fontSize: 16, fontWeight: "600" },
 });
