@@ -44,7 +44,7 @@ export default function SummaryScreen({ navigation }) {
   const { receipts, incomeItems, bankStatements, initialLoading } = useData();
   const loading = initialLoading;
   const [refreshing, setRefreshing] = useState(false);
-  const [activeFilterKey, setActiveFilterKey] = useState("all-time");
+  const [activeFilterKey, setActiveFilterKey] = useState("current-quarter");
   const [filterOpen, setFilterOpen] = useState(false);
   const [filterItems, setFilterItems] = useState([]);
   const [menuOpen, setMenuOpen] = useState(false);
@@ -121,8 +121,6 @@ export default function SummaryScreen({ navigation }) {
   }, [activeFilter, incomeItems]);
 
   const filteredBankStatements = useMemo(() => {
-    console.log('[Summary] activeFilterKey:', activeFilterKey, 'activeFilter:', activeFilter?.key, activeFilter?.startDate, activeFilter?.endDate);
-    console.log('[Summary] bankStatements dates:', bankStatements.map(s => s.date));
     if (!activeFilter) return bankStatements;
     return filterReceiptsByDateRange(
       bankStatements,
@@ -196,34 +194,6 @@ export default function SummaryScreen({ navigation }) {
     legendFontColor: "#333",
     legendFontSize: 13,
   }));
-
-  // Aggregate vendor spending across all filtered bank statements (top 8 by moneyOut)
-  const vendorPieData = useMemo(() => {
-    console.log('[Summary] filteredBankStatements count:', filteredBankStatements.length);
-    filteredBankStatements.forEach((s, i) => {
-      console.log(`[Summary] statement[${i}] vendorTotals:`, JSON.stringify(s.vendorTotals));
-    });
-    const vendorMap = {};
-    for (const statement of filteredBankStatements) {
-      for (const vt of statement.vendorTotals || []) {
-        if (vt.moneyOut > 0) {
-          vendorMap[vt.vendor] = (vendorMap[vt.vendor] || 0) + vt.moneyOut;
-        }
-      }
-    }
-    const result = Object.entries(vendorMap)
-      .sort((a, b) => b[1] - a[1])
-      .slice(0, 8)
-      .map(([vendor, total], i) => ({
-        name: vendor,
-        population: Number(total.toFixed(2)),
-        color: CHART_COLORS[i % CHART_COLORS.length],
-        legendFontColor: "#333",
-        legendFontSize: 13,
-      }));
-    console.log('[Summary] vendorPieData:', JSON.stringify(result));
-    return result;
-  }, [filteredBankStatements]);
 
   const monthlyData = groupCashflowByMonth(filteredReceipts, filteredIncome);
 
@@ -410,87 +380,100 @@ export default function SummaryScreen({ navigation }) {
             )}
           </View>
 
-          {/* Bank statement cashflow pie chart */}
-          {filteredBankStatements.length > 0 && (totals.bankMoneyIn > 0 || totals.bankMoneyOut > 0) && (() => {
-            const bankPieData = [
-              totals.bankMoneyIn > 0 && {
-                name: "Money In",
-                population: Number(totals.bankMoneyIn.toFixed(2)),
-                color: "#4ade80",
-                legendFontColor: "#333",
-                legendFontSize: 13,
-              },
-              totals.bankMoneyOut > 0 && {
-                name: "Money Out",
-                population: Number(totals.bankMoneyOut.toFixed(2)),
-                color: "#f87171",
-                legendFontColor: "#333",
-                legendFontSize: 13,
-              },
+          {/* Separate panels for bank and credit card statements */}
+          {[
+            { type: "bank", label: "Bank Statements" },
+            { type: "credit", label: "Credit Card Statements" },
+          ].map(({ type, label }) => {
+            const stmts = filteredBankStatements.filter((s) => s.statementType === type);
+            if (stmts.length === 0) return null;
+
+            const moneyIn = stmts.reduce((sum, s) => sum + (Number(s.moneyInTotal) || 0), 0);
+            const moneyOut = stmts.reduce((sum, s) => sum + (Number(s.moneyOutTotal) || 0), 0);
+
+            const cashflowPieData = [
+              moneyIn > 0 && { name: "Money In", population: Number(moneyIn.toFixed(2)), color: "#4ade80", legendFontColor: "#333", legendFontSize: 13 },
+              moneyOut > 0 && { name: "Money Out", population: Number(moneyOut.toFixed(2)), color: "#f87171", legendFontColor: "#333", legendFontSize: 13 },
             ].filter(Boolean);
+
+            const vendorMap = {};
+            for (const s of stmts) {
+              for (const vt of s.vendorTotals || []) {
+                if (vt.moneyOut > 0) vendorMap[vt.vendor] = (vendorMap[vt.vendor] || 0) + vt.moneyOut;
+              }
+            }
+            const topVendors = Object.entries(vendorMap)
+              .sort((a, b) => b[1] - a[1])
+              .slice(0, 8)
+              .map(([vendor, total], i) => ({
+                name: vendor,
+                population: Number(total.toFixed(2)),
+                color: CHART_COLORS[i % CHART_COLORS.length],
+                legendFontColor: "#333",
+                legendFontSize: 13,
+              }));
+
             return (
-              <View style={styles.chartCard}>
-                <Text style={styles.chartTitle}>Bank / Credit Card Cashflow</Text>
-                <View style={styles.pieChartWrapper}>
-                  <PieChart
-                    data={bankPieData}
-                    width={PIE_CHART_SIZE}
-                    height={PIE_CHART_SIZE}
-                    chartConfig={chartConfig}
-                    accessor="population"
-                    backgroundColor="transparent"
-                    paddingLeft={PIE_CHART_PADDING_LEFT}
-                    absolute
-                    hasLegend={false}
-                    center={[PIE_CHART_CENTER_X, 0]}
-                    style={styles.pieChart}
-                  />
-                </View>
-                <View style={styles.legendContainer}>
-                  {bankPieData.map((d) => (
-                    <View key={d.name} style={styles.legendItem}>
-                      <View style={[styles.legendDot, { backgroundColor: d.color }]} />
-                      <Text style={styles.legendText}>
-                        {d.name}: £{Number(d.population).toFixed(2)}
-                      </Text>
+              <View key={type}>
+                {cashflowPieData.length > 0 && (
+                  <View style={styles.chartCard}>
+                    <Text style={styles.chartTitle}>{label} – Cash Flow</Text>
+                    <View style={styles.pieChartWrapper}>
+                      <PieChart
+                        data={cashflowPieData}
+                        width={PIE_CHART_SIZE}
+                        height={PIE_CHART_SIZE}
+                        chartConfig={chartConfig}
+                        accessor="population"
+                        backgroundColor="transparent"
+                        paddingLeft={PIE_CHART_PADDING_LEFT}
+                        absolute
+                        hasLegend={false}
+                        center={[PIE_CHART_CENTER_X, 0]}
+                        style={styles.pieChart}
+                      />
                     </View>
-                  ))}
-                </View>
+                    <View style={styles.legendContainer}>
+                      {cashflowPieData.map((d) => (
+                        <View key={d.name} style={styles.legendItem}>
+                          <View style={[styles.legendDot, { backgroundColor: d.color }]} />
+                          <Text style={styles.legendText}>{d.name}: £{Number(d.population).toFixed(2)}</Text>
+                        </View>
+                      ))}
+                    </View>
+                  </View>
+                )}
+                {topVendors.length > 0 && (
+                  <View style={styles.chartCard}>
+                    <Text style={styles.chartTitle}>{label} – Top Vendor Spending</Text>
+                    <View style={styles.pieChartWrapper}>
+                      <PieChart
+                        data={topVendors}
+                        width={PIE_CHART_SIZE}
+                        height={PIE_CHART_SIZE}
+                        chartConfig={chartConfig}
+                        accessor="population"
+                        backgroundColor="transparent"
+                        paddingLeft={PIE_CHART_PADDING_LEFT}
+                        absolute
+                        hasLegend={false}
+                        center={[PIE_CHART_CENTER_X, 0]}
+                        style={styles.pieChart}
+                      />
+                    </View>
+                    <View style={styles.legendContainer}>
+                      {topVendors.map((d) => (
+                        <View key={d.name} style={styles.legendItem}>
+                          <View style={[styles.legendDot, { backgroundColor: d.color }]} />
+                          <Text style={styles.legendText}>{d.name}: £{Number(d.population).toFixed(2)}</Text>
+                        </View>
+                      ))}
+                    </View>
+                  </View>
+                )}
               </View>
             );
-          })()}
-
-          {/* Vendor spending pie chart from bank/credit statements */}
-          {vendorPieData.length > 0 && (
-            <View style={styles.chartCard}>
-              <Text style={styles.chartTitle}>Top Vendor Spending (Bank / Credit)</Text>
-              <View style={styles.pieChartWrapper}>
-                <PieChart
-                  data={vendorPieData}
-                  width={PIE_CHART_SIZE}
-                  height={PIE_CHART_SIZE}
-                  chartConfig={chartConfig}
-                  accessor="population"
-                  backgroundColor="transparent"
-                  paddingLeft={PIE_CHART_PADDING_LEFT}
-                  absolute
-                  hasLegend={false}
-                  center={[PIE_CHART_CENTER_X, 0]}
-                  style={styles.pieChart}
-                />
-              </View>
-              <View style={styles.legendContainer}>
-                {vendorPieData.map((d) => (
-                  <View key={d.name} style={styles.legendItem}>
-                    <View style={[styles.legendDot, { backgroundColor: d.color }]} />
-                    <Text style={styles.legendText}>
-                      {d.name}: £{Number(d.population).toFixed(2)}
-                    </Text>
-                  </View>
-                ))}
-              </View>
-            </View>
-          )}
+          })}
         </ScrollView>
       )}
 
