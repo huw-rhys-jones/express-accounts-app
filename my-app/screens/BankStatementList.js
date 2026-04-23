@@ -111,7 +111,8 @@ export default function BankStatementList({ navigation }) {
   );
 
   return (
-    <SafeAreaView style={styles.container}>
+    <SafeAreaView style={[styles.container, { backgroundColor: Colors.accent }]}>
+      <StatusBar backgroundColor={Colors.accent} barStyle="light-content" />
       <View style={[styles.topBar, { paddingTop: 5 }]}> 
         <TouchableOpacity style={styles.topBarButton} onPress={() => setMenuOpen(true)}>
           <Text style={styles.topBarButtonText}>≡</Text>
@@ -205,26 +206,18 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
-    elevation: 3,
-    shadowColor: "#000",
-    shadowOpacity: 0.1,
-    shadowRadius: 4,
-    shadowOffset: { width: 0, height: 2 },
   },
   topBarButton: {
-    width: 44,
-    height: 36,
-    borderRadius: 18,
-    backgroundColor: Colors.inputBg,
+    width: 48,
+    height: 44,
     alignItems: "center",
     justifyContent: "center",
   },
   topBarButtonText: {
-    fontSize: 18,
-    fontWeight: "700",
+    fontSize: 24,
     color: "#fff",
   },
-  topBarTitle: { fontSize: 18, fontWeight: "800", color: "#fff" },
+  topBarTitle: { fontSize: 18, fontWeight: "700", color: "#fff" },
   content: { flex: 1, alignItems: "center", paddingBottom: 20 },
   card: {
     backgroundColor: Colors.card,

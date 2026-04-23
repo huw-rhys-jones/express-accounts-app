@@ -707,7 +707,8 @@ const ExpensesScreen = ({ navigation, route }) => {
   const hasReceipts = !dataLoading && !loading && sortedReceipts.length > 0;
 
   return (
-    <SafeAreaView style={styles.container}>
+    <SafeAreaView style={[styles.container, { backgroundColor: Colors.background }]}>
+      <StatusBar backgroundColor={Colors.background} barStyle="light-content" />
       {/* Top App Bar */}
       <View style={[styles.topBar, { paddingTop: 5 }]}>
         <TouchableOpacity
@@ -1355,38 +1356,29 @@ const styles = StyleSheet.create({
   },
   loadingText: { marginTop: 10, fontSize: 16, fontWeight: "600" },
   topBar: {
-    backgroundColor: Colors.accent,
+    backgroundColor: Colors.background,
     width: "100%",
-    // height is paddingTop (status bar) + this content height
-    // keep the content area comfy:
     paddingHorizontal: 12,
     paddingBottom: 10,
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
-    // subtle shadow/elevation
-    elevation: 3,
-    shadowColor: "#000",
-    shadowOpacity: 0.1,
-    shadowRadius: 4,
-    shadowOffset: { width: 0, height: 2 },
+    borderBottomWidth: 1,
+    borderBottomColor: 'rgba(255,255,255,0.15)',
   },
   topBarButton: {
-    width: 44,
-    height: 36,
-    borderRadius: 18,
-    backgroundColor: Colors.inputBg,
+    width: 48,
+    height: 44,
     alignItems: "center",
     justifyContent: "center",
   },
   topBarButtonText: {
-    fontSize: 18,
-    fontWeight: "700",
+    fontSize: 24,
     color: "#fff",
   },
   topBarTitle: {
     fontSize: 18,
-    fontWeight: "800",
+    fontWeight: "700",
     color: "#fff",
   },
   menuTitle: {

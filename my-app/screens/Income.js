@@ -119,7 +119,8 @@ export default function IncomeScreen({ navigation }) {
   );
 
   return (
-    <SafeAreaView style={styles.container}>
+    <SafeAreaView style={[styles.container, { backgroundColor: '#ffffff' }]}>
+      <StatusBar backgroundColor="#ffffff" barStyle="dark-content" />
       <View style={[styles.topBar, { paddingTop: 5 }]}>
         <TouchableOpacity style={styles.topBarButton} onPress={() => setMenuOpen(true)}>
           <Text style={styles.topBarButtonText}>≡</Text>
@@ -200,33 +201,27 @@ export default function IncomeScreen({ navigation }) {
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: Colors.background },
   topBar: {
-    backgroundColor: Colors.accent,
+    backgroundColor: '#ffffff',
     width: "100%",
     paddingHorizontal: 12,
     paddingBottom: 10,
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
-    elevation: 3,
-    shadowColor: "#000",
-    shadowOpacity: 0.1,
-    shadowRadius: 4,
-    shadowOffset: { width: 0, height: 2 },
+    borderBottomWidth: 1.5,
+    borderBottomColor: Colors.accent,
   },
   topBarButton: {
-    width: 44,
-    height: 36,
-    borderRadius: 18,
-    backgroundColor: Colors.inputBg,
+    width: 48,
+    height: 44,
     alignItems: "center",
     justifyContent: "center",
   },
   topBarButtonText: {
-    fontSize: 18,
-    fontWeight: "700",
-    color: "#fff",
+    fontSize: 24,
+    color: Colors.textPrimary,
   },
-  topBarTitle: { fontSize: 18, fontWeight: "800", color: "#fff" },
+  topBarTitle: { fontSize: 18, fontWeight: "700", color: Colors.textPrimary },
   content: { flex: 1, alignItems: "center", paddingBottom: 20 },
   card: {
     backgroundColor: Colors.card,
