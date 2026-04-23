@@ -24,7 +24,7 @@ import {
   filterReceiptsByDateRange,
 } from "../utils/financialPeriods";
 import { formatDate } from "../utils/format_style";
-import { getReceiptFilterKey, setReceiptFilterKey } from "../utils/appSettings";
+import { getReceiptFilterKey, getSummaryFilterKey, setSummaryFilterKey } from "../utils/appSettings";
 import DropDownPicker from "react-native-dropdown-picker";
 import { useData } from "../contexts/DataContext";
 
@@ -77,14 +77,14 @@ export default function SummaryScreen({ navigation }) {
   }, [activeFilter, filterOptions]);
 
   useEffect(() => {
-    getReceiptFilterKey()
+    getSummaryFilterKey()
       .then(setActiveFilterKey)
-      .catch(() => setActiveFilterKey("all-time"));
+      .catch(() => setActiveFilterKey("current-quarter"));
 
     const unsubscribeFocus = navigation.addListener("focus", () => {
-      getReceiptFilterKey()
+      getSummaryFilterKey()
         .then(setActiveFilterKey)
-        .catch(() => setActiveFilterKey("all-time"));
+        .catch(() => setActiveFilterKey("current-quarter"));
     });
 
     return unsubscribeFocus;
@@ -195,7 +195,7 @@ export default function SummaryScreen({ navigation }) {
     legendFontSize: 13,
   }));
 
-  const monthlyData = groupCashflowByMonth(filteredReceipts, filteredIncome);
+  const monthlyData = groupCashflowByMonth(filteredReceipts, filteredIncome, activeFilter?.startDate, activeFilter?.endDate);
 
   // Build nice Y axis ticks
   const monthlyTotals = monthlyData.flatMap((month) => [
@@ -241,7 +241,7 @@ export default function SummaryScreen({ navigation }) {
               setValue={(callback) => {
                 const nextKey = typeof callback === "function" ? callback(activeFilterKey) : callback;
                 setActiveFilterKey(nextKey);
-                setReceiptFilterKey(nextKey).catch(() => {});
+                setSummaryFilterKey(nextKey).catch(() => {});
               }}
               setItems={setFilterItems}
               listMode="SCROLLVIEW"
@@ -409,36 +409,27 @@ export default function SummaryScreen({ navigation }) {
               }));
 
             const barChartWidth = CHART_CARD_WIDTH - CHART_CARD_PADDING * 2;
+            const maxCashflow = Math.max(moneyIn, moneyOut, 1);
 
             return (
               <View key={type}>
                 {(moneyIn > 0 || moneyOut > 0) && (
                   <View style={styles.chartCard}>
                     <Text style={styles.chartTitle}>{label} – Cash Flow</Text>
-                    <BarChart
-                      data={{
-                        labels: ["Money In", "Money Out"],
-                        datasets: [{ data: [moneyIn, moneyOut], colors: [() => "#4ade80", () => "#f87171"] }],
-                      }}
-                      width={barChartWidth}
-                      height={180}
-                      chartConfig={{
-                        backgroundGradientFrom: Colors.surface,
-                        backgroundGradientTo: Colors.surface,
-                        color: (opacity = 1) => `rgba(49, 46, 116, ${opacity})`,
-                        labelColor: (opacity = 1) => `rgba(0,0,0,${opacity})`,
-                        barPercentage: 0.6,
-                        propsForBackgroundLines: { stroke: "#e0e0e0" },
-                      }}
-                      withCustomBarColorFromData
-                      flatColor
-                      showValuesOnTopOfBars
-                      fromZero
-                      yAxisLabel="£"
-                      yAxisSuffix=""
-                      withInnerLines={true}
-                      style={{ borderRadius: 8, alignSelf: "center" }}
-                    />
+                    {[
+                      { label: "Money In", value: moneyIn, color: "#4ade80" },
+                      { label: "Money Out", value: moneyOut, color: "#f87171" },
+                    ].map((row) => (
+                      <View key={row.label} style={{ marginVertical: 6 }}>
+                        <View style={{ flexDirection: "row", alignItems: "center", marginBottom: 3 }}>
+                          <Text style={{ width: 90, fontSize: 13, color: Colors.textSecondary }}>{row.label}</Text>
+                          <Text style={{ fontSize: 13, fontWeight: "700", color: row.color }}>£{row.value.toFixed(2)}</Text>
+                        </View>
+                        <View style={{ height: 22, backgroundColor: "#e8e8e8", borderRadius: 4, overflow: "hidden", width: barChartWidth }}>
+                          <View style={{ height: "100%", width: `${(row.value / maxCashflow) * 100}%`, backgroundColor: row.color, borderRadius: 4 }} />
+                        </View>
+                      </View>
+                    ))}
                   </View>
                 )}
                 {topVendors.length > 0 && (

@@ -3,6 +3,7 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 const RECEIPT_FILTER_KEY = "@settings:receiptFilterKey";
 const INCOME_FILTER_KEY = "@settings:incomeFilterKey";
 const BANK_FILTER_KEY = "@settings:bankFilterKey";
+const SUMMARY_FILTER_KEY = "@settings:summaryFilterKey";
 
 async function getFilterKey(storageKey) {
   try {
@@ -39,4 +40,12 @@ export async function getBankFilterKey() {
 
 export async function setBankFilterKey(filterKey) {
   await setFilterKey(BANK_FILTER_KEY, filterKey);
+}
+
+export async function getSummaryFilterKey() {
+  return getFilterKey(SUMMARY_FILTER_KEY);
+}
+
+export async function setSummaryFilterKey(filterKey) {
+  await setFilterKey(SUMMARY_FILTER_KEY, filterKey);
 }
