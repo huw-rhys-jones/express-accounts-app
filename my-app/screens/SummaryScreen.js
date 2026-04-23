@@ -195,6 +195,28 @@ export default function SummaryScreen({ navigation }) {
     legendFontSize: 13,
   }));
 
+  // Aggregate vendor spending across all filtered bank statements (top 8 by moneyOut)
+  const vendorPieData = useMemo(() => {
+    const vendorMap = {};
+    for (const statement of filteredBankStatements) {
+      for (const vt of statement.vendorTotals || []) {
+        if (vt.moneyOut > 0) {
+          vendorMap[vt.vendor] = (vendorMap[vt.vendor] || 0) + vt.moneyOut;
+        }
+      }
+    }
+    return Object.entries(vendorMap)
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 8)
+      .map(([vendor, total], i) => ({
+        name: vendor,
+        population: Number(total.toFixed(2)),
+        color: CHART_COLORS[i % CHART_COLORS.length],
+        legendFontColor: "#333",
+        legendFontSize: 13,
+      }));
+  }, [filteredBankStatements]);
+
   const monthlyData = groupCashflowByMonth(filteredReceipts, filteredIncome);
 
   // Build nice Y axis ticks
@@ -429,6 +451,38 @@ export default function SummaryScreen({ navigation }) {
               </View>
             );
           })()}
+
+          {/* Vendor spending pie chart from bank/credit statements */}
+          {vendorPieData.length > 0 && (
+            <View style={styles.chartCard}>
+              <Text style={styles.chartTitle}>Top Vendor Spending (Bank / Credit)</Text>
+              <View style={styles.pieChartWrapper}>
+                <PieChart
+                  data={vendorPieData}
+                  width={PIE_CHART_SIZE}
+                  height={PIE_CHART_SIZE}
+                  chartConfig={chartConfig}
+                  accessor="population"
+                  backgroundColor="transparent"
+                  paddingLeft={PIE_CHART_PADDING_LEFT}
+                  absolute
+                  hasLegend={false}
+                  center={[PIE_CHART_CENTER_X, 0]}
+                  style={styles.pieChart}
+                />
+              </View>
+              <View style={styles.legendContainer}>
+                {vendorPieData.map((d) => (
+                  <View key={d.name} style={styles.legendItem}>
+                    <View style={[styles.legendDot, { backgroundColor: d.color }]} />
+                    <Text style={styles.legendText}>
+                      {d.name}: £{Number(d.population).toFixed(2)}
+                    </Text>
+                  </View>
+                ))}
+              </View>
+            </View>
+          )}
         </ScrollView>
       )}
 
