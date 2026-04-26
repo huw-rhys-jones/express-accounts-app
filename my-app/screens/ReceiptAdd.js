@@ -23,7 +23,7 @@ import DateTimePickerModal from "react-native-modal-datetime-picker";
 import * as ImagePicker from "react-native-image-picker";
 import { KeyboardAwareScrollView } from "react-native-keyboard-aware-scroll-view";
 import { SafeAreaView } from "react-native-safe-area-context";
-import DropDownPicker from "react-native-dropdown-picker";
+import CategorySelector from "../components/CategorySelector";
 import { db, auth } from "../firebaseConfig";
 import {
   doc,
@@ -58,8 +58,8 @@ const ReceiptAdd = ({ navigation, route }) => {
   const [selectedDate, setSelectedDate] = useState(new Date());
   const [isDatePickerVisible, setDatePickerVisibility] = useState(false);
   const [images, setImages] = useState([]); // [{ uri }]
-  const [open, setOpen] = useState(false);
   const [selectedCategory, setSelectedCategory] = useState(null);
+  const [categoryModalVisible, setCategoryModalVisible] = useState(false);
   const [label, setLabel] = useState("");
   const [vatAmountEdited, setVatAmountEdited] = useState(false);
   const [showTip, setShowTip] = useState(false);
@@ -122,11 +122,6 @@ const ReceiptAdd = ({ navigation, route }) => {
   // Fullscreen viewer (separate, top-level modal)
   const [fullScreenImage, setFullScreenImage] = useState(null);
 
-  const allCategoryItems = categories_meta.map((cat) => ({
-    label: cat.name,
-    value: cat.name,
-  }));
-
   const getCanonicalCategoryName = (value) => {
     const normalized = String(value || "").trim().toLowerCase();
     if (!normalized) return null;
@@ -137,9 +132,6 @@ const ReceiptAdd = ({ navigation, route }) => {
 
     return match?.name || null;
   };
-
-  // 2. The 'items' state will now only hold what is visible
-  const [items, setItems] = useState(allCategoryItems);
 
   // VAT rate options from categories_meta unique vatRate values
   const deriveVatRateItems = () => {
@@ -1321,120 +1313,24 @@ const ReceiptAdd = ({ navigation, route }) => {
               >
                 Category:
               </Text>
-              <DropDownPicker
-                open={open}
-                value={selectedCategory}
-                items={items}
-                setOpen={setOpen}
-                setItems={setItems}
-                searchable={true}
-                disableLocalSearch={true} // We are taking the wheel
-                // 1. Make the placeholder look like a search instruction
-                placeholder="Search categories..."
-                searchPlaceholder="Type to filter..."
-                // 2. Add an icon to the right side (optional but looks great)
-                // You can use a library like FontAwesome or a simple emoji/Text
-                ArrowDownIconComponent={() => (
-                  <Text style={{ marginRight: 10 }}>🔍</Text>
-                )}
-                ArrowUpIconComponent={() => (
-                  <Text style={{ marginRight: 10 }}>🔍</Text>
-                )}
-                showArrowIcon={true}
-                // 3. Ensure the keyboard is ready immediately
-                searchTextInputProps={{
-                  autoFocus: true,
-                  clearButtonMode: "while-editing", // iOS only, adds a 'X' to clear
-                }}
-                onChangeSearchText={(text) => {
-                  categoryWrapperRef.current.measureLayout(
-                    findNodeHandle(scrollRef.current),
-                    (x, y) =>
-                      scrollRef.current?.scrollToPosition(0, y - 50, true),
-                  );
-
-                  // ... your existing filter logic ...
-                  const query = text.toLowerCase().trim();
-                  if (!query) {
-                    setItems(allCategoryItems);
-                    return;
-                  }
-                  const filtered = allCategoryItems.filter((item) => {
-                    const categoryData = categories_meta.find(
-                      (c) => c.name === item.value,
-                    );
-                    return (
-                      item.label.toLowerCase().includes(query) ||
-                      categoryData?.meta?.some((kw) =>
-                        kw.toLowerCase().includes(query),
-                      )
-                    );
-                  });
-                  setItems(filtered);
-                }}
-                // 3. Return to SCROLLVIEW mode for stability
-                listMode="SCROLLVIEW"
-                scrollViewProps={{ keyboardShouldPersistTaps: "always" }}
-                nestedScrollEnabled={true}
-                // 4. Force a Height to fix the scrolling
-                // This ensures the picker has a defined boundary so the phone knows when to scroll
-                dropDownContainerStyle={[
-                  ReceiptStyles.dropdownContainer,
-                  { position: "relative", top: 0, maxHeight: 250 },
-                ]}
-                setValue={(callback) => {
-                  // 1. Get the next value by calling the callback with the current state
-                  const next = callback(selectedCategory);
-
-                  // 2. Update your state variable
-                  setSelectedCategory(next);
-
-                  // 3. Trigger your VAT logic
-                  if (next) {
-                    const cat = categories_meta.find((c) => c.name === next);
-                    const r = cat?.vatRate;
-                    if (r !== undefined && r !== null && !Number.isNaN(r)) {
-                      const rStr = String(r);
-                      if (rStr !== vatRate) {
-                        setVatRate(rStr);
-                      }
-                      setVatRateItems((prev) => {
-                        const has = prev.some((it) => it.value === rStr);
-                        return has
-                          ? prev
-                          : [...prev, { label: `${r}%`, value: rStr }].sort(
-                              (a, b) => Number(a.value) - Number(b.value),
-                            );
-                      });
-                      if (!vatAmountEdited && amount) {
-                        setVatAmount(computeVat(amount, rStr));
-                      }
-                    }
-                  }
-                }}
-                onOpen={() => {
-                  setItems(allCategoryItems); // Reset to show everything when opened
-
-                  // Use measureLayout to find exactly where this view is inside the ScrollView
-                  categoryWrapperRef.current.measureLayout(
-                    findNodeHandle(scrollRef.current),
-                    (x, y) => {
-                      // Now 'y' is the absolute distance from the top of the list
-                      scrollRef.current?.scrollToPosition(0, y - 50, true);
-                    },
-                    (error) => console.log("Measurement failed", error),
-                  );
-                }}
+              <TouchableOpacity
                 style={[
-                  ReceiptStyles.dropdown,
-                  localStyles.dropdownAligned,
+                  ReceiptStyles.dateButton,
                   isCategoryValid
                     ? localStyles.validFieldInput
                     : localStyles.invalidFieldInput,
                 ]}
-                zIndex={1000}
-                zIndexInverse={3000}
-              />
+                onPress={() => setCategoryModalVisible(true)}
+              >
+                <Text
+                  style={[
+                    ReceiptStyles.dateText,
+                    !selectedCategory && { color: Colors.textSecondary },
+                  ]}
+                >
+                  {selectedCategory || "Select a category..."}
+                </Text>
+              </TouchableOpacity>
             </Animated.View>
 
             <View style={localStyles.fieldGroup}>
@@ -2044,6 +1940,38 @@ const ReceiptAdd = ({ navigation, route }) => {
           </View>
         </View>
       )}
+
+      {/* Category Selector Modal */}
+      <CategorySelector
+        visible={categoryModalVisible}
+        onClose={() => setCategoryModalVisible(false)}
+        onSelect={(categoryName) => {
+          setSelectedCategory(categoryName);
+          setCategoryModalVisible(false);
+
+          // Trigger VAT logic when category is selected
+          const cat = categories_meta.find((c) => c.name === categoryName);
+          const r = cat?.vatRate;
+          if (r !== undefined && r !== null && !Number.isNaN(r)) {
+            const rStr = String(r);
+            if (rStr !== vatRate) {
+              setVatRate(rStr);
+            }
+            setVatRateItems((prev) => {
+              const has = prev.some((it) => it.value === rStr);
+              return has
+                ? prev
+                : [...prev, { label: `${r}%`, value: rStr }].sort(
+                    (a, b) => Number(a.value) - Number(b.value),
+                  );
+            });
+            if (!vatAmountEdited && amount) {
+              setVatAmount(computeVat(amount, rStr));
+            }
+          }
+        }}
+        selectedCategory={selectedCategory}
+      />
     </SafeAreaView>
   );
 };
