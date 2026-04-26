@@ -248,7 +248,8 @@ export default function AddReceiptSheet({
               {photoModalCount} photo{photoModalCount === 1 ? "" : "s"} added
             </Text>
             <Text style={styles.photoModalQuestion}>
-              Would you like to add another receipt photo?
+              Would you like to add another receipt photo? It can be from the
+              same or another receipt.
             </Text>
             <View style={styles.photoModalButtons}>
               <TouchableOpacity

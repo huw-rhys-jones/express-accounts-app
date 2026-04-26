@@ -127,6 +127,17 @@ const ReceiptAdd = ({ navigation, route }) => {
     value: cat.name,
   }));
 
+  const getCanonicalCategoryName = (value) => {
+    const normalized = String(value || "").trim().toLowerCase();
+    if (!normalized) return null;
+
+    const match = categories_meta.find(
+      (cat) => String(cat?.name || "").trim().toLowerCase() === normalized,
+    );
+
+    return match?.name || null;
+  };
+
   // 2. The 'items' state will now only hold what is visible
   const [items, setItems] = useState(allCategoryItems);
 
@@ -224,7 +235,7 @@ const ReceiptAdd = ({ navigation, route }) => {
           ? parsedDate
           : new Date(),
       images: (assets || []).map((asset) => ({ uri: asset.uri })),
-      selectedCategory: analysis?.categoryName || null,
+      selectedCategory: getCanonicalCategoryName(analysis?.categoryName),
       label: "",
       vatAmountEdited: false,
     };
@@ -645,7 +656,7 @@ const ReceiptAdd = ({ navigation, route }) => {
       !amount ||
       isNaN(parseFloat(amount)) ||
       parseFloat(amount) <= 0 ||
-      !selectedCategory ||
+      !isCategoryValid ||
       !vatRate ||
       !vatAmount
     ) {
@@ -701,7 +712,7 @@ const ReceiptAdd = ({ navigation, route }) => {
       !amount ||
       isNaN(parseFloat(amount)) ||
       parseFloat(amount) <= 0 ||
-      !selectedCategory ||
+      !isCategoryValid ||
       !vatRate ||
       !vatAmount
     ) {
@@ -1005,8 +1016,10 @@ const ReceiptAdd = ({ navigation, route }) => {
         flashField(flashDate);
       }
     }
-    if (result.categoryName) {
-      setSelectedCategory(result.categoryName);
+
+    const resolvedCategory = getCanonicalCategoryName(result.categoryName);
+    if (resolvedCategory) {
+      setSelectedCategory(resolvedCategory);
       flashField(flashCategory);
       if (typeof result.categoryIndex === "number" && !vatRate) {
         const catRate = categories_meta[result.categoryIndex]?.vatRate ?? "";
@@ -1024,20 +1037,12 @@ const ReceiptAdd = ({ navigation, route }) => {
         }
       }
     }
+
     if (result.vat?.value != null) {
       setVatAmount(String(result.vat.value));
       flashField(flashVat);
     }
   };
-
-  const isReceiptFormValid =
-    selectedCategory &&
-    amount.trim().length > 0 &&
-    vatAmount.trim().length > 0 &&
-    vatRate.trim().length > 0 &&
-    !Number.isNaN(parseFloat(amount)) &&
-    !Number.isNaN(parseFloat(vatAmount)) &&
-    !Number.isNaN(parseFloat(vatRate));
 
   const amountNumber = parseFloat(amount);
   const vatAmountNumber = parseFloat(vatAmount);
@@ -1046,7 +1051,16 @@ const ReceiptAdd = ({ navigation, route }) => {
   const isVatAmountValid = Number.isFinite(vatAmountNumber) && vatAmountNumber >= 0;
   const isVatRateValid = Number.isFinite(vatRateNumber) && vatRateNumber >= 0;
   const isDateValid = selectedDate instanceof Date && !Number.isNaN(selectedDate.getTime());
-  const isCategoryValid = Boolean(selectedCategory);
+  const isCategoryValid = Boolean(getCanonicalCategoryName(selectedCategory));
+
+  const isReceiptFormValid =
+    isCategoryValid &&
+    amount.trim().length > 0 &&
+    vatAmount.trim().length > 0 &&
+    vatRate.trim().length > 0 &&
+    !Number.isNaN(parseFloat(amount)) &&
+    !Number.isNaN(parseFloat(vatAmount)) &&
+    !Number.isNaN(parseFloat(vatRate));
   const confirmedCount = receiptReviewStates.filter(
     (state) => state === "confirmed",
   ).length;
