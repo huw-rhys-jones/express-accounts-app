@@ -7,7 +7,6 @@ import {
   TouchableOpacity,
   ScrollView,
   StyleSheet,
-  SafeAreaView,
   Dimensions,
 } from "react-native";
 import { categories_meta } from "../constants/arrays";
@@ -45,69 +44,85 @@ const CategorySelector = ({ visible, onClose, onSelect, selectedCategory }) => {
   return (
     <Modal
       visible={visible}
-      animationType="slide"
-      transparent={false}
+      animationType="fade"
+      transparent={true}
       onRequestClose={handleClose}
     >
-      <SafeAreaView style={styles.container}>
-        {/* Header with close button */}
-        <View style={styles.header}>
-          <Text style={styles.title}>Category</Text>
-          <TouchableOpacity onPress={handleClose} hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}>
-            <Text style={styles.closeButton}>✕</Text>
-          </TouchableOpacity>
-        </View>
+      <View style={styles.overlay}>
+        <View style={styles.modalCard}>
+          {/* Header with close button */}
+          <View style={styles.header}>
+            <Text style={styles.title}>Category</Text>
+            <TouchableOpacity onPress={handleClose} hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}>
+              <Text style={styles.closeButton}>✕</Text>
+            </TouchableOpacity>
+          </View>
 
-        {/* Search field */}
-        <View style={styles.searchContainer}>
-          <TextInput
-            style={styles.searchInput}
-            placeholder="Search categories..."
-            placeholderTextColor={Colors.textSecondary}
-            value={searchText}
-            onChangeText={setSearchText}
-            autoFocus={true}
-          />
-        </View>
+          {/* Search field */}
+          <View style={styles.searchContainer}>
+            <TextInput
+              style={styles.searchInput}
+              placeholder="Search categories..."
+              placeholderTextColor={Colors.textSecondary}
+              value={searchText}
+              onChangeText={setSearchText}
+              autoFocus={true}
+            />
+          </View>
 
-        {/* Category list */}
-        <ScrollView
-          style={styles.listContainer}
-          keyboardShouldPersistTaps="always"
-          showsVerticalScrollIndicator={true}
-        >
-          {filteredCategories.length > 0 ? (
-            filteredCategories.map((category, index) => (
-              <TouchableOpacity
-                key={`${category.name}-${index}`}
-                style={[
-                  styles.categoryItem,
-                  selectedCategory === category.name && styles.categoryItemSelected,
-                ]}
-                onPress={() => handleSelect(category.name)}
-              >
-                <Text
+          {/* Category list */}
+          <ScrollView
+            style={styles.listContainer}
+            keyboardShouldPersistTaps="always"
+            showsVerticalScrollIndicator={true}
+          >
+            {filteredCategories.length > 0 ? (
+              filteredCategories.map((category, index) => (
+                <TouchableOpacity
+                  key={`${category.name}-${index}`}
                   style={[
-                    styles.categoryName,
-                    selectedCategory === category.name && styles.categoryNameSelected,
+                    styles.categoryItem,
+                    selectedCategory === category.name && styles.categoryItemSelected,
                   ]}
+                  onPress={() => handleSelect(category.name)}
                 >
-                  {category.name}
-                </Text>
-              </TouchableOpacity>
-            ))
-          ) : (
-            <View style={styles.noResults}>
-              <Text style={styles.noResultsText}>No categories found</Text>
-            </View>
-          )}
-        </ScrollView>
-      </SafeAreaView>
+                  <Text
+                    style={[
+                      styles.categoryName,
+                      selectedCategory === category.name && styles.categoryNameSelected,
+                    ]}
+                  >
+                    {category.name}
+                  </Text>
+                </TouchableOpacity>
+              ))
+            ) : (
+              <View style={styles.noResults}>
+                <Text style={styles.noResultsText}>No categories found</Text>
+              </View>
+            )}
+          </ScrollView>
+        </View>
+      </View>
     </Modal>
   );
 };
 
 const styles = StyleSheet.create({
+  overlay: {
+    flex: 1,
+    backgroundColor: "rgba(0, 0, 0, 0.5)",
+    justifyContent: "flex-end",
+    paddingHorizontal: 12,
+    paddingBottom: 12,
+  },
+  modalCard: {
+    backgroundColor: "#fff",
+    borderTopLeftRadius: 16,
+    borderTopRightRadius: 16,
+    maxHeight: height * 0.75,
+    overflow: "hidden",
+  },
   container: {
     flex: 1,
     backgroundColor: "#fff",
