@@ -111,6 +111,7 @@ export default ({ config }) => ({
     GOOGLE_WEB_CLIENT_ID: process.env.GOOGLE_WEB_CLIENT_ID,
     GOOGLE_ANDROID_CLIENT_ID: process.env.GOOGLE_ANDROID_CLIENT_ID,
     GOOGLE_IOS_CLIENT_ID: process.env.GOOGLE_IOS_CLIENT_ID,
-    BANK_PDF_OCR_URL: process.env.BANK_PDF_OCR_URL
+    BANK_PDF_OCR_URL: process.env.BANK_PDF_OCR_URL,
+    RECEIPT_IMAGE_OCR_URL: process.env.RECEIPT_IMAGE_OCR_URL
   }
 });

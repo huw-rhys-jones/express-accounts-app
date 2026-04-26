@@ -2,6 +2,7 @@ import { useState } from "react";
 import * as FileSystem from "expo-file-system/legacy";
 import TextRecognition from "@react-native-ml-kit/text-recognition";
 import { categories_meta } from "../constants/arrays";
+import { extractReceiptImagesInCloud } from "./cloudReceiptOcr";
 import { extractData, reconstructLines } from "./extractors";
 
 // ─── Standalone OCR helpers (no hook state) ──────────────────────────────────
@@ -169,26 +170,57 @@ async function analyzeAsset(asset) {
   };
 }
 
+async function analyzeAssetsCloudFirst(assets) {
+  try {
+    const response = await extractReceiptImagesInCloud(assets);
+    const cloudImages = Array.isArray(response?.images) ? response.images : [];
+    const responseProvider = response?.provider || cloudImages[0]?.provider || "cloud";
+
+    if (cloudImages.length === assets.length) {
+      console.log(
+        "Receipt OCR source: cloud (%s)",
+        responseProvider,
+      );
+      return cloudImages.map((entry, index) => {
+        const raw = typeof entry?.rawText === "string" ? entry.rawText : "";
+        return {
+          asset: assets[index],
+          ocrSource: "cloud",
+          ocrProvider: entry?.provider || responseProvider,
+          ...toStructuredOcrResult(extractData(raw), raw),
+        };
+      });
+    }
+  } catch (error) {
+    console.warn("Cloud receipt OCR unavailable, falling back to on-device OCR.", error);
+  }
+
+  console.log("Receipt OCR source: local (ml-kit)");
+  return Promise.all(
+    (assets || []).map(async (asset) => {
+      const analysis = await analyzeAsset(asset);
+      return {
+        ...analysis,
+        ocrSource: "local",
+        ocrProvider: "ml-kit",
+      };
+    }),
+  );
+}
+
 /**
  * Run OCR on multiple image assets in parallel, combine all extracted text
  * into one block, then run data extraction once on the combined text.
  * Returns a structured result object (same shape as ocrResult in the hook).
  */
 export async function runOcrOnAssets(assets) {
-  const texts = await Promise.all(
-    assets.map(async (asset) => {
-      const filePath = await ensureFileFromAssetStandalone(asset);
-      return extractRawTextFromFile(filePath);
-    }),
-  );
-  const combined = texts.filter(Boolean).join("\n\n");
+  const analyses = await analyzeAssetsCloudFirst(assets || []);
+  const combined = analyses.map((entry) => entry.raw).filter(Boolean).join("\n\n");
   return toStructuredOcrResult(extractData(combined), combined);
 }
 
 export async function detectReceiptGroupsFromAssets(assets) {
-  const analyses = await Promise.all(
-    (assets || []).map((asset) => analyzeAsset(asset)),
-  );
+  const analyses = await analyzeAssetsCloudFirst(assets || []);
   if (!analyses.length) return [];
 
   const groups = [];

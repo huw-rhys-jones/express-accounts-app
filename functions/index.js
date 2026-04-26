@@ -1,10 +1,12 @@
 /* eslint-disable max-len, require-jsdoc */
 const admin = require("firebase-admin");
 const functions = require("firebase-functions");
+const {onRequest} = require("firebase-functions/v2/https");
 const nodemailer = require("nodemailer");
 const cors = require("cors")({origin: true});
 const pdfParse = require("pdf-parse");
 const {DocumentProcessorServiceClient} = require("@google-cloud/documentai").v1;
+const vision = require("@google-cloud/vision");
 const {extractBankStatementData} = require("./bankStatementExtractors");
 
 if (!admin.apps.length) {
@@ -22,11 +24,46 @@ const transporter = nodemailer.createTransport({
   },
 });
 
+const MAX_INLINE_IMAGE_BYTES = 8 * 1024 * 1024;
+const MAX_RECEIPT_IMAGES_PER_REQUEST = 12;
+const OCR_FUNCTION_REGION = process.env.OCR_FUNCTION_REGION || "europe-west2";
+
 function getDocumentAiConfig() {
   return {
     projectId: process.env.GCLOUD_PROJECT || process.env.DOCUMENT_AI_PROJECT_ID || admin.app().options.projectId,
     location: process.env.DOCUMENT_AI_LOCATION || "eu",
     processorId: process.env.DOCUMENT_AI_PROCESSOR_ID || "",
+    receiptProcessorId:
+      process.env.RECEIPT_OCR_PROCESSOR_ID ||
+      process.env.DOCUMENT_AI_PROCESSOR_ID ||
+      "",
+  };
+}
+
+async function processDocumentWithAi({base64Content, mimeType, processorId}) {
+  const {projectId, location} = getDocumentAiConfig();
+  if (!projectId || !processorId) {
+    return null;
+  }
+
+  const client = new DocumentProcessorServiceClient({
+    apiEndpoint: `${location}-documentai.googleapis.com`,
+  });
+
+  const name = `projects/${projectId}/locations/${location}/processors/${processorId}`;
+  const [result] = await client.processDocument({
+    name,
+    rawDocument: {
+      content: base64Content,
+      mimeType,
+    },
+  });
+
+  const document = result && result.document ? result.document : null;
+  return {
+    text: document && document.text ? document.text : "",
+    pageCount: document && Array.isArray(document.pages) ? document.pages.length : 0,
+    provider: "document-ai",
   };
 }
 
@@ -49,29 +86,18 @@ async function verifyAuthenticatedUser(req) {
 }
 
 async function extractTextFromPdf(pdfBase64, mimeType) {
-  const {projectId, location, processorId} = getDocumentAiConfig();
+  const {processorId} = getDocumentAiConfig();
 
-  if (projectId && processorId) {
+  if (processorId) {
     try {
-      const client = new DocumentProcessorServiceClient({
-        apiEndpoint: `${location}-documentai.googleapis.com`,
+      const result = await processDocumentWithAi({
+        base64Content: pdfBase64,
+        mimeType,
+        processorId,
       });
-
-      const name = `projects/${projectId}/locations/${location}/processors/${processorId}`;
-      const [result] = await client.processDocument({
-        name,
-        rawDocument: {
-          content: pdfBase64,
-          mimeType,
-        },
-      });
-
-      const document = result && result.document ? result.document : null;
-      return {
-        text: document && document.text ? document.text : "",
-        pageCount: document && Array.isArray(document.pages) ? document.pages.length : 0,
-        provider: "document-ai",
-      };
+      if (result) {
+        return result;
+      }
     } catch (error) {
       console.warn("Document AI PDF scan failed, falling back to embedded PDF text extraction.", error);
     }
@@ -83,6 +109,39 @@ async function extractTextFromPdf(pdfBase64, mimeType) {
     text: parsedPdf && parsedPdf.text ? parsedPdf.text : "",
     pageCount: parsedPdf && parsedPdf.numpages ? parsedPdf.numpages : 0,
     provider: "pdf-parse",
+  };
+}
+
+async function extractTextFromReceiptImage(imageBase64, mimeType) {
+  const {receiptProcessorId} = getDocumentAiConfig();
+  if (receiptProcessorId) {
+    try {
+      const parsed = await processDocumentWithAi({
+        base64Content: imageBase64,
+        mimeType,
+        processorId: receiptProcessorId,
+      });
+
+      return {
+        text: parsed && parsed.text ? parsed.text : "",
+        pageCount: parsed && parsed.pageCount ? parsed.pageCount : 1,
+        provider: parsed && parsed.provider ? parsed.provider : "document-ai",
+      };
+    } catch (error) {
+      console.warn("Document AI receipt scan failed, falling back to Vision OCR.", error);
+    }
+  }
+
+  const client = new vision.ImageAnnotatorClient();
+  const [result] = await client.documentTextDetection({
+    image: {content: imageBase64},
+  });
+  const fullText = result && result.fullTextAnnotation ? result.fullTextAnnotation.text : "";
+
+  return {
+    text: fullText || "",
+    pageCount: 1,
+    provider: "vision-ocr",
   };
 }
 
@@ -136,7 +195,7 @@ exports.submitFeedback = functions.https.onRequest((req, res) => {
   });
 });
 
-exports.extractBankStatementPdf = functions.https.onRequest((req, res) => {
+exports.extractBankStatementPdf = onRequest({region: OCR_FUNCTION_REGION}, (req, res) => {
   cors(req, res, async () => {
     if (req.method === "OPTIONS") {
       return res.status(204).send("");
@@ -176,6 +235,95 @@ exports.extractBankStatementPdf = functions.https.onRequest((req, res) => {
       const statusCode = error && error.statusCode ? error.statusCode : 500;
       return res.status(statusCode).json({
         error: statusCode === 401 ? error.message : "PDF scan failed. Please try again with another PDF or image upload.",
+      });
+    }
+  });
+});
+
+exports.extractReceiptImages = onRequest({region: OCR_FUNCTION_REGION}, (req, res) => {
+  cors(req, res, async () => {
+    if (req.method === "OPTIONS") {
+      return res.status(204).send("");
+    }
+
+    if (req.method !== "POST") {
+      return res.status(405).json({error: "Method Not Allowed"});
+    }
+
+    try {
+      await verifyAuthenticatedUser(req);
+
+      const {images} = req.body || {};
+      if (!Array.isArray(images) || !images.length) {
+        return res.status(400).json({error: "No receipt images were provided."});
+      }
+
+      if (images.length > MAX_RECEIPT_IMAGES_PER_REQUEST) {
+        return res.status(400).json({error: "Too many receipt images were provided in one request."});
+      }
+
+      const results = await Promise.all(images.map(async (image, index) => {
+        const imageBase64 = image && typeof image.imageBase64 === "string" ? image.imageBase64 : "";
+        const mimeType = image && typeof image.mimeType === "string" ? image.mimeType : "image/jpeg";
+        const fileName = image && typeof image.fileName === "string" ? image.fileName : `receipt-${index + 1}.jpg`;
+        const byteLength = Buffer.byteLength(imageBase64, "base64");
+
+        if (!imageBase64) {
+          const error = new Error("An image payload was empty.");
+          error.statusCode = 400;
+          throw error;
+        }
+
+        if (!mimeType.startsWith("image/")) {
+          const error = new Error("Only image uploads are supported for receipt OCR.");
+          error.statusCode = 400;
+          throw error;
+        }
+
+        if (byteLength > MAX_INLINE_IMAGE_BYTES) {
+          const error = new Error(`Receipt image ${fileName} is too large for live scanning.`);
+          error.statusCode = 400;
+          throw error;
+        }
+
+        const parsed = await extractTextFromReceiptImage(imageBase64, mimeType);
+        return {
+          fileName,
+          mimeType,
+          rawText: parsed.text || "",
+          textLength: parsed.text ? parsed.text.length : 0,
+          pageCount: parsed.pageCount || 1,
+          provider: parsed.provider,
+        };
+      }));
+
+      console.log(
+        "RECEIPT_OCR_REQUEST images=%d providers=%s",
+        results.length,
+        results.map((entry) => entry.provider || "unknown").join(","),
+      );
+
+      return res.status(200).json({
+        images: results,
+        provider: results.every((entry) => entry.provider === results[0]?.provider)
+          ? results[0]?.provider || null
+          : "mixed",
+      });
+    } catch (error) {
+      console.error("Receipt image OCR failed", error);
+      const details = typeof error?.details === "string" ? error.details : "";
+      const message = error?.message || details || "Receipt image scan failed. Please try again with another image.";
+      const statusCode =
+        error && error.statusCode
+          ? error.statusCode
+          : error?.code === 7
+            ? 503
+            : 500;
+      return res.status(statusCode).json({
+        error:
+          statusCode === 401 || statusCode === 400 || statusCode === 503
+            ? message
+            : "Receipt image scan failed. Please try again with another image.",
       });
     }
   });
