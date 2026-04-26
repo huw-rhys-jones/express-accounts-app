@@ -999,7 +999,7 @@ const ReceiptAdd = ({ navigation, route }) => {
 
   const applyOcrResult = (result) => {
     if (result.amount != null) {
-      setAmount(String(result.amount));
+      setAmount(Number(result.amount).toFixed(2));
       flashField(flashAmount);
     }
     if (result.date) {
@@ -1987,7 +1987,7 @@ const localStyles = StyleSheet.create({
   },
   detectingOverlay: {
     ...StyleSheet.absoluteFillObject,
-    backgroundColor: "rgba(255,255,255,0.94)",
+    backgroundColor: "rgba(255,255,255,1)",
     justifyContent: "center",
     alignItems: "center",
     zIndex: 1200,

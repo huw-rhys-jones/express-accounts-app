@@ -216,7 +216,6 @@ export default function SummaryScreen({ navigation }) {
         >
           {/* Summary totals card */}
           <View style={[styles.card, { zIndex: 10, overflow: "visible" }]}>
-            <Text style={styles.title}>Summary</Text>
 
             <DropDownPicker
               open={filterOpen}

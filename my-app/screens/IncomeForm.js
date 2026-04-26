@@ -233,7 +233,7 @@ export default function IncomeFormScreen({ navigation, route, mode }) {
       setOcrProcessing(true);
       // Add images to attachments
       const newAttachments = initialImages.map((asset) =>
-        createImageAttachment(asset.uri)
+        createImageAttachment(asset)
       );
       setAttachments((prev) => [...prev, ...newAttachments]);
 
