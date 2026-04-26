@@ -1,17 +1,19 @@
-import { useState } from 'react';
-import * as FileSystem from 'expo-file-system/legacy';
-import TextRecognition from '@react-native-ml-kit/text-recognition';
-import { categories_meta } from '../constants/arrays';
-import { extractData, reconstructLines } from './extractors';
+import { useState } from "react";
+import * as FileSystem from "expo-file-system/legacy";
+import TextRecognition from "@react-native-ml-kit/text-recognition";
+import { categories_meta } from "../constants/arrays";
+import { extractData, reconstructLines } from "./extractors";
 
 // ─── Standalone OCR helpers (no hook state) ──────────────────────────────────
 
 export async function ensureFileFromAssetStandalone(asset) {
   const { base64, fileName, uri } = asset || {};
   const ext =
-    (fileName && fileName.includes('.') && '.' + fileName.split('.').pop()) ||
-    '.jpg';
-  const dest = FileSystem.cacheDirectory + `ocr-${Date.now()}-${Math.random().toString(36).slice(2)}${ext}`;
+    (fileName && fileName.includes(".") && "." + fileName.split(".").pop()) ||
+    ".jpg";
+  const dest =
+    FileSystem.cacheDirectory +
+    `ocr-${Date.now()}-${Math.random().toString(36).slice(2)}${ext}`;
 
   if (base64) {
     await FileSystem.writeAsStringAsync(dest, base64, {
@@ -34,7 +36,7 @@ export async function ensureFileFromAssetStandalone(asset) {
       const res = await fetch(uri);
       const blob = await res.blob();
       const buf = await blob.arrayBuffer();
-      const b64 = Buffer.from(buf).toString('base64');
+      const b64 = Buffer.from(buf).toString("base64");
       await FileSystem.writeAsStringAsync(dest, b64, {
         encoding: FileSystem.EncodingType.Base64,
       });
@@ -42,12 +44,129 @@ export async function ensureFileFromAssetStandalone(asset) {
     }
   }
 
-  throw new Error('No usable uri/base64 on asset for OCR');
+  throw new Error("No usable uri/base64 on asset for OCR");
 }
 
 export async function extractRawTextFromFile(fileUri) {
   const result = await TextRecognition.recognize(fileUri);
-  return reconstructLines(result?.blocks || []) || result?.text || '';
+  return reconstructLines(result?.blocks || []) || result?.text || "";
+}
+
+function toStructuredOcrResult(res, raw) {
+  const categoryIndex = typeof res?.category === "number" ? res.category : -1;
+  const categoryName =
+    categoryIndex >= 0 && categories_meta[categoryIndex]
+      ? categories_meta[categoryIndex].name
+      : null;
+
+  return {
+    amount: res?.money?.value ?? null,
+    date: res?.date ?? null,
+    reference: res?.reference ?? null,
+    vat: res?.vat ?? null,
+    categoryIndex,
+    categoryName,
+    raw: raw || "",
+  };
+}
+
+function normalizeComparable(value) {
+  return String(value || "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]/g, "");
+}
+
+function getAnalysisScore(result) {
+  if (!result) return 0;
+  let score = 0;
+  if (result.amount != null) score += 2;
+  if (result.date) score += 2;
+  if (result.categoryName) score += 1;
+  if (result.vat?.value != null) score += 1;
+  if (result.reference) score += 1.5;
+  score += Math.min((result.raw || "").length, 200) / 200;
+  return score;
+}
+
+function isWeakAnalysis(result) {
+  return (
+    result?.amount == null &&
+    !result?.date &&
+    !result?.categoryName &&
+    !result?.reference
+  );
+}
+
+function shouldMergeAnalyses(previous, next) {
+  if (!previous || !next) return false;
+
+  const previousReference = normalizeComparable(previous.reference);
+  const nextReference = normalizeComparable(next.reference);
+  if (
+    previousReference &&
+    nextReference &&
+    previousReference === nextReference
+  ) {
+    return true;
+  }
+
+  if (
+    previous.date &&
+    next.date &&
+    previous.date === next.date &&
+    previous.amount != null &&
+    next.amount != null &&
+    Math.abs(Number(previous.amount) - Number(next.amount)) <= 0.01
+  ) {
+    return true;
+  }
+
+  if (
+    previous.date &&
+    next.date &&
+    previous.date === next.date &&
+    previous.categoryName &&
+    next.categoryName &&
+    previous.categoryName === next.categoryName
+  ) {
+    return true;
+  }
+
+  if (isWeakAnalysis(previous) || isWeakAnalysis(next)) {
+    return true;
+  }
+
+  return false;
+}
+
+function mergeStructuredResults(primary, fallback) {
+  if (!fallback) return primary;
+  if (!primary) return fallback;
+
+  return {
+    amount: primary.amount ?? fallback.amount ?? null,
+    date: primary.date || fallback.date || null,
+    reference: primary.reference || fallback.reference || null,
+    vat: {
+      value: primary.vat?.value ?? fallback.vat?.value ?? null,
+      rate: primary.vat?.rate ?? fallback.vat?.rate ?? null,
+    },
+    categoryIndex:
+      primary.categoryIndex != null && primary.categoryIndex >= 0
+        ? primary.categoryIndex
+        : (fallback.categoryIndex ?? -1),
+    categoryName: primary.categoryName || fallback.categoryName || null,
+    raw: primary.raw || fallback.raw || "",
+  };
+}
+
+async function analyzeAsset(asset) {
+  const filePath = await ensureFileFromAssetStandalone(asset);
+  const raw = await extractRawTextFromFile(filePath);
+  return {
+    asset,
+    ...toStructuredOcrResult(extractData(raw), raw),
+  };
 }
 
 /**
@@ -60,24 +179,60 @@ export async function runOcrOnAssets(assets) {
     assets.map(async (asset) => {
       const filePath = await ensureFileFromAssetStandalone(asset);
       return extractRawTextFromFile(filePath);
-    })
+    }),
   );
-  const combined = texts.filter(Boolean).join('\n\n');
-  const res = extractData(combined);
-  const categoryIndex = typeof res?.category === 'number' ? res.category : -1;
-  const categoryName =
-    categoryIndex >= 0 && categories_meta[categoryIndex]
-      ? categories_meta[categoryIndex].name
-      : null;
-  return {
-    amount: res?.money?.value ?? null,
-    date: res?.date ?? null,
-    reference: res?.reference ?? null,
-    vat: res?.vat ?? null,
-    categoryIndex,
-    categoryName,
-    raw: combined,
-  };
+  const combined = texts.filter(Boolean).join("\n\n");
+  return toStructuredOcrResult(extractData(combined), combined);
+}
+
+export async function detectReceiptGroupsFromAssets(assets) {
+  const analyses = await Promise.all(
+    (assets || []).map((asset) => analyzeAsset(asset)),
+  );
+  if (!analyses.length) return [];
+
+  const groups = [];
+
+  for (const analysis of analyses) {
+    const previousGroup = groups[groups.length - 1];
+    const previousBest = previousGroup?.bestAnalysis || null;
+
+    if (previousGroup && shouldMergeAnalyses(previousBest, analysis)) {
+      previousGroup.assets.push(analysis.asset);
+      previousGroup.individualAnalyses.push(analysis);
+      if (
+        getAnalysisScore(analysis) >
+        getAnalysisScore(previousGroup.bestAnalysis)
+      ) {
+        previousGroup.bestAnalysis = analysis;
+      }
+      continue;
+    }
+
+    groups.push({
+      assets: [analysis.asset],
+      individualAnalyses: [analysis],
+      bestAnalysis: analysis,
+    });
+  }
+
+  return groups.map((group, index) => {
+    const combinedRaw = group.individualAnalyses
+      .map((entry) => entry.raw)
+      .filter(Boolean)
+      .join("\n\n");
+    const combinedAnalysis = toStructuredOcrResult(
+      extractData(combinedRaw),
+      combinedRaw,
+    );
+
+    return {
+      id: `receipt-${index + 1}`,
+      assets: group.assets,
+      analysis: mergeStructuredResults(combinedAnalysis, group.bestAnalysis),
+      individualAnalyses: group.individualAnalyses,
+    };
+  });
 }
 
 /**
@@ -106,8 +261,8 @@ export function useReceiptOcr({ computeVat }) {
   const ensureFileFromAsset = async (asset) => {
     const { base64, fileName, uri } = asset || {};
     const ext =
-      (fileName && fileName.includes('.') && '.' + fileName.split('.').pop()) ||
-      '.jpg';
+      (fileName && fileName.includes(".") && "." + fileName.split(".").pop()) ||
+      ".jpg";
     const dest = FileSystem.cacheDirectory + `ocr-${Date.now()}${ext}`;
 
     if (base64) {
@@ -131,7 +286,7 @@ export function useReceiptOcr({ computeVat }) {
         const res = await fetch(uri);
         const blob = await res.blob();
         const buf = await blob.arrayBuffer();
-        const b64 = Buffer.from(buf).toString('base64');
+        const b64 = Buffer.from(buf).toString("base64");
         await FileSystem.writeAsStringAsync(dest, b64, {
           encoding: FileSystem.EncodingType.Base64,
         });
@@ -139,13 +294,22 @@ export function useReceiptOcr({ computeVat }) {
       }
     }
 
-    throw new Error('No usable uri/base64 on asset for OCR');
+    throw new Error("No usable uri/base64 on asset for OCR");
   };
 
-  const openOcrModal = async (uri, { autoScan = true, newSession = false } = {}) => {
+  const openOcrModal = async (
+    uri,
+    { autoScan = true, newSession = false } = {},
+  ) => {
     setPreview({ uri });
     setOcrResult(null);
-    setAcceptFlags({ amount: false, date: false, reference: false, category: false, vat: false });
+    setAcceptFlags({
+      amount: false,
+      date: false,
+      reference: false,
+      category: false,
+      vat: false,
+    });
     setIsNewImageSession(!!newSession);
     setOcrModalVisible(true);
 
@@ -170,12 +334,12 @@ export function useReceiptOcr({ computeVat }) {
       }
       const result = await TextRecognition.recognize(localUri);
       const reconstructedText = reconstructLines(result?.blocks || []);
-      const text = reconstructedText || result?.text || '';
+      const text = reconstructedText || result?.text || "";
       // Prefer block-reconstructed text for extraction, fallback to raw OCR text
       const res = extractData(text);
 
       const categoryIndex =
-        typeof res?.category === 'number' ? res.category : -1;
+        typeof res?.category === "number" ? res.category : -1;
       const categoryName =
         categoryIndex >= 0 && categories_meta[categoryIndex]
           ? categories_meta[categoryIndex].name
@@ -198,7 +362,7 @@ export function useReceiptOcr({ computeVat }) {
         vat: !!res?.vat?.value || !!res?.vat?.rate,
       });
     } catch (e) {
-      console.error('❌ OCR error:', e);
+      console.error("❌ OCR error:", e);
       setOcrResult(null);
     } finally {
       setOcrLoading(false);
@@ -230,14 +394,18 @@ export function useReceiptOcr({ computeVat }) {
       const d = new Date(ocrResult.date);
       if (!isNaN(d.getTime())) setSelectedDate(d);
     }
-    if (acceptFlags.reference && ocrResult.reference && typeof setReference === 'function') {
+    if (
+      acceptFlags.reference &&
+      ocrResult.reference &&
+      typeof setReference === "function"
+    ) {
       setReference(ocrResult.reference);
     }
     if (acceptFlags.category && ocrResult.categoryName) {
       setSelectedCategory(ocrResult.categoryName);
-      if (!vatRate && typeof ocrResult.categoryIndex === 'number') {
-        const catRate = categories_meta[ocrResult.categoryIndex]?.vatRate ?? '';
-        if (catRate !== '') {
+      if (!vatRate && typeof ocrResult.categoryIndex === "number") {
+        const catRate = categories_meta[ocrResult.categoryIndex]?.vatRate ?? "";
+        if (catRate !== "") {
           const rStr = String(catRate);
           setVatRate(rStr);
           setVatRateItems((prev) => {
@@ -245,10 +413,11 @@ export function useReceiptOcr({ computeVat }) {
             return has
               ? prev
               : [...prev, { label: `${catRate}%`, value: rStr }].sort(
-                  (a, b) => Number(a.value) - Number(b.value)
+                  (a, b) => Number(a.value) - Number(b.value),
                 );
           });
-          if (!vatAmountEdited && amount) setVatAmount(computeVat(amount, rStr));
+          if (!vatAmountEdited && amount)
+            setVatAmount(computeVat(amount, rStr));
         }
       }
     }

@@ -699,7 +699,7 @@ const ExpensesScreen = ({ navigation, route }) => {
           style={styles.addButton}
           onPress={() => setAddSheetVisible(true)}
         >
-          <Text style={styles.buttonText}>Add Expenses</Text>
+          <Text style={styles.buttonText}>Add Receipts</Text>
         </TouchableOpacity>
       </View>
     );
@@ -718,7 +718,7 @@ const ExpensesScreen = ({ navigation, route }) => {
           <Text style={styles.topBarButtonText}>≡</Text>
         </TouchableOpacity>
 
-        <Text style={styles.topBarTitle}>Expenses</Text>
+        <Text style={styles.topBarTitle}>Receipts</Text>
 
         {/* Right spacer to balance the layout (same width as the button) */}
         <View style={{ width: 44 }} />

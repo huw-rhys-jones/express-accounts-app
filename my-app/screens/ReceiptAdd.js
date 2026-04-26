@@ -1,6 +1,7 @@
 import React, { useRef, useState, useEffect } from "react";
 import {
   Animated,
+  PanResponder,
   PermissionsAndroid,
   View,
   Text,
@@ -38,11 +39,16 @@ import {
 import { getStorage, ref, uploadBytes, getDownloadURL } from "firebase/storage";
 import { categories_meta } from "../constants/arrays";
 import { formatDate } from "../utils/format_style";
-import { extractData, reconstructLines } from "../utils/extractors";
-import { runOcrOnAssets } from "../utils/ocrHelpers";
+import {
+  runOcrOnAssets,
+  detectReceiptGroupsFromAssets,
+} from "../utils/ocrHelpers";
 import ImageViewer from "react-native-image-zoom-viewer";
 import { Colors, ReceiptStyles } from "../utils/sharedStyles";
-import { getCurrentYearAprilSix, startOfDayLocal } from "../utils/financialPeriods";
+import {
+  getCurrentYearAprilSix,
+  startOfDayLocal,
+} from "../utils/financialPeriods";
 import { triggerHaptic } from "../utils/haptics";
 
 const ReceiptAdd = ({ navigation, route }) => {
@@ -63,7 +69,6 @@ const ReceiptAdd = ({ navigation, route }) => {
   const [showSuccess, setShowSuccess] = useState(false);
   const [showConfirmReset, setConfirmReset] = useState(false);
   const [showConfirmLeaveModal, setShowConfirmLeaveModal] = useState(false);
-  const [showConfirmModal, setShowConfirmModal] = useState(false);
   const [showDuplicateModal, setShowDuplicateModal] = useState(false);
   const [duplicateReceiptDate, setDuplicateReceiptDate] = useState(null);
   const [recurringEnabled, setRecurringEnabled] = useState(false);
@@ -74,8 +79,30 @@ const ReceiptAdd = ({ navigation, route }) => {
 
   const [isUploading, setIsUploading] = useState(false);
   const [isPickerBusy, setIsPickerBusy] = useState(false);
-  const [pickerBusyText, setPickerBusyText] = useState("Opening image options…");
+  const [pickerBusyText, setPickerBusyText] = useState(
+    "Opening image options…",
+  );
   const [ocrProcessing, setOcrProcessing] = useState(false);
+  const [isDetecting, setIsDetecting] = useState(false);
+  const [receiptDrafts, setReceiptDrafts] = useState([]);
+  const [currentReceiptIndex, setCurrentReceiptIndex] = useState(0);
+  const [showDetectedReceiptsModal, setShowDetectedReceiptsModal] =
+    useState(false);
+  const [receiptReviewStates, setReceiptReviewStates] = useState([]);
+  const [showBatchSummaryModal, setShowBatchSummaryModal] = useState(false);
+  const [batchSaveSummary, setBatchSaveSummary] = useState({
+    saved: [],
+    skippedCount: 0,
+  });
+  const [successMode, setSuccessMode] = useState("single");
+
+  // isMultiReceiptMode is true when we have multiple detected receipt drafts
+  const isMultiReceiptMode = receiptDrafts.length > 1;
+  const allReceiptsReviewed =
+    isMultiReceiptMode &&
+    receiptReviewStates.length === receiptDrafts.length &&
+    receiptReviewStates.length > 0 &&
+    receiptReviewStates.every((state) => state !== "pending");
 
   // Field flash animations — briefly highlight when OCR auto-populates a value
   const flashAmount = useRef(new Animated.Value(0)).current;
@@ -109,8 +136,8 @@ const ReceiptAdd = ({ navigation, route }) => {
       new Set(
         (categories_meta || [])
           .map((c) => c?.vatRate)
-          .filter((r) => r !== undefined && r !== null && !Number.isNaN(r))
-      )
+          .filter((r) => r !== undefined && r !== null && !Number.isNaN(r)),
+      ),
     ).sort((a, b) => Number(a) - Number(b));
     return unique.map((r) => ({ label: `${r}%`, value: String(r) }));
   };
@@ -120,6 +147,15 @@ const ReceiptAdd = ({ navigation, route }) => {
   const flatListRef = useRef(null);
 
   const scrollRef = useRef(null);
+  const processedInitialImagesKeyRef = useRef(null);
+  const draftSlideX = useRef(new Animated.Value(0)).current;
+  const draftFade = useRef(new Animated.Value(1)).current;
+
+  const scrollToTop = () => {
+    requestAnimationFrame(() => {
+      scrollRef.current?.scrollToPosition?.(0, 0, true);
+    });
+  };
 
   const categoryWrapperRef = useRef(null);
 
@@ -146,7 +182,183 @@ const ReceiptAdd = ({ navigation, route }) => {
     return vat.toFixed(2);
   };
 
+  const ensureVatRateOption = (rateValue) => {
+    const rStr = String(rateValue || "");
+    if (!rStr) return;
+    setVatRateItems((prev) => {
+      const has = prev.some((it) => it.value === rStr);
+      return has
+        ? prev
+        : [...prev, { label: `${rStr}%`, value: rStr }].sort(
+            (a, b) => Number(a.value) - Number(b.value),
+          );
+    });
+  };
 
+  const createDraftFromAnalysis = ({ analysis, assets }) => {
+    const categoryRate =
+      typeof analysis?.categoryIndex === "number" && analysis.categoryIndex >= 0
+        ? categories_meta[analysis.categoryIndex]?.vatRate
+        : null;
+    const draftVatRate =
+      analysis?.vat?.rate != null
+        ? String(analysis.vat.rate)
+        : Number.isFinite(categoryRate)
+          ? String(categoryRate)
+          : "";
+    const draftAmount = analysis?.amount != null ? String(analysis.amount) : "";
+    const draftVatAmount =
+      analysis?.vat?.value != null
+        ? String(analysis.vat.value)
+        : draftAmount && draftVatRate
+          ? computeVat(draftAmount, draftVatRate)
+          : "";
+    const parsedDate = analysis?.date ? new Date(analysis.date) : null;
+
+    return {
+      amount: draftAmount,
+      vatAmount: draftVatAmount,
+      vatRate: draftVatRate,
+      selectedDate:
+        parsedDate && !Number.isNaN(parsedDate.getTime())
+          ? parsedDate
+          : new Date(),
+      images: (assets || []).map((asset) => ({ uri: asset.uri })),
+      selectedCategory: analysis?.categoryName || null,
+      label: "",
+      vatAmountEdited: false,
+    };
+  };
+
+  const buildCurrentDraft = () => ({
+    amount,
+    vatAmount,
+    vatRate,
+    selectedDate: new Date(selectedDate),
+    images: images.map((img) => ({ ...img })),
+    selectedCategory,
+    label,
+    vatAmountEdited,
+  });
+
+  const applyDraftToForm = (draft) => {
+    setAmount(draft?.amount || "");
+    setVatAmount(draft?.vatAmount || "");
+    setVatRate(draft?.vatRate || "");
+    setSelectedDate(
+      draft?.selectedDate ? new Date(draft.selectedDate) : new Date(),
+    );
+    setImages(
+      Array.isArray(draft?.images)
+        ? draft.images.map((img) => ({ ...img }))
+        : [],
+    );
+    setSelectedCategory(draft?.selectedCategory || null);
+    setLabel(draft?.label || "");
+    setVatAmountEdited(Boolean(draft?.vatAmountEdited));
+    ensureVatRateOption(draft?.vatRate || "");
+  };
+
+  const syncCurrentDrafts = () => {
+    if (!isMultiReceiptMode || receiptDrafts.length === 0) {
+      return receiptDrafts;
+    }
+
+    const snapshot = buildCurrentDraft();
+    const nextDrafts = receiptDrafts.map((draft, index) =>
+      index === currentReceiptIndex ? { ...draft, ...snapshot } : draft,
+    );
+    setReceiptDrafts(nextDrafts);
+    return nextDrafts;
+  };
+
+  const animateDraftTransition = (direction = "next") => {
+    draftSlideX.setValue(direction === "next" ? 28 : -28);
+    draftFade.setValue(0.75);
+
+    Animated.parallel([
+      Animated.timing(draftSlideX, {
+        toValue: 0,
+        duration: 180,
+        useNativeDriver: true,
+      }),
+      Animated.timing(draftFade, {
+        toValue: 1,
+        duration: 180,
+        useNativeDriver: true,
+      }),
+    ]).start();
+  };
+
+  const loadDraftAtIndex = (
+    index,
+    drafts = receiptDrafts,
+    { animateDirection = null } = {},
+  ) => {
+    const nextDraft = drafts[index];
+    if (!nextDraft) return;
+    setCurrentReceiptIndex(index);
+    applyDraftToForm(nextDraft);
+    if (animateDirection) {
+      animateDraftTransition(animateDirection);
+    }
+    scrollToTop();
+  };
+
+  const navigateToDraftIndex = (index) => {
+    if (index < 0 || index >= receiptDrafts.length) return;
+    const drafts = syncCurrentDrafts();
+    const direction = index > currentReceiptIndex ? "next" : "previous";
+    loadDraftAtIndex(index, drafts, { animateDirection: direction });
+  };
+
+  const goToPreviousReceipt = () => {
+    if (!isMultiReceiptMode) return;
+    navigateToDraftIndex(currentReceiptIndex - 1);
+  };
+
+  const goToNextReceipt = () => {
+    if (!isMultiReceiptMode) return;
+    navigateToDraftIndex(currentReceiptIndex + 1);
+  };
+
+  const draftSwipeResponder = React.useMemo(
+    () =>
+      PanResponder.create({
+        onMoveShouldSetPanResponder: (_, gestureState) => {
+          const { dx, dy } = gestureState;
+          return (
+            isMultiReceiptMode &&
+            Math.abs(dx) > 18 &&
+            Math.abs(dx) > Math.abs(dy) * 1.4
+          );
+        },
+        onPanResponderRelease: (_, gestureState) => {
+          if (!isMultiReceiptMode) return;
+          const { dx, dy } = gestureState;
+          if (Math.abs(dx) < 72 || Math.abs(dx) < Math.abs(dy) * 1.2) {
+            return;
+          }
+
+          if (dx < 0) {
+            goToNextReceipt();
+          } else {
+            goToPreviousReceipt();
+          }
+        },
+      }),
+    [isMultiReceiptMode, currentReceiptIndex, receiptDrafts],
+  );
+
+  const clearBatchState = () => {
+    setReceiptDrafts([]);
+    setReceiptReviewStates([]);
+    setCurrentReceiptIndex(0);
+    setShowDetectedReceiptsModal(false);
+    setShowBatchSummaryModal(false);
+    setBatchSaveSummary({ saved: [], skippedCount: 0 });
+    processedInitialImagesKeyRef.current = null;
+  };
 
   // ------- effects -------
 
@@ -155,50 +367,54 @@ const ReceiptAdd = ({ navigation, route }) => {
     const initialImages = route?.params?.initialImages;
     if (!initialImages?.length) return;
 
-    const uriImages = initialImages.map((asset) => ({ uri: asset.uri }));
-    setImages(uriImages);
-    setOcrProcessing(true);
+    const modeKey = initialImages.map((asset) => asset.uri).join("|");
+    if (processedInitialImagesKeyRef.current === modeKey) {
+      return;
+    }
+    processedInitialImagesKeyRef.current = modeKey;
 
-    runOcrOnAssets(initialImages)
-      .then((result) => {
-        if (result.amount != null) {
-          setAmount(String(result.amount));
-          flashField(flashAmount);
-        }
-        if (result.date) {
-          const d = new Date(result.date);
-          if (!isNaN(d.getTime())) {
-            setSelectedDate(d);
-            flashField(flashDate);
-          }
-        }
-        if (result.categoryName) {
-          setSelectedCategory(result.categoryName);
-          flashField(flashCategory);
-          if (typeof result.categoryIndex === 'number' && !vatRate) {
-            const cats = categories_meta;
-            const catRate = cats[result.categoryIndex]?.vatRate ?? '';
-            if (catRate !== '') {
-              const rStr = String(catRate);
-              setVatRate(rStr);
-              setVatRateItems((prev) => {
-                const has = prev.some((it) => it.value === rStr);
-                return has ? prev : [...prev, { label: `${catRate}%`, value: rStr }].sort(
-                  (a, b) => Number(a.value) - Number(b.value)
-                );
-              });
-            }
-          }
-        }
-        if (result.vat?.value != null) {
-          setVatAmount(String(result.vat.value));
-          flashField(flashVat);
+    setIsDetecting(true);
+
+    detectReceiptGroupsFromAssets(initialImages)
+      .then((groups) => {
+        const effectiveGroups =
+          groups.length > 0
+            ? groups
+            : [{ assets: initialImages, analysis: {} }];
+
+        if (effectiveGroups.length === 1) {
+          // Single receipt — just populate the form directly
+          const draft = createDraftFromAnalysis(effectiveGroups[0]);
+          applyDraftToForm(draft);
+          setReceiptDrafts([]);
+          setReceiptReviewStates([]);
+          scrollToTop();
+        } else {
+          // Multiple receipts detected
+          const nextDrafts = effectiveGroups.map((group) =>
+            createDraftFromAnalysis(group),
+          );
+          setReceiptDrafts(nextDrafts);
+          setReceiptReviewStates(Array(nextDrafts.length).fill("pending"));
+          setCurrentReceiptIndex(0);
+          applyDraftToForm(nextDrafts[0]);
+          scrollToTop();
+          setShowDetectedReceiptsModal(true);
         }
       })
-      .catch((e) => console.error('❌ Auto-OCR error:', e))
-      .finally(() => setOcrProcessing(false));
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+      .catch((error) => {
+        console.error("❌ OCR error:", error);
+        const fallbackDraft = createDraftFromAnalysis({
+          analysis: {},
+          assets: initialImages,
+        });
+        applyDraftToForm(fallbackDraft);
+        setReceiptDrafts([]);
+        setReceiptReviewStates([]);
+        scrollToTop();
+      })
+      .finally(() => setIsDetecting(false));
+  }, [route?.params?.initialImages]);
 
   useEffect(() => {
     if (flatListRef.current) {
@@ -209,9 +425,10 @@ const ReceiptAdd = ({ navigation, route }) => {
   useEffect(() => {
     const sub = navigation.addListener("blur", () => {
       setShowSuccess(false);
-      setShowConfirmModal(false);
       setConfirmReset(false);
       setShowConfirmLeaveModal(false);
+      setShowDetectedReceiptsModal(false);
+      setShowBatchSummaryModal(false);
     });
     return sub;
   }, [navigation]);
@@ -224,10 +441,6 @@ const ReceiptAdd = ({ navigation, route }) => {
           setShowSuccess(false);
           return true;
         }
-        if (showConfirmModal) {
-          setShowConfirmModal(false);
-          return true;
-        }
         if (showConfirmReset) {
           setConfirmReset(false);
           return true;
@@ -236,13 +449,21 @@ const ReceiptAdd = ({ navigation, route }) => {
           setShowConfirmLeaveModal(false);
           return true;
         }
+        if (showDetectedReceiptsModal) {
+          setShowDetectedReceiptsModal(false);
+          return true;
+        }
+        if (showBatchSummaryModal) {
+          setShowBatchSummaryModal(false);
+          return true;
+        }
         if (!amount && !selectedCategory && images.length === 0) {
           navigation.goBack();
           return true;
         }
         setShowConfirmLeaveModal(true);
         return true;
-      }
+      },
     );
     return () => backHandler.remove();
   }, [
@@ -250,9 +471,10 @@ const ReceiptAdd = ({ navigation, route }) => {
     selectedCategory,
     images,
     showSuccess,
-    showConfirmModal,
     showConfirmReset,
     showConfirmLeaveModal,
+    showDetectedReceiptsModal,
+    showBatchSummaryModal,
     navigation,
   ]);
 
@@ -357,8 +579,10 @@ const ReceiptAdd = ({ navigation, route }) => {
 
     for (let i = 0; i < max; i += 1) {
       if (unit === "days") current.setDate(current.getDate() + interval);
-      else if (unit === "weeks") current.setDate(current.getDate() + interval * 7);
-      else if (unit === "months") current.setMonth(current.getMonth() + interval);
+      else if (unit === "weeks")
+        current.setDate(current.getDate() + interval * 7);
+      else if (unit === "months")
+        current.setMonth(current.getMonth() + interval);
       else current.setFullYear(current.getFullYear() + interval);
 
       occurrences.push(new Date(current));
@@ -375,11 +599,16 @@ const ReceiptAdd = ({ navigation, route }) => {
     const current = {
       amount: toMoneyKey(amount),
       vatAmount: toMoneyKey(expectedVat),
-      category: String(selectedCategory || "").trim().toLowerCase(),
+      category: String(selectedCategory || "")
+        .trim()
+        .toLowerCase(),
       date: toDateKey(selectedDate),
     };
 
-    const q = query(collection(db, "receipts"), where("userId", "==", user.uid));
+    const q = query(
+      collection(db, "receipts"),
+      where("userId", "==", user.uid),
+    );
     const snapshot = await getDocs(q);
 
     for (const receiptDoc of snapshot.docs) {
@@ -387,7 +616,9 @@ const ReceiptAdd = ({ navigation, route }) => {
       const candidate = {
         amount: toMoneyKey(data.amount),
         vatAmount: toMoneyKey(data.vatAmount),
-        category: String(data.category || "").trim().toLowerCase(),
+        category: String(data.category || "")
+          .trim()
+          .toLowerCase(),
         date: toDateKey(data.date),
       };
 
@@ -405,6 +636,11 @@ const ReceiptAdd = ({ navigation, route }) => {
   };
 
   const handleSavePress = async () => {
+    if (isMultiReceiptMode) {
+      handleConfirmCurrentReceipt();
+      return;
+    }
+
     if (
       !amount ||
       isNaN(parseFloat(amount)) ||
@@ -422,7 +658,9 @@ const ReceiptAdd = ({ navigation, route }) => {
     try {
       const duplicate = await findDuplicateReceipt();
       if (duplicate) {
-        setDuplicateReceiptDate(duplicate.date ? new Date(duplicate.date) : null);
+        setDuplicateReceiptDate(
+          duplicate.date ? new Date(duplicate.date) : null,
+        );
         setShowDuplicateModal(true);
         return;
       }
@@ -430,21 +668,116 @@ const ReceiptAdd = ({ navigation, route }) => {
       console.error("Duplicate check failed", error);
     }
 
-    setShowConfirmModal(true);
+    handleUploadSingleReceipt();
   };
 
   const handleResetPress = () => setConfirmReset(true);
   const handleLeavePress = () => setShowConfirmLeaveModal(true);
 
-  const handleConfirmReceipt = async () => {
+  const handleSkipCurrentReceipt = () => {
+    if (!isMultiReceiptMode || receiptDrafts.length === 0) return;
+
+    const syncedDrafts = syncCurrentDrafts();
+    setReceiptReviewStates((prev) => {
+      const next = [...prev];
+      next[currentReceiptIndex] = "skipped";
+      return next;
+    });
+
+    triggerHaptic("selection").catch(() => {});
+
+    const nextIndex = currentReceiptIndex + 1;
+    if (nextIndex < syncedDrafts.length) {
+      loadDraftAtIndex(nextIndex, syncedDrafts);
+    }
+  };
+
+  const handleConfirmCurrentReceipt = () => {
+    if (!isMultiReceiptMode || receiptDrafts.length === 0) {
+      return;
+    }
+
+    if (
+      !amount ||
+      isNaN(parseFloat(amount)) ||
+      parseFloat(amount) <= 0 ||
+      !selectedCategory ||
+      !vatRate ||
+      !vatAmount
+    ) {
+      Alert.alert("Invalid Input", "Please fill in all fields correctly.");
+      return;
+    }
+
+    const syncedDrafts = syncCurrentDrafts();
+    setReceiptReviewStates((prev) => {
+      const next = [...prev];
+      next[currentReceiptIndex] = "confirmed";
+      return next;
+    });
+
+    triggerHaptic("success").catch(() => {});
+
+    const nextIndex = currentReceiptIndex + 1;
+    if (nextIndex < syncedDrafts.length) {
+      loadDraftAtIndex(nextIndex, syncedDrafts);
+    }
+  };
+
+  const handleSaveReviewedReceipts = async () => {
+    if (!isMultiReceiptMode || !allReceiptsReviewed) {
+      return;
+    }
+
     try {
-      // 1) Close the confirm modal FIRST (iOS can't layer modals)
-      setShowConfirmModal(false);
+      setIsUploading(true);
+      const syncedDrafts = syncCurrentDrafts();
+      const savedRows = [];
 
-      // 2) Yield one frame to let iOS fully dismiss it
-      await new Promise((resolve) => requestAnimationFrame(resolve));
+      for (let i = 0; i < syncedDrafts.length; i += 1) {
+        if (receiptReviewStates[i] !== "confirmed") continue;
+        const draft = syncedDrafts[i];
 
-      // 3) Show the uploading overlay
+        await uploadReceipt({
+          amount: draft.amount,
+          date: draft.selectedDate,
+          category: draft.selectedCategory,
+          label: draft.label,
+          vatAmount:
+            draft.vatAmount && String(draft.vatAmount).trim().length > 0
+              ? draft.vatAmount
+              : computeVat(draft.amount, draft.vatRate),
+          vatRate: draft.vatRate,
+          images: draft.images,
+          recurrenceConfig: null,
+        });
+
+        savedRows.push({
+          amount: draft.amount,
+          vatAmount: draft.vatAmount,
+          date: formatDate(new Date(draft.selectedDate)),
+          category: draft.selectedCategory,
+        });
+      }
+
+      setBatchSaveSummary({
+        saved: savedRows,
+        skippedCount: receiptReviewStates.filter((state) => state === "skipped")
+          .length,
+      });
+      setShowBatchSummaryModal(true);
+      setIsUploading(false);
+      triggerHaptic("success").catch(() => {});
+    } catch (err) {
+      console.error("Batch upload failed:", err);
+      setIsUploading(false);
+      Alert.alert("Upload failed", "Please try again.");
+    }
+  };
+
+  const handleUploadSingleReceipt = async () => {
+    try {
+      // Show the uploading overlay
       setIsUploading(true);
 
       await uploadReceipt({
@@ -458,26 +791,21 @@ const ReceiptAdd = ({ navigation, route }) => {
         recurrenceConfig: getRecurrenceConfig(),
       });
 
-      // 4) Hide uploading, reset form
       setIsUploading(false);
+
       resetForm();
 
-      // 5) Yield one frame, then show success modal
-      await new Promise((resolve) => requestAnimationFrame(resolve));
       triggerHaptic("success").catch(() => {});
+      setSuccessMode("single");
       setShowSuccess(true);
     } catch (err) {
       console.error("Upload failed:", err);
       setIsUploading(false);
-
-      // If confirm modal somehow re-opened, make sure it's closed
-      setShowConfirmModal(false);
-
       Alert.alert("Upload failed", "Please try again.");
     }
   };
 
-  const resetForm = () => {
+  const resetForm = ({ clearBatch = false } = {}) => {
     setAmount("");
     setVatAmount("");
     setVatRate("");
@@ -486,12 +814,14 @@ const ReceiptAdd = ({ navigation, route }) => {
     setLabel("");
     setImages([]);
     setConfirmReset(false);
-    setShowConfirmModal(false);
     setVatAmountEdited(false);
     setRecurringEnabled(false);
     setRecurrenceFrequency(null);
     setCustomEvery("1");
     setCustomUnit("months");
+    if (clearBatch) {
+      clearBatchState();
+    }
   };
 
   const uploadReceipt = async ({
@@ -568,13 +898,16 @@ const ReceiptAdd = ({ navigation, route }) => {
       if (date < previousFinancialYearThreshold) {
         Alert.alert(
           "Check date",
-          "This date appears to be in a previous financial year. Please verify your selection."
+          "This date appears to be in a previous financial year. Please verify your selection.",
         );
       }
     }, 100);
   };
 
   const pickImageOption = () => {
+    if (isMultiReceiptMode) {
+      return;
+    }
     if (showTip) dismissTip();
     Alert.alert(
       "Add Image",
@@ -585,7 +918,7 @@ const ReceiptAdd = ({ navigation, route }) => {
           onPress: async () => {
             if (Platform.OS === "android") {
               const granted = await PermissionsAndroid.request(
-                PermissionsAndroid.PERMISSIONS.CAMERA
+                PermissionsAndroid.PERMISSIONS.CAMERA,
               );
               if (granted !== PermissionsAndroid.RESULTS.GRANTED) {
                 Alert.alert("Permission Denied", "Camera access is required.");
@@ -608,9 +941,13 @@ const ReceiptAdd = ({ navigation, route }) => {
                     "Add another page?",
                     [
                       { text: "Add another", onPress: () => resolve("again") },
-                      { text: "Done", onPress: () => resolve("done"), style: "default" },
+                      {
+                        text: "Done",
+                        onPress: () => resolve("done"),
+                        style: "default",
+                      },
                     ],
-                    { cancelable: false }
+                    { cancelable: false },
                   );
                 }).then(async (choice) => {
                   if (choice === "again") await shootLoop();
@@ -652,7 +989,7 @@ const ReceiptAdd = ({ navigation, route }) => {
         },
         { text: "Cancel", style: "cancel" },
       ],
-      { cancelable: true }
+      { cancelable: true },
     );
   };
 
@@ -681,7 +1018,7 @@ const ReceiptAdd = ({ navigation, route }) => {
             return has
               ? prev
               : [...prev, { label: `${catRate}%`, value: rStr }].sort(
-                  (a, b) => Number(a.value) - Number(b.value)
+                  (a, b) => Number(a.value) - Number(b.value),
                 );
           });
         }
@@ -702,10 +1039,29 @@ const ReceiptAdd = ({ navigation, route }) => {
     !Number.isNaN(parseFloat(vatAmount)) &&
     !Number.isNaN(parseFloat(vatRate));
 
+  const amountNumber = parseFloat(amount);
+  const vatAmountNumber = parseFloat(vatAmount);
+  const vatRateNumber = parseFloat(vatRate);
+  const isAmountValid = Number.isFinite(amountNumber) && amountNumber > 0;
+  const isVatAmountValid = Number.isFinite(vatAmountNumber) && vatAmountNumber >= 0;
+  const isVatRateValid = Number.isFinite(vatRateNumber) && vatRateNumber >= 0;
+  const isDateValid = selectedDate instanceof Date && !Number.isNaN(selectedDate.getTime());
+  const isCategoryValid = Boolean(selectedCategory);
+  const confirmedCount = receiptReviewStates.filter(
+    (state) => state === "confirmed",
+  ).length;
+  const skippedCount = receiptReviewStates.filter(
+    (state) => state === "skipped",
+  ).length;
+  const currentReviewState = isMultiReceiptMode
+    ? receiptReviewStates[currentReceiptIndex] || "pending"
+    : "pending";
+  const isCurrentSkipped = currentReviewState === "skipped";
+  const isCurrentConfirmed = currentReviewState === "confirmed";
+
   // ------- render -------
   return (
     <SafeAreaView style={ReceiptStyles.safeArea}>
-
       <KeyboardAwareScrollView
         ref={scrollRef}
         contentContainerStyle={{ flexGrow: 1, paddingBottom: 600 }} // INCREASE THIS
@@ -715,11 +1071,50 @@ const ReceiptAdd = ({ navigation, route }) => {
         extraScrollHeight={0}
       >
         <View style={ReceiptStyles.container}>
-          <View style={ReceiptStyles.borderContainer}>
-            <Text style={ReceiptStyles.header}>Your Receipt</Text>
+          <Animated.View
+            style={[
+              ReceiptStyles.borderContainer,
+              {
+                transform: [{ translateX: draftSlideX }],
+                opacity: draftFade,
+              },
+            ]}
+            {...(isMultiReceiptMode ? draftSwipeResponder.panHandlers : {})}
+          >
+            <Text style={ReceiptStyles.header}>
+              {isMultiReceiptMode ? "Review Receipt" : "Your Receipt"}
+            </Text>
+            {isMultiReceiptMode ? (
+              <Text style={localStyles.multiSwipeHintTop}>
+                Swipe left or right to move between receipts.
+              </Text>
+            ) : null}
+            {isMultiReceiptMode && receiptDrafts.length > 0 ? (
+              <View style={localStyles.multiReceiptHeader}>
+                <Text style={localStyles.multiReceiptCounter}>
+                  Receipt {currentReceiptIndex + 1} / {receiptDrafts.length}
+                </Text>
+                <Text style={localStyles.multiReceiptSubtext}>
+                  Check the detected details, then save or skip this receipt.
+                </Text>
+                <Text style={localStyles.multiReceiptProgress}>
+                  Confirmed: {confirmedCount}  Skipped: {skippedCount}
+                </Text>
+              </View>
+            ) : null}
 
             {/* Amount */}
-            <Animated.View style={[localStyles.fieldGroup, { backgroundColor: flashAmount.interpolate({ inputRange: [0, 1], outputRange: ['transparent', 'rgba(253,224,71,0.45)'] }) }]}>
+            <Animated.View
+              style={[
+                localStyles.fieldGroup,
+                {
+                  backgroundColor: flashAmount.interpolate({
+                    inputRange: [0, 1],
+                    outputRange: ["transparent", "rgba(253,224,71,0.45)"],
+                  }),
+                },
+              ]}
+            >
               <Text style={[ReceiptStyles.label, localStyles.labelAligned]}>
                 Amount:
               </Text>
@@ -738,6 +1133,9 @@ const ReceiptAdd = ({ navigation, route }) => {
                     ReceiptStyles.input,
                     localStyles.inputAligned,
                     localStyles.inputWithCurrency,
+                    isAmountValid
+                      ? localStyles.validFieldInput
+                      : localStyles.invalidFieldInput,
                   ]}
                   keyboardType="decimal-pad"
                   value={amount}
@@ -753,7 +1151,17 @@ const ReceiptAdd = ({ navigation, route }) => {
             </Animated.View>
 
             {/* VAT Section: labels above fields */}
-            <Animated.View style={[localStyles.fieldGroup, { backgroundColor: flashVat.interpolate({ inputRange: [0, 1], outputRange: ['transparent', 'rgba(253,224,71,0.45)'] }) }]}>
+            <Animated.View
+              style={[
+                localStyles.fieldGroup,
+                {
+                  backgroundColor: flashVat.interpolate({
+                    inputRange: [0, 1],
+                    outputRange: ["transparent", "rgba(253,224,71,0.45)"],
+                  }),
+                },
+              ]}
+            >
               <View
                 style={[
                   ReceiptStyles.vatRow,
@@ -765,7 +1173,10 @@ const ReceiptAdd = ({ navigation, route }) => {
                 <View style={ReceiptStyles.vatColLeft}>
                   <Text style={ReceiptStyles.label}>VAT Amount:</Text>
                   <View
-                    style={[ReceiptStyles.inputRow, localStyles.currencyField]}
+                    style={[
+                      ReceiptStyles.inputRow,
+                      localStyles.currencyField,
+                    ]}
                   >
                     <View style={localStyles.currencyWrapper}>
                       <Text style={localStyles.currencyInside}>£</Text>
@@ -774,6 +1185,9 @@ const ReceiptAdd = ({ navigation, route }) => {
                       style={[
                         ReceiptStyles.vatInput,
                         localStyles.vatInputWithCurrency,
+                        isVatAmountValid
+                          ? localStyles.validFieldInput
+                          : localStyles.invalidFieldInput,
                       ]}
                       keyboardType="decimal-pad"
                       placeholder="0.00"
@@ -806,11 +1220,17 @@ const ReceiptAdd = ({ navigation, route }) => {
                     setValue={(set) => setVatRate(set(vatRate))}
                     setItems={setVatRateItems}
                     placeholder="Select"
-                    style={ReceiptStyles.vatRatePicker}
+                    style={[
+                      ReceiptStyles.vatRatePicker,
+                      isVatRateValid
+                        ? localStyles.validFieldInput
+                        : localStyles.invalidFieldInput,
+                    ]}
                     dropDownContainerStyle={ReceiptStyles.vatRateDropdown}
                     containerStyle={localStyles.fieldTopSpacingTight}
                     zIndex={3000}
                     zIndexInverse={1000}
+                    dropDownDirection="TOP"
                     listMode="SCROLLVIEW"
                     scrollViewProps={{ keyboardShouldPersistTaps: "always" }}
                     onChangeValue={(val) => {
@@ -829,14 +1249,27 @@ const ReceiptAdd = ({ navigation, route }) => {
 
             {/* Date */}
             <Animated.View
-              style={[localStyles.fieldGroup, { backgroundColor: flashDate.interpolate({ inputRange: [0, 1], outputRange: ['transparent', 'rgba(253,224,71,0.45)'] }) }]}
+              style={[
+                localStyles.fieldGroup,
+                {
+                  backgroundColor: flashDate.interpolate({
+                    inputRange: [0, 1],
+                    outputRange: ["transparent", "rgba(253,224,71,0.45)"],
+                  }),
+                },
+              ]}
               pointerEvents={vatRateOpen ? "none" : "auto"}
             >
               <Text style={[ReceiptStyles.label, localStyles.labelAligned]}>
                 Date:
               </Text>
               <TouchableOpacity
-                style={ReceiptStyles.dateButton}
+                style={[
+                  ReceiptStyles.dateButton,
+                  isDateValid
+                    ? localStyles.validFieldInput
+                    : localStyles.invalidFieldInput,
+                ]}
                 onPress={showDatePicker}
               >
                 <Text style={ReceiptStyles.dateText}>
@@ -856,7 +1289,16 @@ const ReceiptAdd = ({ navigation, route }) => {
             <Animated.View
               ref={categoryWrapperRef}
               collapsable={false}
-              style={[localStyles.fieldGroup, { zIndex: 1000, backgroundColor: flashCategory.interpolate({ inputRange: [0, 1], outputRange: ['transparent', 'rgba(253,224,71,0.45)'] }) }]}
+              style={[
+                localStyles.fieldGroup,
+                {
+                  zIndex: 1000,
+                  backgroundColor: flashCategory.interpolate({
+                    inputRange: [0, 1],
+                    outputRange: ["transparent", "rgba(253,224,71,0.45)"],
+                  }),
+                },
+              ]}
             >
               {/* Category */}
               <Text
@@ -894,7 +1336,7 @@ const ReceiptAdd = ({ navigation, route }) => {
                   categoryWrapperRef.current.measureLayout(
                     findNodeHandle(scrollRef.current),
                     (x, y) =>
-                      scrollRef.current?.scrollToPosition(0, y - 50, true)
+                      scrollRef.current?.scrollToPosition(0, y - 50, true),
                   );
 
                   // ... your existing filter logic ...
@@ -905,12 +1347,12 @@ const ReceiptAdd = ({ navigation, route }) => {
                   }
                   const filtered = allCategoryItems.filter((item) => {
                     const categoryData = categories_meta.find(
-                      (c) => c.name === item.value
+                      (c) => c.name === item.value,
                     );
                     return (
                       item.label.toLowerCase().includes(query) ||
                       categoryData?.meta?.some((kw) =>
-                        kw.toLowerCase().includes(query)
+                        kw.toLowerCase().includes(query),
                       )
                     );
                   });
@@ -947,7 +1389,7 @@ const ReceiptAdd = ({ navigation, route }) => {
                         return has
                           ? prev
                           : [...prev, { label: `${r}%`, value: rStr }].sort(
-                              (a, b) => Number(a.value) - Number(b.value)
+                              (a, b) => Number(a.value) - Number(b.value),
                             );
                       });
                       if (!vatAmountEdited && amount) {
@@ -966,17 +1408,25 @@ const ReceiptAdd = ({ navigation, route }) => {
                       // Now 'y' is the absolute distance from the top of the list
                       scrollRef.current?.scrollToPosition(0, y - 50, true);
                     },
-                    (error) => console.log("Measurement failed", error)
+                    (error) => console.log("Measurement failed", error),
                   );
                 }}
-                style={[ReceiptStyles.dropdown, localStyles.dropdownAligned]}
+                style={[
+                  ReceiptStyles.dropdown,
+                  localStyles.dropdownAligned,
+                  isCategoryValid
+                    ? localStyles.validFieldInput
+                    : localStyles.invalidFieldInput,
+                ]}
                 zIndex={1000}
                 zIndexInverse={3000}
               />
             </Animated.View>
 
             <View style={localStyles.fieldGroup}>
-              <Text style={[ReceiptStyles.label, localStyles.labelAligned]}>Label (optional):</Text>
+              <Text style={[ReceiptStyles.label, localStyles.labelAligned]}>
+                Label (optional):
+              </Text>
               <TextInput
                 style={[ReceiptStyles.input, localStyles.labelInputAligned]}
                 value={label}
@@ -986,42 +1436,61 @@ const ReceiptAdd = ({ navigation, route }) => {
               />
             </View>
 
-            <View style={localStyles.fieldGroup}>
-              <View style={ReceiptStyles.ocrRow}>
-                <Checkbox
-                  status={recurringEnabled ? "checked" : "unchecked"}
-                  onPress={() => {
-                    if (recurringEnabled) {
-                      setRecurringEnabled(false);
-                      setRecurrenceFrequency(null);
-                      return;
-                    }
-                    setRecurrenceModalVisible(true);
-                  }}
-                  color={Colors.accent}
-                />
-                <Text style={ReceiptStyles.ocrLabel}>Recurring expense</Text>
-                <Text style={ReceiptStyles.ocrValue}>
-                  {recurringEnabled
-                    ? recurrenceFrequency === "custom"
-                      ? `Every ${Math.max(1, parseInt(customEvery, 10) || 1)} ${customUnit}`
-                      : recurrenceFrequency
-                    : "Off"}
-                </Text>
+            {!isMultiReceiptMode ? (
+              <View style={localStyles.fieldGroup}>
+                <View style={ReceiptStyles.ocrRow}>
+                  <Checkbox
+                    status={recurringEnabled ? "checked" : "unchecked"}
+                    onPress={() => {
+                      if (recurringEnabled) {
+                        setRecurringEnabled(false);
+                        setRecurrenceFrequency(null);
+                        return;
+                      }
+                      setRecurrenceModalVisible(true);
+                    }}
+                    color={Colors.accent}
+                  />
+                  <Text style={ReceiptStyles.ocrLabel}>Recurring expense</Text>
+                  <Text style={ReceiptStyles.ocrValue}>
+                    {recurringEnabled
+                      ? recurrenceFrequency === "custom"
+                        ? `Every ${Math.max(1, parseInt(customEvery, 10) || 1)} ${customUnit}`
+                        : recurrenceFrequency
+                      : "Off"}
+                  </Text>
+                </View>
               </View>
-            </View>
+            ) : null}
 
             {/* Images Section */}
             <View style={[localStyles.fieldGroup, { zIndex: 1, elevation: 1 }]}>
               <ScrollView
                 horizontal
                 showsHorizontalScrollIndicator={false}
-                contentContainerStyle={{ alignItems: "center", paddingHorizontal: 10 }}
+                contentContainerStyle={{
+                  alignItems: "center",
+                  paddingHorizontal: 10,
+                }}
               >
                 {ocrProcessing && (
-                  <View style={{ justifyContent: "center", alignItems: "center", paddingHorizontal: 16 }}>
+                  <View
+                    style={{
+                      justifyContent: "center",
+                      alignItems: "center",
+                      paddingHorizontal: 16,
+                    }}
+                  >
                     <ActivityIndicator color={Colors.accent} size="small" />
-                    <Text style={{ fontSize: 11, color: Colors.textMuted, marginTop: 4 }}>Scanning…</Text>
+                    <Text
+                      style={{
+                        fontSize: 11,
+                        color: Colors.textMuted,
+                        marginTop: 4,
+                      }}
+                    >
+                      Scanning…
+                    </Text>
                   </View>
                 )}
                 {images.map((item, index) => (
@@ -1037,98 +1506,124 @@ const ReceiptAdd = ({ navigation, route }) => {
                   </View>
                 ))}
 
-                {/* The + Button and Tooltip aligned in a row */}
-                <View style={{ flexDirection: "row", alignItems: "center" }}>
-                  <TouchableOpacity
-                    style={[
-                      ReceiptStyles.uploadPlaceholder,
-                      { marginRight: 0 },
-                    ]}
-                    onPress={pickImageOption}
-                  >
-                    <Text style={ReceiptStyles.plus}>+</Text>
-                  </TouchableOpacity>
+                {!isMultiReceiptMode ? (
+                  <View style={{ flexDirection: "row", alignItems: "center" }}>
+                    <TouchableOpacity
+                      style={[
+                        ReceiptStyles.uploadPlaceholder,
+                        { marginRight: 0 },
+                      ]}
+                      onPress={pickImageOption}
+                    >
+                      <Text style={ReceiptStyles.plus}>+</Text>
+                    </TouchableOpacity>
 
-                  {showTip && <ScannerTooltip onDismiss={dismissTip} />}
-                </View>
+                    {showTip && <ScannerTooltip onDismiss={dismissTip} />}
+                  </View>
+                ) : null}
               </ScrollView>
             </View>
 
             {/* Buttons */}
             <View style={ReceiptStyles.buttonContainer}>
-              <Button
-                mode="contained"
-                buttonColor="#a60d49"
-                style={ReceiptStyles.button}
-                onPress={handleLeavePress}
-              >
-                Cancel
-              </Button>
+              {isMultiReceiptMode ? (
+                <>
+                  <Button
+                    mode={isCurrentSkipped ? "contained" : "outlined"}
+                    buttonColor={isCurrentSkipped ? "#555" : undefined}
+                    textColor={isCurrentSkipped ? "#fff" : "#a60d49"}
+                    style={[
+                      ReceiptStyles.button,
+                      !isCurrentSkipped && !isCurrentConfirmed
+                        ? localStyles.multiActionDefaultButton
+                        : null,
+                      isCurrentConfirmed
+                        ? localStyles.multiActionFadedButton
+                        : null,
+                    ]}
+                    onPress={handleSkipCurrentReceipt}
+                  >
+                    {isCurrentSkipped ? "Skipped" : "Skip"}
+                  </Button>
 
-              <Button
-                mode="contained"
-                onPress={handleSavePress}
-                buttonColor="#a60d49"
-                style={ReceiptStyles.button}
-                disabled={!isReceiptFormValid}
-              >
-                Save
-              </Button>
+                  <Button
+                    mode={isCurrentConfirmed ? "contained" : "outlined"}
+                    onPress={handleSavePress}
+                    buttonColor={isCurrentConfirmed ? "#a60d49" : undefined}
+                    textColor={isCurrentConfirmed ? "#fff" : "#a60d49"}
+                    style={[
+                      ReceiptStyles.button,
+                      !isCurrentSkipped && !isCurrentConfirmed
+                        ? localStyles.multiActionDefaultButton
+                        : null,
+                      isCurrentSkipped ? localStyles.multiActionFadedButton : null,
+                    ]}
+                  >
+                    {isCurrentConfirmed ? "Confirmed" : "Confirm"}
+                  </Button>
+                </>
+              ) : (
+                <>
+                  <Button
+                    mode="contained"
+                    buttonColor="#a60d49"
+                    style={ReceiptStyles.button}
+                    onPress={handleLeavePress}
+                  >
+                    Cancel
+                  </Button>
+
+                  <Button
+                    mode="contained"
+                    onPress={handleSavePress}
+                    buttonColor="#a60d49"
+                    style={ReceiptStyles.button}
+                    disabled={!isReceiptFormValid}
+                  >
+                    Save
+                  </Button>
+                </>
+              )}
             </View>
 
-            <Button
-              mode="outlined"
-              onPress={handleResetPress}
-              style={ReceiptStyles.resetButton}
-              textColor="#a60d49"
-              icon="autorenew"
-            >
-              Reset Form
-            </Button>
-          </View>
+            {isMultiReceiptMode && receiptDrafts.length > 0 ? (
+              <>
+                <Button
+                  mode="contained"
+                  onPress={handleSaveReviewedReceipts}
+                  buttonColor={allReceiptsReviewed ? "#a60d49" : "#c6c6c6"}
+                  textColor={allReceiptsReviewed ? "#fff" : "#8a8a8a"}
+                  style={localStyles.saveAllButton}
+                  disabled={!allReceiptsReviewed}
+                >
+                  Save Receipts
+                </Button>
+
+                <Button
+                  mode="text"
+                  onPress={handleLeavePress}
+                  textColor="#a60d49"
+                  style={localStyles.skipButton}
+                >
+                  Cancel
+                </Button>
+              </>
+            ) : null}
+
+            {!isMultiReceiptMode ? (
+              <Button
+                mode="outlined"
+                onPress={handleResetPress}
+                style={ReceiptStyles.resetButton}
+                textColor="#a60d49"
+                icon="autorenew"
+              >
+                Reset Form
+              </Button>
+            ) : null}
+          </Animated.View>
         </View>
       </KeyboardAwareScrollView>
-
-      {/* Confirmation Modal */}
-      <Modal
-        visible={showConfirmModal}
-        transparent
-        animationType="slide"
-        onRequestClose={() => setShowConfirmModal(false)}
-      >
-        <View style={ReceiptStyles.modalOverlay}>
-          <View style={ReceiptStyles.modalContent}>
-            <Text style={ReceiptStyles.modalTitle}>
-              Confirm Receipt Details
-            </Text>
-            <Text style={ReceiptStyles.modalDetailText}>Amount: £{amount}</Text>
-            <Text style={ReceiptStyles.modalDetailText}>
-              Date: {selectedDate.toDateString()}
-            </Text>
-            <Text style={ReceiptStyles.modalDetailText}>
-              Category: {selectedCategory}
-            </Text>
-            <Text style={ReceiptStyles.modalDetailText}>
-              VAT Amount: £{vatAmount || calculateVatFromRate() || "0.00"}
-            </Text>
-            <Text style={ReceiptStyles.modalDetailText}>
-              VAT Rate: {vatRate || "—"}%
-            </Text>
-            <View style={ReceiptStyles.modalButtons}>
-              <RNButton
-                title="Cancel"
-                onPress={() => setShowConfirmModal(false)}
-                color="black"
-              />
-              <RNButton
-                title="Confirm"
-                onPress={handleConfirmReceipt}
-                color="#a60d49"
-              />
-            </View>
-          </View>
-        </View>
-      </Modal>
 
       <Modal
         visible={showDuplicateModal}
@@ -1141,7 +1636,10 @@ const ReceiptAdd = ({ navigation, route }) => {
             <Text style={ReceiptStyles.modalTitle}>Possible Duplicate</Text>
             <Text style={ReceiptStyles.modalDetailText}>
               Are you sure? A similar receipt was already submitted on{" "}
-              {duplicateReceiptDate ? formatDate(duplicateReceiptDate) : "this date"}.
+              {duplicateReceiptDate
+                ? formatDate(duplicateReceiptDate)
+                : "this date"}
+              .
             </Text>
             <View style={ReceiptStyles.modalButtons}>
               <RNButton
@@ -1153,7 +1651,7 @@ const ReceiptAdd = ({ navigation, route }) => {
                 title="Continue"
                 onPress={() => {
                   setShowDuplicateModal(false);
-                  setShowConfirmModal(true);
+                  handleUploadSingleReceipt();
                 }}
                 color="#a60d49"
               />
@@ -1164,6 +1662,93 @@ const ReceiptAdd = ({ navigation, route }) => {
 
       {/* ✅ Success Modal (was missing) */}
       <Modal
+        visible={showDetectedReceiptsModal}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setShowDetectedReceiptsModal(false)}
+      >
+        <View style={ReceiptStyles.modalOverlay}>
+          <View style={ReceiptStyles.modalContent}>
+            <Text style={ReceiptStyles.modalTitle}>
+              Multiple receipts detected
+            </Text>
+            <Text style={ReceiptStyles.modalDetailText}>
+              We have detected {receiptDrafts.length} receipt
+              {receiptDrafts.length === 1 ? "" : "s"}. We will now check with
+              you to ensure the details detected are correct.
+            </Text>
+            <View style={ReceiptStyles.modalButtons}>
+              <RNButton
+                title="Start review"
+                onPress={() => setShowDetectedReceiptsModal(false)}
+                color="#a60d49"
+              />
+            </View>
+          </View>
+        </View>
+      </Modal>
+
+      <Modal
+        visible={showBatchSummaryModal}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setShowBatchSummaryModal(false)}
+      >
+        <View style={ReceiptStyles.modalOverlay}>
+          <View style={ReceiptStyles.modalContent}>
+            <Text style={ReceiptStyles.modalTitle}>Receipts saved</Text>
+
+            <Text style={[ReceiptStyles.modalDetailText, localStyles.summaryHeading]}>
+              Saved -
+            </Text>
+            {batchSaveSummary.saved.length > 0 ? (
+              <View style={localStyles.summaryListWrap}>
+                {batchSaveSummary.saved.map((entry, index) => (
+                  <Text key={`${entry.date}-${entry.amount}-${index}`} style={ReceiptStyles.modalDetailText}>
+                    {entry.amount} - {entry.vatAmount || "0.00"} - {entry.date} - {entry.category}
+                  </Text>
+                ))}
+              </View>
+            ) : (
+              <Text style={ReceiptStyles.modalDetailText}>None</Text>
+            )}
+
+            <Text style={[ReceiptStyles.modalDetailText, localStyles.summaryHeading]}>
+              Skipped - {batchSaveSummary.skippedCount}
+            </Text>
+
+            <View style={ReceiptStyles.modalButtons}>
+              <RNButton
+                title="Go to Receipts"
+                onPress={() => {
+                  setShowBatchSummaryModal(false);
+                  resetForm({ clearBatch: true });
+                  navigation.reset({
+                    index: 0,
+                    routes: [
+                      {
+                        name: "MainTabs",
+                        state: { routes: [{ name: "Receipts" }] },
+                      },
+                    ],
+                  });
+                }}
+                color="#555"
+              />
+              <RNButton
+                title="Add another"
+                onPress={() => {
+                  setShowBatchSummaryModal(false);
+                  resetForm({ clearBatch: true });
+                }}
+                color="#a60d49"
+              />
+            </View>
+          </View>
+        </View>
+      </Modal>
+
+      <Modal
         visible={showSuccess}
         transparent
         animationType="fade"
@@ -1172,14 +1757,18 @@ const ReceiptAdd = ({ navigation, route }) => {
         <View style={ReceiptStyles.modalOverlay}>
           <View style={ReceiptStyles.modalContent}>
             <Text style={[ReceiptStyles.modalTitle, { textAlign: "center" }]}>
-              Receipt saved 🎉
+              {successMode === "multi"
+                ? "Receipts reviewed 🎉"
+                : "Receipt saved 🎉"}
             </Text>
             <Text style={{ textAlign: "center", marginTop: 4, color: "#555" }}>
-              Do you want to add another?
+              {successMode === "multi"
+                ? "All detected receipts have been handled. Do you want to add another batch?"
+                : "Do you want to add another?"}
             </Text>
             <View style={[ReceiptStyles.modalButtons, { marginTop: 16 }]}>
               <RNButton
-                title="Go to Expenses"
+                title="Go to Receipts"
                 onPress={() => {
                   setShowSuccess(false);
                   navigation.reset({
@@ -1187,7 +1776,7 @@ const ReceiptAdd = ({ navigation, route }) => {
                     routes: [
                       {
                         name: "MainTabs",
-                        state: { routes: [{ name: "Expenses" }] },
+                        state: { routes: [{ name: "Receipts" }] },
                       },
                     ],
                   });
@@ -1198,7 +1787,7 @@ const ReceiptAdd = ({ navigation, route }) => {
                 title="Add another"
                 onPress={() => {
                   setShowSuccess(false);
-                  // form already reset in handleConfirmReceipt()
+                  // form already reset in handleUploadSingleReceipt()
                 }}
                 color="#a60d49"
               />
@@ -1256,7 +1845,7 @@ const ReceiptAdd = ({ navigation, route }) => {
                     routes: [
                       {
                         name: "MainTabs",
-                        state: { routes: [{ name: "Expenses" }] },
+                        state: { routes: [{ name: "Receipts" }] },
                       },
                     ],
                   });
@@ -1290,41 +1879,49 @@ const ReceiptAdd = ({ navigation, route }) => {
                 style={localStyles.recurrenceOption}
                 onPress={() => setRecurrenceFrequency(item.key)}
               >
-                <Text style={localStyles.recurrenceOptionText}>{item.label}</Text>
+                <Text style={localStyles.recurrenceOptionText}>
+                  {item.label}
+                </Text>
                 <Text>{recurrenceFrequency === item.key ? "✓" : ""}</Text>
               </TouchableOpacity>
             ))}
 
             {recurrenceFrequency === "custom" ? (
               <View style={localStyles.customRecurrenceWrap}>
-                <Text style={localStyles.customRecurrenceTitle}>Repeat every</Text>
+                <Text style={localStyles.customRecurrenceTitle}>
+                  Repeat every
+                </Text>
                 <ScrollView
                   horizontal
                   showsHorizontalScrollIndicator={false}
                   contentContainerStyle={localStyles.everyChipRow}
                 >
-                  {Array.from({ length: 24 }, (_, i) => String(i + 1)).map((value) => {
-                    const selected = customEvery === value;
-                    return (
-                      <TouchableOpacity
-                        key={value}
-                        onPress={() => setCustomEvery(value)}
-                        style={[
-                          localStyles.everyChip,
-                          selected ? localStyles.everyChipSelected : null,
-                        ]}
-                      >
-                        <Text
+                  {Array.from({ length: 24 }, (_, i) => String(i + 1)).map(
+                    (value) => {
+                      const selected = customEvery === value;
+                      return (
+                        <TouchableOpacity
+                          key={value}
+                          onPress={() => setCustomEvery(value)}
                           style={[
-                            localStyles.everyChipText,
-                            selected ? localStyles.everyChipTextSelected : null,
+                            localStyles.everyChip,
+                            selected ? localStyles.everyChipSelected : null,
                           ]}
                         >
-                          {value}
-                        </Text>
-                      </TouchableOpacity>
-                    );
-                  })}
+                          <Text
+                            style={[
+                              localStyles.everyChipText,
+                              selected
+                                ? localStyles.everyChipTextSelected
+                                : null,
+                            ]}
+                          >
+                            {value}
+                          </Text>
+                        </TouchableOpacity>
+                      );
+                    },
+                  )}
                 </ScrollView>
 
                 <View style={localStyles.customUnitRow}>
@@ -1342,7 +1939,9 @@ const ReceiptAdd = ({ navigation, route }) => {
                         <Text
                           style={[
                             localStyles.customUnitChipText,
-                            selected ? localStyles.customUnitChipTextSelected : null,
+                            selected
+                              ? localStyles.customUnitChipTextSelected
+                              : null,
                           ]}
                         >
                           {unit}
@@ -1355,7 +1954,11 @@ const ReceiptAdd = ({ navigation, route }) => {
             ) : null}
 
             <View style={ReceiptStyles.modalButtons}>
-              <RNButton title="Cancel" color="#555" onPress={() => setRecurrenceModalVisible(false)} />
+              <RNButton
+                title="Cancel"
+                color="#555"
+                onPress={() => setRecurrenceModalVisible(false)}
+              />
               <RNButton
                 title="Confirm"
                 color="#a60d49"
@@ -1412,6 +2015,21 @@ const ReceiptAdd = ({ navigation, route }) => {
           </View>
         </View>
       )}
+
+      {/* Detecting receipts overlay — shown while OCR/grouping runs on new images */}
+      {isDetecting && (
+        <View style={localStyles.detectingOverlay}>
+          <View style={ReceiptStyles.uploadCard}>
+            <ActivityIndicator size="large" color="#a60d49" />
+            <Text style={{ marginTop: 12, fontWeight: "700", fontSize: 15 }}>
+              Detecting receipts…
+            </Text>
+            <Text style={{ marginTop: 4, color: "#666", fontSize: 12, textAlign: "center" }}>
+              Please wait while we analyse your images
+            </Text>
+          </View>
+        </View>
+      )}
     </SafeAreaView>
   );
 };
@@ -1423,6 +2041,13 @@ const localStyles = StyleSheet.create({
     justifyContent: "center",
     alignItems: "center",
     zIndex: 999,
+  },
+  detectingOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: "rgba(255,255,255,0.94)",
+    justifyContent: "center",
+    alignItems: "center",
+    zIndex: 1200,
   },
   labelAligned: {
     marginLeft: 10,
@@ -1448,6 +2073,34 @@ const localStyles = StyleSheet.create({
   },
   fieldGroup: {
     marginBottom: 16,
+  },
+  multiReceiptHeader: {
+    marginTop: 6,
+    marginBottom: 14,
+    alignItems: "center",
+  },
+  multiReceiptCounter: {
+    fontSize: 15,
+    fontWeight: "700",
+    color: Colors.accent,
+  },
+  multiReceiptSubtext: {
+    marginTop: 4,
+    fontSize: 12,
+    lineHeight: 17,
+    color: Colors.textMuted,
+    textAlign: "center",
+  },
+  multiReceiptProgress: {
+    marginTop: 4,
+    fontSize: 12,
+    color: "#666",
+  },
+  multiSwipeHintTop: {
+    marginTop: 4,
+    fontSize: 12,
+    color: Colors.textMuted,
+    textAlign: "center",
   },
   fieldTopSpacing: {
     marginTop: 6,
@@ -1478,6 +2131,16 @@ const localStyles = StyleSheet.create({
   },
   vatInputWithCurrency: {
     paddingLeft: 28,
+  },
+  validFieldInput: {
+    backgroundColor: "#fff",
+    borderColor: "#2E9F46",
+    borderWidth: 1,
+  },
+  invalidFieldInput: {
+    backgroundColor: "#fff",
+    borderColor: "#E06B6B",
+    borderWidth: 1,
   },
   ocrTipWrapper: {
     marginTop: 10,
@@ -1613,6 +2276,29 @@ const localStyles = StyleSheet.create({
     alignItems: "center",
     marginLeft: 5, // Pulls the triangle right up to the box edge
     zIndex: 5000,
+  },
+  skipButton: {
+    marginTop: 2,
+  },
+  multiActionDefaultButton: {
+    borderColor: "#b5b5b5",
+    borderWidth: 1,
+  },
+  multiActionFadedButton: {
+    opacity: 0.45,
+  },
+  saveAllButton: {
+    marginTop: 12,
+  },
+  summaryHeading: {
+    marginTop: 8,
+    fontWeight: "700",
+    color: Colors.textPrimary,
+  },
+  summaryListWrap: {
+    marginTop: 4,
+    marginBottom: 6,
+    gap: 4,
   },
   leftTriangle: {
     width: 0,

@@ -3,8 +3,10 @@ import {
   Animated,
   View,
   Text,
+  Image,
   TouchableOpacity,
   TouchableWithoutFeedback,
+  Modal,
   StyleSheet,
   Alert,
   PermissionsAndroid,
@@ -14,15 +16,30 @@ import {
 import * as ImagePicker from "react-native-image-picker";
 import { Colors } from "../utils/sharedStyles";
 
-const SHEET_HEIGHT = 240;
+const SHEET_HEIGHT = 320;
 
-export default function AddReceiptSheet({ visible, onClose, navigation, targetScreen = "Receipt" }) {
+export default function AddReceiptSheet({
+  visible,
+  onClose,
+  navigation,
+  targetScreen = "Receipt",
+}) {
+  const [renderSheet, setRenderSheet] = React.useState(visible);
+  const [sheetHeight, setSheetHeight] = React.useState(SHEET_HEIGHT);
   const translateY = useRef(new Animated.Value(SHEET_HEIGHT)).current;
   const backdropOpacity = useRef(new Animated.Value(0)).current;
   const [busy, setBusy] = React.useState(false);
 
+  // Custom "photo added" modal state
+  const [photoModalVisible, setPhotoModalVisible] = React.useState(false);
+  const [photoModalCount, setPhotoModalCount] = React.useState(0);
+  const [photoModalLastUri, setPhotoModalLastUri] = React.useState(null);
+  const photoModalResolveRef = useRef(null);
+
   useEffect(() => {
     if (visible) {
+      setRenderSheet(true);
+      translateY.setValue(sheetHeight);
       Animated.parallel([
         Animated.spring(translateY, {
           toValue: 0,
@@ -38,7 +55,7 @@ export default function AddReceiptSheet({ visible, onClose, navigation, targetSc
     } else {
       Animated.parallel([
         Animated.timing(translateY, {
-          toValue: SHEET_HEIGHT,
+          toValue: sheetHeight,
           duration: 200,
           useNativeDriver: true,
         }),
@@ -47,9 +64,13 @@ export default function AddReceiptSheet({ visible, onClose, navigation, targetSc
           duration: 200,
           useNativeDriver: true,
         }),
-      ]).start();
+      ]).start(({ finished }) => {
+        if (finished) {
+          setRenderSheet(false);
+        }
+      });
     }
-  }, [visible]);
+  }, [backdropOpacity, sheetHeight, translateY, visible]);
 
   const dismiss = () => {
     if (busy) return;
@@ -73,7 +94,7 @@ export default function AddReceiptSheet({ visible, onClose, navigation, targetSc
         message: "Express Accounts needs access to your camera.",
         buttonPositive: "Allow",
         buttonNegative: "Deny",
-      }
+      },
     );
     return granted === PermissionsAndroid.RESULTS.GRANTED;
   };
@@ -81,7 +102,10 @@ export default function AddReceiptSheet({ visible, onClose, navigation, targetSc
   const handleTakePhoto = async () => {
     const ok = await requestCameraPermission();
     if (!ok) {
-      Alert.alert("Permission denied", "Camera access is required to take photos.");
+      Alert.alert(
+        "Permission denied",
+        "Camera access is required to take photos.",
+      );
       return;
     }
 
@@ -99,15 +123,10 @@ export default function AddReceiptSheet({ visible, onClose, navigation, targetSc
         assets.push(...result.assets);
 
         await new Promise((resolve) => {
-          Alert.alert(
-            "Photo added",
-            "Would you like to add another photo of this receipt?",
-            [
-              { text: "Add another", onPress: () => resolve("again") },
-              { text: "Done", onPress: () => resolve("done"), style: "default" },
-            ],
-            { cancelable: false }
-          );
+          photoModalResolveRef.current = resolve;
+          setPhotoModalCount(assets.length);
+          setPhotoModalLastUri(result.assets[result.assets.length - 1].uri);
+          setPhotoModalVisible(true);
         }).then(async (choice) => {
           if (choice === "again") await shootLoop();
         });
@@ -148,19 +167,30 @@ export default function AddReceiptSheet({ visible, onClose, navigation, targetSc
     setTimeout(() => navigation.navigate(targetScreen, {}), 220);
   };
 
-  if (!visible && translateY._value === SHEET_HEIGHT) return null;
+  if (!renderSheet) return null;
 
   return (
     <View style={StyleSheet.absoluteFillObject} pointerEvents="box-none">
       {/* Backdrop */}
       <TouchableWithoutFeedback onPress={dismiss}>
-        <Animated.View style={[styles.backdrop, { opacity: backdropOpacity }]} />
+        <Animated.View
+          style={[styles.backdrop, { opacity: backdropOpacity }]}
+        />
       </TouchableWithoutFeedback>
 
       {/* Sheet */}
       <Animated.View
         style={[styles.sheet, { transform: [{ translateY }] }]}
         pointerEvents="box-none"
+        onLayout={(event) => {
+          const nextHeight = event.nativeEvent.layout.height;
+          if (nextHeight > 0 && nextHeight !== sheetHeight) {
+            setSheetHeight(nextHeight);
+            if (!visible) {
+              translateY.setValue(nextHeight);
+            }
+          }
+        }}
       >
         {/* Handle bar */}
         <View style={styles.handle} />
@@ -174,14 +204,14 @@ export default function AddReceiptSheet({ visible, onClose, navigation, targetSc
             <Option
               icon="📷"
               label="Take Photo"
-              sub="Use your camera — add multiple pages"
+              sub="Use your camera — add one or more receipt photos"
               onPress={handleTakePhoto}
             />
             <View style={styles.divider} />
             <Option
               icon="🖼"
               label="Pick Image"
-              sub="Select one or more from your gallery"
+              sub="Select one or more receipt photos from your gallery"
               onPress={handlePickImage}
             />
             <View style={styles.divider} />
@@ -194,16 +224,81 @@ export default function AddReceiptSheet({ visible, onClose, navigation, targetSc
           </>
         )}
       </Animated.View>
+
+      {/* Photo-added modal */}
+      <Modal
+        visible={photoModalVisible}
+        transparent
+        animationType="fade"
+        onRequestClose={() => {
+          setPhotoModalVisible(false);
+          photoModalResolveRef.current?.("done");
+        }}
+      >
+        <View style={styles.photoModalOverlay}>
+          <View style={styles.photoModalCard}>
+            {photoModalLastUri ? (
+              <Image
+                source={{ uri: photoModalLastUri }}
+                style={styles.photoModalThumb}
+                resizeMode="cover"
+              />
+            ) : null}
+            <Text style={styles.photoModalCount}>
+              {photoModalCount} photo{photoModalCount === 1 ? "" : "s"} added
+            </Text>
+            <Text style={styles.photoModalQuestion}>
+              Would you like to add another receipt photo?
+            </Text>
+            <View style={styles.photoModalButtons}>
+              <TouchableOpacity
+                style={[styles.photoModalBtn, styles.photoModalBtnSecondary]}
+                onPress={() => {
+                  setPhotoModalVisible(false);
+                  photoModalResolveRef.current?.("done");
+                }}
+              >
+                <Text style={styles.photoModalBtnTextSecondary}>Done</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[styles.photoModalBtn, styles.photoModalBtnPrimary]}
+                onPress={() => {
+                  setPhotoModalVisible(false);
+                  photoModalResolveRef.current?.("again");
+                }}
+              >
+                <Text style={styles.photoModalBtnTextPrimary}>Add another</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
     </View>
   );
 }
 
-function Option({ icon, label, sub, onPress }) {
+function Option({ icon, label, sub, onPress, disabled = false }) {
   return (
-    <TouchableOpacity style={styles.option} onPress={onPress} activeOpacity={0.65}>
-      <Text style={styles.optionIcon}>{icon}</Text>
+    <TouchableOpacity
+      style={[styles.option, disabled ? styles.optionDisabled : null]}
+      onPress={onPress}
+      activeOpacity={0.65}
+      disabled={disabled}
+    >
+      <Text
+        style={[styles.optionIcon, disabled ? styles.optionTextDisabled : null]}
+      >
+        {icon}
+      </Text>
       <View style={styles.optionText}>
-        <Text style={styles.optionLabel}>{label}</Text>
+        <Text
+          style={[
+            styles.optionLabel,
+            disabled ? styles.optionTextDisabled : null,
+          ]}
+        >
+          {label}
+        </Text>
         <Text style={styles.optionSub}>{sub}</Text>
       </View>
     </TouchableOpacity>
@@ -246,6 +341,9 @@ const styles = StyleSheet.create({
     paddingVertical: 14,
     paddingHorizontal: 20,
   },
+  optionDisabled: {
+    opacity: 0.45,
+  },
   optionIcon: {
     fontSize: 26,
     marginRight: 16,
@@ -270,9 +368,72 @@ const styles = StyleSheet.create({
     backgroundColor: "#f0f0f0",
     marginLeft: 72,
   },
+  optionTextDisabled: {
+    color: "#777",
+  },
   busyContainer: {
     height: 120,
     justifyContent: "center",
     alignItems: "center",
+  },
+  photoModalOverlay: {
+    flex: 1,
+    backgroundColor: "rgba(0,0,0,0.55)",
+    justifyContent: "center",
+    alignItems: "center",
+    padding: 24,
+  },
+  photoModalCard: {
+    backgroundColor: "#fff",
+    borderRadius: 16,
+    padding: 20,
+    width: "100%",
+    alignItems: "center",
+  },
+  photoModalThumb: {
+    width: 120,
+    height: 90,
+    borderRadius: 8,
+    marginBottom: 14,
+  },
+  photoModalCount: {
+    fontSize: 18,
+    fontWeight: "700",
+    color: "#1C1C4E",
+    marginBottom: 6,
+  },
+  photoModalQuestion: {
+    fontSize: 14,
+    color: "#555",
+    textAlign: "center",
+    marginBottom: 20,
+    lineHeight: 20,
+  },
+  photoModalButtons: {
+    flexDirection: "row",
+    gap: 12,
+    width: "100%",
+  },
+  photoModalBtn: {
+    flex: 1,
+    paddingVertical: 12,
+    borderRadius: 8,
+    alignItems: "center",
+  },
+  photoModalBtnPrimary: {
+    backgroundColor: Colors.accent,
+  },
+  photoModalBtnSecondary: {
+    backgroundColor: "#f0f0f0",
+  },
+  photoModalBtnTextPrimary: {
+    color: "#fff",
+    fontWeight: "700",
+    fontSize: 14,
+  },
+  photoModalBtnTextSecondary: {
+    color: "#333",
+    fontWeight: "600",
+    fontSize: 14,
   },
 });
