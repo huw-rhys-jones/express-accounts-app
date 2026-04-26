@@ -1071,7 +1071,7 @@ const ReceiptAdd = ({ navigation, route }) => {
     <SafeAreaView style={ReceiptStyles.safeArea}>
       <KeyboardAwareScrollView
         ref={scrollRef}
-        contentContainerStyle={{ flexGrow: 1, paddingBottom: 600 }} // INCREASE THIS
+        contentContainerStyle={{ flexGrow: 1, paddingBottom: 120 }}
         enableOnAndroid={true}
         enableAutomaticScroll={false} // Disable auto-scroll so our manual scroll doesn't fight it
         keyboardShouldPersistTaps="always"
