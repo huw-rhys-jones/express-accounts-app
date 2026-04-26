@@ -49,3 +49,17 @@ export async function getSummaryFilterKey() {
 export async function setSummaryFilterKey(filterKey) {
   await setFilterKey(SUMMARY_FILTER_KEY, filterKey);
 }
+
+/**
+ * Write the same filter key to all screens at once.
+ * Use this when changing the period from Settings or Summary so every
+ * screen picks up the new value on its next focus event.
+ */
+export async function setAllFilterKeys(filterKey) {
+  await Promise.all([
+    setFilterKey(RECEIPT_FILTER_KEY, filterKey),
+    setFilterKey(INCOME_FILTER_KEY, filterKey),
+    setFilterKey(BANK_FILTER_KEY, filterKey),
+    setFilterKey(SUMMARY_FILTER_KEY, filterKey),
+  ]);
+}

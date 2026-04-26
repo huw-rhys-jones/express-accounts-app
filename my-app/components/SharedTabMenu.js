@@ -27,7 +27,7 @@ import DropDownPicker from "react-native-dropdown-picker";
 import appPackage from "../package.json";
 import { auth, db } from "../firebaseConfig";
 import { buildFinancialFilterOptions } from "../utils/financialPeriods";
-import { getReceiptFilterKey, setReceiptFilterKey } from "../utils/appSettings";
+import { getReceiptFilterKey, setAllFilterKeys } from "../utils/appSettings";
 import { Colors } from "../utils/sharedStyles";
 import { getHapticsEnabled, setHapticsEnabled, triggerHaptic } from "../utils/haptics";
 import { verifyClientCode } from "../utils/verificationCodes";
@@ -355,7 +355,7 @@ export default function SharedTabMenu({ navigation, closeMenu, displayName = "Us
                   setValue={(callback) => {
                     const nextKey = callback(activeFilterKey);
                     setActiveFilterKey(nextKey);
-                    setReceiptFilterKey(nextKey).catch(() => {});
+                    setAllFilterKeys(nextKey).catch(() => {});
                     return nextKey;
                   }}
                   setItems={setFilterItems}

@@ -26,6 +26,7 @@ import {
 import { formatDate } from "../utils/format_style";
 import DropDownPicker from "react-native-dropdown-picker";
 import { useData } from "../contexts/DataContext";
+import { getSummaryFilterKey, setAllFilterKeys } from "../utils/appSettings";
 
 const screenWidth = Dimensions.get("window").width;
 const CHART_CARD_WIDTH = screenWidth * 0.9;
@@ -68,6 +69,21 @@ export default function SummaryScreen({ navigation }) {
     () => filterOptions.find((option) => option.key === activeFilterKey) || filterOptions[0],
     [activeFilterKey, filterOptions]
   );
+
+  useEffect(() => {
+    getSummaryFilterKey()
+      .then(setActiveFilterKey)
+      .catch(() => setActiveFilterKey("current-quarter"));
+  }, []);
+
+  useEffect(() => {
+    const unsubscribeFocus = navigation.addListener("focus", () => {
+      getSummaryFilterKey()
+        .then(setActiveFilterKey)
+        .catch(() => setActiveFilterKey("current-quarter"));
+    });
+    return unsubscribeFocus;
+  }, [navigation]);
 
   useEffect(() => {
     if (!activeFilter && filterOptions[0]) {
@@ -225,6 +241,7 @@ export default function SummaryScreen({ navigation }) {
               setValue={(callback) => {
                 const nextKey = typeof callback === "function" ? callback(activeFilterKey) : callback;
                 setActiveFilterKey(nextKey);
+                setAllFilterKeys(nextKey).catch(() => {});
               }}
               setItems={setFilterItems}
               listMode="SCROLLVIEW"

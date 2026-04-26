@@ -1088,7 +1088,7 @@ const ReceiptAdd = ({ navigation, route }) => {
             ]}
             {...(isMultiReceiptMode ? draftSwipeResponder.panHandlers : {})}
           >
-            <Text style={ReceiptStyles.header}>
+            <Text style={[ReceiptStyles.header, isMultiReceiptMode && { marginBottom: 6 }]}>
               {isMultiReceiptMode ? "Review Receipt" : "Your Receipt"}
             </Text>
             {isMultiReceiptMode ? (
