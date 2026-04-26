@@ -7,8 +7,6 @@ import {
   TouchableOpacity,
   ScrollView,
   StyleSheet,
-  KeyboardAvoidingView,
-  Platform,
   Dimensions,
 } from "react-native";
 import { categories_meta } from "../constants/arrays";
@@ -50,10 +48,7 @@ const CategorySelector = ({ visible, onClose, onSelect, selectedCategory }) => {
       transparent={true}
       onRequestClose={handleClose}
     >
-      <KeyboardAvoidingView
-        style={styles.overlay}
-        behavior={Platform.OS === "ios" ? "padding" : "height"}
-      >
+      <View style={styles.overlay}>
         <TouchableOpacity style={styles.overlayDismiss} activeOpacity={1} onPress={handleClose} />
         <View style={styles.modalCard}>
           {/* Header with close button */}
@@ -72,7 +67,7 @@ const CategorySelector = ({ visible, onClose, onSelect, selectedCategory }) => {
               placeholderTextColor={Colors.textSecondary}
               value={searchText}
               onChangeText={setSearchText}
-              autoFocus={true}
+              autoFocus={false}
             />
           </View>
 
@@ -109,7 +104,7 @@ const CategorySelector = ({ visible, onClose, onSelect, selectedCategory }) => {
             )}
           </ScrollView>
         </View>
-      </KeyboardAvoidingView>
+      </View>
     </Modal>
   );
 };
