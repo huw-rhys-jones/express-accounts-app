@@ -1946,18 +1946,10 @@
         resetToLoginScreen();
         return;
       }
-      if (justLoggedIn) {
-        // Fresh login — require 2FA approval on phone
-        justLoggedIn = false;
-        loginError.textContent = "";
-        updateStatusFilterButtonState();
-        await startChallengeFlow(user);
-      } else {
-        // Page reload with existing session — skip 2FA, restore dashboard
-        loginError.textContent = "";
-        updateStatusFilterButtonState();
-        await startAuthenticatedSession(user);
-      }
+      justLoggedIn = false;
+      loginError.textContent = "";
+      updateStatusFilterButtonState();
+      await startAuthenticatedSession(user);
     });
   </script>
 </body>
