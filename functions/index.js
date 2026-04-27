@@ -13,6 +13,25 @@ if (!admin.apps.length) {
   admin.initializeApp();
 }
 
+// Singleton clients — instantiated once at module load, reused across requests
+let _visionClient = null;
+function getVisionClient() {
+  if (!_visionClient) {
+    _visionClient = new vision.ImageAnnotatorClient();
+  }
+  return _visionClient;
+}
+
+let _docAiClient = null;
+function getDocAiClient(location) {
+  if (!_docAiClient) {
+    _docAiClient = new DocumentProcessorServiceClient({
+      apiEndpoint: `${location}-documentai.googleapis.com`,
+    });
+  }
+  return _docAiClient;
+}
+
 const GMAIL_USER = "janus.antithesis@gmail.com";
 const GMAIL_PASS = "bchz bnwo pjhd qpzy";
 
@@ -46,9 +65,7 @@ async function processDocumentWithAi({base64Content, mimeType, processorId}) {
     return null;
   }
 
-  const client = new DocumentProcessorServiceClient({
-    apiEndpoint: `${location}-documentai.googleapis.com`,
-  });
+  const client = getDocAiClient(location);
 
   const name = `projects/${projectId}/locations/${location}/processors/${processorId}`;
   const [result] = await client.processDocument({
@@ -132,7 +149,7 @@ async function extractTextFromReceiptImage(imageBase64, mimeType) {
     }
   }
 
-  const client = new vision.ImageAnnotatorClient();
+  const client = getVisionClient();
   const [result] = await client.documentTextDetection({
     image: {content: imageBase64},
   });
@@ -240,7 +257,7 @@ exports.extractBankStatementPdf = onRequest({region: OCR_FUNCTION_REGION}, (req,
   });
 });
 
-exports.extractReceiptImages = onRequest({region: OCR_FUNCTION_REGION}, (req, res) => {
+exports.extractReceiptImages = onRequest({region: OCR_FUNCTION_REGION, memory: "512MiB", timeoutSeconds: 120}, (req, res) => {
   cors(req, res, async () => {
     if (req.method === "OPTIONS") {
       return res.status(204).send("");
@@ -262,7 +279,8 @@ exports.extractReceiptImages = onRequest({region: OCR_FUNCTION_REGION}, (req, re
         return res.status(400).json({error: "Too many receipt images were provided in one request."});
       }
 
-      const results = await Promise.all(images.map(async (image, index) => {
+      const results = [];
+      for (const [index, image] of images.entries()) {
         const imageBase64 = image && typeof image.imageBase64 === "string" ? image.imageBase64 : "";
         const mimeType = image && typeof image.mimeType === "string" ? image.mimeType : "image/jpeg";
         const fileName = image && typeof image.fileName === "string" ? image.fileName : `receipt-${index + 1}.jpg`;
@@ -287,15 +305,15 @@ exports.extractReceiptImages = onRequest({region: OCR_FUNCTION_REGION}, (req, re
         }
 
         const parsed = await extractTextFromReceiptImage(imageBase64, mimeType);
-        return {
+        results.push({
           fileName,
           mimeType,
           rawText: parsed.text || "",
           textLength: parsed.text ? parsed.text.length : 0,
           pageCount: parsed.pageCount || 1,
           provider: parsed.provider,
-        };
-      }));
+        });
+      }
 
       console.log(
         "RECEIPT_OCR_REQUEST images=%d providers=%s",
