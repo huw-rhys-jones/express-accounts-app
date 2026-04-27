@@ -121,7 +121,7 @@ const ReceiptAdd = ({ navigation, route }) => {
   };
 
   // Fullscreen viewer (separate, top-level modal)
-  const [fullScreenImage, setFullScreenImage] = useState(null);
+  const [fullScreenImageIndex, setFullScreenImageIndex] = useState(null);
 
   const getCanonicalCategoryName = (value) => {
     const normalized = String(value || "").trim().toLowerCase();
@@ -926,9 +926,6 @@ const ReceiptAdd = ({ navigation, route }) => {
   };
 
   const pickImageOption = () => {
-    if (isMultiReceiptMode) {
-      return;
-    }
     if (showTip) dismissTip();
     Alert.alert(
       "Add Image",
@@ -1424,7 +1421,7 @@ const ReceiptAdd = ({ navigation, route }) => {
                 {images.map((item, index) => (
                   <View key={index.toString()}>
                     <TouchableOpacity
-                      onPress={() => setFullScreenImage({ uri: item.uri })}
+                      onPress={() => setFullScreenImageIndex(index)}
                     >
                       <Image
                         source={{ uri: item.uri }}
@@ -1434,21 +1431,19 @@ const ReceiptAdd = ({ navigation, route }) => {
                   </View>
                 ))}
 
-                {!isMultiReceiptMode ? (
-                  <View style={{ flexDirection: "row", alignItems: "center" }}>
-                    <TouchableOpacity
-                      style={[
-                        ReceiptStyles.uploadPlaceholder,
-                        { marginRight: 0 },
-                      ]}
-                      onPress={pickImageOption}
-                    >
-                      <Text style={ReceiptStyles.plus}>+</Text>
-                    </TouchableOpacity>
+                <View style={{ flexDirection: "row", alignItems: "center" }}>
+                  <TouchableOpacity
+                    style={[
+                      ReceiptStyles.uploadPlaceholder,
+                      { marginRight: 0 },
+                    ]}
+                    onPress={pickImageOption}
+                  >
+                    <Text style={ReceiptStyles.plus}>+</Text>
+                  </TouchableOpacity>
 
-                    {showTip && <ScannerTooltip onDismiss={dismissTip} />}
-                  </View>
-                ) : null}
+                  {showTip && !isMultiReceiptMode && <ScannerTooltip onDismiss={dismissTip} />}
+                </View>
               </ScrollView>
             </View>
 
@@ -1903,31 +1898,30 @@ const ReceiptAdd = ({ navigation, route }) => {
 
       {/* Full-screen Image Modal */}
       <Modal
-        visible={!!fullScreenImage}
+        visible={fullScreenImageIndex !== null}
         animationType="fade"
         presentationStyle="fullScreen"
         transparent={false}
-        onRequestClose={() => setFullScreenImage(null)}
+        onRequestClose={() => setFullScreenImageIndex(null)}
       >
-        {fullScreenImage ? (
+        {fullScreenImageIndex !== null ? (
           <>
             <ImageViewer
-              imageUrls={[{ url: fullScreenImage.uri }]}
+              imageUrls={images.map(img => ({ url: img.uri }))}
+              index={fullScreenImageIndex}
               enableSwipeDown
-              onSwipeDown={() => setFullScreenImage(null)}
-              onClick={() => setFullScreenImage(null)}
+              onSwipeDown={() => setFullScreenImageIndex(null)}
+              onClick={() => setFullScreenImageIndex(null)}
               backgroundColor="black"
-              renderIndicator={() => null}
+              renderIndicator={images.length > 1 ? undefined : () => null}
               saveToLocalByLongPress={false}
             />
-            <View style={ReceiptStyles.fullScreenCloseButtonWrapper}>
-              <TouchableOpacity
-                style={ReceiptStyles.fullScreenCloseButton}
-                onPress={() => setFullScreenImage(null)}
-              >
-                <Text style={ReceiptStyles.fullScreenCloseText}>Close</Text>
-              </TouchableOpacity>
-            </View>
+            <TouchableOpacity
+              style={ReceiptStyles.fullScreenCloseButton}
+              onPress={() => setFullScreenImageIndex(null)}
+            >
+              <Text style={ReceiptStyles.fullScreenCloseText}>✕</Text>
+            </TouchableOpacity>
           </>
         ) : null}
       </Modal>
