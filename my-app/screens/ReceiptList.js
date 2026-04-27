@@ -50,7 +50,7 @@ import {
   setHapticsEnabled,
   triggerHaptic,
 } from "../utils/haptics";
-import { getReceiptFilterKey, setReceiptFilterKey } from "../utils/appSettings";
+import { getReceiptFilterKey, setReceiptFilterKey, setAllFilterKeys } from "../utils/appSettings";
 import { verifyClientCode } from "../utils/verificationCodes";
 import AddReceiptSheet from "../components/AddReceiptSheet";
 import { useData } from "../contexts/DataContext";
@@ -530,7 +530,7 @@ const ExpensesScreen = ({ navigation, route }) => {
   const handleFilterSelection = useCallback(
     async (nextKey) => {
       setActiveFilterKey(nextKey);
-      await setReceiptFilterKey(nextKey);
+      await setAllFilterKeys(nextKey);
     },
     []
   );
@@ -728,7 +728,7 @@ const ExpensesScreen = ({ navigation, route }) => {
 
         {/* Header row OUTSIDE the FlatList to avoid Android sticky bug */}
         {hasReceipts ? (
-          <View style={{ marginTop: 28, marginBottom: 8 }}>
+          <View style={{ marginTop: 12, marginBottom: 8 }}>
             {renderHeaderRow()}
           </View>
         ) : null}
@@ -739,17 +739,39 @@ const ExpensesScreen = ({ navigation, route }) => {
           keyExtractor={(item) => item.id}
           renderItem={renderReceiptItem}
           contentContainerStyle={[
-            // REMOVE styles.listContainer and the backgroundColor logic here
             { paddingVertical: 10 },
-            !hasReceipts ? { flexGrow: 1, justifyContent: "center" } : null,
+            !hasReceipts ? { flexGrow: 1, justifyContent: "center" } : { paddingBottom: 110 },
           ]}
           refreshControl={
             <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
           }
         />
 
-        {/* REMOVE the ItemTooltip from here (the bottom of your file) */}
       </View>
+
+      {/* Period filter bar — sits just above the bottom tab bar */}
+      {!dataLoading && !loading && filterOptions.length > 0 ? (
+        <View style={styles.filterBar}>
+          <DropDownPicker
+            open={filterOpen}
+            value={activeFilterKey}
+            items={filterItems}
+            setOpen={setFilterOpen}
+            setValue={(callback) => {
+              const nextKey = callback(activeFilterKey);
+              handleFilterSelection(nextKey).catch(() => {});
+              return nextKey;
+            }}
+            setItems={setFilterItems}
+            listMode="SCROLLVIEW"
+            dropDownDirection="TOP"
+            style={styles.filterDropdown}
+            dropDownContainerStyle={styles.filterDropdownContainer}
+            zIndex={3000}
+            zIndexInverse={1000}
+          />
+        </View>
+      ) : null}
 
       {/* Floating Add Expenses Button */}
       {!addSheetVisible && (
@@ -957,10 +979,7 @@ const ExpensesScreen = ({ navigation, route }) => {
         visible={settingsModalVisible}
         transparent
         animationType="slide"
-        onRequestClose={() => {
-          setSettingsModalVisible(false);
-          setFilterOpen(false);
-        }}
+        onRequestClose={() => setSettingsModalVisible(false)}
       >
         <View style={styles.modalOverlay}>
           <View style={[styles.loadingCard, styles.settingsModalCard]}>
@@ -976,34 +995,8 @@ const ExpensesScreen = ({ navigation, route }) => {
               />
             </View>
 
-            {filterOptions.length > 0 ? (
-              <View style={styles.settingsFilterSection}>
-                <Text style={styles.settingsLabel}>Filter by quarter or year</Text>
-                <DropDownPicker
-                  open={filterOpen}
-                  value={activeFilterKey}
-                  items={filterItems}
-                  setOpen={setFilterOpen}
-                  setValue={(callback) => {
-                    const nextKey = callback(activeFilterKey);
-                    handleFilterSelection(nextKey).catch(() => {});
-                    return nextKey;
-                  }}
-                  setItems={setFilterItems}
-                  listMode="SCROLLVIEW"
-                  style={styles.filterDropdown}
-                  dropDownContainerStyle={styles.filterDropdownContainer}
-                  zIndex={3000}
-                  zIndexInverse={1000}
-                />
-              </View>
-            ) : null}
-
             <TouchableOpacity
-              onPress={() => {
-                setSettingsModalVisible(false);
-                setFilterOpen(false);
-              }}
+              onPress={() => setSettingsModalVisible(false)}
               style={[styles.signOutBtn, { width: "100%" }]}
             >
               <Text style={styles.signOutText}>Done</Text>
@@ -1193,12 +1186,24 @@ const styles = StyleSheet.create({
     marginTop: 14,
     textAlign: "center",
   },
+  filterBar: {
+    position: "absolute",
+    bottom: 0,
+    left: 0,
+    right: 0,
+    backgroundColor: "#1C1C4E",
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    zIndex: 1000,
+  },
   filterDropdown: {
     borderColor: Colors.border,
     borderRadius: 10,
+    backgroundColor: Colors.card,
   },
   filterDropdownContainer: {
     borderColor: Colors.border,
+    backgroundColor: Colors.card,
   },
   description: {
     fontSize: 16,
@@ -1310,7 +1315,7 @@ const styles = StyleSheet.create({
 
   floatingButton: {
     position: "absolute",
-    bottom: 100,
+    bottom: 70,
     right: 30,
     backgroundColor: Colors.accent,
     width: 60,

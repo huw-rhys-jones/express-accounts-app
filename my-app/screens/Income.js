@@ -1,4 +1,4 @@
-import React, { useCallback, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
@@ -19,6 +19,12 @@ import { auth } from "../firebaseConfig";
 import { formatDate } from "../utils/format_style";
 import { Colors } from "../utils/sharedStyles";
 import { useData } from "../contexts/DataContext";
+import DropDownPicker from "react-native-dropdown-picker";
+import {
+  buildFinancialFilterOptions,
+  filterReceiptsByDateRange,
+} from "../utils/financialPeriods";
+import { getIncomeFilterKey, setIncomeFilterKey, setAllFilterKeys } from "../utils/appSettings";
 
 export default function IncomeScreen({ navigation }) {
   const { incomeItems, initialLoading } = useData();
@@ -28,9 +34,55 @@ export default function IncomeScreen({ navigation }) {
   const [sortDir, setSortDir] = useState("desc");
   const [menuOpen, setMenuOpen] = useState(false);
   const [addSheetVisible, setAddSheetVisible] = useState(false);
+  const [filterOpen, setFilterOpen] = useState(false);
+  const [activeFilterKey, setActiveFilterKey] = useState("current-quarter");
+  const [filterItems, setFilterItems] = useState([]);
+
+  const filterOptions = useMemo(
+    () => buildFinancialFilterOptions(incomeItems, new Date()),
+    [incomeItems]
+  );
+
+  const activeFilter = useMemo(
+    () => filterOptions.find((o) => o.key === activeFilterKey) || filterOptions[0],
+    [activeFilterKey, filterOptions]
+  );
+
+  useEffect(() => {
+    setFilterItems(filterOptions.map((o) => ({ label: o.label, value: o.key })));
+  }, [filterOptions]);
+
+  useEffect(() => {
+    getIncomeFilterKey()
+      .then(setActiveFilterKey)
+      .catch(() => setActiveFilterKey("current-quarter"));
+  }, []);
+
+  useEffect(() => {
+    const unsub = navigation.addListener("focus", () => {
+      getIncomeFilterKey()
+        .then(setActiveFilterKey)
+        .catch(() => setActiveFilterKey("current-quarter"));
+    });
+    return unsub;
+  }, [navigation]);
+
+  const handleFilterSelection = useCallback(async (nextKey) => {
+    setActiveFilterKey(nextKey);
+    await setAllFilterKeys(nextKey);
+  }, []);
+
+  const filteredIncome = useMemo(() => {
+    if (!activeFilter) return incomeItems;
+    return filterReceiptsByDateRange(
+      incomeItems,
+      activeFilter.startDate,
+      activeFilter.endDate
+    );
+  }, [activeFilter, incomeItems]);
 
   const sortedIncome = useMemo(() => {
-    const data = [...incomeItems];
+    const data = [...filteredIncome];
     data.sort((left, right) => {
       let comparison = 0;
       if (sortKey === "amount") {
@@ -49,7 +101,7 @@ export default function IncomeScreen({ navigation }) {
       return sortDir === "asc" ? comparison : -comparison;
     });
     return data;
-  }, [incomeItems, sortDir, sortKey]);
+  }, [filteredIncome, sortDir, sortKey]);
 
   const onRefresh = useCallback(async () => {
     setRefreshing(true);
@@ -134,7 +186,7 @@ export default function IncomeScreen({ navigation }) {
       <View style={styles.content}>
 
         {sortedIncome.length > 0 ? (
-          <View style={{ marginTop: 28, marginBottom: 8 }}>{renderHeader()}</View>
+          <View style={{ marginTop: 12, marginBottom: 8 }}>{renderHeader()}</View>
         ) : null}
 
         <FlatList
@@ -161,6 +213,30 @@ export default function IncomeScreen({ navigation }) {
           refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
         />
       </View>
+
+      {/* Period filter bar — sits just above the bottom tab bar */}
+      {!loading && filterOptions.length > 0 ? (
+        <View style={styles.filterBar}>
+          <DropDownPicker
+            open={filterOpen}
+            value={activeFilterKey}
+            items={filterItems}
+            setOpen={setFilterOpen}
+            setValue={(callback) => {
+              const nextKey = callback(activeFilterKey);
+              handleFilterSelection(nextKey).catch(() => {});
+              return nextKey;
+            }}
+            setItems={setFilterItems}
+            listMode="SCROLLVIEW"
+            dropDownDirection="TOP"
+            style={styles.filterDropdown}
+            dropDownContainerStyle={styles.filterDropdownContainer}
+            zIndex={3000}
+            zIndexInverse={1000}
+          />
+        </View>
+      ) : null}
 
       {!addSheetVisible && (
         <TouchableOpacity
@@ -246,6 +322,25 @@ const styles = StyleSheet.create({
     paddingVertical: 12,
     flexDirection: "row",
     alignItems: "center",
+  },
+  filterBar: {
+    position: "absolute",
+    bottom: 0,
+    left: 0,
+    right: 0,
+    backgroundColor: "#1C1C4E",
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    zIndex: 1000,
+  },
+  filterDropdown: {
+    borderColor: Colors.border,
+    borderRadius: 10,
+    backgroundColor: Colors.card,
+  },
+  filterDropdownContainer: {
+    borderColor: Colors.border,
+    backgroundColor: Colors.card,
   },
   headerCellDate: { width: 90, flexDirection: "row", gap: 6, alignItems: "center" },
   headerCellReference: { flex: 1, flexDirection: "row", gap: 6, alignItems: "center", paddingLeft: 16 },
@@ -401,7 +496,7 @@ const styles = StyleSheet.create({
   floatingButton: {
     position: "absolute",
     right: 30,
-    bottom: 100,
+    bottom: 70,
     width: 60,
     height: 60,
     borderRadius: 30,

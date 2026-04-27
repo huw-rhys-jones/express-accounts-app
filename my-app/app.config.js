@@ -63,6 +63,15 @@ export default ({ config }) => ({
     "expo-apple-authentication",
     "expo-router",
     [
+      "expo-splash-screen",
+      {
+        "image": "./assets/splash-icon.png",
+        "imageWidth": 320,
+        "resizeMode": "contain",
+        "backgroundColor": "#ffffff"
+      }
+    ],
+    [
       "expo-image-picker",
       {
         "cameraPermission": "Express Accounts needs access to your camera to scan receipts.",

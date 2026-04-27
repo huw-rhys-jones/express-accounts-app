@@ -448,7 +448,9 @@ const styles = StyleSheet.create({
   tabBar: {
     flexDirection: "row",
     // height: 70,
-    backgroundColor: "#B5B3C6",
+    backgroundColor: "#ffffff",
+    borderTopWidth: 2,
+    borderTopColor: "#a60d49",
     alignItems: "center",
     justifyContent: "space-around",
     paddingBottom: Platform.OS === 'android' ? 60 : 0,

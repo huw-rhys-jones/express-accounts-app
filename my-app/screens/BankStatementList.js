@@ -1,4 +1,4 @@
-import React, { useCallback, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
@@ -18,6 +18,12 @@ import { auth } from "../firebaseConfig";
 import { Colors } from "../utils/sharedStyles";
 import { formatDate } from "../utils/format_style";
 import { useData } from "../contexts/DataContext";
+import DropDownPicker from "react-native-dropdown-picker";
+import {
+  buildFinancialFilterOptions,
+  filterReceiptsByDateRange,
+} from "../utils/financialPeriods";
+import { getBankFilterKey, setBankFilterKey, setAllFilterKeys } from "../utils/appSettings";
 
 export default function BankStatementList({ navigation }) {
   const { bankStatements, initialLoading } = useData();
@@ -27,9 +33,55 @@ export default function BankStatementList({ navigation }) {
   const [sortKey, setSortKey] = useState("date");
   const [sortDir, setSortDir] = useState("desc");
   const [menuOpen, setMenuOpen] = useState(false);
+  const [filterOpen, setFilterOpen] = useState(false);
+  const [activeFilterKey, setActiveFilterKey] = useState("current-quarter");
+  const [filterItems, setFilterItems] = useState([]);
+
+  const filterOptions = useMemo(
+    () => buildFinancialFilterOptions(statements, new Date()),
+    [statements]
+  );
+
+  const activeFilter = useMemo(
+    () => filterOptions.find((o) => o.key === activeFilterKey) || filterOptions[0],
+    [activeFilterKey, filterOptions]
+  );
+
+  useEffect(() => {
+    setFilterItems(filterOptions.map((o) => ({ label: o.label, value: o.key })));
+  }, [filterOptions]);
+
+  useEffect(() => {
+    getBankFilterKey()
+      .then(setActiveFilterKey)
+      .catch(() => setActiveFilterKey("current-quarter"));
+  }, []);
+
+  useEffect(() => {
+    const unsub = navigation.addListener("focus", () => {
+      getBankFilterKey()
+        .then(setActiveFilterKey)
+        .catch(() => setActiveFilterKey("current-quarter"));
+    });
+    return unsub;
+  }, [navigation]);
+
+  const handleFilterSelection = useCallback(async (nextKey) => {
+    setActiveFilterKey(nextKey);
+    await setAllFilterKeys(nextKey);
+  }, []);
+
+  const filteredStatements = useMemo(() => {
+    if (!activeFilter) return statements;
+    return filterReceiptsByDateRange(
+      statements,
+      activeFilter.startDate,
+      activeFilter.endDate
+    );
+  }, [activeFilter, statements]);
 
   const sortedStatements = useMemo(() => {
-    const data = [...statements];
+    const data = [...filteredStatements];
     data.sort((left, right) => {
       let comparison = 0;
       if (sortKey === "accountName") {
@@ -49,7 +101,7 @@ export default function BankStatementList({ navigation }) {
       return sortDir === "asc" ? comparison : -comparison;
     });
     return data;
-  }, [statements, sortDir, sortKey]);
+  }, [filteredStatements, sortDir, sortKey]);
 
   const onRefresh = useCallback(async () => {
     setRefreshing(true);
@@ -126,7 +178,7 @@ export default function BankStatementList({ navigation }) {
       <View style={styles.content}>
 
         {sortedStatements.length > 0 ? (
-          <View style={{ marginTop: 28, marginBottom: 8 }}>
+          <View style={{ marginTop: 12, marginBottom: 8 }}>
             <View style={styles.headerRow}>
               <TouchableOpacity style={styles.headerDate} onPress={() => toggleSort("date")}>
                 <Text style={styles.headerText}>Date</Text>
@@ -168,6 +220,30 @@ export default function BankStatementList({ navigation }) {
           refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
         />
       </View>
+
+      {/* Period filter bar — sits just above the bottom tab bar */}
+      {!loading && filterOptions.length > 0 ? (
+        <View style={styles.filterBar}>
+          <DropDownPicker
+            open={filterOpen}
+            value={activeFilterKey}
+            items={filterItems}
+            setOpen={setFilterOpen}
+            setValue={(callback) => {
+              const nextKey = callback(activeFilterKey);
+              handleFilterSelection(nextKey).catch(() => {});
+              return nextKey;
+            }}
+            setItems={setFilterItems}
+            listMode="SCROLLVIEW"
+            dropDownDirection="TOP"
+            style={styles.filterDropdown}
+            dropDownContainerStyle={styles.filterDropdownContainer}
+            zIndex={3000}
+            zIndexInverse={1000}
+          />
+        </View>
+      ) : null}
 
       <TouchableOpacity
         style={styles.floatingButton}
@@ -244,6 +320,25 @@ const styles = StyleSheet.create({
     paddingVertical: 12,
     flexDirection: "row",
     alignItems: "center",
+  },
+  filterBar: {
+    position: "absolute",
+    bottom: 0,
+    left: 0,
+    right: 0,
+    backgroundColor: "#1C1C4E",
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    zIndex: 1000,
+  },
+  filterDropdown: {
+    borderColor: Colors.border,
+    borderRadius: 10,
+    backgroundColor: Colors.card,
+  },
+  filterDropdownContainer: {
+    borderColor: Colors.border,
+    backgroundColor: Colors.card,
   },
   headerDate: { width: 90, flexDirection: "row", gap: 6, alignItems: "center" },
   headerAccount: { flex: 1, flexDirection: "row", gap: 6, alignItems: "center" },
@@ -398,7 +493,7 @@ const styles = StyleSheet.create({
   floatingButton: {
     position: "absolute",
     right: 30,
-    bottom: 100,
+    bottom: 70,
     width: 60,
     height: 60,
     borderRadius: 30,
