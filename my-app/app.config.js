@@ -15,6 +15,7 @@ export default ({ config }) => ({
 
   name: "Express Accounts",
   slug: "express-accounts",
+  owner: "dubway4201",
   scheme: "com.caistec.expressaccounts",
   version: appVersion,
   orientation: "portrait",
@@ -32,7 +33,6 @@ export default ({ config }) => ({
   ios: {
     supportsTablet: false,
     bundleIdentifier: "com.caistec.expressaccounts",
-    buildNumber: String(numericBuild),
     googleServicesFile: "./GoogleService-Info.plist",
     usesAppleSignIn: true,
     infoPlist: {
