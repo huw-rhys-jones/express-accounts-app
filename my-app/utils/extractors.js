@@ -290,7 +290,8 @@ export function extractAmount(reconstructedText) {
     const uniqueLineCount = (valueLines.get(key) || new Set()).size;
 
     const isTotalContext = /\bTOTAL\b|\bTOTAT\b|\bTOTA1\b|\bAMOUNT\s+DUE\b|\bBALANCE\s+DUE\b|\bGRAND\s+TOTAL\b/.test(line)
-      || hasNear(candidate.lineIndex, /\bAMOUNT\s+DUE\b|\bBALANCE\s+DUE\b|\bGRAND\s+TOTAL\b/, 1);
+      || hasNear(candidate.lineIndex, /\bAMOUNT\s+DUE\b|\bBALANCE\s+DUE\b|\bGRAND\s+TOTAL\b/, 1)
+      || hasNear(candidate.lineIndex, /\bTOTAL\b|\bTOTAT\b|\bTOTA1\b/, 1);
     const isSubtotalContext = /\bSUBTOTAL\b|\bDISCOUNT\b|\bREFUND\b|\bTIPS?\b/.test(line)
       || hasNear(candidate.lineIndex, /\bSUBTOTAL\b|\bDISCOUNT\b|\bREFUND\b|\bTIPS?\b/, 1);
     const isVatContext = /\bVAT\b|\bTAX\b/.test(line)
