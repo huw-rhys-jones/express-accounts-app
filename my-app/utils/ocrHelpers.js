@@ -4,6 +4,8 @@ import TextRecognition from "@react-native-ml-kit/text-recognition";
 import { categories_meta } from "../constants/arrays";
 import { extractReceiptImagesInCloud } from "./cloudReceiptOcr";
 import { extractData, reconstructLines } from "./extractors";
+import { auth, db } from "../firebaseConfig";
+import { doc, getDoc } from "firebase/firestore";
 
 // ─── Standalone OCR helpers (no hook state) ──────────────────────────────────
 
@@ -181,29 +183,42 @@ async function analyzeAsset(asset) {
   };
 }
 
-async function analyzeAssetsCloudFirst(assets) {
+async function isUserVerified() {
   try {
-    const response = await extractReceiptImagesInCloud(assets);
-    const cloudImages = Array.isArray(response?.images) ? response.images : [];
-    const responseProvider = response?.provider || cloudImages[0]?.provider || "cloud";
+    const user = auth.currentUser;
+    if (!user) return false;
+    const snap = await getDoc(doc(db, "users", user.uid));
+    return snap.exists() && snap.data()?.verificationStatus === "verified";
+  } catch {
+    return false;
+  }
+}
 
-    if (cloudImages.length === assets.length) {
-      console.log(
-        "Receipt OCR source: cloud (%s)",
-        responseProvider,
-      );
-      return cloudImages.map((entry, index) => {
-        const raw = typeof entry?.rawText === "string" ? entry.rawText : "";
-        return {
-          asset: assets[index],
-          ocrSource: "cloud",
-          ocrProvider: entry?.provider || responseProvider,
-          ...toStructuredOcrResult(extractData(raw), raw),
-        };
-      });
+async function analyzeAssetsCloudFirst(assets) {
+  const verified = await isUserVerified();
+  if (verified) {
+    try {
+      const response = await extractReceiptImagesInCloud(assets);
+      const cloudImages = Array.isArray(response?.images) ? response.images : [];
+      const responseProvider = response?.provider || cloudImages[0]?.provider || "cloud";
+
+      if (cloudImages.length === assets.length) {
+        console.log("Receipt OCR source: cloud (%s)", responseProvider);
+        return cloudImages.map((entry, index) => {
+          const raw = typeof entry?.rawText === "string" ? entry.rawText : "";
+          return {
+            asset: assets[index],
+            ocrSource: "cloud",
+            ocrProvider: entry?.provider || responseProvider,
+            ...toStructuredOcrResult(extractData(raw), raw),
+          };
+        });
+      }
+    } catch (error) {
+      console.warn("Cloud receipt OCR unavailable, falling back to on-device OCR.", error);
     }
-  } catch (error) {
-    console.warn("Cloud receipt OCR unavailable, falling back to on-device OCR.", error);
+  } else {
+    console.log("Receipt OCR source: local (ml-kit) — user not verified");
   }
 
   console.log("Receipt OCR source: local (ml-kit)");
