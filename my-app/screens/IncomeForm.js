@@ -5,6 +5,7 @@ import {
   Animated,
   Image,
   Modal,
+  PanResponder,
   PermissionsAndroid,
   Platform,
   ScrollView,
@@ -35,7 +36,7 @@ import { auth, db } from "../firebaseConfig";
 import { Colors, ReceiptStyles } from "../utils/sharedStyles";
 import { formatDate } from "../utils/format_style";
 import { getCurrentYearAprilSix } from "../utils/financialPeriods";
-import { useReceiptOcr, runOcrOnAssets } from "../utils/ocrHelpers";
+import { useReceiptOcr, runOcrOnAssets, detectReceiptGroupsFromAssets } from "../utils/ocrHelpers";
 import {
   createImageAttachment,
   deleteStoredAttachments,
@@ -105,6 +106,23 @@ export default function IncomeFormScreen({ navigation, route, mode }) {
   const [pickerBusyText, setPickerBusyText] = useState("Opening attachment options…");
   const [ocrProcessing, setOcrProcessing] = useState(false);
 
+  // Multi-statement draft mode (when multiple income images are detected)
+  const [incomeDrafts, setIncomeDrafts] = useState([]);
+  const [currentDraftIndex, setCurrentDraftIndex] = useState(0);
+  const [draftReviewStates, setDraftReviewStates] = useState([]); // "pending"|"confirmed"|"skipped"
+  const isMultiDraftMode = incomeDrafts.length > 1;
+
+  // Refs to prevent stale closures in PanResponder
+  const incomeDraftsRef = useRef(incomeDrafts);
+  const currentDraftIndexRef = useRef(currentDraftIndex);
+  const incomeFormStateRef = useRef(null);
+  incomeDraftsRef.current = incomeDrafts;
+  currentDraftIndexRef.current = currentDraftIndex;
+  incomeFormStateRef.current = { amount, vatAmount, vatRate, vatAmountEdited, reference, label, notes, selectedDate, attachments };
+
+  const draftSlideX = useRef(new Animated.Value(0)).current;
+  const draftFade = useRef(new Animated.Value(1)).current;
+
   // Flash animations for OCR-populated fields
   const flashAmount = useRef(new Animated.Value(0)).current;
   const flashVat = useRef(new Animated.Value(0)).current;
@@ -120,8 +138,155 @@ export default function IncomeFormScreen({ navigation, route, mode }) {
     }).start();
   };
 
-  const applyOcrResult = (extracted) => {
-    if (extracted.amount) {
+  // ─── Multi-draft helpers ────────────────────────────────────────────────────
+
+  const createIncomeDraftFromGroup = ({ analysis, assets }) => {
+    const draftAmount = analysis?.amount != null ? Number(analysis.amount).toFixed(2) : "";
+    const draftVatAmount = analysis?.vat?.value != null ? Number(analysis.vat.value).toFixed(2) : "";
+    const draftVatRate = analysis?.vat?.rate != null ? String(analysis.vat.rate) : "";
+    const parsedDate = analysis?.date ? new Date(analysis.date) : null;
+    return {
+      amount: draftAmount,
+      vatAmount: draftVatAmount,
+      vatRate: draftVatRate,
+      vatAmountEdited: Boolean(draftVatAmount),
+      reference: analysis?.reference || "",
+      label: "",
+      notes: "",
+      selectedDate: parsedDate && !Number.isNaN(parsedDate.getTime()) ? parsedDate : new Date(),
+      attachments: (assets || []).map((asset) => createImageAttachment(asset)),
+    };
+  };
+
+  const applyIncomeDraftToForm = (draft) => {
+    setAmount(draft?.amount || "");
+    setVatAmount(draft?.vatAmount || "");
+    setVatRate(draft?.vatRate || "");
+    setVatAmountEdited(Boolean(draft?.vatAmountEdited));
+    setReference(draft?.reference || "");
+    setLabel(draft?.label || "");
+    setNotes(draft?.notes || "");
+    setSelectedDate(draft?.selectedDate ? new Date(draft.selectedDate) : new Date());
+    setAttachments(Array.isArray(draft?.attachments) ? [...draft.attachments] : []);
+  };
+
+  const buildCurrentIncomeDraft = () => {
+    const f = incomeFormStateRef.current || { amount, vatAmount, vatRate, vatAmountEdited, reference, label, notes, selectedDate, attachments };
+    return {
+      amount: f.amount,
+      vatAmount: f.vatAmount,
+      vatRate: f.vatRate,
+      vatAmountEdited: f.vatAmountEdited,
+      reference: f.reference,
+      label: f.label,
+      notes: f.notes,
+      selectedDate: new Date(f.selectedDate),
+      attachments: [...f.attachments],
+    };
+  };
+
+  const syncIncomeDrafts = () => {
+    const drafts = incomeDraftsRef.current;
+    const index = currentDraftIndexRef.current;
+    if (drafts.length <= 1) return drafts;
+    const snapshot = buildCurrentIncomeDraft();
+    const next = drafts.map((d, i) => i === index ? { ...d, ...snapshot } : d);
+    setIncomeDrafts(next);
+    return next;
+  };
+
+  const animateDraftTransition = (direction = "next") => {
+    draftSlideX.setValue(direction === "next" ? 28 : -28);
+    draftFade.setValue(0.75);
+    Animated.parallel([
+      Animated.timing(draftSlideX, { toValue: 0, duration: 180, useNativeDriver: true }),
+      Animated.timing(draftFade, { toValue: 1, duration: 180, useNativeDriver: true }),
+    ]).start();
+  };
+
+  const navigateToIncomeDraft = (index) => {
+    const drafts = incomeDraftsRef.current;
+    const currentIndex = currentDraftIndexRef.current;
+    if (index < 0 || index >= drafts.length) return;
+    const synced = syncIncomeDrafts();
+    const direction = index > currentIndex ? "next" : "previous";
+    const target = synced[index];
+    if (!target) return;
+    setCurrentDraftIndex(index);
+    applyIncomeDraftToForm(target);
+    animateDraftTransition(direction);
+  };
+
+  const draftSwipeResponder = React.useMemo(
+    () => PanResponder.create({
+      onMoveShouldSetPanResponder: (_, { dx, dy }) =>
+        isMultiDraftMode && Math.abs(dx) > 18 && Math.abs(dx) > Math.abs(dy) * 1.4,
+      onPanResponderRelease: (_, { dx, dy }) => {
+        if (!isMultiDraftMode) return;
+        if (Math.abs(dx) < 72 || Math.abs(dx) < Math.abs(dy) * 1.2) return;
+        if (dx < 0) navigateToIncomeDraft(currentDraftIndexRef.current + 1);
+        else navigateToIncomeDraft(currentDraftIndexRef.current - 1);
+      },
+    }),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [isMultiDraftMode],
+  );
+
+  const confirmIncomeDraft = async () => {
+    // Save the current income statement and advance
+    const user = auth.currentUser;
+    if (!user) { Alert.alert("Authentication Error", "Please sign in again."); return; }
+
+    setIsSaving(true);
+    try {
+      const uploaded = await uploadAttachmentEntries({ folder: "income", userId: user.uid, attachments });
+      await addDoc(collection(db, "income"), {
+        amount: Number(amount),
+        vatAmount: Number(vatAmount),
+        vatRate: Number(vatRate),
+        date: selectedDate.toISOString(),
+        reference: reference.trim(),
+        label: label.trim(),
+        notes: notes.trim(),
+        attachments: uploaded,
+        userId: user.uid,
+        createdAt: serverTimestamp(),
+        updatedAt: serverTimestamp(),
+      });
+      triggerHaptic("success").catch(() => {});
+      const nextIndex = currentDraftIndexRef.current + 1;
+      const drafts = incomeDraftsRef.current;
+      const newStates = [...draftReviewStates];
+      newStates[currentDraftIndexRef.current] = "confirmed";
+      setDraftReviewStates(newStates);
+      if (nextIndex < drafts.length) {
+        navigateToIncomeDraft(nextIndex);
+      } else {
+        navigateBackToIncome(navigation);
+      }
+    } catch (err) {
+      console.error("Error saving income draft:", err);
+      Alert.alert("Save Failed", "Could not save this income record.");
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  const skipIncomeDraft = () => {
+    const newStates = [...draftReviewStates];
+    newStates[currentDraftIndexRef.current] = "skipped";
+    setDraftReviewStates(newStates);
+    const nextIndex = currentDraftIndexRef.current + 1;
+    if (nextIndex < incomeDraftsRef.current.length) {
+      navigateToIncomeDraft(nextIndex);
+    } else {
+      navigateBackToIncome(navigation);
+    }
+  };
+
+  // ─── End multi-draft helpers ─────────────────────────────────────────────────
+
+  const applyOcrResult = (extracted) => {    if (extracted.amount) {
       setAmount(String(extracted.amount));
       flashField(flashAmount);
     }
@@ -231,17 +396,33 @@ export default function IncomeFormScreen({ navigation, route, mode }) {
 
     (async () => {
       setOcrProcessing(true);
-      // Add images to attachments
-      const newAttachments = initialImages.map((asset) =>
-        createImageAttachment(asset)
-      );
-      setAttachments((prev) => [...prev, ...newAttachments]);
-
       try {
-        const extracted = await runOcrOnAssets(initialImages);
-        if (!cancelled) applyOcrResult(extracted);
+        const groups = await detectReceiptGroupsFromAssets(initialImages);
+        if (cancelled) return;
+
+        const effectiveGroups = groups.length > 0
+          ? groups
+          : [{ assets: initialImages, analysis: {} }];
+
+        if (effectiveGroups.length === 1) {
+          // Single income statement — populate form directly
+          const newAttachments = (effectiveGroups[0].assets || []).map(createImageAttachment);
+          setAttachments((prev) => [...prev, ...newAttachments]);
+          const extracted = await runOcrOnAssets(effectiveGroups[0].assets || initialImages);
+          if (!cancelled) applyOcrResult(extracted);
+        } else {
+          // Multiple income statements detected — enter multi-draft mode
+          const drafts = effectiveGroups.map((g) => createIncomeDraftFromGroup(g));
+          setIncomeDrafts(drafts);
+          setDraftReviewStates(Array(drafts.length).fill("pending"));
+          setCurrentDraftIndex(0);
+          applyIncomeDraftToForm(drafts[0]);
+        }
       } catch (err) {
         console.error("OCR error (income):", err);
+        // Fallback: add all images as attachments
+        const newAttachments = initialImages.map(createImageAttachment);
+        if (!cancelled) setAttachments((prev) => [...prev, ...newAttachments]);
       } finally {
         if (!cancelled) setOcrProcessing(false);
       }
@@ -542,10 +723,26 @@ export default function IncomeFormScreen({ navigation, route, mode }) {
         keyboardShouldPersistTaps="handled"
       >
         <View style={ReceiptStyles.container}>
-          <View style={ReceiptStyles.borderContainer}>
+          <Animated.View
+            style={[ReceiptStyles.borderContainer, { transform: [{ translateX: draftSlideX }], opacity: draftFade }]}
+            {...(isMultiDraftMode ? draftSwipeResponder.panHandlers : {})}
+          >
             <Text style={ReceiptStyles.header}>
-              {mode === "edit" ? "Edit Income" : "Add Income"}
+              {mode === "edit" ? "Edit Income" : isMultiDraftMode ? "Review Income" : "Add Income"}
             </Text>
+            {isMultiDraftMode && (
+              <View style={{ alignItems: "center", marginBottom: 6 }}>
+                <Text style={{ color: Colors.accent, fontWeight: "700", fontSize: 14 }}>
+                  Income {currentDraftIndex + 1} / {incomeDrafts.length}
+                </Text>
+                <Text style={{ color: Colors.textSecondary, fontSize: 12, marginTop: 2 }}>
+                  Swipe left or right to move between statements.
+                </Text>
+                <Text style={{ color: Colors.textSecondary, fontSize: 12 }}>
+                  Confirmed: {draftReviewStates.filter((s) => s === "confirmed").length}  Skipped: {draftReviewStates.filter((s) => s === "skipped").length}
+                </Text>
+              </View>
+            )}
 
             <Animated.View style={[styles.fieldGroup, {
                 backgroundColor: flashAmount.interpolate({ inputRange: [0, 1], outputRange: ["transparent", "rgba(253,224,71,0.45)"] }),
@@ -675,17 +872,35 @@ export default function IncomeFormScreen({ navigation, route, mode }) {
             </View>
 
             <View style={styles.actionRow}>
-              <Button mode="outlined" textColor={Colors.accent} onPress={() => navigateBackToIncome(navigation)}>
-                Cancel
-              </Button>
-              <Button
-                mode="contained"
-                buttonColor={Colors.accent}
-                onPress={saveIncome}
-                disabled={isSaving || !isIncomeFormValid}
-              >
-                Save
-              </Button>
+              {isMultiDraftMode ? (
+                <>
+                  <Button mode="outlined" textColor={Colors.accent} onPress={skipIncomeDraft}>
+                    Skip
+                  </Button>
+                  <Button
+                    mode="contained"
+                    buttonColor={Colors.accent}
+                    onPress={confirmIncomeDraft}
+                    disabled={isSaving || !isIncomeFormValid}
+                  >
+                    Confirm
+                  </Button>
+                </>
+              ) : (
+                <>
+                  <Button mode="outlined" textColor={Colors.accent} onPress={() => navigateBackToIncome(navigation)}>
+                    Cancel
+                  </Button>
+                  <Button
+                    mode="contained"
+                    buttonColor={Colors.accent}
+                    onPress={saveIncome}
+                    disabled={isSaving || !isIncomeFormValid}
+                  >
+                    Save
+                  </Button>
+                </>
+              )}
             </View>
 
             <View style={[styles.fieldGroup, styles.notesSection]}>
@@ -710,7 +925,7 @@ export default function IncomeFormScreen({ navigation, route, mode }) {
                 Delete Income
               </Button>
             ) : null}
-          </View>
+          </Animated.View>
         </View>
       </KeyboardAwareScrollView>
 

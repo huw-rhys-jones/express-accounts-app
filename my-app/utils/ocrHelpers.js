@@ -133,6 +133,17 @@ function shouldMergeAnalyses(previous, next) {
     return true;
   }
 
+  // Similar amounts (within 5% or 50p) likely means two photos of the same receipt
+  if (previous.amount != null && next.amount != null) {
+    const prevAmt = Number(previous.amount);
+    const nextAmt = Number(next.amount);
+    if (isFinite(prevAmt) && isFinite(nextAmt) && prevAmt > 0 && nextAmt > 0) {
+      const diff = Math.abs(prevAmt - nextAmt);
+      const threshold = Math.max(prevAmt * 0.05, 0.5);
+      if (diff <= threshold) return true;
+    }
+  }
+
   if (isWeakAnalysis(previous) || isWeakAnalysis(next)) {
     return true;
   }

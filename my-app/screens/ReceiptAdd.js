@@ -155,6 +155,16 @@ const ReceiptAdd = ({ navigation, route }) => {
   const draftSlideX = useRef(new Animated.Value(0)).current;
   const draftFade = useRef(new Animated.Value(1)).current;
 
+  // Refs always pointing at latest values — prevents stale closures in PanResponder
+  const formStateRef = useRef(null);
+  const receiptDraftsRef = useRef(receiptDrafts);
+  const currentReceiptIndexRef = useRef(currentReceiptIndex);
+
+  // Keep refs in sync on every render
+  formStateRef.current = { amount, vatAmount, vatRate, selectedDate, images, selectedCategory, label, vatAmountEdited };
+  receiptDraftsRef.current = receiptDrafts;
+  currentReceiptIndexRef.current = currentReceiptIndex;
+
   const scrollToTop = () => {
     requestAnimationFrame(() => {
       scrollRef.current?.scrollToPosition?.(0, 0, true);
@@ -210,10 +220,10 @@ const ReceiptAdd = ({ navigation, route }) => {
         : Number.isFinite(categoryRate)
           ? String(categoryRate)
           : "";
-    const draftAmount = analysis?.amount != null ? String(analysis.amount) : "";
+    const draftAmount = analysis?.amount != null ? Number(analysis.amount).toFixed(2) : "";
     const draftVatAmount =
       analysis?.vat?.value != null
-        ? String(analysis.vat.value)
+        ? Number(analysis.vat.value).toFixed(2)
         : draftAmount && draftVatRate
           ? computeVat(draftAmount, draftVatRate)
           : "";
@@ -234,16 +244,20 @@ const ReceiptAdd = ({ navigation, route }) => {
     };
   };
 
-  const buildCurrentDraft = () => ({
-    amount,
-    vatAmount,
-    vatRate,
-    selectedDate: new Date(selectedDate),
-    images: images.map((img) => ({ ...img })),
-    selectedCategory,
-    label,
-    vatAmountEdited,
-  });
+  const buildCurrentDraft = () => {
+    // Always read from ref to avoid stale closure values in PanResponder callbacks
+    const f = formStateRef.current || { amount, vatAmount, vatRate, selectedDate, images, selectedCategory, label, vatAmountEdited };
+    return {
+      amount: f.amount,
+      vatAmount: f.vatAmount,
+      vatRate: f.vatRate,
+      selectedDate: new Date(f.selectedDate),
+      images: (f.images || []).map((img) => ({ ...img })),
+      selectedCategory: f.selectedCategory,
+      label: f.label,
+      vatAmountEdited: f.vatAmountEdited,
+    };
+  };
 
   const applyDraftToForm = (draft) => {
     setAmount(draft?.amount || "");
@@ -264,13 +278,14 @@ const ReceiptAdd = ({ navigation, route }) => {
   };
 
   const syncCurrentDrafts = () => {
-    if (!isMultiReceiptMode || receiptDrafts.length === 0) {
-      return receiptDrafts;
-    }
+    // Read from refs so we always get the true current state, not a stale closure
+    const drafts = receiptDraftsRef.current;
+    const index = currentReceiptIndexRef.current;
+    if (drafts.length <= 1) return drafts;
 
     const snapshot = buildCurrentDraft();
-    const nextDrafts = receiptDrafts.map((draft, index) =>
-      index === currentReceiptIndex ? { ...draft, ...snapshot } : draft,
+    const nextDrafts = drafts.map((draft, i) =>
+      i === index ? { ...draft, ...snapshot } : draft,
     );
     setReceiptDrafts(nextDrafts);
     return nextDrafts;
@@ -310,10 +325,12 @@ const ReceiptAdd = ({ navigation, route }) => {
   };
 
   const navigateToDraftIndex = (index) => {
-    if (index < 0 || index >= receiptDrafts.length) return;
-    const drafts = syncCurrentDrafts();
-    const direction = index > currentReceiptIndex ? "next" : "previous";
-    loadDraftAtIndex(index, drafts, { animateDirection: direction });
+    const drafts = receiptDraftsRef.current;
+    const currentIndex = currentReceiptIndexRef.current;
+    if (index < 0 || index >= drafts.length) return;
+    const synced = syncCurrentDrafts();
+    const direction = index > currentIndex ? "next" : "previous";
+    loadDraftAtIndex(index, synced, { animateDirection: direction });
   };
 
   const goToPreviousReceipt = () => {
