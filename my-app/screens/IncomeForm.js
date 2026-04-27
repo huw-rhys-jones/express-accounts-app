@@ -110,7 +110,16 @@ export default function IncomeFormScreen({ navigation, route, mode }) {
   const [incomeDrafts, setIncomeDrafts] = useState([]);
   const [currentDraftIndex, setCurrentDraftIndex] = useState(0);
   const [draftReviewStates, setDraftReviewStates] = useState([]); // "pending"|"confirmed"|"skipped"
+  const [isDetecting, setIsDetecting] = useState(false);
+  const [showDetectedIncomeModal, setShowDetectedIncomeModal] = useState(false);
+  const [showBatchSummaryModal, setShowBatchSummaryModal] = useState(false);
+  const [batchSaveSummary, setBatchSaveSummary] = useState({ saved: [], skippedCount: 0 });
   const isMultiDraftMode = incomeDrafts.length > 1;
+  const allDraftsReviewed =
+    isMultiDraftMode &&
+    draftReviewStates.length === incomeDrafts.length &&
+    draftReviewStates.length > 0 &&
+    draftReviewStates.every((s) => s !== "pending");
 
   // Refs to prevent stale closures in PanResponder
   const incomeDraftsRef = useRef(incomeDrafts);
@@ -232,55 +241,84 @@ export default function IncomeFormScreen({ navigation, route, mode }) {
     [isMultiDraftMode],
   );
 
-  const confirmIncomeDraft = async () => {
-    // Save the current income statement and advance
+  const confirmIncomeDraft = () => {
+    const synced = syncIncomeDrafts();
+    setDraftReviewStates((prev) => {
+      const next = [...prev];
+      next[currentDraftIndexRef.current] = "confirmed";
+      return next;
+    });
+    triggerHaptic("success").catch(() => {});
+    const nextIndex = currentDraftIndexRef.current + 1;
+    if (nextIndex < synced.length) {
+      navigateToIncomeDraft(nextIndex);
+    }
+  };
+
+  const skipIncomeDraft = () => {
+    syncIncomeDrafts();
+    setDraftReviewStates((prev) => {
+      const next = [...prev];
+      next[currentDraftIndexRef.current] = "skipped";
+      return next;
+    });
+    triggerHaptic("selection").catch(() => {});
+    const nextIndex = currentDraftIndexRef.current + 1;
+    if (nextIndex < incomeDraftsRef.current.length) {
+      navigateToIncomeDraft(nextIndex);
+    }
+  };
+
+  const handleSaveReviewedIncomes = async () => {
+    if (!allDraftsReviewed) return;
     const user = auth.currentUser;
     if (!user) { Alert.alert("Authentication Error", "Please sign in again."); return; }
 
     setIsSaving(true);
     try {
-      const uploaded = await uploadAttachmentEntries({ folder: "income", userId: user.uid, attachments });
-      await addDoc(collection(db, "income"), {
-        amount: Number(amount),
-        vatAmount: Number(vatAmount),
-        vatRate: Number(vatRate),
-        date: selectedDate.toISOString(),
-        reference: reference.trim(),
-        label: label.trim(),
-        notes: notes.trim(),
-        attachments: uploaded,
-        userId: user.uid,
-        createdAt: serverTimestamp(),
-        updatedAt: serverTimestamp(),
-      });
-      triggerHaptic("success").catch(() => {});
-      const nextIndex = currentDraftIndexRef.current + 1;
-      const drafts = incomeDraftsRef.current;
-      const newStates = [...draftReviewStates];
-      newStates[currentDraftIndexRef.current] = "confirmed";
-      setDraftReviewStates(newStates);
-      if (nextIndex < drafts.length) {
-        navigateToIncomeDraft(nextIndex);
-      } else {
-        navigateBackToIncome(navigation);
+      const synced = syncIncomeDrafts();
+      const savedRows = [];
+
+      for (let i = 0; i < synced.length; i += 1) {
+        if (draftReviewStates[i] !== "confirmed") continue;
+        const draft = synced[i];
+        const uploaded = await uploadAttachmentEntries({
+          folder: "income",
+          userId: user.uid,
+          attachments: draft.attachments,
+        });
+        await addDoc(collection(db, "income"), {
+          amount: Number(draft.amount),
+          vatAmount: Number(draft.vatAmount),
+          vatRate: Number(draft.vatRate),
+          date: new Date(draft.selectedDate).toISOString(),
+          reference: (draft.reference || "").trim(),
+          label: (draft.label || "").trim(),
+          notes: (draft.notes || "").trim(),
+          attachments: uploaded,
+          userId: user.uid,
+          createdAt: serverTimestamp(),
+          updatedAt: serverTimestamp(),
+        });
+        savedRows.push({
+          amount: draft.amount,
+          vatAmount: draft.vatAmount,
+          date: formatDate(new Date(draft.selectedDate)),
+          reference: draft.reference,
+        });
       }
+
+      setBatchSaveSummary({
+        saved: savedRows,
+        skippedCount: draftReviewStates.filter((s) => s === "skipped").length,
+      });
+      setShowBatchSummaryModal(true);
+      triggerHaptic("success").catch(() => {});
     } catch (err) {
-      console.error("Error saving income draft:", err);
-      Alert.alert("Save Failed", "Could not save this income record.");
+      console.error("Batch income save failed:", err);
+      Alert.alert("Save Failed", "Please try again.");
     } finally {
       setIsSaving(false);
-    }
-  };
-
-  const skipIncomeDraft = () => {
-    const newStates = [...draftReviewStates];
-    newStates[currentDraftIndexRef.current] = "skipped";
-    setDraftReviewStates(newStates);
-    const nextIndex = currentDraftIndexRef.current + 1;
-    if (nextIndex < incomeDraftsRef.current.length) {
-      navigateToIncomeDraft(nextIndex);
-    } else {
-      navigateBackToIncome(navigation);
     }
   };
 
@@ -395,7 +433,7 @@ export default function IncomeFormScreen({ navigation, route, mode }) {
     let cancelled = false;
 
     (async () => {
-      setOcrProcessing(true);
+      setIsDetecting(true);
       try {
         const groups = await detectReceiptGroupsFromAssets(initialImages);
         if (cancelled) return;
@@ -417,6 +455,7 @@ export default function IncomeFormScreen({ navigation, route, mode }) {
           setDraftReviewStates(Array(drafts.length).fill("pending"));
           setCurrentDraftIndex(0);
           applyIncomeDraftToForm(drafts[0]);
+          setShowDetectedIncomeModal(true);
         }
       } catch (err) {
         console.error("OCR error (income):", err);
@@ -424,7 +463,7 @@ export default function IncomeFormScreen({ navigation, route, mode }) {
         const newAttachments = initialImages.map(createImageAttachment);
         if (!cancelled) setAttachments((prev) => [...prev, ...newAttachments]);
       } finally {
-        if (!cancelled) setOcrProcessing(false);
+        if (!cancelled) setIsDetecting(false);
       }
     })();
 
@@ -871,37 +910,80 @@ export default function IncomeFormScreen({ navigation, route, mode }) {
               )}
             </View>
 
-            <View style={styles.actionRow}>
-              {isMultiDraftMode ? (
-                <>
-                  <Button mode="outlined" textColor={Colors.accent} onPress={skipIncomeDraft}>
-                    Skip
-                  </Button>
-                  <Button
-                    mode="contained"
-                    buttonColor={Colors.accent}
-                    onPress={confirmIncomeDraft}
-                    disabled={isSaving || !isIncomeFormValid}
-                  >
-                    Confirm
-                  </Button>
-                </>
-              ) : (
-                <>
-                  <Button mode="outlined" textColor={Colors.accent} onPress={() => navigateBackToIncome(navigation)}>
-                    Cancel
-                  </Button>
-                  <Button
-                    mode="contained"
-                    buttonColor={Colors.accent}
-                    onPress={saveIncome}
-                    disabled={isSaving || !isIncomeFormValid}
-                  >
-                    Save
-                  </Button>
-                </>
-              )}
-            </View>
+            {(() => {
+              const isCurrentConfirmed = draftReviewStates[currentDraftIndex] === "confirmed";
+              const isCurrentSkipped = draftReviewStates[currentDraftIndex] === "skipped";
+              return (
+                <View style={styles.actionRow}>
+                  {isMultiDraftMode ? (
+                    <>
+                      <Button
+                        mode={isCurrentSkipped ? "contained" : "outlined"}
+                        buttonColor={isCurrentSkipped ? "#555" : undefined}
+                        textColor={isCurrentSkipped ? "#fff" : Colors.accent}
+                        style={[
+                          styles.multiActionButton,
+                          isCurrentConfirmed ? styles.multiActionFaded : null,
+                        ]}
+                        onPress={skipIncomeDraft}
+                      >
+                        {isCurrentSkipped ? "Skipped" : "Skip"}
+                      </Button>
+                      <Button
+                        mode={isCurrentConfirmed ? "contained" : "outlined"}
+                        buttonColor={isCurrentConfirmed ? Colors.accent : undefined}
+                        textColor={isCurrentConfirmed ? "#fff" : Colors.accent}
+                        style={[
+                          styles.multiActionButton,
+                          isCurrentSkipped ? styles.multiActionFaded : null,
+                        ]}
+                        onPress={confirmIncomeDraft}
+                        disabled={!isIncomeFormValid}
+                      >
+                        {isCurrentConfirmed ? "Confirmed" : "Confirm"}
+                      </Button>
+                    </>
+                  ) : (
+                    <>
+                      <Button mode="outlined" textColor={Colors.accent} onPress={() => navigateBackToIncome(navigation)}>
+                        Cancel
+                      </Button>
+                      <Button
+                        mode="contained"
+                        buttonColor={Colors.accent}
+                        onPress={saveIncome}
+                        disabled={isSaving || !isIncomeFormValid}
+                      >
+                        Save
+                      </Button>
+                    </>
+                  )}
+                </View>
+              );
+            })()}
+
+            {isMultiDraftMode ? (
+              <>
+                <Button
+                  mode="contained"
+                  onPress={handleSaveReviewedIncomes}
+                  buttonColor={allDraftsReviewed ? Colors.accent : "#c6c6c6"}
+                  textColor={allDraftsReviewed ? "#fff" : "#8a8a8a"}
+                  style={styles.saveAllButton}
+                  disabled={!allDraftsReviewed || isSaving}
+                >
+                  Save Income Records
+                </Button>
+                <Button
+                  mode="text"
+                  onPress={() => navigateBackToIncome(navigation)}
+                  textColor={Colors.accent}
+                  style={styles.cancelTextButton}
+                >
+                  Cancel
+                </Button>
+              </>
+            ) : null}
 
             <View style={[styles.fieldGroup, styles.notesSection]}>
               <Text style={ReceiptStyles.label}>Notes:</Text>
@@ -1108,23 +1190,118 @@ export default function IncomeFormScreen({ navigation, route, mode }) {
               renderIndicator={() => null}
               saveToLocalByLongPress={false}
             />
-            <View style={ReceiptStyles.fullScreenCloseButtonWrapper}>
-              <TouchableOpacity
-                style={ReceiptStyles.fullScreenCloseButton}
-                onPress={() => {
-                  setFullScreenImage(null);
-                  if (returnToOcrAfterFullscreen) {
-                    requestAnimationFrame(() => setOcrModalVisible(true));
-                    setReturnToOcrAfterFullscreen(false);
-                  }
-                }}
-              >
-                <Text style={ReceiptStyles.fullScreenCloseText}>Close</Text>
-              </TouchableOpacity>
-            </View>
+            <TouchableOpacity
+              style={ReceiptStyles.fullScreenCloseButton}
+              onPress={() => {
+                setFullScreenImage(null);
+                if (returnToOcrAfterFullscreen) {
+                  requestAnimationFrame(() => setOcrModalVisible(true));
+                  setReturnToOcrAfterFullscreen(false);
+                }
+              }}
+            >
+              <Text style={ReceiptStyles.fullScreenCloseText}>✕</Text>
+            </TouchableOpacity>
           </>
         ) : null}
       </Modal>
+
+      {/* Detected income modal */}
+      <Modal
+        visible={showDetectedIncomeModal}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setShowDetectedIncomeModal(false)}
+      >
+        <View style={ReceiptStyles.modalOverlay}>
+          <View style={ReceiptStyles.modalContent}>
+            <Text style={ReceiptStyles.modalTitle}>Multiple income statements detected</Text>
+            <Text style={ReceiptStyles.modalDetailText}>
+              We detected {incomeDrafts.length} income statement{incomeDrafts.length === 1 ? "" : "s"}. We will now go through each one so you can confirm or skip the detected details.
+            </Text>
+            <View style={ReceiptStyles.modalButtons}>
+              <Button
+                mode="contained"
+                buttonColor={Colors.accent}
+                onPress={() => setShowDetectedIncomeModal(false)}
+              >
+                Start review
+              </Button>
+            </View>
+          </View>
+        </View>
+      </Modal>
+
+      {/* Batch summary modal */}
+      <Modal
+        visible={showBatchSummaryModal}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setShowBatchSummaryModal(false)}
+      >
+        <View style={ReceiptStyles.modalOverlay}>
+          <View style={ReceiptStyles.modalContent}>
+            <Text style={ReceiptStyles.modalTitle}>Income saved</Text>
+            <Text style={[ReceiptStyles.modalDetailText, styles.summaryHeading]}>Saved -</Text>
+            {batchSaveSummary.saved.length > 0 ? (
+              <View style={styles.summaryListWrap}>
+                {batchSaveSummary.saved.map((entry, index) => (
+                  <Text key={`${entry.date}-${entry.amount}-${index}`} style={ReceiptStyles.modalDetailText}>
+                    £{entry.amount} — {entry.reference || "—"} — {entry.date}
+                  </Text>
+                ))}
+              </View>
+            ) : (
+              <Text style={ReceiptStyles.modalDetailText}>None</Text>
+            )}
+            <Text style={[ReceiptStyles.modalDetailText, styles.summaryHeading]}>
+              Skipped — {batchSaveSummary.skippedCount}
+            </Text>
+            <View style={ReceiptStyles.modalButtons}>
+              <Button
+                mode="outlined"
+                textColor={Colors.accent}
+                onPress={() => {
+                  setShowBatchSummaryModal(false);
+                  setIncomeDrafts([]);
+                  setDraftReviewStates([]);
+                  setCurrentDraftIndex(0);
+                  navigateBackToIncome(navigation);
+                }}
+              >
+                Go to Income
+              </Button>
+              <Button
+                mode="contained"
+                buttonColor={Colors.accent}
+                onPress={() => {
+                  setShowBatchSummaryModal(false);
+                  setIncomeDrafts([]);
+                  setDraftReviewStates([]);
+                  setCurrentDraftIndex(0);
+                }}
+              >
+                Add another
+              </Button>
+            </View>
+          </View>
+        </View>
+      </Modal>
+
+      {/* Detecting overlay */}
+      {isDetecting && (
+        <View style={styles.detectingOverlay}>
+          <View style={ReceiptStyles.uploadCard}>
+            <ActivityIndicator size="large" color={Colors.accent} />
+            <Text style={{ marginTop: 12, fontWeight: "700", fontSize: 15 }}>
+              Detecting income statements…
+            </Text>
+            <Text style={{ marginTop: 4, color: "#666", fontSize: 12, textAlign: "center" }}>
+              Please wait while we analyse your images
+            </Text>
+          </View>
+        </View>
+      )}
 
       {isSaving || pickerBusy ? (
         <View style={styles.loadingOverlay}>
@@ -1215,6 +1392,35 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     justifyContent: "space-between",
     marginTop: 6,
+  },
+  multiActionButton: {
+    flex: 1,
+    marginHorizontal: 4,
+  },
+  multiActionFaded: {
+    opacity: 0.45,
+  },
+  saveAllButton: {
+    marginTop: 12,
+    borderRadius: 8,
+  },
+  cancelTextButton: {
+    marginTop: 4,
+  },
+  summaryHeading: {
+    fontWeight: "700",
+    marginTop: 8,
+    marginBottom: 2,
+  },
+  summaryListWrap: {
+    marginBottom: 6,
+  },
+  detectingOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: "rgba(255,255,255,1)",
+    justifyContent: "center",
+    alignItems: "center",
+    zIndex: 1200,
   },
   notesSection: { marginTop: 10 },
   deleteButton: { marginTop: 16 },
