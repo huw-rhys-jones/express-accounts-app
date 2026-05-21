@@ -7,7 +7,10 @@
     "android": "expo run:android",
     "ios": "expo run:ios",
     "web": "expo start --web",
-    "postinstall": "patch-package"
+    "postinstall": "patch-package",
+    "test": "jest",
+    "test:watch": "jest --watch",
+    "test:coverage": "jest --coverage"
   },
   "dependencies": {
     "@react-native-async-storage/async-storage": "2.2.0",
@@ -63,9 +66,12 @@
   "devDependencies": {
     "@babel/core": "^7.20.0",
     "@react-native-community/cli": "^19.1.1",
+    "@testing-library/react-native": "^13.3.3",
     "expo-build-properties": "~1.0.10",
+    "jest-expo": "^55.0.17",
     "patch-package": "^8.0.1",
-    "prettier": "^3.6.2"
+    "prettier": "^3.6.2",
+    "react-test-renderer": "^19.1.0"
   },
   "private": true
 }
