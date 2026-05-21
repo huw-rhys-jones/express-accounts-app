@@ -688,9 +688,7 @@ export default function ReceiptDetailsScreen({ route, navigation }) {
                     const r = cat?.vatRate;
                     if (r !== undefined && r !== null && !Number.isNaN(r)) {
                       const rStr = String(r);
-                      if (rStr !== vatRate) {
-                        setVatRate(rStr);
-                      }
+                      setVatRate(rStr);
                       setVatRateItems((prev) => {
                         const has = prev.some((it) => it.value === rStr);
                         return has

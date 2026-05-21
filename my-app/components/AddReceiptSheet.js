@@ -167,65 +167,74 @@ export default function AddReceiptSheet({
     setTimeout(() => navigation.navigate(targetScreen, {}), 220);
   };
 
-  if (!renderSheet) return null;
-
   return (
-    <View style={StyleSheet.absoluteFillObject} pointerEvents="box-none">
-      {/* Backdrop */}
-      <TouchableWithoutFeedback onPress={dismiss}>
-        <Animated.View
-          style={[styles.backdrop, { opacity: backdropOpacity }]}
-        />
-      </TouchableWithoutFeedback>
-
-      {/* Sheet */}
-      <Animated.View
-        style={[styles.sheet, { transform: [{ translateY }] }]}
-        pointerEvents="box-none"
-        onLayout={(event) => {
-          const nextHeight = event.nativeEvent.layout.height;
-          if (nextHeight > 0 && nextHeight !== sheetHeight) {
-            setSheetHeight(nextHeight);
-            if (!visible) {
-              translateY.setValue(nextHeight);
-            }
-          }
-        }}
+    <>
+      {/* Main sheet — rendered in a Modal so it floats above nav bars */}
+      <Modal
+        visible={renderSheet}
+        transparent
+        animationType="none"
+        statusBarTranslucent
+        onRequestClose={dismiss}
       >
-        {/* Handle bar */}
-        <View style={styles.handle} />
+        <View style={styles.fullScreenContainer} pointerEvents="box-none">
+          {/* Backdrop */}
+          <TouchableWithoutFeedback onPress={dismiss}>
+            <Animated.View
+              style={[styles.backdrop, { opacity: backdropOpacity }]}
+            />
+          </TouchableWithoutFeedback>
 
-        {busy ? (
-          <View style={styles.busyContainer}>
-            <ActivityIndicator color={Colors.accent} size="large" />
-          </View>
-        ) : (
-          <>
-            <Option
-              icon="📷"
-              label="Take Photo"
-              sub="Use your camera — add one or more receipt photos"
-              onPress={handleTakePhoto}
-            />
-            <View style={styles.divider} />
-            <Option
-              icon="🖼"
-              label="Pick Image"
-              sub="Select one or more receipt photos from your gallery"
-              onPress={handlePickImage}
-            />
-            <View style={styles.divider} />
-            <Option
-              icon="✏️"
-              label="Enter Manually"
-              sub="Type in the details yourself"
-              onPress={handleManual}
-            />
-          </>
-        )}
-      </Animated.View>
+          {/* Sheet */}
+          <Animated.View
+            style={[styles.sheet, { transform: [{ translateY }] }]}
+            pointerEvents="box-none"
+            onLayout={(event) => {
+              const nextHeight = event.nativeEvent.layout.height;
+              if (nextHeight > 0 && nextHeight !== sheetHeight) {
+                setSheetHeight(nextHeight);
+                if (!visible) {
+                  translateY.setValue(nextHeight);
+                }
+              }
+            }}
+          >
+            {/* Handle bar */}
+            <View style={styles.handle} />
 
-      {/* Photo-added modal */}
+            {busy ? (
+              <View style={styles.busyContainer}>
+                <ActivityIndicator color={Colors.accent} size="large" />
+              </View>
+            ) : (
+              <>
+                <Option
+                  icon="📷"
+                  label="Take Photo"
+                  sub="Use your camera — add one or more receipt photos"
+                  onPress={handleTakePhoto}
+                />
+                <View style={styles.divider} />
+                <Option
+                  icon="🖼"
+                  label="Pick Image"
+                  sub="Select one or more receipt photos from your gallery"
+                  onPress={handlePickImage}
+                />
+                <View style={styles.divider} />
+                <Option
+                  icon="✏️"
+                  label="Enter Manually"
+                  sub="Type in the details yourself"
+                  onPress={handleManual}
+                />
+              </>
+            )}
+          </Animated.View>
+        </View>
+      </Modal>
+
+      {/* Photo-added modal — sibling, not nested, to avoid Android modal-stacking issues */}
       <Modal
         visible={photoModalVisible}
         transparent
@@ -274,7 +283,7 @@ export default function AddReceiptSheet({
           </View>
         </View>
       </Modal>
-    </View>
+    </>
   );
 }
 
@@ -307,6 +316,9 @@ function Option({ icon, label, sub, onPress, disabled = false }) {
 }
 
 const styles = StyleSheet.create({
+  fullScreenContainer: {
+    flex: 1,
+  },
   backdrop: {
     ...StyleSheet.absoluteFillObject,
     backgroundColor: "rgba(0,0,0,0.45)",
@@ -319,7 +331,7 @@ const styles = StyleSheet.create({
     backgroundColor: "#fff",
     borderTopLeftRadius: 20,
     borderTopRightRadius: 20,
-    paddingBottom: Platform.OS === "ios" ? 32 : 16,
+    paddingBottom: Platform.OS === "ios" ? 48 : 32,
     paddingHorizontal: 4,
     elevation: 24,
     shadowColor: "#000",
