@@ -3,6 +3,7 @@ import {
   ActivityIndicator,
   Alert,
   Animated,
+  Dimensions,
   Image,
   Modal,
   PanResponder,
@@ -18,7 +19,7 @@ import {
 import ImageViewer from "react-native-image-zoom-viewer";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { KeyboardAwareScrollView } from "react-native-keyboard-aware-scroll-view";
-import { Button, Checkbox } from "react-native-paper";
+import { Button, Checkbox, ProgressBar } from "react-native-paper";
 import DropDownPicker from "react-native-dropdown-picker";
 import DateTimePickerModal from "react-native-modal-datetime-picker";
 import * as ImagePicker from "react-native-image-picker";
@@ -47,6 +48,8 @@ import {
 } from "../utils/documentAttachments";
 import { triggerHaptic } from "../utils/haptics";
 import { categories_meta } from "../constants/arrays";
+
+const IMAGE_HEIGHT = Math.round(Dimensions.get("window").height * 0.45);
 
 function navigateBackToIncome(navigation) {
   navigation.reset({
@@ -105,6 +108,8 @@ export default function IncomeFormScreen({ navigation, route, mode }) {
   const [pickerBusy, setPickerBusy] = useState(false);
   const [pickerBusyText, setPickerBusyText] = useState("Opening attachment options…");
   const [ocrProcessing, setOcrProcessing] = useState(false);
+  const [imageContainerWidth, setImageContainerWidth] = useState(0);
+  const [fullScreenImageIndex, setFullScreenImageIndex] = useState(null);
 
   // Multi-statement draft mode (when multiple income images are detected)
   const [incomeDrafts, setIncomeDrafts] = useState([]);
@@ -756,6 +761,74 @@ export default function IncomeFormScreen({ navigation, route, mode }) {
 
   return (
     <SafeAreaView style={ReceiptStyles.safeArea}>
+      {/* Fixed image panel */}
+      <View
+        style={styles.imageSection}
+        onLayout={(e) => setImageContainerWidth(e.nativeEvent.layout.width)}
+      >
+        {imageContainerWidth > 0 ? (
+          <ScrollView
+            horizontal
+            pagingEnabled
+            showsHorizontalScrollIndicator={false}
+            style={{ width: imageContainerWidth }}
+          >
+            {attachments.filter(isImageAttachment).map((att, index) => {
+              const uri = getAttachmentUri(att);
+              return (
+                <View key={att.id || String(index)} style={{ position: "relative" }}>
+                  <TouchableOpacity
+                    style={[styles.carouselPage, { width: imageContainerWidth }]}
+                    activeOpacity={0.9}
+                    onPress={() => setFullScreenImageIndex(index)}
+                  >
+                    <Image
+                      source={{ uri }}
+                      style={[styles.carouselImage, { width: imageContainerWidth }]}
+                      resizeMode="contain"
+                    />
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    style={styles.carouselRemoveBtn}
+                    onPress={() => setAttachments((current) => current.filter((item) => item.id !== att.id))}
+                  >
+                    <Text style={styles.carouselRemoveText}>×</Text>
+                  </TouchableOpacity>
+                </View>
+              );
+            })}
+            <View style={[styles.carouselPage, { width: imageContainerWidth }]}>
+              <TouchableOpacity style={styles.carouselAddBtn} onPress={pickImageOption}>
+                <Text style={ReceiptStyles.plus}>+</Text>
+              </TouchableOpacity>
+              {tipStatusLoaded && showTip ? <ScannerTooltip onDismiss={dismissTip} text="Tap here to scan an invoice" /> : null}
+            </View>
+          </ScrollView>
+        ) : null}
+        {ocrProcessing && (
+          <View style={styles.scanningBanner}>
+            <View style={styles.scanningBannerRow}>
+              <ActivityIndicator color="#fff" size="small" />
+              <Text style={styles.scanningBannerText}>Scanning…</Text>
+            </View>
+            <ProgressBar
+              indeterminate
+              color="#fff"
+              style={{ alignSelf: "stretch", marginTop: 6, borderRadius: 4 }}
+            />
+          </View>
+        )}
+      </View>
+
+      {/* Floating X close button */}
+      <TouchableOpacity
+        style={styles.floatingCloseBtn}
+        onPress={() => navigateBackToIncome(navigation)}
+        activeOpacity={0.8}
+      >
+        <Text style={styles.floatingCloseBtnText}>✕</Text>
+      </TouchableOpacity>
+
       <KeyboardAwareScrollView
         contentContainerStyle={styles.scrollContent}
         enableOnAndroid
@@ -886,28 +959,6 @@ export default function IncomeFormScreen({ navigation, route, mode }) {
                 placeholderTextColor={stylesConst.placeholder}
                 style={ReceiptStyles.input}
               />
-            </View>
-
-            <View style={[styles.fieldGroup, styles.attachmentSection]}>
-              <ScrollView
-                horizontal
-                showsHorizontalScrollIndicator={false}
-                contentContainerStyle={{ alignItems: "center" }}
-              >
-                {attachments.map(renderAttachment)}
-                <View style={{ flexDirection: "row", alignItems: "center" }}>
-                  <TouchableOpacity style={ReceiptStyles.uploadPlaceholder} onPress={pickImageOption}>
-                    <Text style={ReceiptStyles.plus}>+</Text>
-                  </TouchableOpacity>
-                  {tipStatusLoaded && showTip ? <ScannerTooltip onDismiss={dismissTip} text="Tap here to scan an invoice" /> : null}
-                </View>
-              </ScrollView>
-              {ocrProcessing && (
-                <View style={{ flexDirection: "row", alignItems: "center", marginTop: 6, gap: 8 }}>
-                  <ActivityIndicator size="small" color={Colors.accent} />
-                  <Text style={{ fontSize: 13, color: Colors.accent }}>Scanning…</Text>
-                </View>
-              )}
             </View>
 
             {(() => {
@@ -1154,6 +1205,36 @@ export default function IncomeFormScreen({ navigation, route, mode }) {
         </View>
       </Modal>
 
+      {/* Carousel fullscreen modal */}
+      <Modal
+        visible={fullScreenImageIndex !== null}
+        animationType="fade"
+        presentationStyle="fullScreen"
+        transparent={false}
+        onRequestClose={() => setFullScreenImageIndex(null)}
+      >
+        {fullScreenImageIndex !== null ? (
+          <>
+            <ImageViewer
+              imageUrls={attachments.filter(isImageAttachment).map(att => ({ url: getAttachmentUri(att) }))}
+              index={fullScreenImageIndex}
+              enableSwipeDown
+              onSwipeDown={() => setFullScreenImageIndex(null)}
+              onClick={() => setFullScreenImageIndex(null)}
+              backgroundColor="black"
+              renderIndicator={attachments.filter(isImageAttachment).length > 1 ? undefined : () => null}
+              saveToLocalByLongPress={false}
+            />
+            <TouchableOpacity
+              style={ReceiptStyles.fullScreenCloseButton}
+              onPress={() => setFullScreenImageIndex(null)}
+            >
+              <Text style={ReceiptStyles.fullScreenCloseText}>✕</Text>
+            </TouchableOpacity>
+          </>
+        ) : null}
+      </Modal>
+
       <Modal
         visible={!!fullScreenImage}
         animationType="fade"
@@ -1321,6 +1402,82 @@ const stylesConst = {
 
 const styles = StyleSheet.create({
   scrollContent: { flexGrow: 1, paddingBottom: 160 },
+  imageSection: {
+    height: IMAGE_HEIGHT,
+    overflow: "hidden",
+    backgroundColor: "#000",
+    borderBottomWidth: 1,
+    borderBottomColor: "#333",
+  },
+  carouselPage: {
+    height: IMAGE_HEIGHT,
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  carouselImage: {
+    height: IMAGE_HEIGHT,
+  },
+  carouselAddBtn: {
+    flex: 1,
+    alignSelf: "stretch",
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  carouselRemoveBtn: {
+    position: "absolute",
+    top: 8,
+    right: 8,
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    backgroundColor: "rgba(0,0,0,0.65)",
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  carouselRemoveText: {
+    color: "#fff",
+    fontSize: 20,
+    lineHeight: 20,
+    fontWeight: "bold",
+  },
+  scanningBanner: {
+    position: "absolute",
+    bottom: 0,
+    left: 0,
+    right: 0,
+    backgroundColor: "rgba(0,0,0,0.65)",
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+  },
+  scanningBannerRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+  },
+  scanningBannerText: {
+    color: "#fff",
+    fontSize: 13,
+    fontWeight: "600",
+  },
+  floatingCloseBtn: {
+    position: "absolute",
+    top: 12,
+    left: 12,
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: "#a60d49",
+    justifyContent: "center",
+    alignItems: "center",
+    zIndex: 200,
+    elevation: 6,
+  },
+  floatingCloseBtnText: {
+    color: "#fff",
+    fontSize: 18,
+    lineHeight: 20,
+    fontWeight: "bold",
+  },
   fieldGroup: { marginBottom: 18 },
   attachmentSection: { marginTop: 16 },
   dateButtonAligned: { marginHorizontal: 0 },

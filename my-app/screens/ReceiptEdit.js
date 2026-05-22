@@ -16,6 +16,7 @@ import {
   Platform,
   PermissionsAndroid,
   StyleSheet,
+  Dimensions,
 } from "react-native";
 import { KeyboardAwareScrollView } from "react-native-keyboard-aware-scroll-view";
 import { SafeAreaView } from "react-native-safe-area-context";
@@ -40,6 +41,8 @@ import { Colors, ReceiptStyles } from "../utils/sharedStyles";
 import { useReceiptOcr } from "../utils/ocrHelpers";
 import { getCurrentYearAprilSix } from "../utils/financialPeriods";
 import { triggerHaptic } from "../utils/haptics";
+
+const IMAGE_HEIGHT = Math.round(Dimensions.get("window").height * 0.45);
 
 export default function ReceiptDetailsScreen({ route, navigation }) {
   const { receipt } = route.params;
@@ -130,6 +133,8 @@ export default function ReceiptDetailsScreen({ route, navigation }) {
   } = useReceiptOcr({ computeVat });
   // ===== Fullscreen viewer =====
   const [fullScreenImage, setFullScreenImage] = useState(null);
+  const [imageContainerWidth, setImageContainerWidth] = useState(0);
+  const [fullScreenImageIndex, setFullScreenImageIndex] = useState(null);
 
   const allCategoryItems = categories_meta.map((cat) => ({
     label: cat.name,
@@ -458,11 +463,56 @@ export default function ReceiptDetailsScreen({ route, navigation }) {
 
   return (
     <SafeAreaView style={ReceiptStyles.safeArea}>
+      {/* Fixed image panel */}
+      <View
+        style={localStyles.imageSection}
+        onLayout={(e) => setImageContainerWidth(e.nativeEvent.layout.width)}
+      >
+        {imageContainerWidth > 0 ? (
+          <ScrollView
+            ref={flatListRef}
+            horizontal
+            pagingEnabled
+            showsHorizontalScrollIndicator={false}
+            style={{ width: imageContainerWidth }}
+          >
+            {images.map((item, index) => (
+              <TouchableOpacity
+                key={String(index)}
+                style={[localStyles.carouselPage, { width: imageContainerWidth }]}
+                activeOpacity={0.9}
+                onPress={() => setFullScreenImageIndex(index)}
+              >
+                <Image
+                  source={{ uri: item.uri }}
+                  style={[localStyles.carouselImage, { width: imageContainerWidth }]}
+                  resizeMode="contain"
+                />
+              </TouchableOpacity>
+            ))}
+            <View style={[localStyles.carouselPage, { width: imageContainerWidth }]}>
+              <TouchableOpacity style={localStyles.carouselAddBtn} onPress={pickImageOption}>
+                <Text style={ReceiptStyles.plus}>+</Text>
+              </TouchableOpacity>
+            </View>
+          </ScrollView>
+        ) : null}
+      </View>
+
+      {/* Floating X close button */}
+      <TouchableOpacity
+        style={localStyles.floatingCloseBtn}
+        onPress={safeNavigateToExpenses}
+        activeOpacity={0.8}
+      >
+        <Text style={localStyles.floatingCloseBtnText}>✕</Text>
+      </TouchableOpacity>
+
       <KeyboardAwareScrollView
         ref={scrollRef}
-        contentContainerStyle={{ flexGrow: 1, paddingBottom: 600 }} // INCREASE THIS
+        contentContainerStyle={{ flexGrow: 1, paddingBottom: 80 }}
         enableOnAndroid={true}
-        enableAutomaticScroll={false} // Disable auto-scroll so our manual scroll doesn't fight it
+        enableAutomaticScroll={false}
         keyboardShouldPersistTaps="always"
         extraScrollHeight={0}
       >
@@ -735,52 +785,9 @@ export default function ReceiptDetailsScreen({ route, navigation }) {
               />
             </View>
 
-            {/* Images */}
-            <FlatList
-              data={[...images, { addButton: true }]}
-              horizontal
-              nestedScrollEnabled={true}
-              keyExtractor={(_, index) => index.toString()}
-              renderItem={({ item }) =>
-                item.addButton ? (
-                  <TouchableOpacity
-                    style={ReceiptStyles.uploadPlaceholder}
-                    onPress={pickImageOption}
-                  >
-                    <Text style={ReceiptStyles.plus}>+</Text>
-                  </TouchableOpacity>
-                ) : (
-                  <TouchableOpacity
-                    disabled={ocrLoading}
-                    onPress={() =>
-                      openOcrModal(item.uri, {
-                        autoScan: true,
-                        newSession: false,
-                      })
-                    }
-                  >
-                    <Image
-                      source={{ uri: item.uri }}
-                      style={ReceiptStyles.receiptImage}
-                    />
-                  </TouchableOpacity>
-                )
-              }
-              contentContainerStyle={{ marginVertical: 20, paddingHorizontal: 10 }}
-              showsHorizontalScrollIndicator
-            />
-
-            {/* Bottom actions */}
+            {/* Bottom actions */
             <View style={ReceiptStyles.bottomButtons}>
               <View style={ReceiptStyles.primaryRow}>
-                <Button
-                  mode="outlined"
-                  onPress={safeNavigateToExpenses}
-                  textColor="#555"
-                  style={ReceiptStyles.actionBtn}
-                >
-                  Cancel
-                </Button>
                 <Button
                   mode="contained"
                   onPress={saveChanges}
@@ -1043,6 +1050,36 @@ export default function ReceiptDetailsScreen({ route, navigation }) {
         </View>
       </Modal>
 
+      {/* Carousel fullscreen modal */}
+      <Modal
+        visible={fullScreenImageIndex !== null}
+        animationType="fade"
+        presentationStyle="fullScreen"
+        transparent={false}
+        onRequestClose={() => setFullScreenImageIndex(null)}
+      >
+        {fullScreenImageIndex !== null ? (
+          <>
+            <ImageViewer
+              imageUrls={images.map(img => ({ url: img.uri }))}
+              index={fullScreenImageIndex}
+              enableSwipeDown
+              onSwipeDown={() => setFullScreenImageIndex(null)}
+              onClick={() => setFullScreenImageIndex(null)}
+              backgroundColor="black"
+              renderIndicator={images.length > 1 ? undefined : () => null}
+              saveToLocalByLongPress={false}
+            />
+            <TouchableOpacity
+              style={ReceiptStyles.fullScreenCloseButton}
+              onPress={() => setFullScreenImageIndex(null)}
+            >
+              <Text style={ReceiptStyles.fullScreenCloseText}>✕</Text>
+            </TouchableOpacity>
+          </>
+        ) : null}
+      </Modal>
+
       {/* Full-screen Image Modal */}
       <Modal
         visible={!!fullScreenImage}
@@ -1072,6 +1109,46 @@ export default function ReceiptDetailsScreen({ route, navigation }) {
 }
 
 const localStyles = StyleSheet.create({
+  imageSection: {
+    height: IMAGE_HEIGHT,
+    overflow: "hidden",
+    backgroundColor: "#000",
+    borderBottomWidth: 1,
+    borderBottomColor: "#333",
+  },
+  carouselPage: {
+    height: IMAGE_HEIGHT,
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  carouselImage: {
+    height: IMAGE_HEIGHT,
+  },
+  carouselAddBtn: {
+    flex: 1,
+    alignSelf: "stretch",
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  floatingCloseBtn: {
+    position: "absolute",
+    top: 12,
+    left: 12,
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: "#a60d49",
+    justifyContent: "center",
+    alignItems: "center",
+    zIndex: 200,
+    elevation: 6,
+  },
+  floatingCloseBtnText: {
+    color: "#fff",
+    fontSize: 18,
+    lineHeight: 20,
+    fontWeight: "bold",
+  },
   labelAligned: {
     marginLeft: 10,
   },
