@@ -305,7 +305,8 @@ async function isUserVerified() {
   }
 }
 
-async function analyzeAssetsCloudFirst(assets) {
+async function analyzeAssetsCloudFirst(assets, onProgress) {
+  const n = assets.length || 1;
   const verified = await isUserVerified();
   if (verified) {
     try {
@@ -315,6 +316,7 @@ async function analyzeAssetsCloudFirst(assets) {
 
       if (cloudImages.length === assets.length) {
         console.log("Receipt OCR source: cloud (%s)", responseProvider);
+        onProgress?.(0.3); // cloud batch complete
 
         // Build structured results from cloud text
         const cloudResults = cloudImages.map((entry, index) => {
@@ -330,13 +332,19 @@ async function analyzeAssetsCloudFirst(assets) {
         // Run ML Kit locally in parallel — only to get block positions for annotation.
         // The extracted values from cloud are still used; local blocks just tell us
         // *where* those values appear in the image.
+        let mlkitDone = 0;
         const framesArray = await Promise.all(
           assets.map(async (asset, index) => {
             try {
               const mlKitResult = await TextRecognition.recognize(asset.uri);
               const blocks = mlKitResult?.blocks || [];
-              return findFramesForValues(blocks, cloudResults[index], asset.uri, asset.width, asset.height);
+              const result = findFramesForValues(blocks, cloudResults[index], asset.uri, asset.width, asset.height);
+              mlkitDone++;
+              onProgress?.(0.3 + (mlkitDone / n) * 0.7);
+              return result;
             } catch {
+              mlkitDone++;
+              onProgress?.(0.3 + (mlkitDone / n) * 0.7);
               return null;
             }
           }),
@@ -355,9 +363,12 @@ async function analyzeAssetsCloudFirst(assets) {
   }
 
   console.log("Receipt OCR source: local (ml-kit)");
+  let localDone = 0;
   return Promise.all(
     (assets || []).map(async (asset) => {
       const analysis = await analyzeAsset(asset);
+      localDone++;
+      onProgress?.(localDone / n);
       return {
         ...analysis,
         ocrSource: "local",
@@ -378,8 +389,8 @@ export async function runOcrOnAssets(assets) {
   return toStructuredOcrResult(extractData(combined), combined);
 }
 
-export async function detectReceiptGroupsFromAssets(assets) {
-  const analyses = await analyzeAssetsCloudFirst(assets || []);
+export async function detectReceiptGroupsFromAssets(assets, onProgress) {
+  const analyses = await analyzeAssetsCloudFirst(assets || [], onProgress);
   if (!analyses.length) return [];
 
   const groups = [];

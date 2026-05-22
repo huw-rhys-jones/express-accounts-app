@@ -19,7 +19,7 @@ import {
   ActivityIndicator,
   Dimensions,
 } from "react-native";
-import { Button, Checkbox } from "react-native-paper";
+import { Button, Checkbox, ProgressBar } from "react-native-paper";
 import DateTimePickerModal from "react-native-modal-datetime-picker";
 import * as ImagePicker from "react-native-image-picker";
 import { KeyboardAwareScrollView } from "react-native-keyboard-aware-scroll-view";
@@ -46,7 +46,7 @@ import {
   detectReceiptGroupsFromAssets,
 } from "../utils/ocrHelpers";
 import ImageViewer from "react-native-image-zoom-viewer";
-import AnnotationModal from "../components/AnnotationModal";
+
 import { Colors, ReceiptStyles } from "../utils/sharedStyles";
 import {
   getCurrentYearAprilSix,
@@ -128,7 +128,7 @@ const ReceiptAdd = ({ navigation, route }) => {
   // Fullscreen viewer (separate, top-level modal)
   const [fullScreenImageIndex, setFullScreenImageIndex] = useState(null);
   const [ocrFrames, setOcrFrames] = useState(null);
-  const [annotationModalVisible, setAnnotationModalVisible] = useState(false);
+  const [detectProgress, setDetectProgress] = useState(0);
 
   const getCanonicalCategoryName = (value) => {
     const normalized = String(value || "").trim().toLowerCase();
@@ -431,8 +431,9 @@ const ReceiptAdd = ({ navigation, route }) => {
     processedInitialImagesKeyRef.current = modeKey;
 
     setIsDetecting(true);
+    setDetectProgress(0);
 
-    detectReceiptGroupsFromAssets(initialImages)
+    detectReceiptGroupsFromAssets(initialImages, (p) => setDetectProgress(p))
       .then((groups) => {
         const effectiveGroups =
           groups.length > 0
@@ -470,7 +471,7 @@ const ReceiptAdd = ({ navigation, route }) => {
         setReceiptReviewStates([]);
         scrollToTop();
       })
-      .finally(() => setIsDetecting(false));
+      .finally(() => { setIsDetecting(false); setDetectProgress(0); });
   }, [route?.params?.initialImages]);
 
   useEffect(() => {
@@ -1128,6 +1129,106 @@ const ReceiptAdd = ({ navigation, route }) => {
   // ------- render -------
   return (
     <SafeAreaView style={ReceiptStyles.safeArea}>
+      {/* IMAGE SECTION — large fixed panel at top with inline annotation boxes */}
+      <View
+        style={localStyles.imageSection}
+        onLayout={(e) => setImageContainerWidth(e.nativeEvent.layout.width)}
+      >
+        {imageContainerWidth > 0 ? (
+          <ScrollView
+            ref={flatListRef}
+            horizontal
+            pagingEnabled
+            showsHorizontalScrollIndicator={false}
+            style={{ width: imageContainerWidth }}
+          >
+            {images.map((item, index) => {
+              const isAnnotated = ocrFrames?.imageUri === item.uri;
+              return (
+                <TouchableOpacity
+                  key={String(index)}
+                  style={[localStyles.carouselPage, { width: imageContainerWidth }]}
+                  activeOpacity={0.9}
+                  onPress={() => setFullScreenImageIndex(index)}
+                >
+                  <Image
+                    source={{ uri: item.uri }}
+                    style={[localStyles.carouselImage, { width: imageContainerWidth }]}
+                    resizeMode="contain"
+                  />
+                  {isAnnotated && ANNOTATIONS.filter(({ key }) => ocrFrames[key]).map(({ key, label, color }) => {
+                    const naturalW = ocrFrames.imageW;
+                    const naturalH = ocrFrames.imageH;
+                    if (!naturalW) return null;
+                    const scale = Math.min(imageContainerWidth / naturalW, IMAGE_HEIGHT / naturalH);
+                    const renderedW = naturalW * scale;
+                    const renderedH = naturalH * scale;
+                    const offsetX = (imageContainerWidth - renderedW) / 2;
+                    const offsetY = (IMAGE_HEIGHT - renderedH) / 2;
+                    const frame = ocrFrames[key];
+                    const box = {
+                      left: frame.left * scale + offsetX,
+                      top: frame.top * scale + offsetY,
+                      width: frame.width * scale,
+                      height: frame.height * scale,
+                    };
+                    const PAD = 8;
+                    const padded = {
+                      left: box.left - PAD,
+                      top: box.top - PAD,
+                      width: box.width + PAD * 2,
+                      height: box.height + PAD * 2,
+                    };
+                    return (
+                      <React.Fragment key={key}>
+                        <View style={[localStyles.annBox, { ...padded, borderColor: color }]} />
+                        <View style={[localStyles.annChip, { backgroundColor: color, top: padded.top - 18, left: padded.left - 1 }]}>
+                          <Text style={localStyles.annChipText}>{label}</Text>
+                        </View>
+                      </React.Fragment>
+                    );
+                  })}
+                </TouchableOpacity>
+              );
+            })}
+            {ocrProcessing ? (
+              <View style={[localStyles.carouselPage, { width: imageContainerWidth }]}>
+                <View style={localStyles.carouselAddBtn}>
+                  <ActivityIndicator color={Colors.accent} size="small" />
+                  <Text style={localStyles.scanningText}>Scanning…</Text>
+                </View>
+              </View>
+            ) : null}
+            <View style={[localStyles.carouselPage, { width: imageContainerWidth }]}>
+              <TouchableOpacity style={localStyles.carouselAddBtn} onPress={pickImageOption}>
+                <Text style={ReceiptStyles.plus}>+</Text>
+              </TouchableOpacity>
+              {showTip && !isMultiReceiptMode && <ScannerTooltip onDismiss={dismissTip} />}
+            </View>
+          </ScrollView>
+        ) : null}
+        {ocrProcessing && (
+          <View style={localStyles.scanningBanner}>
+            <View style={localStyles.scanningBannerRow}>
+              <ActivityIndicator color="#fff" size="small" />
+              <Text style={localStyles.scanningBannerText}>Scanning…</Text>
+            </View>
+            <ProgressBar
+              indeterminate
+              color="#fff"
+              style={{ alignSelf: "stretch", marginTop: 6, borderRadius: 4 }}
+            />
+          </View>
+        )}
+      </View>
+      {/* Floating X close button — top-left of screen */}
+      <TouchableOpacity
+        style={localStyles.floatingCloseBtn}
+        onPress={!isMultiReceiptMode ? handleResetPress : handleLeavePress}
+        activeOpacity={0.8}
+      >
+        <Text style={localStyles.floatingCloseBtnText}>✕</Text>
+      </TouchableOpacity>
       <KeyboardAwareScrollView
         ref={scrollRef}
         contentContainerStyle={{ flexGrow: 1, paddingBottom: 20 }}
@@ -1135,6 +1236,7 @@ const ReceiptAdd = ({ navigation, route }) => {
         enableAutomaticScroll={false} // Disable auto-scroll so our manual scroll doesn't fight it
         keyboardShouldPersistTaps="always"
         extraScrollHeight={0}
+        style={{ flex: 1 }}
       >
         <View style={[ReceiptStyles.container, { justifyContent: "flex-start", paddingTop: 4 }]}>
           <Animated.View
@@ -1420,77 +1522,8 @@ const ReceiptAdd = ({ navigation, route }) => {
               </View>
             ) : null}
 
-            {/* Images Section — full-width paged carousel */}
-            <View
-              style={[localStyles.fieldGroup, localStyles.imageCarouselOuter, { zIndex: 1, elevation: 1 }]}
-              onLayout={(e) => setImageContainerWidth(e.nativeEvent.layout.width)}
-            >
-              {imageContainerWidth > 0 ? (
-                <ScrollView
-                  ref={flatListRef}
-                  horizontal
-                  pagingEnabled
-                  showsHorizontalScrollIndicator={false}
-                  style={{ width: imageContainerWidth }}
-                >
-                  {images.map((item, index) => (
-                    <TouchableOpacity
-                      key={String(index)}
-                      style={[localStyles.carouselPage, { width: imageContainerWidth }]}
-                      onPress={() => {
-                        console.log('[Annotation] image tap: ocrFrames=', ocrFrames ? JSON.stringify({ imageUri: ocrFrames.imageUri, fields: Object.keys(ocrFrames).filter(k => k !== 'imageUri') }) : 'null');
-                        if (ocrFrames) {
-                          setAnnotationModalVisible(true);
-                        } else {
-                          setFullScreenImageIndex(index);
-                        }
-                      }}
-                    >
-                      <Image
-                        source={{ uri: item.uri }}
-                        style={[localStyles.carouselImage, { width: imageContainerWidth }]}
-                        resizeMode="cover"
-                      />
-                    </TouchableOpacity>
-                  ))}
-                  {ocrProcessing ? (
-                    <View style={[localStyles.carouselPage, { width: imageContainerWidth }]}>
-                      <View style={localStyles.carouselAddBtn}>
-                        <ActivityIndicator color={Colors.accent} size="small" />
-                        <Text style={localStyles.scanningText}>Scanning…</Text>
-                      </View>
-                    </View>
-                  ) : null}
-                  <View style={[localStyles.carouselPage, { width: imageContainerWidth }]}>
-                    <TouchableOpacity style={localStyles.carouselAddBtn} onPress={pickImageOption}>
-                      <Text style={ReceiptStyles.plus}>+</Text>
-                    </TouchableOpacity>
-                    {showTip && !isMultiReceiptMode && <ScannerTooltip onDismiss={dismissTip} />}
-                  </View>
-                </ScrollView>
-              ) : null}
-            </View>
 
-            {!isMultiReceiptMode ? (
-              <Button
-                mode="outlined"
-                onPress={handleResetPress}
-                style={ReceiptStyles.resetButton}
-                textColor="#a60d49"
-                icon="autorenew"
-              >
-                Reset Form
-              </Button>
-            ) : (
-              <Button
-                mode="outlined"
-                onPress={handleLeavePress}
-                style={[ReceiptStyles.resetButton, { marginTop: 12 }]}
-                textColor="#a60d49"
-              >
-                Cancel
-              </Button>
-            )}
+
           </Animated.View>
         </View>
       </KeyboardAwareScrollView>
@@ -2011,13 +2044,7 @@ const ReceiptAdd = ({ navigation, route }) => {
         ) : null}
       </Modal>
 
-      {/* Annotation modal — highlights where OCR extracted values from */}
-      <AnnotationModal
-        visible={annotationModalVisible}
-        imageUri={ocrFrames?.imageUri || images[0]?.uri || null}
-        ocrFrames={ocrFrames}
-        onClose={() => setAnnotationModalVisible(false)}
-      />
+
 
       {/* Uploading overlay — plain View avoids iOS modal-stacking conflicts with the native image picker */}
       {(isUploading || isPickerBusy) && (
@@ -2042,6 +2069,9 @@ const ReceiptAdd = ({ navigation, route }) => {
             <Text style={{ marginTop: 4, color: "#666", fontSize: 12, textAlign: "center" }}>
               Please wait while we analyse your images
             </Text>
+            <View style={{ alignSelf: "stretch", marginTop: 16 }}>
+              <ProgressBar progress={detectProgress} color="#a60d49" style={{ borderRadius: 4 }} />
+            </View>
           </View>
         </View>
       )}
@@ -2088,7 +2118,76 @@ const ReceiptAdd = ({ navigation, route }) => {
   );
 };
 
+const IMAGE_HEIGHT = Math.round(Dimensions.get("window").height * 0.55);
+
+const ANNOTATIONS = [
+  { key: "amount", label: "Amount", color: "#2E9F46" },
+  { key: "date",   label: "Date",   color: "#1A73E8" },
+  { key: "vat",    label: "VAT",    color: "#E06B6B" },
+];
+
 const localStyles = StyleSheet.create({
+  imageSection: {
+    height: IMAGE_HEIGHT,
+    overflow: "hidden",
+    backgroundColor: "#000",
+    borderBottomWidth: 1,
+    borderBottomColor: "#333",
+  },
+  scanningBanner: {
+    position: "absolute",
+    bottom: 0,
+    left: 0,
+    right: 0,
+    backgroundColor: "rgba(0,0,0,0.65)",
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+  },
+  scanningBannerRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+  },
+  scanningBannerText: {
+    color: "#fff",
+    fontSize: 13,
+    fontWeight: "600",
+  },
+  annBox: {
+    position: "absolute",
+    borderWidth: 2,
+    borderRadius: 4,
+  },
+  annChip: {
+    position: "absolute",
+    paddingHorizontal: 5,
+    paddingVertical: 1,
+    borderRadius: 3,
+  },
+  annChipText: {
+    color: "#fff",
+    fontSize: 11,
+    fontWeight: "700",
+  },
+  floatingCloseBtn: {
+    position: "absolute",
+    top: 12,
+    left: 12,
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: "#a60d49",
+    justifyContent: "center",
+    alignItems: "center",
+    zIndex: 200,
+    elevation: 6,
+  },
+  floatingCloseBtnText: {
+    color: "#fff",
+    fontSize: 18,
+    lineHeight: 20,
+    fontWeight: "bold",
+  },
   stickyButtonBar: {
     flexDirection: "row",
     justifyContent: "space-between",
@@ -2520,13 +2619,13 @@ const localStyles = StyleSheet.create({
     borderColor: "#bbb",
   },
   carouselPage: {
-    height: 360,
+    height: IMAGE_HEIGHT,
     justifyContent: "center",
     alignItems: "center",
     overflow: "hidden",
   },
   carouselImage: {
-    height: 360,
+    height: IMAGE_HEIGHT,
   },
   carouselAddBtn: {
     flex: 1,

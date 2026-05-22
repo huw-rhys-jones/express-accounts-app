@@ -718,7 +718,7 @@ const ExpensesScreen = ({ navigation, route }) => {
           <Text style={styles.topBarButtonText}>≡</Text>
         </TouchableOpacity>
 
-        <Text style={styles.topBarTitle}>Receipts</Text>
+        <Text style={styles.topBarTitle}>Expenses</Text>
 
         {/* Right spacer to balance the layout (same width as the button) */}
         <View style={{ width: 44 }} />

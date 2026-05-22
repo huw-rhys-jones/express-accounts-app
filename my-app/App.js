@@ -233,7 +233,7 @@ function AppTabs() {
         <Tab.Screen
           name="Expenses"
           component={ExpensesScreen}
-          options={{ tabBarLabel: "Receipts" }}
+          options={{ tabBarLabel: "Expenses" }}
         />
         <Tab.Screen
           name="Income"
