@@ -1,6 +1,6 @@
 // components/SideMenu.js
 import React, { useEffect, useRef } from "react";
-import { Animated, Dimensions, Pressable, StyleSheet, View } from "react-native";
+import { Animated, Dimensions, Pressable, StyleSheet, Text, TouchableOpacity, View } from "react-native";
 
 const WIDTH = Math.min(300, Math.round(Dimensions.get("window").width * 0.8));
 
@@ -30,6 +30,10 @@ export default function SideMenu({ open, onClose, children }) {
 
       {/* Drawer */}
       <Animated.View style={[styles.sheet, { width: WIDTH, transform: [{ translateX: x }] }]}>
+        {/* Close button */}
+        <TouchableOpacity style={styles.closeBtn} onPress={onClose} hitSlop={12}>
+          <Text style={styles.closeBtnText}>✕</Text>
+        </TouchableOpacity>
         {children}
       </Animated.View>
     </View>
@@ -55,5 +59,16 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.25,
     shadowRadius: 12,
     elevation: 6,
+  },
+  closeBtn: {
+    position: "absolute",
+    top: 12,
+    right: 14,
+    padding: 6,
+    zIndex: 10,
+  },
+  closeBtnText: {
+    fontSize: 20,
+    color: "#555",
   },
 });
