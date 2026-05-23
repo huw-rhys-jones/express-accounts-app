@@ -785,7 +785,7 @@ export default function ReceiptDetailsScreen({ route, navigation }) {
               />
             </View>
 
-            {/* Bottom actions */
+            {/* Bottom actions */}
             <View style={ReceiptStyles.bottomButtons}>
               <View style={ReceiptStyles.primaryRow}>
                 <Button

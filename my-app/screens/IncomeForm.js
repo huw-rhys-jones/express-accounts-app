@@ -51,6 +51,12 @@ import { categories_meta } from "../constants/arrays";
 
 const IMAGE_HEIGHT = Math.round(Dimensions.get("window").height * 0.45);
 
+const ANNOTATIONS = [
+  { key: "amount", label: "Amount", color: "#2E9F46" },
+  { key: "date",   label: "Date",   color: "#1A73E8" },
+  { key: "vat",    label: "VAT",    color: "#E06B6B" },
+];
+
 function navigateBackToIncome(navigation) {
   navigation.reset({
     index: 0,
@@ -110,14 +116,18 @@ export default function IncomeFormScreen({ navigation, route, mode }) {
   const [ocrProcessing, setOcrProcessing] = useState(false);
   const [imageContainerWidth, setImageContainerWidth] = useState(0);
   const [fullScreenImageIndex, setFullScreenImageIndex] = useState(null);
+  const [ocrFrames, setOcrFrames] = useState(null);
 
   // Multi-statement draft mode (when multiple income images are detected)
   const [incomeDrafts, setIncomeDrafts] = useState([]);
   const [currentDraftIndex, setCurrentDraftIndex] = useState(0);
   const [draftReviewStates, setDraftReviewStates] = useState([]); // "pending"|"confirmed"|"skipped"
   const [isDetecting, setIsDetecting] = useState(false);
-  const [showDetectedIncomeModal, setShowDetectedIncomeModal] = useState(false);
+  const [detectProgress, setDetectProgress] = useState(0);
   const [showBatchSummaryModal, setShowBatchSummaryModal] = useState(false);
+  const [toastVisible, setToastVisible] = useState(false);
+  const [toastMessage, setToastMessage] = useState("");
+  const toastOpacity = useRef(new Animated.Value(0)).current;
   const [batchSaveSummary, setBatchSaveSummary] = useState({ saved: [], skippedCount: 0 });
   const isMultiDraftMode = incomeDrafts.length > 1;
   const allDraftsReviewed =
@@ -154,7 +164,7 @@ export default function IncomeFormScreen({ navigation, route, mode }) {
 
   // ─── Multi-draft helpers ────────────────────────────────────────────────────
 
-  const createIncomeDraftFromGroup = ({ analysis, assets }) => {
+  const createIncomeDraftFromGroup = ({ analysis, assets, ocrFrames: groupOcrFrames }) => {
     const draftAmount = analysis?.amount != null ? Number(analysis.amount).toFixed(2) : "";
     const draftVatAmount = analysis?.vat?.value != null ? Number(analysis.vat.value).toFixed(2) : "";
     const draftVatRate = analysis?.vat?.rate != null ? String(analysis.vat.rate) : "";
@@ -169,6 +179,7 @@ export default function IncomeFormScreen({ navigation, route, mode }) {
       notes: "",
       selectedDate: parsedDate && !Number.isNaN(parsedDate.getTime()) ? parsedDate : new Date(),
       attachments: (assets || []).map((asset) => createImageAttachment(asset)),
+      ocrFrames: groupOcrFrames || null,
     };
   };
 
@@ -182,6 +193,7 @@ export default function IncomeFormScreen({ navigation, route, mode }) {
     setNotes(draft?.notes || "");
     setSelectedDate(draft?.selectedDate ? new Date(draft.selectedDate) : new Date());
     setAttachments(Array.isArray(draft?.attachments) ? [...draft.attachments] : []);
+    setOcrFrames(draft?.ocrFrames || null);
   };
 
   const buildCurrentIncomeDraft = () => {
@@ -439,8 +451,9 @@ export default function IncomeFormScreen({ navigation, route, mode }) {
 
     (async () => {
       setIsDetecting(true);
+      setDetectProgress(0);
       try {
-        const groups = await detectReceiptGroupsFromAssets(initialImages);
+        const groups = await detectReceiptGroupsFromAssets(initialImages, (p) => setDetectProgress(p));
         if (cancelled) return;
 
         const effectiveGroups = groups.length > 0
@@ -460,7 +473,7 @@ export default function IncomeFormScreen({ navigation, route, mode }) {
           setDraftReviewStates(Array(drafts.length).fill("pending"));
           setCurrentDraftIndex(0);
           applyIncomeDraftToForm(drafts[0]);
-          setShowDetectedIncomeModal(true);
+          showToast(`${drafts.length} income statement${drafts.length === 1 ? "" : "s"} detected`);
         }
       } catch (err) {
         console.error("OCR error (income):", err);
@@ -468,13 +481,24 @@ export default function IncomeFormScreen({ navigation, route, mode }) {
         const newAttachments = initialImages.map(createImageAttachment);
         if (!cancelled) setAttachments((prev) => [...prev, ...newAttachments]);
       } finally {
-        if (!cancelled) setIsDetecting(false);
+        if (!cancelled) { setIsDetecting(false); setDetectProgress(0); }
       }
     })();
 
     return () => { cancelled = true; };
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  const showToast = (message) => {
+    setToastMessage(message);
+    setToastVisible(true);
+    toastOpacity.setValue(0);
+    Animated.sequence([
+      Animated.timing(toastOpacity, { toValue: 1, duration: 300, useNativeDriver: true }),
+      Animated.delay(2000),
+      Animated.timing(toastOpacity, { toValue: 0, duration: 400, useNativeDriver: true }),
+    ]).start(() => setToastVisible(false));
+  };
 
   const dismissTip = async () => {
     setShowTip(false);
@@ -775,6 +799,7 @@ export default function IncomeFormScreen({ navigation, route, mode }) {
           >
             {attachments.filter(isImageAttachment).map((att, index) => {
               const uri = getAttachmentUri(att);
+              const isAnnotated = ocrFrames?.imageUri === uri;
               return (
                 <View key={att.id || String(index)} style={{ position: "relative" }}>
                   <TouchableOpacity
@@ -788,6 +813,32 @@ export default function IncomeFormScreen({ navigation, route, mode }) {
                       resizeMode="contain"
                     />
                   </TouchableOpacity>
+                  {isAnnotated && ANNOTATIONS.filter(({ key }) => ocrFrames[key]).map(({ key, label, color }) => {
+                    const naturalW = ocrFrames.imageW;
+                    const naturalH = ocrFrames.imageH;
+                    if (!naturalW) return null;
+                    const scale = Math.min(imageContainerWidth / naturalW, IMAGE_HEIGHT / naturalH);
+                    const renderedW = naturalW * scale;
+                    const renderedH = naturalH * scale;
+                    const offsetX = (imageContainerWidth - renderedW) / 2;
+                    const offsetY = (IMAGE_HEIGHT - renderedH) / 2;
+                    const frame = ocrFrames[key];
+                    const PAD = 8;
+                    const padded = {
+                      left: frame.left * scale + offsetX - PAD,
+                      top: frame.top * scale + offsetY - PAD,
+                      width: frame.width * scale + PAD * 2,
+                      height: frame.height * scale + PAD * 2,
+                    };
+                    return (
+                      <React.Fragment key={key}>
+                        <View style={[styles.annBox, { ...padded, borderColor: color }]} />
+                        <View style={[styles.annChip, { backgroundColor: color, top: padded.top - 18, left: padded.left - 1 }]}>
+                          <Text style={styles.annChipText}>{label}</Text>
+                        </View>
+                      </React.Fragment>
+                    );
+                  })}
                   <TouchableOpacity
                     style={styles.carouselRemoveBtn}
                     onPress={() => setAttachments((current) => current.filter((item) => item.id !== att.id))}
@@ -842,52 +893,42 @@ export default function IncomeFormScreen({ navigation, route, mode }) {
             <Text style={ReceiptStyles.header}>
               {mode === "edit" ? "Edit Income" : isMultiDraftMode ? "Review Income" : "Add Income"}
             </Text>
-            {isMultiDraftMode && (
-              <View style={{ alignItems: "center", marginBottom: 6 }}>
-                <Text style={{ color: Colors.accent, fontWeight: "700", fontSize: 14 }}>
-                  Income {currentDraftIndex + 1} / {incomeDrafts.length}
-                </Text>
-                <Text style={{ color: Colors.textSecondary, fontSize: 12, marginTop: 2 }}>
-                  Swipe left or right to move between statements.
-                </Text>
-                <Text style={{ color: Colors.textSecondary, fontSize: 12 }}>
-                  Confirmed: {draftReviewStates.filter((s) => s === "confirmed").length}  Skipped: {draftReviewStates.filter((s) => s === "skipped").length}
-                </Text>
-              </View>
-            )}
 
-            <Animated.View style={[styles.fieldGroup, {
-                backgroundColor: flashAmount.interpolate({ inputRange: [0, 1], outputRange: ["transparent", "rgba(253,224,71,0.45)"] }),
-                borderRadius: 6,
-              }]}>
-              <Text style={ReceiptStyles.label}>Amount:</Text>
-              <View style={[ReceiptStyles.inputRow, styles.currencyField]}>
-                <View style={styles.currencyWrapper}>
-                  <Text style={styles.currencyText}>£</Text>
+
+            <View style={styles.moneyRow}>
+              <Animated.View style={[styles.moneyColumn, {
+                  backgroundColor: flashAmount.interpolate({ inputRange: [0, 1], outputRange: ["transparent", "rgba(253,224,71,0.45)"] }),
+                  borderRadius: 6,
+                }]}>
+                <Text style={ReceiptStyles.label}>Amount:</Text>
+                <View style={[ReceiptStyles.inputRow, styles.currencyField]}>
+                  <View style={styles.currencyWrapper}>
+                    <Text style={styles.currencyText}>£</Text>
+                  </View>
+                  <TextInput
+                    value={amount}
+                    onChangeText={setAmount}
+                    keyboardType="decimal-pad"
+                    placeholder="0.00"
+                    placeholderTextColor={Colors.textSecondary}
+                    style={[ReceiptStyles.input, styles.amountInput, styles.inputWithCurrency]}
+                  />
                 </View>
-                <TextInput
-                  value={amount}
-                  onChangeText={setAmount}
-                  keyboardType="decimal-pad"
-                  placeholder="0.00"
-                  placeholderTextColor={Colors.textSecondary}
-                  style={[ReceiptStyles.input, styles.amountInput, styles.inputWithCurrency]}
-                />
-              </View>
-            </Animated.View>
+              </Animated.View>
 
-            <Animated.View style={[styles.fieldGroup, {
-                backgroundColor: flashDate.interpolate({ inputRange: [0, 1], outputRange: ["transparent", "rgba(253,224,71,0.45)"] }),
-                borderRadius: 6,
-              }]}>
-              <Text style={ReceiptStyles.label}>Date:</Text>
-              <TouchableOpacity
-                style={[ReceiptStyles.dateButton, styles.dateButtonAligned]}
-                onPress={() => setDatePickerVisibility(true)}
-              >
-                <Text style={ReceiptStyles.dateText}>{formatDate(selectedDate)}</Text>
-              </TouchableOpacity>
-            </Animated.View>
+              <Animated.View style={[styles.moneyColumn, {
+                  backgroundColor: flashDate.interpolate({ inputRange: [0, 1], outputRange: ["transparent", "rgba(253,224,71,0.45)"] }),
+                  borderRadius: 6,
+                }]}>
+                <Text style={ReceiptStyles.label}>Date:</Text>
+                <TouchableOpacity
+                  style={[ReceiptStyles.dateButton, styles.dateButtonAligned]}
+                  onPress={() => setDatePickerVisibility(true)}
+                >
+                  <Text style={ReceiptStyles.dateText}>{formatDate(selectedDate)}</Text>
+                </TouchableOpacity>
+              </Animated.View>
+            </View>
 
             <Animated.View style={[styles.fieldGroup, {
                 backgroundColor: flashReference.interpolate({ inputRange: [0, 1], outputRange: ["transparent", "rgba(253,224,71,0.45)"] }),
@@ -961,80 +1002,7 @@ export default function IncomeFormScreen({ navigation, route, mode }) {
               />
             </View>
 
-            {(() => {
-              const isCurrentConfirmed = draftReviewStates[currentDraftIndex] === "confirmed";
-              const isCurrentSkipped = draftReviewStates[currentDraftIndex] === "skipped";
-              return (
-                <View style={styles.actionRow}>
-                  {isMultiDraftMode ? (
-                    <>
-                      <Button
-                        mode={isCurrentSkipped ? "contained" : "outlined"}
-                        buttonColor={isCurrentSkipped ? "#555" : undefined}
-                        textColor={isCurrentSkipped ? "#fff" : Colors.accent}
-                        style={[
-                          styles.multiActionButton,
-                          isCurrentConfirmed ? styles.multiActionFaded : null,
-                        ]}
-                        onPress={skipIncomeDraft}
-                      >
-                        {isCurrentSkipped ? "Skipped" : "Skip"}
-                      </Button>
-                      <Button
-                        mode={isCurrentConfirmed ? "contained" : "outlined"}
-                        buttonColor={isCurrentConfirmed ? Colors.accent : undefined}
-                        textColor={isCurrentConfirmed ? "#fff" : Colors.accent}
-                        style={[
-                          styles.multiActionButton,
-                          isCurrentSkipped ? styles.multiActionFaded : null,
-                        ]}
-                        onPress={confirmIncomeDraft}
-                        disabled={!isIncomeFormValid}
-                      >
-                        {isCurrentConfirmed ? "Confirmed" : "Confirm"}
-                      </Button>
-                    </>
-                  ) : (
-                    <>
-                      <Button mode="outlined" textColor={Colors.accent} onPress={() => navigateBackToIncome(navigation)}>
-                        Cancel
-                      </Button>
-                      <Button
-                        mode="contained"
-                        buttonColor={Colors.accent}
-                        onPress={saveIncome}
-                        disabled={isSaving || !isIncomeFormValid}
-                      >
-                        Save
-                      </Button>
-                    </>
-                  )}
-                </View>
-              );
-            })()}
 
-            {isMultiDraftMode ? (
-              <>
-                <Button
-                  mode="contained"
-                  onPress={handleSaveReviewedIncomes}
-                  buttonColor={allDraftsReviewed ? Colors.accent : "#c6c6c6"}
-                  textColor={allDraftsReviewed ? "#fff" : "#8a8a8a"}
-                  style={styles.saveAllButton}
-                  disabled={!allDraftsReviewed || isSaving}
-                >
-                  Save Income Records
-                </Button>
-                <Button
-                  mode="text"
-                  onPress={() => navigateBackToIncome(navigation)}
-                  textColor={Colors.accent}
-                  style={styles.cancelTextButton}
-                >
-                  Cancel
-                </Button>
-              </>
-            ) : null}
 
             <View style={[styles.fieldGroup, styles.notesSection]}>
               <Text style={ReceiptStyles.label}>Notes:</Text>
@@ -1287,32 +1255,6 @@ export default function IncomeFormScreen({ navigation, route, mode }) {
         ) : null}
       </Modal>
 
-      {/* Detected income modal */}
-      <Modal
-        visible={showDetectedIncomeModal}
-        transparent
-        animationType="fade"
-        onRequestClose={() => setShowDetectedIncomeModal(false)}
-      >
-        <View style={ReceiptStyles.modalOverlay}>
-          <View style={ReceiptStyles.modalContent}>
-            <Text style={ReceiptStyles.modalTitle}>Multiple income statements detected</Text>
-            <Text style={ReceiptStyles.modalDetailText}>
-              We detected {incomeDrafts.length} income statement{incomeDrafts.length === 1 ? "" : "s"}. We will now go through each one so you can confirm or skip the detected details.
-            </Text>
-            <View style={ReceiptStyles.modalButtons}>
-              <Button
-                mode="contained"
-                buttonColor={Colors.accent}
-                onPress={() => setShowDetectedIncomeModal(false)}
-              >
-                Start review
-              </Button>
-            </View>
-          </View>
-        </View>
-      </Modal>
-
       {/* Batch summary modal */}
       <Modal
         visible={showBatchSummaryModal}
@@ -1380,9 +1322,83 @@ export default function IncomeFormScreen({ navigation, route, mode }) {
             <Text style={{ marginTop: 4, color: "#666", fontSize: 12, textAlign: "center" }}>
               Please wait while we analyse your images
             </Text>
+            <View style={{ alignSelf: "stretch", marginTop: 16 }}>
+              <ProgressBar progress={detectProgress} color={Colors.accent} style={{ borderRadius: 4 }} />
+            </View>
           </View>
         </View>
       )}
+
+      {/* Sticky bottom action bar */}
+      {isMultiDraftMode && allDraftsReviewed ? (
+        <View style={styles.submitButtonContainer}>
+          <Button
+            mode="contained"
+            buttonColor={Colors.accent}
+            onPress={handleSaveReviewedIncomes}
+            style={styles.submitButtonInner}
+            disabled={isSaving}
+          >
+            Save Income Records
+          </Button>
+        </View>
+      ) : null}
+      <View style={[styles.stickyButtonBar, isMultiDraftMode && { borderTopWidth: 0 }]}>
+        {isMultiDraftMode ? (
+          <>
+            {(() => {
+              const isCurrentConfirmed = draftReviewStates[currentDraftIndex] === "confirmed";
+              const isCurrentSkipped = draftReviewStates[currentDraftIndex] === "skipped";
+              return (
+                <>
+                  <Text style={styles.draftCounter}>
+                    {currentDraftIndex + 1} / {incomeDrafts.length}
+                  </Text>
+                  <Button
+                    mode={isCurrentSkipped ? "contained" : "outlined"}
+                    buttonColor={isCurrentSkipped ? "#555" : undefined}
+                    textColor={isCurrentSkipped ? "#fff" : Colors.accent}
+                    style={[styles.stickyActionButton, isCurrentConfirmed ? styles.multiActionFaded : null]}
+                    onPress={skipIncomeDraft}
+                  >
+                    {isCurrentSkipped ? "Skipped" : "Skip"}
+                  </Button>
+                  <Button
+                    mode={isCurrentConfirmed ? "contained" : "outlined"}
+                    buttonColor={isCurrentConfirmed ? Colors.accent : undefined}
+                    textColor={isCurrentConfirmed ? "#fff" : Colors.accent}
+                    style={[styles.stickyActionButton, isCurrentSkipped ? styles.multiActionFaded : null]}
+                    onPress={confirmIncomeDraft}
+                    disabled={!isIncomeFormValid}
+                  >
+                    {isCurrentConfirmed ? "Confirmed" : "Confirm"}
+                  </Button>
+                </>
+              );
+            })()}
+          </>
+        ) : (
+          <>
+            <Button
+              mode="contained"
+              buttonColor={Colors.accent}
+              style={styles.stickyActionButton}
+              onPress={() => navigateBackToIncome(navigation)}
+            >
+              Cancel
+            </Button>
+            <Button
+              mode="contained"
+              buttonColor={Colors.accent}
+              style={styles.stickyActionButton}
+              onPress={saveIncome}
+              disabled={isSaving || !isIncomeFormValid}
+            >
+              Save
+            </Button>
+          </>
+        )}
+      </View>
 
       {isSaving || pickerBusy ? (
         <View style={styles.loadingOverlay}>
@@ -1391,6 +1407,13 @@ export default function IncomeFormScreen({ navigation, route, mode }) {
             <Text style={styles.loadingText}>{isSaving ? "Saving income…" : pickerBusyText}</Text>
           </View>
         </View>
+      ) : null}
+
+      {/* Toast notification */}
+      {toastVisible ? (
+        <Animated.View style={[styles.toastContainer, { opacity: toastOpacity }]}>
+          <Text style={styles.toastText}>{toastMessage}</Text>
+        </Animated.View>
       ) : null}
     </SafeAreaView>
   );
@@ -1578,6 +1601,69 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     alignItems: "center",
     zIndex: 1200,
+  },
+  annBox: {
+    position: "absolute",
+    borderWidth: 2,
+    borderRadius: 4,
+  },
+  annChip: {
+    position: "absolute",
+    paddingHorizontal: 5,
+    paddingVertical: 1,
+    borderRadius: 3,
+  },
+  annChipText: {
+    color: "#fff",
+    fontSize: 11,
+    fontWeight: "700",
+  },
+  stickyButtonBar: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    borderTopWidth: 1,
+    borderTopColor: "#e8e8e8",
+    backgroundColor: "#fff",
+    gap: 12,
+  },
+  stickyActionButton: {
+    flex: 1,
+  },
+  draftCounter: {
+    fontSize: 13,
+    fontWeight: "700",
+    color: Colors.accent,
+    minWidth: 40,
+    textAlign: "center",
+  },
+  submitButtonContainer: {
+    paddingHorizontal: 16,
+    paddingVertical: 6,
+    backgroundColor: "#fff",
+  },
+  submitButtonInner: {
+    borderRadius: 25,
+  },
+  toastContainer: {
+    position: "absolute",
+    bottom: 100,
+    left: 30,
+    right: 30,
+    backgroundColor: "rgba(28,28,78,0.9)",
+    borderRadius: 10,
+    paddingVertical: 10,
+    paddingHorizontal: 20,
+    alignItems: "center",
+    zIndex: 9999,
+    elevation: 10,
+  },
+  toastText: {
+    color: "#fff",
+    fontSize: 14,
+    fontWeight: "600",
   },
   notesSection: { marginTop: 10 },
   deleteButton: { marginTop: 16 },

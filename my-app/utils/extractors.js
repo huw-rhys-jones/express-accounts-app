@@ -622,10 +622,15 @@ export function extractVAT(text, amountInfo, categoryIdx) {
   const snappedRate = rateHit ? snapRate(parseFloat(rateHit[1])) : null;
 
   if (snappedRate != null && amountInfo?.amount) {
+    // If detected rate is 0% but the category normally has a higher rate, use category rate
+    const catRateOverride = categoryIdx >= 0 ? categories_meta[categoryIdx]?.vatRate : null;
+    const effectiveRate = (snappedRate === 0 && Number.isFinite(catRateOverride) && catRateOverride > 0)
+      ? catRateOverride
+      : snappedRate;
     const gross = amountInfo.amount;
-    const net = gross / (1 + snappedRate / 100);
+    const net = gross / (1 + effectiveRate / 100);
     const vat = gross - net;
-    return { value: parseFloat(vat.toFixed(2)), rate: snappedRate };
+    return { value: parseFloat(vat.toFixed(2)), rate: effectiveRate };
   }
 
   // 4) Fallback to category default (already from categories_meta)

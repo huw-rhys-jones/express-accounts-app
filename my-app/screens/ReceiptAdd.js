@@ -2645,7 +2645,7 @@ const localStyles = StyleSheet.create({
   // Toast
   toastContainer: {
     position: "absolute",
-    top: 60,
+    bottom: 100,
     left: 30,
     right: 30,
     backgroundColor: "rgba(28,28,78,0.9)",
