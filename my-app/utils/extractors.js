@@ -92,25 +92,36 @@ function escapeForRegex(s) {
 }
 
 // ---------- date extraction ----------
+const FULL_MONTHS = {
+  january: 0, february: 1, march: 2, april: 3, may: 4, june: 5,
+  july: 6, august: 7, september: 8, october: 9, november: 10, december: 11
+};
+const MONTH_ALT = `${months.join('|')}|January|February|March|April|May|June|July|August|September|October|November|December`;
+
 const DATE_PATTERNS = [
   // 12/03/25 or 12-03-25 (assume day-first)
-  /\b(\d{1,2})[\/.\-](\d{1,2})[\/.\-](\d{2})\b/g,
+  /\b(\d{1,2})[\/.-](\d{1,2})[\/.-](\d{2})\b/g,
   // 12/03/2025
-  /\b(\d{1,2})[\/.\-](\d{1,2})[\/.\-](\d{4})\b/g,
+  /\b(\d{1,2})[\/.-](\d{1,2})[\/.-](\d{4})\b/g,
   // 2025-03-12 or 2025.03.12
-  /\b(20\d{2})[\/.\-](\d{1,2})[\/.\-](\d{1,2})\b/g,
-  // 12 Mar 2025 / 12 March 2025 / Mar 12, 2025
+  /\b(20\d{2})[\/.-](\d{1,2})[\/.-](\d{1,2})\b/g,
+  // 12 Mar 2025 / 12 March 2025
   new RegExp(
-    String.raw`\b(\d{1,2})(?:st|nd|rd|th)?\s+(${months.join('|')})\.?,?\s+(20\d{2})\b`,
+    String.raw`\b(\d{1,2})(?:st|nd|rd|th)?\s+(${MONTH_ALT})\.?,?\s+(20\d{2})\b`,
     'ig'
   ),
+  // Mar 12, 2025 / March 12, 2025
   new RegExp(
-    String.raw`\b(${months.join('|')})\.?\s+(\d{1,2})(?:st|nd|rd|th)?,?\s+(20\d{2})\b`,
+    String.raw`\b(${MONTH_ALT})\.?\s+(\d{1,2})(?:st|nd|rd|th)?,?\s+(20\d{2})\b`,
     'ig'
   ),
+  // 05/Aug/2024 or 05-August-2024
+  /\b(\d{1,2})[\/\-]([A-Za-z]{3,9})[\/\-](\d{4})\b/g,
 ];
 
 function monthNameToIndex(s) {
+  const lower = s.toLowerCase();
+  if (lower in FULL_MONTHS) return FULL_MONTHS[lower];
   const idx = months.findIndex(m => new RegExp(`^${m}$`, 'i').test(s));
   return idx >= 0 ? idx : null;
 }
@@ -133,9 +144,8 @@ function extractDate(text) {
   // OCR cleanup for date matching:
   // - "1April 2025" -> "1 April 2025"
   // - "31st" / "2nd" / "3rd" / "4th" -> "31" / "2" / "3" / "4"
-  const monthAlternation = months.join('|');
   const textForDate = text
-    .replace(new RegExp(`(\\d)(${monthAlternation})`, 'ig'), '$1 $2')
+    .replace(new RegExp(`(\\d)(${MONTH_ALT})`, 'ig'), '$1 $2')
     .replace(/\b(\d{1,2})(st|nd|rd|th)\b/ig, '$1');
 
   const candidates = [];
@@ -170,13 +180,21 @@ function extractDate(text) {
         const y = parseInt(m[3], 10);
         const mo = (monthNameToIndex(moName) ?? 0) + 1;
         iso = toISODate(y, mo, d);
-      } else {
-        // Month-name first
+      } else if (pat === DATE_PATTERNS[4]) {
+        // Month-name first: Mar 12, 2025 / March 12, 2025
         const moName = m[1];
         const d = parseInt(m[2], 10);
         const y = parseInt(m[3], 10);
         const mo = (monthNameToIndex(moName) ?? 0) + 1;
         iso = toISODate(y, mo, d);
+      } else {
+        // DD/Mon/YYYY: 05/Aug/2024 or 05-August-2024
+        const d = parseInt(m[1], 10);
+        const moName = m[2];
+        const y = parseInt(m[3], 10);
+        const moIdx = monthNameToIndex(moName);
+        if (moIdx === null) continue;
+        iso = toISODate(y, moIdx + 1, d);
       }
 
       if (!iso) continue;
@@ -233,6 +251,16 @@ export function extractAmount(reconstructedText) {
     return false;
   };
 
+  // Only look at lines ABOVE the candidate — total labels always precede their amounts.
+  // This prevents column-table layouts ("VAT\nTotal\n£58.17\n£349.00") from incorrectly
+  // giving TOTAL context to the first column value (£58.17) instead of the last (£349.00).
+  const hasAbove = (lineIndex, regex, radius = 3) => {
+    for (let i = Math.max(0, lineIndex - radius); i < lineIndex; i++) {
+      if (regex.test(lineData[i])) return true;
+    }
+    return false;
+  };
+
   lines.forEach((line, lineIndex) => {
     const matches = [...line.matchAll(FORGIVING_MONEY)];
     if (!matches.length) return;
@@ -264,7 +292,7 @@ export function extractAmount(reconstructedText) {
   if (!candidates.length) return null;
 
   const totalLine = lineData.findIndex(
-    l => /\bTOTAL\b|\bTOTAT\b|\bTOTA1\b|\bAMOUNT\s+DUE\b|\bBALANCE\s+DUE\b/.test(l) && !/\bSUBTOTAL\b/.test(l)
+    l => /\bTOTAL\b|\bTOTAT\b|\bTOTA1\b|\bAMOUNT\s+DUE\b|\bBALANCE\s+DUE\b|\bTOT\b/.test(l) && !/\bSUBTOTAL\b/.test(l)
   );
 
   const valueLines = new Map();
@@ -289,9 +317,9 @@ export function extractAmount(reconstructedText) {
     const key = candidate.val.toFixed(2);
     const uniqueLineCount = (valueLines.get(key) || new Set()).size;
 
-    const isTotalContext = /\bTOTAL\b|\bTOTAT\b|\bTOTA1\b|\bAMOUNT\s+DUE\b|\bBALANCE\s+DUE\b|\bGRAND\s+TOTAL\b/.test(line)
+    const isTotalContext = /\bTOTAL\b|\bTOTAT\b|\bTOTA1\b|\bAMOUNT\s+DUE\b|\bBALANCE\s+DUE\b|\bGRAND\s+TOTAL\b|\bTOT\b/.test(line)
       || hasNear(candidate.lineIndex, /\bAMOUNT\s+DUE\b|\bBALANCE\s+DUE\b|\bGRAND\s+TOTAL\b/, 1)
-      || hasNear(candidate.lineIndex, /\bTOTAL\b|\bTOTAT\b|\bTOTA1\b/, 1);
+      || hasAbove(candidate.lineIndex, /\bTOTAL\b|\bTOTAT\b|\bTOTA1\b|\bTOT\b/, 3);
     const isSubtotalContext = /\bSUBTOTAL\b|\bDISCOUNT\b|\bREFUND\b|\bTIPS?\b/.test(line)
       || hasNear(candidate.lineIndex, /\bSUBTOTAL\b|\bDISCOUNT\b|\bREFUND\b|\bTIPS?\b/, 1);
     const isVatContext = /\bVAT\b|\bTAX\b/.test(line)
@@ -301,9 +329,14 @@ export function extractAmount(reconstructedText) {
       && !/\bAMOUNT\s+DUE\b|\bBALANCE\s+DUE\b/.test(line);
     const isItemLine = /\bKID\b|\bSTEAK\b|\bCHICKEN\b|\bCOOKIE\b|\bSALAD\b|\bWINE\b|\bRUMP\b|\bPRAWN\b|\bAVOCADO\b|\bMOZZARELLA\b|\bTOMATO\b|\bSAUCE\b|\bMEAL\b|\bBAG\s+CHARGE\b/.test(line);
 
-    if (candidate.hasCurrency) score += 25;
+    if (candidate.hasCurrency) score += 40;
     if (candidate.val < 1) score -= 40;
     else if (candidate.val < 3) score -= 15;
+
+    // Penalize unit-price lines (e.g. "0.100kg @ 22.00/kg" — not a payable total)
+    if (/\d\s*\/\s*(?:kg|lb|g|ltr|litre|ml|each|ea|unit)\b/i.test(line)) {
+      score -= 280;
+    }
 
     // Date fragments (e.g. 12.09 from 12.09.2024) are not totals
     if (/\bDATE\b|\bTIME\b/.test(line) && /\d{1,2}[./-]\d{1,2}[./-]\d{2,4}/.test(line) && candidate.val <= 31.99) {
@@ -330,6 +363,13 @@ export function extractAmount(reconstructedText) {
       if (distance <= 3) score += 140;
       else if (distance <= 12) score += 80;
       else if (distance <= 24) score += 35;
+    } else if (totalLine >= 0 && totalLine - candidate.lineIndex <= 2) {
+      // Reverse label format: amount appears 1-2 lines BEFORE the total label.
+      // Only applies for explicit "due" labels (e.g. "£58.56\nBALANCE DUE"), NOT plain
+      // "TOTAL" which typically has its value below it, not above.
+      if (/\bBALANCE\s+DUE\b|\bAMOUNT\s+DUE\b/.test(lineData[totalLine] || '')) {
+        score += 120;
+      }
     }
 
     // If the line has multiple amounts and is total-like, largest on that line is usually the payable total
@@ -346,7 +386,9 @@ export function extractAmount(reconstructedText) {
       const idxs = [...(valueLines.get(key) || new Set())].sort((a, b) => a - b);
       const span = idxs[1] - idxs[0];
       if (!isVatContext && !isPaymentContext) {
-        if (candidate.val < 10 && !isTotalContext) {
+        if (candidate.val < 10) {
+          // Small values: modest bonus regardless of total context (prevents VAT-table
+          // column values near a TOTAL header from being over-scored)
           if (span <= 4) score += 70;
           else if (span <= 12) score += 40;
           else score += 20;
@@ -360,14 +402,14 @@ export function extractAmount(reconstructedText) {
       if (!isVatContext) score += 50;
     }
 
-    if (candidate.val === largest && largest > 10) {
+    if (candidate.val === largest && largest > 10 && (isTotalContext || (totalLine >= 0 && candidate.lineIndex >= totalLine))) {
       if (largest >= (median || 1) * 2.8) score += 220;
       else if (largest >= (median || 1) * 2.0) score += 130;
       else score += 60;
     }
 
     // Strong boost for values tied to explicit TOTAL/SALE/DEBIT lines around the total section
-    if ((/\bTOTAL\b|\bTOTAT\b|\bTOTA1\b|\bAMOUNT\s+DUE\b/.test(line) || /\bSALE\b|\bDEBIT\b/.test(line)) && candidate.val >= 10) {
+    if ((/\bTOTAL\b|\bTOTAT\b|\bTOTA1\b|\bAMOUNT\s+DUE\b|\bTOT\b/.test(line) || /\bSALE\b|\bDEBIT\b/.test(line)) && candidate.val >= 10) {
       score += 170;
     }
 
@@ -408,7 +450,21 @@ export function extractAmount(reconstructedText) {
         const hasPaidContext = paidCandidates.some(c =>
           /\bCASH\b|\bTENDER\b|\bCARD\b|\bPAID\b/.test(c.upperLine) || hasNear(c.lineIndex, /\bCASH\b|\bTENDER\b|\bCARD\b|\bPAID\b/, 1)
         );
-        if (!hasChangeContext && !hasPaidContext) continue;
+        // Require BOTH proximity signals, OR BOTH document-wide labels (for column-table receipts
+        // where labels are separated from values by many lines, e.g. Harrods format).
+        const hasChangeAnywhere = lineData.some(l => /\bCHANGE\b/i.test(l));
+        const hasCashTenderAnywhere = lineData.some(l => /\bCASH\s+TENDER|\bCASH\s+PAYMENT/i.test(l));
+        const proximityOK = hasChangeContext && hasPaidContext;
+        const documentWideOK = hasChangeAnywhere && hasCashTenderAnywhere;
+        if (!proximityOK && !documentWideOK) continue;
+        // For the document-wide (column-table) fallback, require all three amounts to
+        // have explicit currency symbols — prevents item prices (no £) from matching.
+        if (!proximityOK) {
+          const hasCurr = (val) => (valueMap.get(val.toFixed(2)) || []).some(c => c.hasCurrency);
+          if (!hasCurr(totalVal) || !hasCurr(changeVal) || !hasCurr(paidVal)) continue;
+        }
+        // Sanity: the change should always be less than the total
+        if (changeVal >= totalVal) continue;
 
         totalCandidates.forEach(c => { c.score += 260; });
         paidCandidates.forEach(c => { c.score -= 220; });
