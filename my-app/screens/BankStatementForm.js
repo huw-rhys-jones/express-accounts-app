@@ -529,11 +529,25 @@ export default function BankStatementForm({ navigation, route, mode }) {
         moneyOutTotal: false,
         statementBalance: false,
       });
-      Alert.alert(
-        "PDF OCR Failed",
-        error?.message || "The secure PDF scan could not complete right now."
-      );
       setOcrModalVisible(false);
+      const isVerificationError =
+        typeof error?.message === "string" &&
+        error.message.toLowerCase().includes("verified");
+      if (isVerificationError) {
+        Alert.alert(
+          "Verified Users Only",
+          "Bank statement scanning is only available to verified users.\n\nTap the ≡ button on the Bank Statements screen to open the menu and enter your client code.",
+          [
+            { text: "Go Back", onPress: () => navigation.goBack(), style: "cancel" },
+            { text: "OK" },
+          ]
+        );
+      } else {
+        Alert.alert(
+          "PDF OCR Failed",
+          error?.message || "The secure PDF scan could not complete right now."
+        );
+      }
     } finally {
       setOcrLoading(false);
     }

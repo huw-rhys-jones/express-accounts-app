@@ -29,7 +29,7 @@ export async function extractBankStatementPdfInCloud({ uri, fileName }) {
   try {
     const snap = await getDoc(doc(db, "users", user.uid));
     if (!snap.exists() || snap.data()?.verificationStatus !== "verified") {
-      throw new Error("Bank statement scanning is only available to verified users. Please enter your client code via the menu to unlock this feature.");
+      throw new Error("Bank statement scanning is only available to verified users.");
     }
   } catch (e) {
     if (e.message.includes("verified")) throw e;
