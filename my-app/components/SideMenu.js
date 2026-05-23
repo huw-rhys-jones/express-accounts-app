@@ -1,6 +1,6 @@
 // components/SideMenu.js
 import React, { useEffect, useRef } from "react";
-import { Animated, Dimensions, Pressable, StyleSheet, Text, TouchableOpacity, View } from "react-native";
+import { Animated, Dimensions, Platform, Pressable, ScrollView, StyleSheet, Text, TouchableOpacity, View } from "react-native";
 
 const WIDTH = Math.min(300, Math.round(Dimensions.get("window").width * 0.8));
 
@@ -34,7 +34,13 @@ export default function SideMenu({ open, onClose, children }) {
         <TouchableOpacity style={styles.closeBtn} onPress={onClose} hitSlop={12}>
           <Text style={styles.closeBtnText}>✕</Text>
         </TouchableOpacity>
-        {children}
+        <ScrollView
+          style={styles.scroll}
+          contentContainerStyle={styles.scrollContent}
+          showsVerticalScrollIndicator={false}
+        >
+          {children}
+        </ScrollView>
       </Animated.View>
     </View>
   );
@@ -70,5 +76,12 @@ const styles = StyleSheet.create({
   closeBtnText: {
     fontSize: 20,
     color: "#555",
+  },
+  scroll: {
+    flex: 1,
+  },
+  scrollContent: {
+    flexGrow: 1,
+    paddingBottom: Platform.OS === "android" ? 16 : 8,
   },
 });
