@@ -262,8 +262,9 @@ async function callVisionApiDirect(imageBase64, mimeType, accessToken) {
     throw new Error(`Vision API error: ${msg}`);
   }
 
-  const fullText = data?.responses?.[0]?.fullTextAnnotation?.text || "";
-  return { rawText: fullText, provider: "vision-ocr-direct" };
+  const annotation = data?.responses?.[0]?.fullTextAnnotation || {};
+  const fullText = annotation.text || "";
+  return { rawText: fullText, fullAnnotation: annotation, provider: "vision-ocr-direct" };
 }
 
 // ── Cloud OCR call (via Firebase cloud function) ──────────────────────────────
@@ -572,6 +573,7 @@ async function main() {
           saveCache(prefix, {
             fileName: filename,
             rawText: result.rawText,
+            fullAnnotation: result.fullAnnotation || null,
             provider: result.provider,
             cachedAt: new Date().toISOString(),
           });
