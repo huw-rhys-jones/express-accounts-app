@@ -229,6 +229,21 @@ const MONEY_RE = /(?:£\s?|GBP\s*)?(?:\d{1,3}(?:[\s,.]\d{3})+|\d{1,6})[.,]\d{1,2
 export function extractAmount(reconstructedText) {
   if (!reconstructedText) return null;
 
+  // Normalise handwritten receipts that use a vertical bar as decimal separator.
+  // OCR reads "12|95" as "12/95". Pattern: N{1-4}/NN not followed by another /N
+  // (which would indicate a date like 12/05/2024). Convert to N.NN.
+  reconstructedText = reconstructedText.replace(
+    /\b(\d{1,4})\/(\d{2})\b(?!\/\d)/g,
+    (_, intPart, decPart) => {
+      // Skip if it looks like a date fragment: month/day would have intPart 1-12, decPart 1-31
+      // but "12/95" can't be a date (no month 95), so the only risky case is e.g. "3/05".
+      // Accept anything where decPart > 31 (clearly pence not days) OR intPart > 12 (can't be month).
+      if (parseInt(decPart) > 31 || parseInt(intPart) > 12) return `${intPart}.${decPart}`;
+      // Ambiguous (e.g. "3/05") — leave alone to avoid corrupting dates.
+      return `${intPart}/${decPart}`;
+    }
+  );
+
   const lines = reconstructedText.split('\n');
   
   // DEBUG: Show all reconstructed lines
