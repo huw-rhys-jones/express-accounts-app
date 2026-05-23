@@ -110,9 +110,9 @@ const DATE_PATTERNS = [
     String.raw`\b(\d{1,2})(?:st|nd|rd|th)?\s+(${MONTH_ALT})\.?,?\s+(20\d{2})\b`,
     'ig'
   ),
-  // Mar 12, 2025 / March 12, 2025
+  // Mar 12, 2025 / March 12, 2025 / March 31st , 2025
   new RegExp(
-    String.raw`\b(${MONTH_ALT})\.?\s+(\d{1,2})(?:st|nd|rd|th)?,?\s+(20\d{2})\b`,
+    String.raw`\b(${MONTH_ALT})\.?\s+(\d{1,2})(?:st|nd|rd|th)?[\s,]+(20\d{2})\b`,
     'ig'
   ),
   // 05/Aug/2024 or 05-August-2024
