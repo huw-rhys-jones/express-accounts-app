@@ -223,7 +223,7 @@ function extractDate(text) {
 // ---------- amount extraction ----------
 // ---------- amount extraction ----------
 // ---------- amount extraction ----------
-const MONEY_RE = /(?:£\s?|GBP\s*)?(?:\d{1,3}(?:[\s,.]\d{3})+|\d{1,6})[.,]\d{2}(?!\d)/g;
+const MONEY_RE = /(?:£\s?|GBP\s*)?(?:\d{1,3}(?:[\s,.]\d{3})+|\d{1,6})[.,]\d{1,2}(?!\d)/g;
 
 // Inside your extractors.js
 export function extractAmount(reconstructedText) {
@@ -242,7 +242,7 @@ export function extractAmount(reconstructedText) {
   const candidates = [];
 
   // Require a non-alphanumeric boundary before the amount to avoid matches like "9306U261.67"
-  const FORGIVING_MONEY = /(?:^|[^A-Z0-9])((?:GBP|[£S$€¥ECT])?\s?(?:\d{1,3}(?:[\s,.]\d{3})+|\d{1,6})[.,]\s?\d{2})(?!\d)/gi;
+  const FORGIVING_MONEY = /(?:^|[^A-Z0-9])((?:GBP|[£S$€¥ECT])?\s?(?:\d{1,3}(?:[\s,.]\d{3})+|\d{1,6})[.,]\s?\d{1,2})(?!\d)/gi;
 
   const hasNear = (lineIndex, regex, radius = 1) => {
     for (let i = Math.max(0, lineIndex - radius); i <= Math.min(lineData.length - 1, lineIndex + radius); i++) {
@@ -278,6 +278,13 @@ export function extractAmount(reconstructedText) {
 
       const upperLine = lineData[lineIndex];
       const hasCurrency = /[£S$€¥]/i.test(raw);
+
+      // Reject 1-decimal amounts without a currency symbol — these are usually
+      // unit prices, percentages, or OCR noise (e.g. "168.9 p/litre", "20.0%").
+      // 2-decimal amounts are fine without currency (standard price format).
+      const cleanedRaw = raw.replace(/[£S$€¥GBP\s]/gi, '');
+      const decPart = cleanedRaw.split(/[.,]/).pop();
+      if (decPart && decPart.length === 1 && !hasCurrency) return;
       candidates.push({
         val,
         raw,
@@ -317,9 +324,10 @@ export function extractAmount(reconstructedText) {
     const key = candidate.val.toFixed(2);
     const uniqueLineCount = (valueLines.get(key) || new Set()).size;
 
-    const isTotalContext = /\bTOTAL\b|\bTOTAT\b|\bTOTA1\b|\bAMOUNT\s+DUE\b|\bBALANCE\s+DUE\b|\bGRAND\s+TOTAL\b|\bTOT\b/.test(line)
-      || hasNear(candidate.lineIndex, /\bAMOUNT\s+DUE\b|\bBALANCE\s+DUE\b|\bGRAND\s+TOTAL\b/, 1)
-      || hasAbove(candidate.lineIndex, /\bTOTAL\b|\bTOTAT\b|\bTOTA1\b|\bTOT\b/, 3);
+    const isTotalOnLine = /\bTOTAL\b|\bTOTAT\b|\bTOTA1\b|\bAMOUNT\s+DUE\b|\bBALANCE\s+DUE\b|\bGRAND\s+TOTAL\b|\bTOT\b/.test(line);
+    const isTotalNear = hasNear(candidate.lineIndex, /\bAMOUNT\s+DUE\b|\bBALANCE\s+DUE\b|\bGRAND\s+TOTAL\b/, 1);
+    const isTotalAboveOnly = !isTotalOnLine && !isTotalNear && hasAbove(candidate.lineIndex, /\bTOTAL\b|\bTOTAT\b|\bTOTA1\b|\bTOT\b/, 3);
+    const isTotalContext = isTotalOnLine || isTotalNear || isTotalAboveOnly;
     const isSubtotalContext = /\bSUBTOTAL\b|\bDISCOUNT\b|\bREFUND\b|\bTIPS?\b/.test(line)
       || hasNear(candidate.lineIndex, /\bSUBTOTAL\b|\bDISCOUNT\b|\bREFUND\b|\bTIPS?\b/, 1);
     const isVatContext = /\bVAT\b|\bTAX\b/.test(line)
@@ -343,7 +351,8 @@ export function extractAmount(reconstructedText) {
       score -= 260;
     }
 
-    if (isTotalContext) score += 260;
+    if (isTotalOnLine || isTotalNear) score += 260;
+    else if (isTotalAboveOnly) score += 130; // reduced: might be column-table label offset
     if (isSubtotalContext) score -= 190;
     if (isVatContext) score -= 260;
     if (isPaymentContext) score -= 140;
