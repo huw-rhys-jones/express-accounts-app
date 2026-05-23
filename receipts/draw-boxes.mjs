@@ -177,6 +177,23 @@ function findDateWords(words, isoDate) {
       }
     }
   }
+  // Month-name formats: e.g. "March 31st, 2025" or "31 March 2025"
+  const MONTHS = ["january","february","march","april","may","june",
+                  "july","august","september","october","november","december"];
+  const monthIdx = parseInt(mm) - 1; // 0-based
+  for (let span = 2; span <= 5; span++) {
+    for (let i = 0; i <= words.length - span; i++) {
+      const slice = words.slice(i, i + span);
+      const joined = slice.map(w => w.text).join(" ").toLowerCase();
+      const monthName = MONTHS[monthIdx];
+      if (!joined.includes(monthName)) continue;
+      // Must also contain the day digits and year
+      const stripped = joined.replace(/\D/g, "");
+      if (stripped.includes(d) && (stripped.includes(yyyy) || stripped.includes(yy))) {
+        return slice;
+      }
+    }
+  }
   return [];
 }
 
