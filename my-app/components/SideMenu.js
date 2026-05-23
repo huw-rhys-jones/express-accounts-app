@@ -1,10 +1,15 @@
 // components/SideMenu.js
 import React, { useEffect, useRef } from "react";
-import { Animated, Dimensions, Platform, Pressable, ScrollView, StyleSheet, Text, TouchableOpacity, View } from "react-native";
+import { Animated, Dimensions, Pressable, ScrollView, StyleSheet, Text, TouchableOpacity, View } from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 const WIDTH = Math.min(300, Math.round(Dimensions.get("window").width * 0.8));
 
+// Approximate height of the custom tab bar's content above the safe-area inset.
+const TAB_BAR_CONTENT_HEIGHT = 50;
+
 export default function SideMenu({ open, onClose, children }) {
+  const insets = useSafeAreaInsets();
   const x = useRef(new Animated.Value(-WIDTH)).current;
   const fade = useRef(new Animated.Value(0)).current;
 
@@ -29,7 +34,7 @@ export default function SideMenu({ open, onClose, children }) {
       <Pressable style={StyleSheet.absoluteFill} onPress={onClose} />
 
       {/* Drawer */}
-      <Animated.View style={[styles.sheet, { width: WIDTH, transform: [{ translateX: x }] }]}>
+      <Animated.View style={[styles.sheet, { width: WIDTH, bottom: insets.bottom + TAB_BAR_CONTENT_HEIGHT, transform: [{ translateX: x }] }]}>
         {/* Close button */}
         <TouchableOpacity style={styles.closeBtn} onPress={onClose} hitSlop={12}>
           <Text style={styles.closeBtnText}>✕</Text>
@@ -55,7 +60,6 @@ const styles = StyleSheet.create({
     position: "absolute",
     left: 0,
     top: 0,
-    bottom: 0,
     backgroundColor: "#fff",
     paddingTop: 48,
     paddingHorizontal: 18,
@@ -82,6 +86,5 @@ const styles = StyleSheet.create({
   },
   scrollContent: {
     flexGrow: 1,
-    paddingBottom: Platform.OS === "android" ? 16 : 8,
   },
 });
