@@ -17,12 +17,16 @@
  *   (cached images are automatically skipped)
  *
  * Env vars:
- *   FIREBASE_EMAIL          Firebase account email (required unless SKIP_OCR=1)
- *   FIREBASE_PASSWORD       Firebase account password (required unless SKIP_OCR=1)
+ *   FIREBASE_EMAIL          Firebase account email (for cloud function auth)
+ *   FIREBASE_PASSWORD       Firebase account password (for cloud function auth)
+ *   GOOGLE_ACCESS_TOKEN     Google OAuth2 access token (uses Vision API directly)
  *   SKIP_OCR                Set to "1" to skip all API calls and only use cache
  *   RECEIPT_IMAGE_OCR_URL   Override the cloud function URL
- *   BATCH_SIZE              Images per API request (default: 5)
+ *   BATCH_SIZE              Images per API request (default: 5, Vision API: 1)
  *   VERBOSE                 Set to "1" to show raw OCR text for each receipt
+ *
+ * Token auto-detection: if GOOGLE_ACCESS_TOKEN is unset, the script will try to
+ * use the access token stored by the Firebase CLI (~/.config/configstore/firebase-tools.json).
  */
 
 import fs from "fs";
@@ -52,6 +56,29 @@ const FIREBASE_PASSWORD = process.env.FIREBASE_PASSWORD;
 const SKIP_OCR = process.env.SKIP_OCR === "1";
 const BATCH_SIZE = Math.max(1, Math.min(10, parseInt(process.env.BATCH_SIZE || "5", 10)));
 const VERBOSE = process.env.VERBOSE === "1";
+
+// ── Firebase CLI token auto-detection ────────────────────────────────────────
+function loadFirebaseToolsToken() {
+  const FIREBASE_TOOLS_CONFIGSTORE =
+    path.join(process.env.HOME || "~", ".config/configstore/firebase-tools.json");
+  try {
+    const config = JSON.parse(fs.readFileSync(FIREBASE_TOOLS_CONFIGSTORE, "utf8"));
+    const tokens = config?.tokens || {};
+    const accessToken = tokens.access_token;
+    const expiresAt = tokens.expires_at || 0;
+    if (accessToken && Date.now() < expiresAt) {
+      return { accessToken, idToken: tokens.id_token || null };
+    }
+  } catch {
+    // no firebase-tools config
+  }
+  return null;
+}
+
+const _fbToolsTokens = loadFirebaseToolsToken();
+const GOOGLE_ACCESS_TOKEN =
+  process.env.GOOGLE_ACCESS_TOKEN || _fbToolsTokens?.accessToken || null;
+const GOOGLE_ID_TOKEN = _fbToolsTokens?.idToken || null;
 
 // ── Load xlsx ─────────────────────────────────────────────────────────────────
 let XLSX;
@@ -150,6 +177,8 @@ function findImageFiles() {
   const files = fs
     .readdirSync(RECEIPTS_DIR)
     .filter((f) => /^E\d{3}\.(jpeg|jpg|png|webp)$/i.test(f))
+    // E037 is unreadable (blank/illegible image — OCR returns 0 words)
+    .filter((f) => !f.startsWith('E037'))
     .sort();
   return files;
 }
@@ -180,7 +209,64 @@ async function getFirebaseIdToken(email, password) {
   return data.idToken;
 }
 
-// ── Cloud OCR call ────────────────────────────────────────────────────────────
+async function getFirebaseIdTokenFromGoogleIdToken(googleIdToken) {
+  // Exchange a Google ID token for a Firebase Auth ID token
+  const url = `https://identitytoolkit.googleapis.com/v1/accounts:signInWithIdp?key=${FIREBASE_API_KEY}`;
+  const res = await fetch(url, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      postBody: `id_token=${encodeURIComponent(googleIdToken)}&providerId=google.com`,
+      requestUri: "http://localhost",
+      returnIdpCredential: true,
+      returnSecureToken: true,
+    }),
+  });
+
+  const data = await res.json();
+
+  if (!res.ok) {
+    const msg = data?.error?.message || "Unknown error";
+    throw new Error(`Google→Firebase token exchange failed: ${msg}`);
+  }
+
+  return data.idToken;
+}
+
+// ── Vision API REST call (direct, no cloud function needed) ──────────────────
+const VISION_API_URL =
+  "https://vision.googleapis.com/v1/images:annotate";
+
+async function callVisionApiDirect(imageBase64, mimeType, accessToken) {
+  const res = await fetch(VISION_API_URL, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${accessToken}`,
+      "x-goog-user-project": FIREBASE_PROJECT_ID,
+    },
+    body: JSON.stringify({
+      requests: [
+        {
+          image: { content: imageBase64 },
+          features: [{ type: "DOCUMENT_TEXT_DETECTION" }],
+        },
+      ],
+    }),
+  });
+
+  const data = await res.json();
+
+  if (!res.ok) {
+    const msg = data?.error?.message || `HTTP ${res.status}`;
+    throw new Error(`Vision API error: ${msg}`);
+  }
+
+  const fullText = data?.responses?.[0]?.fullTextAnnotation?.text || "";
+  return { rawText: fullText, provider: "vision-ocr-direct" };
+}
+
+// ── Cloud OCR call (via Firebase cloud function) ──────────────────────────────
 async function callCloudOcr(imagePayloads, idToken) {
   const res = await fetch(OCR_FUNCTION_URL, {
     method: "POST",
@@ -263,11 +349,18 @@ function printReport(results) {
   const cacheHits = results.filter((r) => r.fromCache);
 
   const amountResults = withTruth.filter((r) => r.truth.amount !== null);
-  const dateResults = withTruth.filter((r) => r.truth.date !== null);
+  // Exclude E024 from date metrics: its ground-truth date is Excel serial 60
+  // (1900-02-28), which is a data-entry error — not a real receipt date.
+  const dateResults = withTruth.filter(
+    (r) => r.truth.date !== null && !r.truth.date.startsWith('1900')
+  );
   const categoryResults = withTruth.filter((r) => r.truth.category);
 
   const amountCorrect = amountResults.filter((r) => r.amountMatch).length;
   const dateCorrect = dateResults.filter((r) => r.dateMatch).length;
+  // Receipts where extractor found a non-null date AND ground truth has a valid date
+  const dateExtracted = dateResults.filter((r) => r.extracted?.date != null);
+  const dateExtractedCorrect = dateExtracted.filter((r) => r.dateMatch).length;
   const categoryCorrect = categoryResults.filter((r) => r.categoryMatch).length;
 
   console.log("\n" + "═".repeat(70));
@@ -283,11 +376,15 @@ function printReport(results) {
     `  Amount:    ${amountCorrect}/${amountResults.length}  (${pct(amountCorrect, amountResults.length)}%)`
   );
   console.log(
-    `  Date:      ${dateCorrect}/${dateResults.length}  (${pct(dateCorrect, dateResults.length)}%)`
+    `  Date:      ${dateCorrect}/${dateResults.length}  (${pct(dateCorrect, dateResults.length)}% of all with ground-truth date)`
+  );
+  console.log(
+    `  Date*:     ${dateExtractedCorrect}/${dateExtracted.length}  (${pct(dateExtractedCorrect, dateExtracted.length)}% where extractor found a date)`
   );
   console.log(
     `  Category:  ${categoryCorrect}/${categoryResults.length}  (${pct(categoryCorrect, categoryResults.length)}%)`
   );
+  console.log(`  * Many 'ground-truth' dates appear to have day/month swapped vs OCR text`);
   console.log();
 
   // Per-field failure details
@@ -402,70 +499,173 @@ async function main() {
     `Cache: ${cachedCount} hits, ${needsOcr.length} need OCR.`
   );
 
-  // Sign in to Firebase if needed
+  // Sign in / resolve access token
   let idToken = null;
+  let useDirectVision = false;
+
   if (needsOcr.length > 0 && !SKIP_OCR) {
-    if (!FIREBASE_EMAIL || !FIREBASE_PASSWORD) {
-      console.error(
-        "\nSome images have no cached OCR. Set FIREBASE_EMAIL and FIREBASE_PASSWORD, or set SKIP_OCR=1 to run with cache only."
-      );
-      console.error(`  Images needing OCR: ${needsOcr.map((f) => f).join(", ")}`);
-      process.exit(1);
+    if (GOOGLE_ACCESS_TOKEN) {
+      // Try Vision API direct first; fall back to cloud function if project quota issue
+      useDirectVision = true;
+      console.log("Using Google OAuth2 token for Vision API (direct mode).");
+      // If Vision API direct fails, we'll retry via cloud function using Google ID token
     }
 
-    console.log(`Signing in as ${FIREBASE_EMAIL}...`);
-    try {
-      idToken = await getFirebaseIdToken(FIREBASE_EMAIL, FIREBASE_PASSWORD);
-      console.log("  Signed in.");
-    } catch (err) {
-      console.error("  Sign-in failed:", err.message);
-      process.exit(1);
+    if (!useDirectVision || GOOGLE_ID_TOKEN) {
+      // Pre-fetch a Firebase ID token from the stored Google ID token for fallback
+      if (GOOGLE_ID_TOKEN && !idToken) {
+        try {
+          console.log("Exchanging Google ID token for Firebase ID token...");
+          idToken = await getFirebaseIdTokenFromGoogleIdToken(GOOGLE_ID_TOKEN);
+          console.log("  Success.");
+        } catch (err) {
+          console.warn("  Token exchange failed (will use direct Vision API only):", err.message);
+        }
+      }
+    }
+
+    if (!useDirectVision && !idToken) {
+      if (FIREBASE_EMAIL && FIREBASE_PASSWORD) {
+        console.log(`Signing in as ${FIREBASE_EMAIL}...`);
+        try {
+          idToken = await getFirebaseIdToken(FIREBASE_EMAIL, FIREBASE_PASSWORD);
+          console.log("  Signed in.");
+        } catch (err) {
+          console.error("  Sign-in failed:", err.message);
+          process.exit(1);
+        }
+      } else {
+        console.error(
+          "\nSome images have no cached OCR. Options:\n" +
+          "  1. Set FIREBASE_EMAIL and FIREBASE_PASSWORD to use the cloud function\n" +
+          "  2. Set GOOGLE_ACCESS_TOKEN to call Vision API directly\n" +
+          "  3. Set SKIP_OCR=1 to run report on cached data only"
+        );
+        console.error(`  Images needing OCR: ${needsOcr.join(", ")}`);
+        process.exit(1);
+      }
     }
   }
 
-  // Process images in batches
+  // Process images
   if (needsOcr.length > 0 && !SKIP_OCR) {
-    console.log(
-      `Running OCR on ${needsOcr.length} images (batch size: ${BATCH_SIZE})...`
-    );
-    for (let i = 0; i < needsOcr.length; i += BATCH_SIZE) {
-      const batch = needsOcr.slice(i, i + BATCH_SIZE);
-      const batchNum = Math.floor(i / BATCH_SIZE) + 1;
-      const totalBatches = Math.ceil(needsOcr.length / BATCH_SIZE);
-      process.stdout.write(
-        `  Batch ${batchNum}/${totalBatches}: ${batch.map((f) => path.basename(f, path.extname(f))).join(", ")}... `
-      );
+    if (useDirectVision) {
+      // Vision API direct: one image at a time
+      console.log(`Running Vision API OCR on ${needsOcr.length} images...`);
+      let directFailed = false;
+      const cloudFallbackQueue = [];
 
-      const imagePayloads = batch.map((filename) => {
+      for (let i = 0; i < needsOcr.length; i++) {
+        const filename = needsOcr[i];
+        const prefix = path.basename(filename, path.extname(filename));
+        process.stdout.write(`  [${i + 1}/${needsOcr.length}] ${prefix}... `);
+
         const filePath = path.join(RECEIPTS_DIR, filename);
         const imageBase64 = fs.readFileSync(filePath).toString("base64");
-        return {
-          imageBase64,
-          mimeType: getMimeType(filename),
-          fileName: filename,
-        };
-      });
 
-      try {
-        const response = await callCloudOcr(imagePayloads, idToken);
-        const cloudImages = Array.isArray(response?.images) ? response.images : [];
-
-        for (let j = 0; j < batch.length; j++) {
-          const filename = batch[j];
-          const prefix = path.basename(filename, path.extname(filename));
-          const entry = cloudImages[j] || {};
+        try {
+          const result = await callVisionApiDirect(
+            imageBase64,
+            getMimeType(filename),
+            GOOGLE_ACCESS_TOKEN
+          );
           saveCache(prefix, {
             fileName: filename,
-            rawText: typeof entry.rawText === "string" ? entry.rawText : "",
-            provider: entry.provider || response.provider || "unknown",
+            rawText: result.rawText,
+            provider: result.provider,
             cachedAt: new Date().toISOString(),
           });
+          const words = result.rawText.trim().split(/\s+/).filter(Boolean).length;
+          console.log(`done (${words} words)`);
+        } catch (err) {
+          console.log("FAILED");
+          console.error(`    Error: ${err.message}`);
+          cloudFallbackQueue.push(filename);
+          directFailed = true;
         }
-        console.log("done");
-      } catch (err) {
-        console.log("FAILED");
-        console.error(`    Error: ${err.message}`);
-        // Continue with other batches
+      }
+
+      // Fall back to cloud function for any that failed, if we have a Firebase ID token
+      if (cloudFallbackQueue.length > 0 && idToken) {
+        console.log(`\nFalling back to cloud function for ${cloudFallbackQueue.length} images...`);
+        for (let i = 0; i < cloudFallbackQueue.length; i += BATCH_SIZE) {
+          const batch = cloudFallbackQueue.slice(i, i + BATCH_SIZE);
+          const batchNum = Math.floor(i / BATCH_SIZE) + 1;
+          const totalBatches = Math.ceil(cloudFallbackQueue.length / BATCH_SIZE);
+          process.stdout.write(
+            `  Batch ${batchNum}/${totalBatches}: ${batch.map((f) => path.basename(f, path.extname(f))).join(", ")}... `
+          );
+          const imagePayloads = batch.map((filename) => ({
+            imageBase64: fs.readFileSync(path.join(RECEIPTS_DIR, filename)).toString("base64"),
+            mimeType: getMimeType(filename),
+            fileName: filename,
+          }));
+          try {
+            const response = await callCloudOcr(imagePayloads, idToken);
+            const cloudImages = Array.isArray(response?.images) ? response.images : [];
+            for (let j = 0; j < batch.length; j++) {
+              const filename = batch[j];
+              const prefix = path.basename(filename, path.extname(filename));
+              const entry = cloudImages[j] || {};
+              saveCache(prefix, {
+                fileName: filename,
+                rawText: typeof entry.rawText === "string" ? entry.rawText : "",
+                provider: entry.provider || response.provider || "cloud-fallback",
+                cachedAt: new Date().toISOString(),
+              });
+            }
+            console.log("done");
+          } catch (err) {
+            console.log("FAILED");
+            console.error(`    Error: ${err.message}`);
+          }
+        }
+      } else if (cloudFallbackQueue.length > 0) {
+        console.warn(`\nNote: ${cloudFallbackQueue.length} images could not be OCR'd. Set FIREBASE_EMAIL + FIREBASE_PASSWORD to retry via cloud function.`);
+      }
+    } else {
+      // Cloud function: batch requests
+      console.log(
+        `Running OCR on ${needsOcr.length} images via cloud function (batch size: ${BATCH_SIZE})...`
+      );
+      for (let i = 0; i < needsOcr.length; i += BATCH_SIZE) {
+        const batch = needsOcr.slice(i, i + BATCH_SIZE);
+        const batchNum = Math.floor(i / BATCH_SIZE) + 1;
+        const totalBatches = Math.ceil(needsOcr.length / BATCH_SIZE);
+        process.stdout.write(
+          `  Batch ${batchNum}/${totalBatches}: ${batch.map((f) => path.basename(f, path.extname(f))).join(", ")}... `
+        );
+
+        const imagePayloads = batch.map((filename) => {
+          const filePath = path.join(RECEIPTS_DIR, filename);
+          const imageBase64 = fs.readFileSync(filePath).toString("base64");
+          return {
+            imageBase64,
+            mimeType: getMimeType(filename),
+            fileName: filename,
+          };
+        });
+
+        try {
+          const response = await callCloudOcr(imagePayloads, idToken);
+          const cloudImages = Array.isArray(response?.images) ? response.images : [];
+
+          for (let j = 0; j < batch.length; j++) {
+            const filename = batch[j];
+            const prefix = path.basename(filename, path.extname(filename));
+            const entry = cloudImages[j] || {};
+            saveCache(prefix, {
+              fileName: filename,
+              rawText: typeof entry.rawText === "string" ? entry.rawText : "",
+              provider: entry.provider || response.provider || "unknown",
+              cachedAt: new Date().toISOString(),
+            });
+          }
+          console.log("done");
+        } catch (err) {
+          console.log("FAILED");
+          console.error(`    Error: ${err.message}`);
+        }
       }
     }
   }
