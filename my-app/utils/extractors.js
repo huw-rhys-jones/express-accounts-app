@@ -245,14 +245,6 @@ export function extractAmount(reconstructedText) {
   );
 
   const lines = reconstructedText.split('\n');
-  
-  // DEBUG: Show all reconstructed lines
-  console.log('=== RECEIPT TEXT RECONSTRUCTION ===');
-  lines.forEach((line, i) => {
-    console.log(`  Line ${i}: "${line}"`);
-  });
-  console.log('====================================');
-  
   const lineData = lines.map(l => l.toUpperCase());
   const candidates = [];
 
