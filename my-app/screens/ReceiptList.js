@@ -12,6 +12,7 @@ import {
   Alert,
   Linking,
   Switch,
+  Image,
 } from "react-native";
 import { signOut, deleteUser, updateProfile } from "firebase/auth";
 import {
@@ -787,6 +788,7 @@ const ExpensesScreen = ({ navigation, route }) => {
         visible={addSheetVisible}
         onClose={() => setAddSheetVisible(false)}
         navigation={navigation}
+        itemLabel="receipt"
       />
 
       {/* Full-screen loading overlay */}
@@ -828,9 +830,11 @@ const ExpensesScreen = ({ navigation, route }) => {
           </View>
 
           {/* Settings Button */}
-          <TouchableOpacity onPress={handleOpenSettings} style={styles.settingsMenuBtn}>
-            <Text style={styles.settingsMenuBtnText}>Settings</Text>
-          </TouchableOpacity>
+          <Image
+            source={require("../assets/images/logo.png")}
+            style={styles.menuLogo}
+            resizeMode="contain"
+          />
 
           {/* Middle Section: Notify Accountant */}
           <View style={{ marginTop: 20 }}>
@@ -854,15 +858,15 @@ const ExpensesScreen = ({ navigation, route }) => {
           </View>
 
           <View style={{ marginTop: 6 }}>
-            <TouchableOpacity onPress={handleIdPlaceholder} style={styles.secondaryMenuButton}>
-              <Text style={styles.secondaryMenuButtonText}>Add ID Image</Text>
+            <TouchableOpacity disabled style={[styles.secondaryMenuButton, styles.disabledMenuButton]}>
+              <Text style={[styles.secondaryMenuButtonText, styles.disabledMenuButtonText]}>Add ID Image</Text>
             </TouchableOpacity>
 
             <TouchableOpacity
-              onPress={handleAddressPlaceholder}
-              style={[styles.secondaryMenuButton, { marginTop: 10 }]}
+              disabled
+              style={[styles.secondaryMenuButton, styles.disabledMenuButton, { marginTop: 10 }]}
             >
-              <Text style={styles.secondaryMenuButtonText}>Add Address</Text>
+              <Text style={[styles.secondaryMenuButtonText, styles.disabledMenuButtonText]}>Add Address</Text>
             </TouchableOpacity>
           </View>
 
@@ -1427,18 +1431,11 @@ const styles = StyleSheet.create({
     color: Colors.textPrimary,
     fontSize: 14,
   },
-  settingsMenuBtn: {
-    backgroundColor: "#9999AA",
-    paddingVertical: 14,
-    paddingHorizontal: 16,
-    borderRadius: 10,
-    marginTop: 16,
-    alignItems: "center",
-  },
-  settingsMenuBtnText: {
-    color: "white",
-    fontWeight: "700",
-    textAlign: "center",
+  menuLogo: {
+    width: "100%",
+    height: 60,
+    marginTop: 8,
+    marginBottom: 4,
   },
   redButton: {
     backgroundColor: Colors.accent,
@@ -1536,6 +1533,14 @@ const styles = StyleSheet.create({
     color: Colors.textPrimary,
     fontWeight: "600",
     textAlign: "center",
+  },
+  disabledMenuButton: {
+    backgroundColor: "#f0f0f0",
+    borderColor: "#ddd",
+    opacity: 0.55,
+  },
+  disabledMenuButtonText: {
+    color: "#aaa",
   },
   // The new transparent style (formerly for Delete, now for Sign Out)
   signOutLink: {

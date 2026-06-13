@@ -1,7 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import {
   ActivityIndicator,
-  Alert,
   FlatList,
   Platform,
   RefreshControl,
@@ -14,6 +13,7 @@ import {
 import { SafeAreaView } from "react-native-safe-area-context";
 import SideMenu from "../components/SideMenu";
 import SharedTabMenu from "../components/SharedTabMenu";
+import AddBankStatementSheet from "../components/AddBankStatementSheet";
 import { auth } from "../firebaseConfig";
 import { Colors } from "../utils/sharedStyles";
 import { formatDate } from "../utils/format_style";
@@ -33,6 +33,7 @@ export default function BankStatementList({ navigation }) {
   const [sortKey, setSortKey] = useState("date");
   const [sortDir, setSortDir] = useState("desc");
   const [menuOpen, setMenuOpen] = useState(false);
+  const [addSheetVisible, setAddSheetVisible] = useState(false);
   const [filterOpen, setFilterOpen] = useState(false);
   const [activeFilterKey, setActiveFilterKey] = useState("current-quarter");
   const [filterItems, setFilterItems] = useState([]);
@@ -124,19 +125,7 @@ export default function BankStatementList({ navigation }) {
 
   const closeMenu = () => setMenuOpen(false);
 
-  const openAddStatementSelector = () => {
-    Alert.alert("Add Statement", "Choose the type of statement to add.", [
-      {
-        text: "Bank statement",
-        onPress: () => navigation.navigate("BankStatement", { initialStatementType: "bank" }),
-      },
-      {
-        text: "Credit card statement",
-        onPress: () => navigation.navigate("BankStatement", { initialStatementType: "credit" }),
-      },
-      { text: "Cancel", style: "cancel" },
-    ]);
-  };
+  const openAddStatementSelector = () => setAddSheetVisible(true);
 
   const renderItem = ({ item }) => (
     <View style={styles.rowOuter}>
@@ -251,6 +240,12 @@ export default function BankStatementList({ navigation }) {
       >
         <Text style={styles.floatingButtonText}>+</Text>
       </TouchableOpacity>
+
+      <AddBankStatementSheet
+        visible={addSheetVisible}
+        onClose={() => setAddSheetVisible(false)}
+        navigation={navigation}
+      />
 
       <SideMenu open={menuOpen} onClose={closeMenu}>
         <SharedTabMenu

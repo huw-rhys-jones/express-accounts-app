@@ -50,6 +50,25 @@ export async function setSummaryFilterKey(filterKey) {
   await setFilterKey(SUMMARY_FILTER_KEY, filterKey);
 }
 
+const ADD_SHEET_TOOLTIP_SEEN_KEY = "@settings:addSheetTooltipSeen";
+
+export async function getAddSheetTooltipSeen() {
+  try {
+    const value = await AsyncStorage.getItem(ADD_SHEET_TOOLTIP_SEEN_KEY);
+    return value === "true";
+  } catch {
+    return false;
+  }
+}
+
+export async function setAddSheetTooltipSeen() {
+  try {
+    await AsyncStorage.setItem(ADD_SHEET_TOOLTIP_SEEN_KEY, "true");
+  } catch {
+    // ignore
+  }
+}
+
 /**
  * Write the same filter key to all screens at once.
  * Use this when changing the period from Settings or Summary so every

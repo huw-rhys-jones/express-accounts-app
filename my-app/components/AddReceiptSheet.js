@@ -14,7 +14,12 @@ import {
   ActivityIndicator,
 } from "react-native";
 import * as ImagePicker from "react-native-image-picker";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Colors } from "../utils/sharedStyles";
+import {
+  getAddSheetTooltipSeen,
+  setAddSheetTooltipSeen,
+} from "../utils/appSettings";
 
 const SHEET_HEIGHT = 320;
 
@@ -23,12 +28,19 @@ export default function AddReceiptSheet({
   onClose,
   navigation,
   targetScreen = "Receipt",
+  // Optional: short label used in the tooltip headline, e.g. "receipt" or "invoice"
+  itemLabel = "receipt",
 }) {
+  const insets = useSafeAreaInsets();
   const [renderSheet, setRenderSheet] = React.useState(visible);
   const [sheetHeight, setSheetHeight] = React.useState(SHEET_HEIGHT);
   const translateY = useRef(new Animated.Value(SHEET_HEIGHT)).current;
   const backdropOpacity = useRef(new Animated.Value(0)).current;
   const [busy, setBusy] = React.useState(false);
+
+  // First-time tooltip
+  const [tooltipVisible, setTooltipVisible] = React.useState(false);
+  const tooltipOpacity = useRef(new Animated.Value(0)).current;
 
   // Custom "photo added" modal state
   const [photoModalVisible, setPhotoModalVisible] = React.useState(false);
@@ -52,7 +64,22 @@ export default function AddReceiptSheet({
           useNativeDriver: true,
         }),
       ]).start();
+
+      // Check if we should show the first-time tooltip
+      getAddSheetTooltipSeen().then((seen) => {
+        if (!seen) {
+          setTooltipVisible(true);
+          Animated.timing(tooltipOpacity, {
+            toValue: 1,
+            duration: 280,
+            delay: 200,
+            useNativeDriver: true,
+          }).start();
+        }
+      });
     } else {
+      setTooltipVisible(false);
+      tooltipOpacity.setValue(0);
       Animated.parallel([
         Animated.timing(translateY, {
           toValue: sheetHeight,
@@ -70,7 +97,16 @@ export default function AddReceiptSheet({
         }
       });
     }
-  }, [backdropOpacity, sheetHeight, translateY, visible]);
+  }, [backdropOpacity, sheetHeight, tooltipOpacity, translateY, visible]);
+
+  const dismissTooltip = () => {
+    setAddSheetTooltipSeen();
+    Animated.timing(tooltipOpacity, {
+      toValue: 0,
+      duration: 180,
+      useNativeDriver: true,
+    }).start(() => setTooltipVisible(false));
+  };
 
   const dismiss = () => {
     if (busy) return;
@@ -185,9 +221,61 @@ export default function AddReceiptSheet({
             />
           </TouchableWithoutFeedback>
 
+          {/* First-time tooltip */}
+          {tooltipVisible ? (
+            <Animated.View
+              style={[
+                styles.tooltip,
+                { opacity: tooltipOpacity, bottom: sheetHeight + 12 },
+              ]}
+              pointerEvents="box-none"
+            >
+              <Text style={styles.tooltipHeadline}>
+                Take a photo of your {itemLabel}, or upload one from your gallery
+              </Text>
+
+              {/* Illustration */}
+              <View style={styles.illustrationRow}>
+                <View style={styles.illustrationBox}>
+                  <Text style={styles.illustrationEmoji}>📷</Text>
+                  <View style={styles.illustrationReceipt}>
+                    <View style={styles.receiptLine} />
+                    <View style={[styles.receiptLine, { width: "60%" }]} />
+                    <View style={styles.receiptLine} />
+                  </View>
+                  <Text style={styles.illustrationLabel}>Take Photo</Text>
+                </View>
+                <View style={styles.illustrationDivider} />
+                <View style={styles.illustrationBox}>
+                  <Text style={styles.illustrationEmoji}>🖼️</Text>
+                  <View style={styles.illustrationReceipt}>
+                    <View style={styles.receiptLine} />
+                    <View style={[styles.receiptLine, { width: "60%" }]} />
+                    <View style={styles.receiptLine} />
+                  </View>
+                  <Text style={styles.illustrationLabel}>From Gallery</Text>
+                </View>
+              </View>
+
+              <Text style={styles.tooltipBody}>
+                {targetScreen === "IncomeRecord"
+                  ? "You can upload multiple income documents at once, multiple pages of the same document, or a mix of both — we'll work it out!"
+                  : "You can add multiple receipts at once, multiple photos of the same receipt, or a mix of both — we'll work it out!"}
+              </Text>
+
+              <TouchableOpacity
+                style={styles.tooltipButton}
+                onPress={dismissTooltip}
+                activeOpacity={0.8}
+              >
+                <Text style={styles.tooltipButtonText}>Got it!</Text>
+              </TouchableOpacity>
+            </Animated.View>
+          ) : null}
+
           {/* Sheet */}
           <Animated.View
-            style={[styles.sheet, { transform: [{ translateY }] }]}
+            style={[styles.sheet, { transform: [{ translateY }], paddingBottom: Math.max(insets.bottom, Platform.OS === "ios" ? 48 : 24) }]}
             pointerEvents="box-none"
             onLayout={(event) => {
               const nextHeight = event.nativeEvent.layout.height;
@@ -331,13 +419,100 @@ const styles = StyleSheet.create({
     backgroundColor: "#fff",
     borderTopLeftRadius: 20,
     borderTopRightRadius: 20,
-    paddingBottom: Platform.OS === "ios" ? 48 : 32,
+    // paddingBottom is applied inline using useSafeAreaInsets
     paddingHorizontal: 4,
     elevation: 24,
     shadowColor: "#000",
     shadowOffset: { width: 0, height: -4 },
     shadowOpacity: 0.15,
     shadowRadius: 12,
+  },
+  tooltip: {
+    position: "absolute",
+    left: 16,
+    right: 16,
+    backgroundColor: "#1C1C4E",
+    borderRadius: 20,
+    padding: 20,
+    elevation: 30,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: -6 },
+    shadowOpacity: 0.25,
+    shadowRadius: 16,
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.1)",
+  },
+  tooltipHeadline: {
+    fontSize: 18,
+    fontWeight: "700",
+    color: "#fff",
+    textAlign: "center",
+    marginBottom: 16,
+    lineHeight: 26,
+  },
+  illustrationRow: {
+    flexDirection: "row",
+    justifyContent: "center",
+    alignItems: "flex-start",
+    marginBottom: 18,
+    gap: 12,
+  },
+  illustrationBox: {
+    flex: 1,
+    alignItems: "center",
+    backgroundColor: "rgba(255,255,255,0.08)",
+    borderRadius: 14,
+    paddingVertical: 14,
+    paddingHorizontal: 8,
+  },
+  illustrationEmoji: {
+    fontSize: 34,
+    marginBottom: 10,
+  },
+  illustrationReceipt: {
+    width: "80%",
+    backgroundColor: "rgba(255,255,255,0.15)",
+    borderRadius: 6,
+    padding: 8,
+    gap: 5,
+    marginBottom: 10,
+  },
+  receiptLine: {
+    height: 6,
+    backgroundColor: "rgba(255,255,255,0.5)",
+    borderRadius: 3,
+    width: "100%",
+  },
+  illustrationDivider: {
+    width: 1,
+    alignSelf: "stretch",
+    backgroundColor: "rgba(255,255,255,0.15)",
+    marginHorizontal: 4,
+  },
+  illustrationLabel: {
+    fontSize: 12,
+    fontWeight: "600",
+    color: "rgba(255,255,255,0.75)",
+    textAlign: "center",
+  },
+  tooltipBody: {
+    fontSize: 14,
+    color: "rgba(255,255,255,0.85)",
+    textAlign: "center",
+    lineHeight: 21,
+    marginBottom: 18,
+  },
+  tooltipButton: {
+    backgroundColor: Colors.accent,
+    borderRadius: 12,
+    paddingVertical: 12,
+    paddingHorizontal: 32,
+    alignSelf: "center",
+  },
+  tooltipButtonText: {
+    color: "#fff",
+    fontWeight: "700",
+    fontSize: 15,
   },
   handle: {
     alignSelf: "center",
