@@ -20,6 +20,8 @@ import IncomeAdd from "./screens/IncomeAdd";
 import IncomeEdit from "./screens/IncomeEdit";
 import BankStatementAdd from "./screens/BankStatementAdd";
 import BankStatementEdit from "./screens/BankStatementEdit";
+import MileageAdd from "./screens/MileageAdd";
+import MileageEdit from "./screens/MileageEdit";
 import SummaryScreen from "./screens/SummaryScreen";
 import * as WebBrowser from "expo-web-browser";
 import { MD3LightTheme, PaperProvider } from 'react-native-paper';
@@ -391,6 +393,8 @@ export default function App() {
           <Stack.Screen name="IncomeDetails" component={IncomeEdit} />
           <Stack.Screen name="BankStatement" component={BankStatementAdd} />
           <Stack.Screen name="BankStatementDetails" component={BankStatementEdit} />
+          <Stack.Screen name="MileageRecord" component={MileageAdd} />
+          <Stack.Screen name="MileageDetails" component={MileageEdit} />
         </Stack.Navigator>
       </NavigationContainer>
 

@@ -51,9 +51,11 @@ import {
   setHapticsEnabled,
   triggerHaptic,
 } from "../utils/haptics";
-import { getReceiptFilterKey, setReceiptFilterKey, setAllFilterKeys } from "../utils/appSettings";
+import { getReceiptFilterKey, setReceiptFilterKey, setAllFilterKeys, getVehicles } from "../utils/appSettings";
 import { verifyClientCode } from "../utils/verificationCodes";
 import AddReceiptSheet from "../components/AddReceiptSheet";
+import RegisterVehicleModal from "../components/RegisterVehicleModal";
+import YourVehiclesModal from "../components/YourVehiclesModal";
 import { useData } from "../contexts/DataContext";
 
 // Inside your component
@@ -71,6 +73,9 @@ const ExpensesScreen = ({ navigation, route }) => {
   const [refreshing, setRefreshing] = useState(false);
   const [addSheetVisible, setAddSheetVisible] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
+  const [vehicles, setVehicles] = useState([]);
+  const [registerVehicleOpen, setRegisterVehicleOpen] = useState(false);
+  const [yourVehiclesOpen, setYourVehiclesOpen] = useState(false);
 
   // --- sorting state ---
   const [sortKey, setSortKey] = useState("date"); // "date" | "amount" | "category"
@@ -296,6 +301,8 @@ const ExpensesScreen = ({ navigation, route }) => {
     getReceiptFilterKey()
       .then(setActiveFilterKey)
       .catch(() => setActiveFilterKey("current-quarter"));
+
+    getVehicles().then(setVehicles).catch(() => {});
   }, []);
 
   useEffect(() => {
@@ -303,6 +310,8 @@ const ExpensesScreen = ({ navigation, route }) => {
       getReceiptFilterKey()
         .then(setActiveFilterKey)
         .catch(() => setActiveFilterKey("current-quarter"));
+
+      getVehicles().then(setVehicles).catch(() => {});
     });
 
     return unsubscribeFocus;
@@ -652,7 +661,9 @@ const ExpensesScreen = ({ navigation, route }) => {
         >
           <TouchableOpacity
             onPress={() =>
-              navigation.navigate("ReceiptDetails", { receipt: item })
+              item.type === "mileage"
+                ? navigation.navigate("MileageDetails", { item })
+                : navigation.navigate("ReceiptDetails", { receipt: item })
             }
             style={[styles.receiptItem, { width: "100%", marginBottom: 0 }]}
           >
@@ -661,7 +672,12 @@ const ExpensesScreen = ({ navigation, route }) => {
             </Text>
 
             <View style={{ flex: 1, alignItems: "flex-start", marginLeft: 25 }}>
-              {item.label ? (
+              {item.type === "mileage" ? (
+                <Text style={styles.receiptLabel} numberOfLines={1}>
+                  🚗 {item.mileageDetails?.vehicleReg || "Mileage"}
+                  {item.mileageDetails?.distance ? `  ·  ${item.mileageDetails.distance} mi` : ""}
+                </Text>
+              ) : item.label ? (
                 <Text
                   style={styles.receiptLabel}
                   numberOfLines={1}
@@ -789,6 +805,7 @@ const ExpensesScreen = ({ navigation, route }) => {
         onClose={() => setAddSheetVisible(false)}
         navigation={navigation}
         itemLabel="receipt"
+        vehicles={vehicles}
       />
 
       {/* Full-screen loading overlay */}
@@ -858,7 +875,23 @@ const ExpensesScreen = ({ navigation, route }) => {
           </View>
 
           <View style={{ marginTop: 6 }}>
-            <TouchableOpacity disabled style={[styles.secondaryMenuButton, styles.disabledMenuButton]}>
+            <TouchableOpacity
+              onPress={() => { closeMenu(); setRegisterVehicleOpen(true); }}
+              style={styles.secondaryMenuButton}
+            >
+              <Text style={styles.secondaryMenuButtonText}>🚗  Register Vehicle</Text>
+            </TouchableOpacity>
+
+            {vehicles.length > 0 && (
+              <TouchableOpacity
+                onPress={() => { closeMenu(); setYourVehiclesOpen(true); }}
+                style={[styles.secondaryMenuButton, { marginTop: 10 }]}
+              >
+                <Text style={styles.secondaryMenuButtonText}>📋  Your Vehicles</Text>
+              </TouchableOpacity>
+            )}
+
+            <TouchableOpacity disabled style={[styles.secondaryMenuButton, styles.disabledMenuButton, { marginTop: 10 }]}>
               <Text style={[styles.secondaryMenuButtonText, styles.disabledMenuButtonText]}>Add ID Image</Text>
             </TouchableOpacity>
 
@@ -1165,6 +1198,20 @@ const ExpensesScreen = ({ navigation, route }) => {
           </View>
         </View>
       </Modal>
+      {/* Vehicle Modals */}
+      <RegisterVehicleModal
+        visible={registerVehicleOpen}
+        onClose={() => setRegisterVehicleOpen(false)}
+        onSaved={(updated) => setVehicles(updated)}
+        vehicle={null}
+      />
+      <YourVehiclesModal
+        visible={yourVehiclesOpen}
+        onClose={() => setYourVehiclesOpen(false)}
+        vehicles={vehicles}
+        onChanged={(updated) => setVehicles(updated)}
+      />
+
     </SafeAreaView>
   );
 };

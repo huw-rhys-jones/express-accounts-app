@@ -30,6 +30,7 @@ export default function AddReceiptSheet({
   targetScreen = "Receipt",
   // Optional: short label used in the tooltip headline, e.g. "receipt" or "invoice"
   itemLabel = "receipt",
+  vehicles = [],
 }) {
   const insets = useSafeAreaInsets();
   const [renderSheet, setRenderSheet] = React.useState(visible);
@@ -203,6 +204,11 @@ export default function AddReceiptSheet({
     setTimeout(() => navigation.navigate(targetScreen, {}), 220);
   };
 
+  const handleMileage = () => {
+    onClose();
+    setTimeout(() => navigation.navigate("MileageRecord", {}), 220);
+  };
+
   return (
     <>
       {/* Main sheet — rendered in a Modal so it floats above nav bars */}
@@ -310,6 +316,17 @@ export default function AddReceiptSheet({
                   onPress={handlePickImage}
                 />
                 <View style={styles.divider} />
+                {vehicles.length > 0 && (
+                  <>
+                    <Option
+                      icon="🚗"
+                      label="Mileage"
+                      sub="Record a business mileage trip"
+                      onPress={handleMileage}
+                    />
+                    <View style={styles.divider} />
+                  </>
+                )}
                 <Option
                   icon="✏️"
                   label="Enter Manually"

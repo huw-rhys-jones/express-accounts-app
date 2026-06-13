@@ -69,6 +69,44 @@ export async function setAddSheetTooltipSeen() {
   }
 }
 
+// ── Vehicles ──────────────────────────────────────────────────────────────────
+
+const VEHICLES_KEY = "@settings:vehicles";
+const LAST_USED_VEHICLE_ID_KEY = "@settings:lastUsedVehicleId";
+
+export async function getVehicles() {
+  try {
+    const raw = await AsyncStorage.getItem(VEHICLES_KEY);
+    return raw ? JSON.parse(raw) : [];
+  } catch {
+    return [];
+  }
+}
+
+export async function setVehicles(vehicles) {
+  try {
+    await AsyncStorage.setItem(VEHICLES_KEY, JSON.stringify(vehicles));
+  } catch {
+    // ignore
+  }
+}
+
+export async function getLastUsedVehicleId() {
+  try {
+    return await AsyncStorage.getItem(LAST_USED_VEHICLE_ID_KEY);
+  } catch {
+    return null;
+  }
+}
+
+export async function setLastUsedVehicleId(id) {
+  try {
+    await AsyncStorage.setItem(LAST_USED_VEHICLE_ID_KEY, id);
+  } catch {
+    // ignore
+  }
+}
+
 /**
  * Write the same filter key to all screens at once.
  * Use this when changing the period from Settings or Summary so every
@@ -82,3 +120,4 @@ export async function setAllFilterKeys(filterKey) {
     setFilterKey(SUMMARY_FILTER_KEY, filterKey),
   ]);
 }
+
