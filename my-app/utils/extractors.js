@@ -349,7 +349,9 @@ export function extractAmount(reconstructedText) {
     else if (candidate.val < 3) score -= 15;
 
     // Penalize unit-price lines (e.g. "0.100kg @ 22.00/kg" — not a payable total)
-    if (/\d\s*\/\s*(?:kg|lb|g|ltr|litre|ml|each|ea|unit)\b/i.test(line)) {
+    // Also penalise volume-quantity lines (e.g. "45.91 LTR @ £1.259" — the number is litres, not £)
+    if (/\d\s*\/\s*(?:kg|lb|g|ltr|litre|ml|each|ea|unit)\b/i.test(line) ||
+        /\b\d+\.?\d*\s+(?:ltr|litres?)\b/i.test(line)) {
       score -= 280;
     }
 
@@ -562,6 +564,7 @@ function normalizeWhitespace(s) {
 function normalizeForMatch(s) {
   return s
     .replace(/\u2019/g, "'")
+    .replace(/'/g, '')   // strip apostrophes so "McDonald's" matches "mcdonalds" etc.
     .replace(/\s+/g, " ")
     .trim()
     .toLowerCase();
