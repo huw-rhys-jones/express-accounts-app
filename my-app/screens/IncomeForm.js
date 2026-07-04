@@ -3,6 +3,7 @@ import {
   ActivityIndicator,
   Alert,
   Animated,
+  Dimensions,
   Image,
   Modal,
   PanResponder,
@@ -18,7 +19,7 @@ import {
 import ImageViewer from "react-native-image-zoom-viewer";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { KeyboardAwareScrollView } from "react-native-keyboard-aware-scroll-view";
-import { Button, Checkbox } from "react-native-paper";
+import { Button, Checkbox, ProgressBar } from "react-native-paper";
 import DropDownPicker from "react-native-dropdown-picker";
 import DateTimePickerModal from "react-native-modal-datetime-picker";
 import * as ImagePicker from "react-native-image-picker";
@@ -47,6 +48,14 @@ import {
 } from "../utils/documentAttachments";
 import { triggerHaptic } from "../utils/haptics";
 import { categories_meta } from "../constants/arrays";
+
+const IMAGE_HEIGHT = Math.round(Dimensions.get("window").height * 0.45);
+
+const ANNOTATIONS = [
+  { key: "amount", label: "Amount", color: "#2E9F46" },
+  { key: "date",   label: "Date",   color: "#1A73E8" },
+  { key: "vat",    label: "VAT",    color: "#E06B6B" },
+];
 
 function navigateBackToIncome(navigation) {
   navigation.reset({
@@ -105,14 +114,20 @@ export default function IncomeFormScreen({ navigation, route, mode }) {
   const [pickerBusy, setPickerBusy] = useState(false);
   const [pickerBusyText, setPickerBusyText] = useState("Opening attachment options…");
   const [ocrProcessing, setOcrProcessing] = useState(false);
+  const [imageContainerWidth, setImageContainerWidth] = useState(0);
+  const [fullScreenImageIndex, setFullScreenImageIndex] = useState(null);
+  const [ocrFrames, setOcrFrames] = useState(null);
 
   // Multi-statement draft mode (when multiple income images are detected)
   const [incomeDrafts, setIncomeDrafts] = useState([]);
   const [currentDraftIndex, setCurrentDraftIndex] = useState(0);
   const [draftReviewStates, setDraftReviewStates] = useState([]); // "pending"|"confirmed"|"skipped"
   const [isDetecting, setIsDetecting] = useState(false);
-  const [showDetectedIncomeModal, setShowDetectedIncomeModal] = useState(false);
+  const [detectProgress, setDetectProgress] = useState(0);
   const [showBatchSummaryModal, setShowBatchSummaryModal] = useState(false);
+  const [toastVisible, setToastVisible] = useState(false);
+  const [toastMessage, setToastMessage] = useState("");
+  const toastOpacity = useRef(new Animated.Value(0)).current;
   const [batchSaveSummary, setBatchSaveSummary] = useState({ saved: [], skippedCount: 0 });
   const isMultiDraftMode = incomeDrafts.length > 1;
   const allDraftsReviewed =
@@ -149,7 +164,7 @@ export default function IncomeFormScreen({ navigation, route, mode }) {
 
   // ─── Multi-draft helpers ────────────────────────────────────────────────────
 
-  const createIncomeDraftFromGroup = ({ analysis, assets }) => {
+  const createIncomeDraftFromGroup = ({ analysis, assets, ocrFrames: groupOcrFrames }) => {
     const draftAmount = analysis?.amount != null ? Number(analysis.amount).toFixed(2) : "";
     const draftVatAmount = analysis?.vat?.value != null ? Number(analysis.vat.value).toFixed(2) : "";
     const draftVatRate = analysis?.vat?.rate != null ? String(analysis.vat.rate) : "";
@@ -164,6 +179,7 @@ export default function IncomeFormScreen({ navigation, route, mode }) {
       notes: "",
       selectedDate: parsedDate && !Number.isNaN(parsedDate.getTime()) ? parsedDate : new Date(),
       attachments: (assets || []).map((asset) => createImageAttachment(asset)),
+      ocrFrames: groupOcrFrames || null,
     };
   };
 
@@ -177,6 +193,7 @@ export default function IncomeFormScreen({ navigation, route, mode }) {
     setNotes(draft?.notes || "");
     setSelectedDate(draft?.selectedDate ? new Date(draft.selectedDate) : new Date());
     setAttachments(Array.isArray(draft?.attachments) ? [...draft.attachments] : []);
+    setOcrFrames(draft?.ocrFrames || null);
   };
 
   const buildCurrentIncomeDraft = () => {
@@ -434,8 +451,9 @@ export default function IncomeFormScreen({ navigation, route, mode }) {
 
     (async () => {
       setIsDetecting(true);
+      setDetectProgress(0);
       try {
-        const groups = await detectReceiptGroupsFromAssets(initialImages);
+        const groups = await detectReceiptGroupsFromAssets(initialImages, (p) => setDetectProgress(p));
         if (cancelled) return;
 
         const effectiveGroups = groups.length > 0
@@ -455,7 +473,7 @@ export default function IncomeFormScreen({ navigation, route, mode }) {
           setDraftReviewStates(Array(drafts.length).fill("pending"));
           setCurrentDraftIndex(0);
           applyIncomeDraftToForm(drafts[0]);
-          setShowDetectedIncomeModal(true);
+          showToast(`${drafts.length} income statement${drafts.length === 1 ? "" : "s"} detected`);
         }
       } catch (err) {
         console.error("OCR error (income):", err);
@@ -463,13 +481,24 @@ export default function IncomeFormScreen({ navigation, route, mode }) {
         const newAttachments = initialImages.map(createImageAttachment);
         if (!cancelled) setAttachments((prev) => [...prev, ...newAttachments]);
       } finally {
-        if (!cancelled) setIsDetecting(false);
+        if (!cancelled) { setIsDetecting(false); setDetectProgress(0); }
       }
     })();
 
     return () => { cancelled = true; };
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  const showToast = (message) => {
+    setToastMessage(message);
+    setToastVisible(true);
+    toastOpacity.setValue(0);
+    Animated.sequence([
+      Animated.timing(toastOpacity, { toValue: 1, duration: 300, useNativeDriver: true }),
+      Animated.delay(2000),
+      Animated.timing(toastOpacity, { toValue: 0, duration: 400, useNativeDriver: true }),
+    ]).start(() => setToastVisible(false));
+  };
 
   const dismissTip = async () => {
     setShowTip(false);
@@ -756,6 +785,101 @@ export default function IncomeFormScreen({ navigation, route, mode }) {
 
   return (
     <SafeAreaView style={ReceiptStyles.safeArea}>
+      {/* Fixed image panel */}
+      <View
+        style={styles.imageSection}
+        onLayout={(e) => setImageContainerWidth(e.nativeEvent.layout.width)}
+      >
+        {imageContainerWidth > 0 ? (
+          <ScrollView
+            horizontal
+            pagingEnabled
+            showsHorizontalScrollIndicator={false}
+            style={{ width: imageContainerWidth }}
+          >
+            {attachments.filter(isImageAttachment).map((att, index) => {
+              const uri = getAttachmentUri(att);
+              const isAnnotated = ocrFrames?.imageUri === uri;
+              return (
+                <View key={att.id || String(index)} style={{ position: "relative" }}>
+                  <TouchableOpacity
+                    style={[styles.carouselPage, { width: imageContainerWidth }]}
+                    activeOpacity={0.9}
+                    onPress={() => setFullScreenImageIndex(index)}
+                  >
+                    <Image
+                      source={{ uri }}
+                      style={[styles.carouselImage, { width: imageContainerWidth }]}
+                      resizeMode="contain"
+                    />
+                  </TouchableOpacity>
+                  {isAnnotated && ANNOTATIONS.filter(({ key }) => ocrFrames[key]).map(({ key, label, color }) => {
+                    const naturalW = ocrFrames.imageW;
+                    const naturalH = ocrFrames.imageH;
+                    if (!naturalW) return null;
+                    const scale = Math.min(imageContainerWidth / naturalW, IMAGE_HEIGHT / naturalH);
+                    const renderedW = naturalW * scale;
+                    const renderedH = naturalH * scale;
+                    const offsetX = (imageContainerWidth - renderedW) / 2;
+                    const offsetY = (IMAGE_HEIGHT - renderedH) / 2;
+                    const frame = ocrFrames[key];
+                    const PAD = 8;
+                    const padded = {
+                      left: frame.left * scale + offsetX - PAD,
+                      top: frame.top * scale + offsetY - PAD,
+                      width: frame.width * scale + PAD * 2,
+                      height: frame.height * scale + PAD * 2,
+                    };
+                    return (
+                      <React.Fragment key={key}>
+                        <View style={[styles.annBox, { ...padded, borderColor: color }]} />
+                        <View style={[styles.annChip, { backgroundColor: color, top: padded.top - 18, left: padded.left - 1 }]}>
+                          <Text style={styles.annChipText}>{label}</Text>
+                        </View>
+                      </React.Fragment>
+                    );
+                  })}
+                  <TouchableOpacity
+                    style={styles.carouselRemoveBtn}
+                    onPress={() => setAttachments((current) => current.filter((item) => item.id !== att.id))}
+                  >
+                    <Text style={styles.carouselRemoveText}>×</Text>
+                  </TouchableOpacity>
+                </View>
+              );
+            })}
+            <View style={[styles.carouselPage, { width: imageContainerWidth }]}>
+              <TouchableOpacity style={styles.carouselAddBtn} onPress={pickImageOption}>
+                <Text style={ReceiptStyles.plus}>+</Text>
+              </TouchableOpacity>
+              {tipStatusLoaded && showTip ? <ScannerTooltip onDismiss={dismissTip} text="Tap here to scan an invoice" /> : null}
+            </View>
+          </ScrollView>
+        ) : null}
+        {ocrProcessing && (
+          <View style={styles.scanningBanner}>
+            <View style={styles.scanningBannerRow}>
+              <ActivityIndicator color="#fff" size="small" />
+              <Text style={styles.scanningBannerText}>Scanning…</Text>
+            </View>
+            <ProgressBar
+              indeterminate
+              color="#fff"
+              style={{ alignSelf: "stretch", marginTop: 6, borderRadius: 4 }}
+            />
+          </View>
+        )}
+      </View>
+
+      {/* Floating X close button */}
+      <TouchableOpacity
+        style={styles.floatingCloseBtn}
+        onPress={() => navigateBackToIncome(navigation)}
+        activeOpacity={0.8}
+      >
+        <Text style={styles.floatingCloseBtnText}>✕</Text>
+      </TouchableOpacity>
+
       <KeyboardAwareScrollView
         contentContainerStyle={styles.scrollContent}
         enableOnAndroid
@@ -769,52 +893,42 @@ export default function IncomeFormScreen({ navigation, route, mode }) {
             <Text style={ReceiptStyles.header}>
               {mode === "edit" ? "Edit Income" : isMultiDraftMode ? "Review Income" : "Add Income"}
             </Text>
-            {isMultiDraftMode && (
-              <View style={{ alignItems: "center", marginBottom: 6 }}>
-                <Text style={{ color: Colors.accent, fontWeight: "700", fontSize: 14 }}>
-                  Income {currentDraftIndex + 1} / {incomeDrafts.length}
-                </Text>
-                <Text style={{ color: Colors.textSecondary, fontSize: 12, marginTop: 2 }}>
-                  Swipe left or right to move between statements.
-                </Text>
-                <Text style={{ color: Colors.textSecondary, fontSize: 12 }}>
-                  Confirmed: {draftReviewStates.filter((s) => s === "confirmed").length}  Skipped: {draftReviewStates.filter((s) => s === "skipped").length}
-                </Text>
-              </View>
-            )}
 
-            <Animated.View style={[styles.fieldGroup, {
-                backgroundColor: flashAmount.interpolate({ inputRange: [0, 1], outputRange: ["transparent", "rgba(253,224,71,0.45)"] }),
-                borderRadius: 6,
-              }]}>
-              <Text style={ReceiptStyles.label}>Amount:</Text>
-              <View style={[ReceiptStyles.inputRow, styles.currencyField]}>
-                <View style={styles.currencyWrapper}>
-                  <Text style={styles.currencyText}>£</Text>
+
+            <View style={styles.moneyRow}>
+              <Animated.View style={[styles.moneyColumn, {
+                  backgroundColor: flashAmount.interpolate({ inputRange: [0, 1], outputRange: ["transparent", "rgba(253,224,71,0.45)"] }),
+                  borderRadius: 6,
+                }]}>
+                <Text style={ReceiptStyles.label}>Amount:</Text>
+                <View style={[ReceiptStyles.inputRow, styles.currencyField]}>
+                  <View style={styles.currencyWrapper}>
+                    <Text style={styles.currencyText}>£</Text>
+                  </View>
+                  <TextInput
+                    value={amount}
+                    onChangeText={setAmount}
+                    keyboardType="decimal-pad"
+                    placeholder="0.00"
+                    placeholderTextColor={Colors.textSecondary}
+                    style={[ReceiptStyles.input, styles.amountInput, styles.inputWithCurrency]}
+                  />
                 </View>
-                <TextInput
-                  value={amount}
-                  onChangeText={setAmount}
-                  keyboardType="decimal-pad"
-                  placeholder="0.00"
-                  placeholderTextColor={Colors.textSecondary}
-                  style={[ReceiptStyles.input, styles.amountInput, styles.inputWithCurrency]}
-                />
-              </View>
-            </Animated.View>
+              </Animated.View>
 
-            <Animated.View style={[styles.fieldGroup, {
-                backgroundColor: flashDate.interpolate({ inputRange: [0, 1], outputRange: ["transparent", "rgba(253,224,71,0.45)"] }),
-                borderRadius: 6,
-              }]}>
-              <Text style={ReceiptStyles.label}>Date:</Text>
-              <TouchableOpacity
-                style={[ReceiptStyles.dateButton, styles.dateButtonAligned]}
-                onPress={() => setDatePickerVisibility(true)}
-              >
-                <Text style={ReceiptStyles.dateText}>{formatDate(selectedDate)}</Text>
-              </TouchableOpacity>
-            </Animated.View>
+              <Animated.View style={[styles.moneyColumn, {
+                  backgroundColor: flashDate.interpolate({ inputRange: [0, 1], outputRange: ["transparent", "rgba(253,224,71,0.45)"] }),
+                  borderRadius: 6,
+                }]}>
+                <Text style={ReceiptStyles.label}>Date:</Text>
+                <TouchableOpacity
+                  style={[ReceiptStyles.dateButton, styles.dateButtonAligned]}
+                  onPress={() => setDatePickerVisibility(true)}
+                >
+                  <Text style={ReceiptStyles.dateText}>{formatDate(selectedDate)}</Text>
+                </TouchableOpacity>
+              </Animated.View>
+            </View>
 
             <Animated.View style={[styles.fieldGroup, {
                 backgroundColor: flashReference.interpolate({ inputRange: [0, 1], outputRange: ["transparent", "rgba(253,224,71,0.45)"] }),
@@ -888,102 +1002,7 @@ export default function IncomeFormScreen({ navigation, route, mode }) {
               />
             </View>
 
-            <View style={[styles.fieldGroup, styles.attachmentSection]}>
-              <ScrollView
-                horizontal
-                showsHorizontalScrollIndicator={false}
-                contentContainerStyle={{ alignItems: "center" }}
-              >
-                {attachments.map(renderAttachment)}
-                <View style={{ flexDirection: "row", alignItems: "center" }}>
-                  <TouchableOpacity style={ReceiptStyles.uploadPlaceholder} onPress={pickImageOption}>
-                    <Text style={ReceiptStyles.plus}>+</Text>
-                  </TouchableOpacity>
-                  {tipStatusLoaded && showTip ? <ScannerTooltip onDismiss={dismissTip} text="Tap here to scan an invoice" /> : null}
-                </View>
-              </ScrollView>
-              {ocrProcessing && (
-                <View style={{ flexDirection: "row", alignItems: "center", marginTop: 6, gap: 8 }}>
-                  <ActivityIndicator size="small" color={Colors.accent} />
-                  <Text style={{ fontSize: 13, color: Colors.accent }}>Scanning…</Text>
-                </View>
-              )}
-            </View>
 
-            {(() => {
-              const isCurrentConfirmed = draftReviewStates[currentDraftIndex] === "confirmed";
-              const isCurrentSkipped = draftReviewStates[currentDraftIndex] === "skipped";
-              return (
-                <View style={styles.actionRow}>
-                  {isMultiDraftMode ? (
-                    <>
-                      <Button
-                        mode={isCurrentSkipped ? "contained" : "outlined"}
-                        buttonColor={isCurrentSkipped ? "#555" : undefined}
-                        textColor={isCurrentSkipped ? "#fff" : Colors.accent}
-                        style={[
-                          styles.multiActionButton,
-                          isCurrentConfirmed ? styles.multiActionFaded : null,
-                        ]}
-                        onPress={skipIncomeDraft}
-                      >
-                        {isCurrentSkipped ? "Skipped" : "Skip"}
-                      </Button>
-                      <Button
-                        mode={isCurrentConfirmed ? "contained" : "outlined"}
-                        buttonColor={isCurrentConfirmed ? Colors.accent : undefined}
-                        textColor={isCurrentConfirmed ? "#fff" : Colors.accent}
-                        style={[
-                          styles.multiActionButton,
-                          isCurrentSkipped ? styles.multiActionFaded : null,
-                        ]}
-                        onPress={confirmIncomeDraft}
-                        disabled={!isIncomeFormValid}
-                      >
-                        {isCurrentConfirmed ? "Confirmed" : "Confirm"}
-                      </Button>
-                    </>
-                  ) : (
-                    <>
-                      <Button mode="outlined" textColor={Colors.accent} onPress={() => navigateBackToIncome(navigation)}>
-                        Cancel
-                      </Button>
-                      <Button
-                        mode="contained"
-                        buttonColor={Colors.accent}
-                        onPress={saveIncome}
-                        disabled={isSaving || !isIncomeFormValid}
-                      >
-                        Save
-                      </Button>
-                    </>
-                  )}
-                </View>
-              );
-            })()}
-
-            {isMultiDraftMode ? (
-              <>
-                <Button
-                  mode="contained"
-                  onPress={handleSaveReviewedIncomes}
-                  buttonColor={allDraftsReviewed ? Colors.accent : "#c6c6c6"}
-                  textColor={allDraftsReviewed ? "#fff" : "#8a8a8a"}
-                  style={styles.saveAllButton}
-                  disabled={!allDraftsReviewed || isSaving}
-                >
-                  Save Income Records
-                </Button>
-                <Button
-                  mode="text"
-                  onPress={() => navigateBackToIncome(navigation)}
-                  textColor={Colors.accent}
-                  style={styles.cancelTextButton}
-                >
-                  Cancel
-                </Button>
-              </>
-            ) : null}
 
             <View style={[styles.fieldGroup, styles.notesSection]}>
               <Text style={ReceiptStyles.label}>Notes:</Text>
@@ -1154,6 +1173,36 @@ export default function IncomeFormScreen({ navigation, route, mode }) {
         </View>
       </Modal>
 
+      {/* Carousel fullscreen modal */}
+      <Modal
+        visible={fullScreenImageIndex !== null}
+        animationType="fade"
+        presentationStyle="fullScreen"
+        transparent={false}
+        onRequestClose={() => setFullScreenImageIndex(null)}
+      >
+        {fullScreenImageIndex !== null ? (
+          <>
+            <ImageViewer
+              imageUrls={attachments.filter(isImageAttachment).map(att => ({ url: getAttachmentUri(att) }))}
+              index={fullScreenImageIndex}
+              enableSwipeDown
+              onSwipeDown={() => setFullScreenImageIndex(null)}
+              onClick={() => setFullScreenImageIndex(null)}
+              backgroundColor="black"
+              renderIndicator={attachments.filter(isImageAttachment).length > 1 ? undefined : () => null}
+              saveToLocalByLongPress={false}
+            />
+            <TouchableOpacity
+              style={ReceiptStyles.fullScreenCloseButton}
+              onPress={() => setFullScreenImageIndex(null)}
+            >
+              <Text style={ReceiptStyles.fullScreenCloseText}>✕</Text>
+            </TouchableOpacity>
+          </>
+        ) : null}
+      </Modal>
+
       <Modal
         visible={!!fullScreenImage}
         animationType="fade"
@@ -1204,32 +1253,6 @@ export default function IncomeFormScreen({ navigation, route, mode }) {
             </TouchableOpacity>
           </>
         ) : null}
-      </Modal>
-
-      {/* Detected income modal */}
-      <Modal
-        visible={showDetectedIncomeModal}
-        transparent
-        animationType="fade"
-        onRequestClose={() => setShowDetectedIncomeModal(false)}
-      >
-        <View style={ReceiptStyles.modalOverlay}>
-          <View style={ReceiptStyles.modalContent}>
-            <Text style={ReceiptStyles.modalTitle}>Multiple income statements detected</Text>
-            <Text style={ReceiptStyles.modalDetailText}>
-              We detected {incomeDrafts.length} income statement{incomeDrafts.length === 1 ? "" : "s"}. We will now go through each one so you can confirm or skip the detected details.
-            </Text>
-            <View style={ReceiptStyles.modalButtons}>
-              <Button
-                mode="contained"
-                buttonColor={Colors.accent}
-                onPress={() => setShowDetectedIncomeModal(false)}
-              >
-                Start review
-              </Button>
-            </View>
-          </View>
-        </View>
       </Modal>
 
       {/* Batch summary modal */}
@@ -1299,9 +1322,83 @@ export default function IncomeFormScreen({ navigation, route, mode }) {
             <Text style={{ marginTop: 4, color: "#666", fontSize: 12, textAlign: "center" }}>
               Please wait while we analyse your images
             </Text>
+            <View style={{ alignSelf: "stretch", marginTop: 16 }}>
+              <ProgressBar progress={detectProgress} color={Colors.accent} style={{ borderRadius: 4 }} />
+            </View>
           </View>
         </View>
       )}
+
+      {/* Sticky bottom action bar */}
+      {isMultiDraftMode && allDraftsReviewed ? (
+        <View style={styles.submitButtonContainer}>
+          <Button
+            mode="contained"
+            buttonColor={Colors.accent}
+            onPress={handleSaveReviewedIncomes}
+            style={styles.submitButtonInner}
+            disabled={isSaving}
+          >
+            Save Income Records
+          </Button>
+        </View>
+      ) : null}
+      <View style={[styles.stickyButtonBar, isMultiDraftMode && { borderTopWidth: 0 }]}>
+        {isMultiDraftMode ? (
+          <>
+            {(() => {
+              const isCurrentConfirmed = draftReviewStates[currentDraftIndex] === "confirmed";
+              const isCurrentSkipped = draftReviewStates[currentDraftIndex] === "skipped";
+              return (
+                <>
+                  <Text style={styles.draftCounter}>
+                    {currentDraftIndex + 1} / {incomeDrafts.length}
+                  </Text>
+                  <Button
+                    mode={isCurrentSkipped ? "contained" : "outlined"}
+                    buttonColor={isCurrentSkipped ? "#555" : undefined}
+                    textColor={isCurrentSkipped ? "#fff" : Colors.accent}
+                    style={[styles.stickyActionButton, isCurrentConfirmed ? styles.multiActionFaded : null]}
+                    onPress={skipIncomeDraft}
+                  >
+                    {isCurrentSkipped ? "Skipped" : "Skip"}
+                  </Button>
+                  <Button
+                    mode={isCurrentConfirmed ? "contained" : "outlined"}
+                    buttonColor={isCurrentConfirmed ? Colors.accent : undefined}
+                    textColor={isCurrentConfirmed ? "#fff" : Colors.accent}
+                    style={[styles.stickyActionButton, isCurrentSkipped ? styles.multiActionFaded : null]}
+                    onPress={confirmIncomeDraft}
+                    disabled={!isIncomeFormValid}
+                  >
+                    {isCurrentConfirmed ? "Confirmed" : "Confirm"}
+                  </Button>
+                </>
+              );
+            })()}
+          </>
+        ) : (
+          <>
+            <Button
+              mode="contained"
+              buttonColor={Colors.accent}
+              style={styles.stickyActionButton}
+              onPress={() => navigateBackToIncome(navigation)}
+            >
+              Cancel
+            </Button>
+            <Button
+              mode="contained"
+              buttonColor={Colors.accent}
+              style={styles.stickyActionButton}
+              onPress={saveIncome}
+              disabled={isSaving || !isIncomeFormValid}
+            >
+              Save
+            </Button>
+          </>
+        )}
+      </View>
 
       {isSaving || pickerBusy ? (
         <View style={styles.loadingOverlay}>
@@ -1310,6 +1407,13 @@ export default function IncomeFormScreen({ navigation, route, mode }) {
             <Text style={styles.loadingText}>{isSaving ? "Saving income…" : pickerBusyText}</Text>
           </View>
         </View>
+      ) : null}
+
+      {/* Toast notification */}
+      {toastVisible ? (
+        <Animated.View style={[styles.toastContainer, { opacity: toastOpacity }]}>
+          <Text style={styles.toastText}>{toastMessage}</Text>
+        </Animated.View>
       ) : null}
     </SafeAreaView>
   );
@@ -1321,6 +1425,82 @@ const stylesConst = {
 
 const styles = StyleSheet.create({
   scrollContent: { flexGrow: 1, paddingBottom: 160 },
+  imageSection: {
+    height: IMAGE_HEIGHT,
+    overflow: "hidden",
+    backgroundColor: "#000",
+    borderBottomWidth: 1,
+    borderBottomColor: "#333",
+  },
+  carouselPage: {
+    height: IMAGE_HEIGHT,
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  carouselImage: {
+    height: IMAGE_HEIGHT,
+  },
+  carouselAddBtn: {
+    flex: 1,
+    alignSelf: "stretch",
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  carouselRemoveBtn: {
+    position: "absolute",
+    top: 8,
+    right: 8,
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    backgroundColor: "rgba(0,0,0,0.65)",
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  carouselRemoveText: {
+    color: "#fff",
+    fontSize: 20,
+    lineHeight: 20,
+    fontWeight: "bold",
+  },
+  scanningBanner: {
+    position: "absolute",
+    bottom: 0,
+    left: 0,
+    right: 0,
+    backgroundColor: "rgba(0,0,0,0.65)",
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+  },
+  scanningBannerRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+  },
+  scanningBannerText: {
+    color: "#fff",
+    fontSize: 13,
+    fontWeight: "600",
+  },
+  floatingCloseBtn: {
+    position: "absolute",
+    top: 12,
+    left: 12,
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: "#a60d49",
+    justifyContent: "center",
+    alignItems: "center",
+    zIndex: 200,
+    elevation: 6,
+  },
+  floatingCloseBtnText: {
+    color: "#fff",
+    fontSize: 18,
+    lineHeight: 20,
+    fontWeight: "bold",
+  },
   fieldGroup: { marginBottom: 18 },
   attachmentSection: { marginTop: 16 },
   dateButtonAligned: { marginHorizontal: 0 },
@@ -1421,6 +1601,69 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     alignItems: "center",
     zIndex: 1200,
+  },
+  annBox: {
+    position: "absolute",
+    borderWidth: 2,
+    borderRadius: 4,
+  },
+  annChip: {
+    position: "absolute",
+    paddingHorizontal: 5,
+    paddingVertical: 1,
+    borderRadius: 3,
+  },
+  annChipText: {
+    color: "#fff",
+    fontSize: 11,
+    fontWeight: "700",
+  },
+  stickyButtonBar: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    borderTopWidth: 1,
+    borderTopColor: "#e8e8e8",
+    backgroundColor: "#fff",
+    gap: 12,
+  },
+  stickyActionButton: {
+    flex: 1,
+  },
+  draftCounter: {
+    fontSize: 13,
+    fontWeight: "700",
+    color: Colors.accent,
+    minWidth: 40,
+    textAlign: "center",
+  },
+  submitButtonContainer: {
+    paddingHorizontal: 16,
+    paddingVertical: 6,
+    backgroundColor: "#fff",
+  },
+  submitButtonInner: {
+    borderRadius: 25,
+  },
+  toastContainer: {
+    position: "absolute",
+    bottom: 100,
+    left: 30,
+    right: 30,
+    backgroundColor: "rgba(28,28,78,0.9)",
+    borderRadius: 10,
+    paddingVertical: 10,
+    paddingHorizontal: 20,
+    alignItems: "center",
+    zIndex: 9999,
+    elevation: 10,
+  },
+  toastText: {
+    color: "#fff",
+    fontSize: 14,
+    fontWeight: "600",
   },
   notesSection: { marginTop: 10 },
   deleteButton: { marginTop: 16 },

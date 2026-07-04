@@ -55,6 +55,110 @@ export async function extractRawTextFromFile(fileUri) {
   return reconstructLines(result?.blocks || []) || result?.text || "";
 }
 
+/**
+ * Search ML Kit blocks for lines whose text contains each extracted value.
+ * Returns a map of field → frame ({ top, left, width, height } in image pixels).
+ */
+function findFramesForValues(blocks, structured, imageUri, imageW, imageH) {
+  if (!blocks || !blocks.length || !structured) {
+    console.log('[Annotation] findFramesForValues: no blocks or structured data', { blocksLen: blocks?.length, structured });
+    return null;
+  }
+
+  const allLines = [];
+  blocks.forEach((block) => {
+    (block.lines || []).forEach((line) => {
+      if (line.frame && line.text) {
+        allLines.push({ text: line.text, frame: line.frame });
+      }
+    });
+  });
+  if (!allLines.length) {
+    console.log('[Annotation] findFramesForValues: no lines with frames found');
+    return null;
+  }
+
+  console.log('[Annotation] ML Kit lines (' + allLines.length + '):', allLines.map(l => l.text));
+  console.log('[Annotation] Looking for — amount:', structured.amount, ' date:', structured.date, ' vat:', structured.vat?.value);
+  console.log('[Annotation] asset pixel dimensions:', imageW, 'x', imageH);
+
+  const frames = { imageUri };
+  if (imageW > 0 && imageH > 0) {
+    frames.imageW = imageW;
+    frames.imageH = imageH;
+  }
+
+  // Amount — search for the numeric value string (e.g. "14.35")
+  if (structured.amount != null) {
+    const valStr = Number(structured.amount).toFixed(2);
+    const re = new RegExp(valStr.replace('.', '\.'));
+    console.log('[Annotation] Amount search string:', valStr);
+    for (const line of allLines) {
+      const stripped = line.text.replace(/[\s£$€]/g, '');
+      const matched = re.test(stripped);
+      if (matched) {
+        console.log('[Annotation] Amount matched line:', line.text, '→ frame:', JSON.stringify(line.frame));
+        frames.amount = line.frame;
+        break;
+      }
+    }
+    if (!frames.amount) console.log('[Annotation] Amount NOT matched');
+  }
+
+  // Date — match common dd/mm/yyyy variants
+  if (structured.date) {
+    const parts = structured.date.split('-'); // [yyyy, mm, dd]
+    if (parts.length === 3) {
+      const [year, month, day] = parts;
+      const shortYear = year.slice(2);
+      const patterns = [
+        `${day}/${month}/${year}`,
+        `${day}/${month}/${shortYear}`,
+        `${day}-${month}-${year}`,
+        `${day}.${month}.${year}`,
+        `${day}.${month}.${shortYear}`,
+        `${year}-${month}-${day}`,
+      ];
+      console.log('[Annotation] Date patterns:', patterns);
+      for (const line of allLines) {
+        if (patterns.some((p) => line.text.includes(p))) {
+          console.log('[Annotation] Date matched line:', line.text, '→ frame:', JSON.stringify(line.frame));
+          frames.date = line.frame;
+          break;
+        }
+      }
+      if (!frames.date) console.log('[Annotation] Date NOT matched');
+    }
+  }
+
+  // VAT — prefer VAT-context lines, fall back to any line with the value
+  if (structured.vat?.value != null) {
+    const vatStr = Number(structured.vat.value).toFixed(2);
+    const vatRe = new RegExp(vatStr.replace('.', '\.'));
+    for (const line of allLines) {
+      if (/\bVAT\b|\bTAX\b/i.test(line.text) && vatRe.test(line.text.replace(/[\s£$€]/g, ''))) {
+        console.log('[Annotation] VAT matched line:', line.text, '→ frame:', JSON.stringify(line.frame));
+        frames.vat = line.frame;
+        break;
+      }
+    }
+    if (!frames.vat) {
+      for (const line of allLines) {
+        if (vatRe.test(line.text.replace(/[\s£$€]/g, ''))) {
+          console.log('[Annotation] VAT (fallback) matched line:', line.text, '→ frame:', JSON.stringify(line.frame));
+          frames.vat = line.frame;
+          break;
+        }
+      }
+    }
+    if (!frames.vat) console.log('[Annotation] VAT NOT matched');
+  }
+
+  const result = Object.keys(frames).length > 1 ? frames : null;
+  console.log('[Annotation] findFramesForValues result:', JSON.stringify(result));
+  return result;
+}
+
 function toStructuredOcrResult(res, raw) {
   const categoryIndex = typeof res?.category === "number" ? res.category : -1;
   const categoryName =
@@ -176,10 +280,17 @@ function mergeStructuredResults(primary, fallback) {
 
 async function analyzeAsset(asset) {
   const filePath = await ensureFileFromAssetStandalone(asset);
-  const raw = await extractRawTextFromFile(filePath);
+  // Use ML Kit directly so we can also capture block frames for annotation
+  const mlKitResult = await TextRecognition.recognize(filePath);
+  const blocks = mlKitResult?.blocks || [];
+  const raw = reconstructLines(blocks) || mlKitResult?.text || "";
+  const extracted = extractData(raw);
+  const structured = toStructuredOcrResult(extracted, raw);
+  const ocrFrames = findFramesForValues(blocks, structured, asset.uri, asset.width, asset.height);
   return {
     asset,
-    ...toStructuredOcrResult(extractData(raw), raw),
+    ...structured,
+    ocrFrames: ocrFrames || null,
   };
 }
 
@@ -194,7 +305,8 @@ async function isUserVerified() {
   }
 }
 
-async function analyzeAssetsCloudFirst(assets) {
+async function analyzeAssetsCloudFirst(assets, onProgress) {
+  const n = assets.length || 1;
   const verified = await isUserVerified();
   if (verified) {
     try {
@@ -204,7 +316,10 @@ async function analyzeAssetsCloudFirst(assets) {
 
       if (cloudImages.length === assets.length) {
         console.log("Receipt OCR source: cloud (%s)", responseProvider);
-        return cloudImages.map((entry, index) => {
+        onProgress?.(0.3); // cloud batch complete
+
+        // Build structured results from cloud text
+        const cloudResults = cloudImages.map((entry, index) => {
           const raw = typeof entry?.rawText === "string" ? entry.rawText : "";
           return {
             asset: assets[index],
@@ -213,6 +328,32 @@ async function analyzeAssetsCloudFirst(assets) {
             ...toStructuredOcrResult(extractData(raw), raw),
           };
         });
+
+        // Run ML Kit locally in parallel — only to get block positions for annotation.
+        // The extracted values from cloud are still used; local blocks just tell us
+        // *where* those values appear in the image.
+        let mlkitDone = 0;
+        const framesArray = await Promise.all(
+          assets.map(async (asset, index) => {
+            try {
+              const mlKitResult = await TextRecognition.recognize(asset.uri);
+              const blocks = mlKitResult?.blocks || [];
+              const result = findFramesForValues(blocks, cloudResults[index], asset.uri, asset.width, asset.height);
+              mlkitDone++;
+              onProgress?.(0.3 + (mlkitDone / n) * 0.7);
+              return result;
+            } catch {
+              mlkitDone++;
+              onProgress?.(0.3 + (mlkitDone / n) * 0.7);
+              return null;
+            }
+          }),
+        );
+
+        return cloudResults.map((result, index) => ({
+          ...result,
+          ocrFrames: framesArray[index] || null,
+        }));
       }
     } catch (error) {
       console.warn("Cloud receipt OCR unavailable, falling back to on-device OCR.", error);
@@ -222,9 +363,12 @@ async function analyzeAssetsCloudFirst(assets) {
   }
 
   console.log("Receipt OCR source: local (ml-kit)");
+  let localDone = 0;
   return Promise.all(
     (assets || []).map(async (asset) => {
       const analysis = await analyzeAsset(asset);
+      localDone++;
+      onProgress?.(localDone / n);
       return {
         ...analysis,
         ocrSource: "local",
@@ -245,8 +389,8 @@ export async function runOcrOnAssets(assets) {
   return toStructuredOcrResult(extractData(combined), combined);
 }
 
-export async function detectReceiptGroupsFromAssets(assets) {
-  const analyses = await analyzeAssetsCloudFirst(assets || []);
+export async function detectReceiptGroupsFromAssets(assets, onProgress) {
+  const analyses = await analyzeAssetsCloudFirst(assets || [], onProgress);
   if (!analyses.length) return [];
 
   const groups = [];
@@ -289,6 +433,7 @@ export async function detectReceiptGroupsFromAssets(assets) {
       assets: group.assets,
       analysis: mergeStructuredResults(combinedAnalysis, group.bestAnalysis),
       individualAnalyses: group.individualAnalyses,
+      ocrFrames: group.bestAnalysis?.ocrFrames || null,
     };
   });
 }

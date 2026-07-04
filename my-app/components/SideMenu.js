@@ -1,15 +1,20 @@
 // components/SideMenu.js
-import React, { useEffect, useRef } from "react";
-import { Animated, Dimensions, Pressable, StyleSheet, View } from "react-native";
+import React, { useEffect, useRef, useState } from "react";
+import { Animated, Dimensions, Modal, Pressable, ScrollView, StyleSheet, Text, TouchableOpacity, View } from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 const WIDTH = Math.min(300, Math.round(Dimensions.get("window").width * 0.8));
 
 export default function SideMenu({ open, onClose, children }) {
+  const insets = useSafeAreaInsets();
   const x = useRef(new Animated.Value(-WIDTH)).current;
   const fade = useRef(new Animated.Value(0)).current;
+  // Keep the modal mounted during the close animation
+  const [modalVisible, setModalVisible] = useState(open);
 
   useEffect(() => {
     if (open) {
+      setModalVisible(true);
       Animated.parallel([
         Animated.timing(x, { toValue: 0, duration: 220, useNativeDriver: false }),
         Animated.timing(fade, { toValue: 1, duration: 220, useNativeDriver: true }),
@@ -18,28 +23,58 @@ export default function SideMenu({ open, onClose, children }) {
       Animated.parallel([
         Animated.timing(x, { toValue: -WIDTH, duration: 200, useNativeDriver: false }),
         Animated.timing(fade, { toValue: 0, duration: 200, useNativeDriver: true }),
-      ]).start();
+      ]).start(({ finished }) => {
+        if (finished) setModalVisible(false);
+      });
     }
   }, [open, x, fade]);
 
   return (
-    <View pointerEvents={open ? "auto" : "none"} style={StyleSheet.absoluteFill}>
-      {/* Backdrop */}
-      <Animated.View style={[styles.backdrop, { opacity: fade }]} />
-      <Pressable style={StyleSheet.absoluteFill} onPress={onClose} />
+    <Modal
+      visible={modalVisible}
+      transparent
+      animationType="none"
+      statusBarTranslucent
+      onRequestClose={onClose}
+    >
+      <View style={StyleSheet.absoluteFill}>
+        {/* Heavy backdrop — tapping it dismisses the menu */}
+        <Animated.View style={[styles.backdrop, { opacity: fade }]} />
+        <Pressable style={StyleSheet.absoluteFill} onPress={onClose} />
 
-      {/* Drawer */}
-      <Animated.View style={[styles.sheet, { width: WIDTH, transform: [{ translateX: x }] }]}>
-        {children}
-      </Animated.View>
-    </View>
+        {/* Drawer */}
+        <Animated.View
+          style={[
+            styles.sheet,
+            {
+              width: WIDTH,
+              paddingTop: insets.top + 16,
+              paddingBottom: insets.bottom + 16,
+              transform: [{ translateX: x }],
+            },
+          ]}
+        >
+          {/* Close button */}
+          <TouchableOpacity style={styles.closeBtn} onPress={onClose} hitSlop={12}>
+            <Text style={styles.closeBtnText}>✕</Text>
+          </TouchableOpacity>
+          <ScrollView
+            style={styles.scroll}
+            contentContainerStyle={styles.scrollContent}
+            showsVerticalScrollIndicator={false}
+          >
+            {children}
+          </ScrollView>
+        </Animated.View>
+      </View>
+    </Modal>
   );
 }
 
 const styles = StyleSheet.create({
   backdrop: {
     ...StyleSheet.absoluteFillObject,
-    backgroundColor: "rgba(0,0,0,0.35)",
+    backgroundColor: "rgba(0,0,0,0.65)",
   },
   sheet: {
     position: "absolute",
@@ -47,13 +82,29 @@ const styles = StyleSheet.create({
     top: 0,
     bottom: 0,
     backgroundColor: "#fff",
-    paddingTop: 48,
     paddingHorizontal: 18,
     borderTopRightRadius: 16,
     borderBottomRightRadius: 16,
     shadowColor: "#000",
-    shadowOpacity: 0.25,
-    shadowRadius: 12,
-    elevation: 6,
+    shadowOpacity: 0.35,
+    shadowRadius: 16,
+    elevation: 10,
+  },
+  closeBtn: {
+    position: "absolute",
+    top: 12,
+    right: 14,
+    padding: 6,
+    zIndex: 10,
+  },
+  closeBtnText: {
+    fontSize: 20,
+    color: "#555",
+  },
+  scroll: {
+    flex: 1,
+  },
+  scrollContent: {
+    flexGrow: 1,
   },
 });

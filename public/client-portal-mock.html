@@ -1286,47 +1286,61 @@
 
     function buildReminderEmailBody(clientName, code) {
       return [
-        "Hi " + clientName + ",",
-        "",
-        "Hello again from Express Accounts!",
-        "",
-        "Just a reminder of the Express Accounts app — the simple way to track your receipts, income and expenses.",
-        "",
-        "Download the app for your device:",
-        "  • Android: https://play.google.com/store/apps/details?id=com.caistec.expressaccounts",
-        "  • iPhone: https://apps.apple.com/us/app/express-accounts/id6749811043",
-        "",
-        "Don't forget to enter your code when you are prompted:",
-        "",
-        "    " + code,
-        "",
-        "If you have any questions, feel free to reply to this email.",
-        "",
-        "Warmest regards,",
-        "The Express Accounts Team",
+        "<p>Hi " + clientName + ",</p>",
+        "<p>Hello again from Express Accounts!</p>",
+        "<p>Just a reminder of the Express Accounts app — the simple way to track your receipts, income and expenses.</p>",
+        "<p>Download the app for your device:</p>",
+        
+        <!-- HTML Badges Table -->
+        '<table border="0" cellpadding="0" cellspacing="0" style="margin: 15px 0;">',
+        '  <tr>',
+        '    <td valign="middle" style="vertical-align: middle; padding-right: 12px;">',
+        '      <a href="https://apps.apple.com/us/app/express-accounts/id6749811043" target="_blank" style="text-decoration: none;">',
+        '        <img src="https://tools.applemediaservices.com/api/badges/download-on-the-app-store/black/en-us?size=250x83" alt="Download on the App Store" height="40" style="height: 40px; display: block; border: 0;">',
+        '      </a>',
+        '    </td>',
+        '    <td valign="middle" style="vertical-align: middle;">',
+        '      <a href="https://play.google.com/store/apps/details?id=com.caistec.expressaccounts" target="_blank" style="text-decoration: none;">',
+        '        <img src="https://play.google.com/intl/en_us/badges/images/generic/en_badge_web_generic.png" alt="Get it on Google Play" height="58" style="height: 58px; display: block; border: 0;">',
+        '      </a>',
+        '    </td>',
+        '  </tr>',
+        '</table>',
+        
+        "<p>Don't forget to enter your code when you are prompted:</p>",
+        "<p style='font-weight: bold; font-size: 16px; margin-left: 20px;'>" + code + "</p>",
+        "<p>If you have any questions, feel free to reply to this email.</p>",
+        "<p>Warmest regards,<br>The Express Accounts Team</p>"
       ].join("\n");
     }
 
     function buildEmailBody(clientName, code) {
       return [
-        "Hi " + clientName + ",",
-        "",
-        "Welcome to Express Accounts — the simple way to track your receipts, income and expenses.",
-        "",
-        "Download the app for your device:",
-        "  • Android: https://play.google.com/store/apps/details?id=com.caistec.expressaccounts",
-        "  • iPhone: https://apps.apple.com/us/app/express-accounts/id6749811043",
-        "",
-        "Your unique client code is:",
-        "",
-        "    " + code,
-        "",
-        "Please enter this code when you sign up so we can link your account to your client profile. If you have already signed up, you can enter it via the side menu inside the app.",
-        "",
-        "If you have any questions, feel free to reply to this email.",
-        "",
-        "Warmest regards,",
-        "The Express Accounts Team",
+        "<p>Hi " + clientName + ",</p>",
+        "<p>Welcome to Express Accounts — the simple way to track your receipts, income and expenses.</p>",
+        "<p>Download the app for your device:</p>",
+        
+        // HTML Badges Table
+        '<table border="0" cellpadding="0" cellspacing="0" style="margin: 15px 0;">',
+        '  <tr>',
+        '    <td valign="middle" style="vertical-align: middle; padding-right: 12px;">',
+        '      <a href="https://apps.apple.com/us/app/express-accounts/id6749811043" target="_blank" style="text-decoration: none;">',
+        '        <img src="https://tools.applemediaservices.com/api/badges/download-on-the-app-store/black/en-us?size=250x83" alt="Download on the App Store" height="40" style="height: 40px; display: block; border: 0;">',
+        '      </a>',
+        '    </td>',
+        '    <td valign="middle" style="vertical-align: middle;">',
+        '      <a href="https://play.google.com/store/apps/details?id=com.caistec.expressaccounts" target="_blank" style="text-decoration: none;">',
+        '        <img src="https://play.google.com/intl/en_us/badges/images/generic/en_badge_web_generic.png" alt="Get it on Google Play" height="58" style="height: 58px; display: block; border: 0;">',
+        '      </a>',
+        '    </td>',
+        '  </tr>',
+        '</table>',
+        
+        "<p>Your unique client code is:</p>",
+        "<p style='font-weight: bold; font-size: 16px; margin-left: 20px;'>" + code + "</p>",
+        "<p>Please enter this code when you sign up so we can link your account to your client profile. If you have already signed up, you can enter it via the side menu inside the app.</p>",
+        "<p>If you have any questions, feel free to reply to this email.</p>",
+        "<p>Warmest regards,<br>The Express Accounts Team</p>"
       ].join("\n");
     }
 

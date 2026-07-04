@@ -252,6 +252,7 @@ export default function IncomeScreen({ navigation }) {
         onClose={() => setAddSheetVisible(false)}
         navigation={navigation}
         targetScreen="IncomeRecord"
+        itemLabel="invoice or proof of income"
       />
 
       <SideMenu open={menuOpen} onClose={closeMenu}>

@@ -654,6 +654,19 @@ export function extractVAT(text, amountInfo, categoryIdx) {
   const cleaned = text.replace(/\r\n/g, "\n");
   const lines = cleaned.split("\n").map(l => l.trim()).filter(Boolean);
 
+  // Cap an OCR-detected VAT value at the theoretical maximum for the detected
+  // category: if the receipt shows a higher number it is almost certainly an OCR
+  // error (e.g. picking up the total line instead of the VAT line).
+  const catRate = categoryIdx >= 0 ? categories_meta[categoryIdx]?.vatRate : null;
+  const capVat = (val) => {
+    if (!Number.isFinite(val)) return val;
+    if (Number.isFinite(catRate) && catRate > 0 && amountInfo?.amount) {
+      const maxVat = amountInfo.amount * catRate / (100 + catRate);
+      if (val > maxVat) return parseFloat(maxVat.toFixed(2));
+    }
+    return val;
+  };
+
   // 1) Table header: "VAT Rate  Incl  Excl  Amount"
   const hdrIdx = lines.findIndex(l => /vat\s*rate.*incl.*excl.*amount/i.test(l));
   if (hdrIdx >= 0) {
@@ -668,7 +681,7 @@ export function extractVAT(text, amountInfo, categoryIdx) {
       if (nums.length >= 3) {
         const vatVal = nums[nums.length - 1]; // VAT column usually last
         return {
-          value: Number.isFinite(vatVal) ? parseFloat(vatVal.toFixed(2)) : null,
+          value: Number.isFinite(vatVal) ? capVat(parseFloat(vatVal.toFixed(2))) : null,
           rate: snapped,
         };
       }
@@ -683,7 +696,7 @@ export function extractVAT(text, amountInfo, categoryIdx) {
       l.match(/(£\s*\d+\.\d{2})\s*vat\b/i);
     if (m) {
       const val = parseFloat(m[1].replace(/[£\s]/g, ""));
-      if (isFinite(val)) return { value: parseFloat(val.toFixed(2)), rate: null };
+      if (isFinite(val)) return { value: capVat(parseFloat(val.toFixed(2))), rate: null };
     }
   }
 
@@ -694,10 +707,15 @@ export function extractVAT(text, amountInfo, categoryIdx) {
   const snappedRate = rateHit ? snapRate(parseFloat(rateHit[1])) : null;
 
   if (snappedRate != null && amountInfo?.amount) {
+    // If detected rate is 0% but the category normally has a higher rate, use category rate
+    const catRateOverride = categoryIdx >= 0 ? categories_meta[categoryIdx]?.vatRate : null;
+    const effectiveRate = (snappedRate === 0 && Number.isFinite(catRateOverride) && catRateOverride > 0)
+      ? catRateOverride
+      : snappedRate;
     const gross = amountInfo.amount;
-    const net = gross / (1 + snappedRate / 100);
+    const net = gross / (1 + effectiveRate / 100);
     const vat = gross - net;
-    return { value: parseFloat(vat.toFixed(2)), rate: snappedRate };
+    return { value: parseFloat(vat.toFixed(2)), rate: effectiveRate };
   }
 
   // 4) Fallback to category default (already from categories_meta)

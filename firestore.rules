@@ -6,7 +6,7 @@ service cloud.firestore {
     // Keep this list in sync with ALLOWED_EMAILS in client-portal-mock.html.
     function isAccountant() {
       return request.auth != null &&
-             request.auth.token.email in ["info@caistec.com", "info@expressaccounts.biz", "kitty_lapue@hotmail.co.uk"];
+             request.auth.token.email in ["info@caistec.com", "info@expressaccounts.biz", "catrin@expressaccounts.biz"];
     }
 
     // Helper: the caller owns the document (matches their Firebase Auth UID).

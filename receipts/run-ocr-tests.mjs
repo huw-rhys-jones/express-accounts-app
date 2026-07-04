@@ -45,8 +45,8 @@ const CACHE_DIR = path.join(RECEIPTS_DIR, "cache");
 const GROUND_TRUTH_PATH = path.join(ROOT, "Receipt Log.xlsx");
 
 // ── Config ────────────────────────────────────────────────────────────────────
-const FIREBASE_API_KEY =
-  process.env.FIREBASE_API_KEY || "AIzaSyCeRi1j64M3eC7GuKBnaqYf2LxZwTHUW-8";
+const FIREBASE_API_KEY = process.env.FIREBASE_API_KEY;
+if (!FIREBASE_API_KEY) throw new Error("FIREBASE_API_KEY env var is required");
 const FIREBASE_PROJECT_ID = "express-accounts-73d38";
 const OCR_FUNCTION_URL =
   process.env.RECEIPT_IMAGE_OCR_URL ||

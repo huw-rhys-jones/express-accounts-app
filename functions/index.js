@@ -223,7 +223,16 @@ exports.extractBankStatementPdf = onRequest({region: OCR_FUNCTION_REGION}, (req,
     }
 
     try {
-      await verifyAuthenticatedUser(req);
+      const decodedToken = await verifyAuthenticatedUser(req);
+
+      // Bank statement / credit card OCR is restricted to verified users only
+      const userRecord = await admin.firestore()
+        .collection("users").doc(decodedToken.uid).get();
+      if (!userRecord.exists || userRecord.data()?.verificationStatus !== "verified") {
+        return res.status(403).json({
+          error: "Bank statement scanning is only available to verified users. Please enter your client code in the app settings.",
+        });
+      }
 
       const {pdfBase64, fileName, mimeType = "application/pdf"} = req.body || {};
       if (!pdfBase64 || typeof pdfBase64 !== "string") {

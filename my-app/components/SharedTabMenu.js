@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useMemo, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
+  Image,
   Linking,
   Modal,
   StyleSheet,
@@ -252,9 +253,11 @@ export default function SharedTabMenu({ navigation, closeMenu, displayName = "Us
           ) : null}
         </View>
 
-        <TouchableOpacity onPress={handleOpenSettings} style={styles.settingsMenuBtn}>
-          <Text style={styles.settingsMenuBtnText}>Settings</Text>
-        </TouchableOpacity>
+        <Image
+          source={require("../assets/images/logo.png")}
+          style={styles.logo}
+          resizeMode="contain"
+        />
 
         <View style={{ marginTop: 20 }}>
           <TouchableOpacity onPress={handleNotifyAccountant} style={styles.notifyBtnFilled}>
@@ -263,15 +266,15 @@ export default function SharedTabMenu({ navigation, closeMenu, displayName = "Us
         </View>
 
         <View style={{ marginTop: 6 }}>
-          <TouchableOpacity onPress={handleIdPlaceholder} style={styles.secondaryMenuButton}>
-            <Text style={styles.secondaryMenuButtonText}>Add ID Image</Text>
+          <TouchableOpacity disabled style={[styles.secondaryMenuButton, styles.disabledMenuButton]}>
+            <Text style={[styles.secondaryMenuButtonText, styles.disabledMenuButtonText]}>Add ID Image</Text>
           </TouchableOpacity>
 
           <TouchableOpacity
-            onPress={handleAddressPlaceholder}
-            style={[styles.secondaryMenuButton, { marginTop: 10 }]}
+            disabled
+            style={[styles.secondaryMenuButton, styles.disabledMenuButton, { marginTop: 10 }]}
           >
-            <Text style={styles.secondaryMenuButtonText}>Add Address</Text>
+            <Text style={[styles.secondaryMenuButtonText, styles.disabledMenuButtonText]}>Add Address</Text>
           </TouchableOpacity>
         </View>
 
@@ -488,18 +491,11 @@ const styles = StyleSheet.create({
     marginBottom: 6,
     fontWeight: "600",
   },
-  settingsMenuBtn: {
-    backgroundColor: "#9999AA",
-    paddingVertical: 14,
-    paddingHorizontal: 16,
-    borderRadius: 10,
-    marginTop: 16,
-    alignItems: "center",
-  },
-  settingsMenuBtnText: {
-    color: "white",
-    fontWeight: "700",
-    textAlign: "center",
+  logo: {
+    width: "100%",
+    height: 60,
+    marginTop: 8,
+    marginBottom: 4,
   },
   notifyBtnFilled: {
     backgroundColor: "#2e86de",
@@ -526,6 +522,14 @@ const styles = StyleSheet.create({
     color: Colors.textPrimary,
     fontWeight: "600",
     textAlign: "center",
+  },
+  disabledMenuButton: {
+    backgroundColor: "#f0f0f0",
+    borderColor: "#ddd",
+    opacity: 0.55,
+  },
+  disabledMenuButtonText: {
+    color: "#aaa",
   },
   footerContainer: {
     marginTop: "auto",

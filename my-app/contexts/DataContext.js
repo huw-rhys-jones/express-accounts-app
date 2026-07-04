@@ -13,6 +13,7 @@ export function DataProvider({ children }) {
   const [initialLoading, setInitialLoading] = useState(true);
 
   const loadedRef = useRef({ receipts: false, income: false });
+  const activeUidRef = useRef(null);
 
   useEffect(() => {
     let unsubReceipts = null;
@@ -20,12 +21,21 @@ export function DataProvider({ children }) {
     let unsubBank = null;
 
     const unsubAuth = onAuthStateChanged(auth, (user) => {
+      const nextUid = user?.uid ?? null;
+
+      // Google sign-in (and some other federated flows) fires onAuthStateChanged
+      // multiple times for the same user as Firebase syncs profile data back.
+      // Guard against tearing down and re-subscribing unnecessarily.
+      if (nextUid && nextUid === activeUidRef.current) return;
+      activeUidRef.current = nextUid;
+
       // Tear down any existing listeners before re-subscribing
       unsubReceipts?.();
       unsubIncome?.();
       unsubBank?.();
 
       if (!user) {
+        activeUidRef.current = null;
         setReceipts([]);
         setIncomeItems([]);
         setBankStatements([]);

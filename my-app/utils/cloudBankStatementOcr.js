@@ -1,6 +1,7 @@
 import * as FileSystem from "expo-file-system/legacy";
 import Constants from "expo-constants";
-import { auth, firebaseConfig } from "../firebaseConfig";
+import { auth, db, firebaseConfig } from "../firebaseConfig";
+import { doc, getDoc } from "firebase/firestore";
 
 const MAX_INLINE_PDF_BYTES = 6 * 1024 * 1024;
 
@@ -22,6 +23,17 @@ export async function extractBankStatementPdfInCloud({ uri, fileName }) {
   const user = auth.currentUser;
   if (!user) {
     throw new Error("Please sign in again before scanning this PDF.");
+  }
+
+  // Only verified users may use cloud bank statement OCR
+  try {
+    const snap = await getDoc(doc(db, "users", user.uid));
+    if (!snap.exists() || snap.data()?.verificationStatus !== "verified") {
+      throw new Error("Bank statement scanning is only available to verified users.");
+    }
+  } catch (e) {
+    if (e.message.includes("verified")) throw e;
+    // Firestore read failure — let the server enforce it
   }
 
   const requestUrl = getCloudOcrUrl();
