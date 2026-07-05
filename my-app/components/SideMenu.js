@@ -54,10 +54,6 @@ export default function SideMenu({ open, onClose, children }) {
             },
           ]}
         >
-          {/* Close button */}
-          <TouchableOpacity style={styles.closeBtn} onPress={onClose} hitSlop={12}>
-            <Text style={styles.closeBtnText}>✕</Text>
-          </TouchableOpacity>
           <ScrollView
             style={styles.scroll}
             contentContainerStyle={styles.scrollContent}
@@ -89,17 +85,6 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.35,
     shadowRadius: 16,
     elevation: 10,
-  },
-  closeBtn: {
-    position: "absolute",
-    top: 12,
-    right: 14,
-    padding: 6,
-    zIndex: 10,
-  },
-  closeBtnText: {
-    fontSize: 20,
-    color: "#555",
   },
   scroll: {
     flex: 1,

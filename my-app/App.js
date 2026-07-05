@@ -223,8 +223,7 @@ function CustomTabBar({ state, descriptors, navigation }) {
 // ---------------- Tabs ----------------
 function AppTabs() {
   return (
-    <DataProvider>
-      <Tab.Navigator
+    <Tab.Navigator
         tabBar={(props) => <CustomTabBar {...props} />}
         tabBarPosition="bottom"
         screenOptions={{
@@ -253,7 +252,6 @@ function AppTabs() {
           options={{ tabBarLabel: "Summary" }}
         />
       </Tab.Navigator>
-    </DataProvider>
   );
 }
 
@@ -359,6 +357,7 @@ export default function App() {
   return (
     /* Wrap everything in PaperProvider to fix the text color issue */
     <PaperProvider theme={theme}>
+      <DataProvider>
       <NavigationContainer ref={navigationRef}>
         <Stack.Navigator
           initialRouteName={activeUser ? "MainTabs" : "SignIn"}
@@ -397,6 +396,7 @@ export default function App() {
           <Stack.Screen name="MileageDetails" component={MileageEdit} />
         </Stack.Navigator>
       </NavigationContainer>
+      </DataProvider>
 
       <Modal visible={!!pendingChallenge} transparent animationType="fade">        <View style={styles.twoFactorOverlay}>
           <View style={styles.twoFactorCard}>

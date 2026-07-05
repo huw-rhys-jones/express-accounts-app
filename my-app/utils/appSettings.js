@@ -1,4 +1,5 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
+import { auth } from "../firebaseConfig";
 
 const RECEIPT_FILTER_KEY = "@settings:receiptFilterKey";
 const INCOME_FILTER_KEY = "@settings:incomeFilterKey";
@@ -70,13 +71,20 @@ export async function setAddSheetTooltipSeen() {
 }
 
 // ── Vehicles ──────────────────────────────────────────────────────────────────
+// Keys are scoped per user so each account has its own vehicle list on the device.
+function vehiclesKey() {
+  const uid = auth.currentUser?.uid;
+  return uid ? `@settings:vehicles:${uid}` : "@settings:vehicles";
+}
 
-const VEHICLES_KEY = "@settings:vehicles";
-const LAST_USED_VEHICLE_ID_KEY = "@settings:lastUsedVehicleId";
+function lastUsedVehicleKey() {
+  const uid = auth.currentUser?.uid;
+  return uid ? `@settings:lastUsedVehicleId:${uid}` : "@settings:lastUsedVehicleId";
+}
 
 export async function getVehicles() {
   try {
-    const raw = await AsyncStorage.getItem(VEHICLES_KEY);
+    const raw = await AsyncStorage.getItem(vehiclesKey());
     return raw ? JSON.parse(raw) : [];
   } catch {
     return [];
@@ -85,7 +93,7 @@ export async function getVehicles() {
 
 export async function setVehicles(vehicles) {
   try {
-    await AsyncStorage.setItem(VEHICLES_KEY, JSON.stringify(vehicles));
+    await AsyncStorage.setItem(vehiclesKey(), JSON.stringify(vehicles));
   } catch {
     // ignore
   }
@@ -93,7 +101,7 @@ export async function setVehicles(vehicles) {
 
 export async function getLastUsedVehicleId() {
   try {
-    return await AsyncStorage.getItem(LAST_USED_VEHICLE_ID_KEY);
+    return await AsyncStorage.getItem(lastUsedVehicleKey());
   } catch {
     return null;
   }
@@ -101,7 +109,7 @@ export async function getLastUsedVehicleId() {
 
 export async function setLastUsedVehicleId(id) {
   try {
-    await AsyncStorage.setItem(LAST_USED_VEHICLE_ID_KEY, id);
+    await AsyncStorage.setItem(lastUsedVehicleKey(), id);
   } catch {
     // ignore
   }
