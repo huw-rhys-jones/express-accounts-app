@@ -13,6 +13,7 @@ import {
   View,
 } from "react-native";
 import DropDownPicker from "react-native-dropdown-picker";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Colors } from "../utils/sharedStyles";
 import { getVehicles, setVehicles } from "../utils/appSettings";
 
@@ -30,6 +31,7 @@ const FUEL_TYPES = [
 ];
 
 export default function RegisterVehicleModal({ visible, onClose, onSaved, vehicle }) {
+  const insets = useSafeAreaInsets();
   const isEditing = Boolean(vehicle);
 
   const [reg, setReg] = useState("");
@@ -225,7 +227,12 @@ export default function RegisterVehicleModal({ visible, onClose, onSaved, vehicl
           </ScrollView>
 
           {/* Buttons always visible outside ScrollView */}
-          <View style={styles.btnRow}>
+          <View
+            style={[
+              styles.btnRow,
+              { paddingBottom: Math.max(insets.bottom, Platform.OS === "android" ? 16 : 8) },
+            ]}
+          >
             <TouchableOpacity style={styles.cancelBtn} onPress={onClose}>
               <Text style={styles.cancelBtnText}>Cancel</Text>
             </TouchableOpacity>
@@ -323,6 +330,7 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     gap: 12,
     marginTop: 24,
+    paddingBottom: 8,
   },
   cancelBtn: {
     flex: 1,

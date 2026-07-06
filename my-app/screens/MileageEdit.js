@@ -23,6 +23,7 @@ import { auth, db } from "../firebaseConfig";
 import { Colors } from "../utils/sharedStyles";
 import { formatDate } from "../utils/format_style";
 import DateTimePickerModal from "react-native-modal-datetime-picker";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import {
   getVehicles,
   setLastUsedVehicleId,
@@ -33,6 +34,7 @@ const GOOGLE_MAPS_KEY =
   Constants.expoConfig?.extra?.GOOGLE_MAPS_API_KEY || "";
 
 export default function MileageEdit({ navigation, route }) {
+  const insets = useSafeAreaInsets();
   const item = route?.params?.item;
   const md = item?.mileageDetails || {};
 
@@ -315,7 +317,12 @@ export default function MileageEdit({ navigation, route }) {
         </ScrollView>
 
         {/* Bottom action bar */}
-        <View style={styles.bottomBar}>
+        <View
+          style={[
+            styles.bottomBar,
+            { paddingBottom: Math.max(insets.bottom, Platform.OS === "android" ? 24 : 16) },
+          ]}
+        >
           <TouchableOpacity
             style={styles.deleteBtn}
             onPress={handleDelete}
@@ -377,7 +384,7 @@ const styles = StyleSheet.create({
   summaryValueBold: { fontSize: 18, color: Colors.accent, fontWeight: "800" },
   bottomBar: {
     flexDirection: "row", padding: 16,
-    paddingBottom: Platform.OS === "android" ? 24 : 16,
+    paddingBottom: 16,
     gap: 12, backgroundColor: "#f4f4f8",
     borderTopWidth: 1, borderTopColor: "#e0e0e8",
   },

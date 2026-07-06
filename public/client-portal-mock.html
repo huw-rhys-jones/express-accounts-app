@@ -1499,8 +1499,53 @@
     async function deleteCode(codeId) {
       if (!confirm("Delete code " + codeId + "? This cannot be undone.")) return;
       try {
-        await db.collection("VerificationCodes").doc(codeId).delete();
-        allCodesStatus.textContent = "Deleted code " + codeId + ".";
+        const codeRef = db.collection("VerificationCodes").doc(codeId);
+        const codeSnap = await codeRef.get();
+
+        if (!codeSnap.exists) {
+          allCodesStatus.textContent = "Code " + codeId + " no longer exists.";
+          await loadAllCodes();
+          return;
+        }
+
+        const codeData = codeSnap.data() || {};
+        const usedBy = codeData.usedBy || null;
+
+        await codeRef.delete();
+
+        let revokedUser = false;
+        if (usedBy) {
+          const userRef = db.collection("users").doc(usedBy);
+          await db.runTransaction(async (tx) => {
+            const userSnap = await tx.get(userRef);
+            if (!userSnap.exists) return;
+
+            const userData = userSnap.data() || {};
+            const linkedCode = String(userData.verificationCode || "");
+            if (linkedCode !== String(codeId)) {
+              return;
+            }
+
+            revokedUser = true;
+            tx.set(
+              userRef,
+              {
+                verificationStatus: firebase.firestore.FieldValue.delete(),
+                verifiedName: firebase.firestore.FieldValue.delete(),
+                verificationCode: firebase.firestore.FieldValue.delete(),
+                hideAds: false,
+                verificationRevokedAt: firebase.firestore.FieldValue.serverTimestamp(),
+                verificationRevokedReason: "code_deleted_by_accountant",
+                updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
+              },
+              { merge: true }
+            );
+          });
+        }
+
+        allCodesStatus.textContent = revokedUser
+          ? "Deleted code " + codeId + " and removed linked user verification."
+          : "Deleted code " + codeId + ".";
         await loadAllCodes();
       } catch (err) {
         allCodesStatus.textContent = "Delete failed: " + err.message;

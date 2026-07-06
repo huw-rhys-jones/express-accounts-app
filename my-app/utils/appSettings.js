@@ -1,5 +1,7 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { auth } from "../firebaseConfig";
+import { db } from "../firebaseConfig";
+import { doc, getDoc, serverTimestamp, setDoc } from "firebase/firestore";
 
 const RECEIPT_FILTER_KEY = "@settings:receiptFilterKey";
 const INCOME_FILTER_KEY = "@settings:incomeFilterKey";
@@ -83,19 +85,76 @@ function lastUsedVehicleKey() {
 }
 
 export async function getVehicles() {
+  const readLocalVehicles = async () => {
+    try {
+      const raw = await AsyncStorage.getItem(vehiclesKey());
+      const parsed = raw ? JSON.parse(raw) : [];
+      return Array.isArray(parsed) ? parsed : [];
+    } catch {
+      return [];
+    }
+  };
+
+  const localVehicles = await readLocalVehicles();
+  const uid = auth.currentUser?.uid;
+  if (!uid) {
+    return localVehicles;
+  }
+
   try {
-    const raw = await AsyncStorage.getItem(vehiclesKey());
-    return raw ? JSON.parse(raw) : [];
-  } catch {
+    const userRef = doc(db, "users", uid);
+    const userSnap = await getDoc(userRef);
+    const cloudVehicles = userSnap.exists() && Array.isArray(userSnap.data()?.vehicles)
+      ? userSnap.data().vehicles
+      : [];
+
+    if (cloudVehicles.length > 0) {
+      await AsyncStorage.setItem(vehiclesKey(), JSON.stringify(cloudVehicles));
+      return cloudVehicles;
+    }
+
+    if (localVehicles.length > 0) {
+      // Migrate legacy device-local vehicles for this user to Firestore.
+      await setDoc(
+        userRef,
+        {
+          vehicles: localVehicles,
+          updatedAt: serverTimestamp(),
+        },
+        { merge: true }
+      );
+      return localVehicles;
+    }
+
     return [];
+  } catch {
+    return localVehicles;
   }
 }
 
 export async function setVehicles(vehicles) {
+  const safeVehicles = Array.isArray(vehicles) ? vehicles : [];
+
   try {
-    await AsyncStorage.setItem(vehiclesKey(), JSON.stringify(vehicles));
+    await AsyncStorage.setItem(vehiclesKey(), JSON.stringify(safeVehicles));
   } catch {
     // ignore
+  }
+
+  const uid = auth.currentUser?.uid;
+  if (!uid) return;
+
+  try {
+    await setDoc(
+      doc(db, "users", uid),
+      {
+        vehicles: safeVehicles,
+        updatedAt: serverTimestamp(),
+      },
+      { merge: true }
+    );
+  } catch {
+    // ignore network errors; local cache remains available
   }
 }
 

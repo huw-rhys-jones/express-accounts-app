@@ -28,11 +28,13 @@ import {
 } from "../utils/appSettings";
 import { useData } from "../contexts/DataContext";
 import DateTimePickerModal from "react-native-modal-datetime-picker";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 const GOOGLE_MAPS_KEY =
   Constants.expoConfig?.extra?.GOOGLE_MAPS_API_KEY || "";
 
 export default function MileageAdd({ navigation }) {
+  const insets = useSafeAreaInsets();
   const { userProfile } = useData();
   const isVerified = userProfile?.verificationStatus === "verified";
   // ── Vehicle picker ─────────────────────────────────────────────────────────
@@ -364,7 +366,12 @@ export default function MileageAdd({ navigation }) {
         </ScrollView>
 
         {/* Bottom action bar */}
-        <View style={styles.bottomBar}>
+        <View
+          style={[
+            styles.bottomBar,
+            { paddingBottom: Math.max(insets.bottom, Platform.OS === "android" ? 24 : 16) },
+          ]}
+        >
           <TouchableOpacity style={styles.cancelBtn} onPress={() => navigation.goBack()}>
             <Text style={styles.cancelBtnText}>Cancel</Text>
           </TouchableOpacity>
@@ -439,7 +446,7 @@ const styles = StyleSheet.create({
   bottomBar: {
     flexDirection: "row",
     padding: 16,
-    paddingBottom: Platform.OS === "android" ? 24 : 16,
+    paddingBottom: 16,
     gap: 12,
     backgroundColor: "#f4f4f8",
     borderTopWidth: 1,
