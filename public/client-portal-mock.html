@@ -488,57 +488,7 @@
       .login-head,
       .login-body { padding-left: 20px; padding-right: 20px; }
     }
-
-    /* ── SMS 2FA step ── */
-    #smsStep { display: none; }
-
-    .sms-hint {
-      font-size: 0.95rem;
-      color: #4a6080;
-      margin: 0 0 18px;
-      line-height: 1.5;
-    }
-
-    .sms-code-input {
-      width: 100%;
-      border: 2px solid var(--blue);
-      border-radius: 12px;
-      padding: 14px;
-      font-size: 1.6rem;
-      letter-spacing: 0.35em;
-      text-align: center;
-      font-family: "Space Grotesk", monospace;
-      color: var(--ink);
-      background: #fff;
-      margin-bottom: 16px;
-      box-sizing: border-box;
-    }
-
-    .sms-code-input:focus {
-      outline: none;
-      border-color: var(--accent);
-      box-shadow: 0 0 0 3px rgba(255, 109, 0, 0.15);
-    }
-
-    .sms-actions {
-      display: flex;
-      gap: 10px;
-    }
-
-    .btn-ghost {
-      flex: 1;
-      padding: 12px;
-      border: 1px solid var(--outline);
-      border-radius: 10px;
-      background: #fff;
-      color: var(--text);
-      font-size: 0.95rem;
-      font-family: inherit;
-      font-weight: 600;
-      cursor: pointer;
-    }
-
-    .btn-ghost:hover { background: #f0f4f8; }
+    @keyframes spin { to { transform: rotate(360deg); } }
   </style>
   <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-app-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-auth-compat.js"></script>
@@ -550,6 +500,8 @@
   <script>
     const auth = firebase.auth();
     const db = firebase.firestore();
+    // Session-only persistence: signing out automatically when the tab/browser closes
+    auth.setPersistence(firebase.auth.Auth.Persistence.SESSION);
   </script>
 </head>
 <body>
@@ -559,7 +511,7 @@
         <h1>Client Data Console</h1>
         <p>Portal.</p>
       </div>
-      <div id="loginFormBody" class="login-body">
+      <div class="login-body">
         <label for="emailInput">Account Email</label>
         <input id="emailInput" type="email" placeholder="you@example.com" style="width: 100%; border: 1px solid var(--outline); border-radius: 12px; padding: 12px; margin-top: 8px; margin-bottom: 12px; font-family: inherit;" />
 
@@ -572,29 +524,25 @@
         </div>
         <div id="loginError" class="error"></div>
       </div>
+    </section>
 
-      <!-- SMS 2FA step — shown only after password auth triggers MFA challenge -->
-      <div id="smsStep" class="login-body">
-        <p class="sms-hint" id="smsPhoneHint">Sending verification code…</p>
-        <label for="smsCodeInput">Verification Code</label>
-        <input id="smsCodeInput" class="sms-code-input" type="tel" inputmode="numeric"
-               autocomplete="one-time-code" maxlength="6" placeholder="000000" />
-        <div id="smsError" class="error" style="margin-bottom:12px"></div>
-        <div class="sms-actions">
-          <button id="verifyBtn" class="btn-primary" type="button" style="flex:2">Verify &amp; Sign In</button>
-          <button id="smsBackBtn" class="btn-ghost" type="button">Back</button>
-        </div>
-        <p class="hint" style="margin-top:14px">
-          Didn't receive a code?
-          <button id="resendSmsBtn" type="button"
-                  style="background:none;border:none;color:var(--blue);font-weight:700;cursor:pointer;font-size:inherit;padding:0">
-            Resend
-          </button>
-        </p>
+    <section id="twoFactorSection" class="panel login-wrap" style="display:none">
+      <div class="login-head" style="background: linear-gradient(135deg, #1a3a5c, #0f2742)">
+        <h1>Verify Your Identity</h1>
+        <p>Open the Express Accounts app on your phone and approve the login request.</p>
       </div>
-
-      <!-- Invisible reCAPTCHA anchor required by Firebase Phone Auth -->
-      <div id="recaptcha-container"></div>
+      <div class="login-body">
+        <div style="display:flex; align-items:center; gap:12px; margin-bottom:16px">
+          <div id="twoFactorSpinner" style="width:24px;height:24px;border:3px solid #d4e2f0;border-top-color:#2e86de;border-radius:50%;animation:spin 0.9s linear infinite;flex-shrink:0"></div>
+          <span id="twoFactorStatus" style="font-weight:600;color:#17324d">Waiting for phone approval…</span>
+        </div>
+        <p id="twoFactorDevice" class="hint" style="margin-top:0"></p>
+        <p id="twoFactorTimer" class="hint" style="margin-top:4px; font-variant-numeric: tabular-nums"></p>
+        <div class="actions" style="margin-top:20px">
+          <button id="cancelTwoFactorBtn" class="btn-secondary" type="button">Cancel Login</button>
+        </div>
+        <div id="twoFactorError" class="error"></div>
+      </div>
     </section>
 
     <section id="dashboardSection" class="panel dashboard">
@@ -650,39 +598,68 @@
 
       <div id="managementTabPanel" class="tab-panel">
         <div class="management-panel">
+
+          <!-- ── Generate new codes ───────────────────────────── -->
+          <h3 style="margin:0 0 14px; font-family:'Space Grotesk',sans-serif; font-size:1.05rem; color:var(--ink)">Generate &amp; Email Client Codes</h3>
           <div class="split-layout">
             <div class="stack">
               <label for="verificationCsvInput">Upload CSV</label>
               <input id="verificationCsvInput" type="file" accept=".csv,text/csv" />
-              <p class="hint" style="margin-top:0">The first column in each CSV row is treated as the client name.</p>
+              <p class="hint" style="margin-top:0">Two columns: <strong>Name</strong> and <strong>Email</strong>. First row may be a header.</p>
             </div>
             <div class="stack">
-              <label for="bulkNamesInput">Enter names separated by semicolons</label>
-              <textarea id="bulkNamesInput" placeholder="Jane Smith; John Patel; Example Ltd"></textarea>
-              <p class="hint" style="margin-top:0">CSV names and typed names are combined and deduplicated before code generation.</p>
+              <label for="bulkNamesInput">Enter clients (one per line, semicolon-separated)</label>
+              <textarea id="bulkNamesInput" placeholder="Jane Smith, jane@example.com;&#10;John Patel, john@example.com;&#10;Example Ltd, contact@example.com"></textarea>
+              <p class="hint" style="margin-top:0">Format: <strong>Name, email@address.com;</strong> — email is optional but needed to send invites.</p>
             </div>
           </div>
           <div class="actions">
             <button id="generateCodesBtn" type="button" class="btn-primary">Generate Client Codes</button>
+            <button id="sendAllEmailsBtn" type="button" class="btn-success" style="display:none">✉ Send All Emails</button>
             <button id="clearManagementBtn" type="button" class="btn-secondary">Clear</button>
           </div>
           <div id="managementStatus" class="statusline">Generate verification codes for active clients here.</div>
-          <div class="table-wrap">
+          <div class="table-wrap" id="generatedCodesWrap" style="display:none">
             <table id="generatedCodesTable">
               <thead>
                 <tr>
                   <th>Client name</th>
+                  <th>Email</th>
                   <th>Client code</th>
                   <th>Status</th>
+                  <th></th>
                 </tr>
               </thead>
               <tbody>
-                <tr>
-                  <td colspan="3" class="empty-cell">No codes generated yet.</td>
-                </tr>
+                <tr><td colspan="5" class="empty-cell">No codes generated yet.</td></tr>
               </tbody>
             </table>
           </div>
+
+          <!-- ── All existing codes ──────────────────────────── -->
+          <div style="margin-top:28px; display:flex; align-items:center; gap:12px; flex-wrap:wrap">
+            <h3 style="margin:0; font-family:'Space Grotesk',sans-serif; font-size:1.05rem; color:var(--ink)">All Existing Codes</h3>
+            <button id="loadAllCodesBtn" type="button" class="btn-secondary" style="padding:7px 16px; font-size:0.88rem">Load / Refresh</button>
+          </div>
+          <div id="allCodesStatus" class="statusline" style="margin-top:8px"></div>
+          <div class="table-wrap" id="allCodesWrap" style="display:none; margin-top:10px">
+            <table id="allCodesTable">
+              <thead>
+                <tr>
+                  <th>Client name</th>
+                  <th>Email</th>
+                  <th>Code</th>
+                  <th>Status</th>
+                  <th>Used by</th>
+                  <th></th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr><td colspan="6" class="empty-cell">Click "Load / Refresh" to fetch codes.</td></tr>
+              </tbody>
+            </table>
+          </div>
+
         </div>
       </div>
     </section>
@@ -705,22 +682,20 @@
   </div>
 
   <script>
-    const ALLOWED_EMAILS = ["info@caistec.com", "info@expressaccounts.biz", "kitty_lapue@hotmail.co.uk"];
+    const ALLOWED_EMAILS = ["info@caistec.com", "info@expressaccounts.biz", "catrin@expressaccounts.biz"];
 
     const loginSection = document.getElementById("loginSection");
     const dashboardSection = document.getElementById("dashboardSection");
+    const twoFactorSection = document.getElementById("twoFactorSection");
+    const twoFactorStatus = document.getElementById("twoFactorStatus");
+    const twoFactorDevice = document.getElementById("twoFactorDevice");
+    const twoFactorTimer = document.getElementById("twoFactorTimer");
+    const twoFactorError = document.getElementById("twoFactorError");
+    const cancelTwoFactorBtn = document.getElementById("cancelTwoFactorBtn");
     const emailInput = document.getElementById("emailInput");
     const passwordInput = document.getElementById("passwordInput");
     const loginBtn = document.getElementById("loginBtn");
     const loginError = document.getElementById("loginError");
-    const loginFormBody = document.getElementById("loginFormBody");
-    const smsStep = document.getElementById("smsStep");
-    const smsPhoneHint = document.getElementById("smsPhoneHint");
-    const smsCodeInput = document.getElementById("smsCodeInput");
-    const smsError = document.getElementById("smsError");
-    const verifyBtn = document.getElementById("verifyBtn");
-    const smsBackBtn = document.getElementById("smsBackBtn");
-    const resendSmsBtn = document.getElementById("resendSmsBtn");
     const clientBoard = document.getElementById("clientBoard");
     const loginInfo = document.getElementById("loginInfo");
     const statusLine = document.getElementById("statusLine");
@@ -739,9 +714,13 @@
     const verificationCsvInput = document.getElementById("verificationCsvInput");
     const bulkNamesInput = document.getElementById("bulkNamesInput");
     const generateCodesBtn = document.getElementById("generateCodesBtn");
+    const sendAllEmailsBtn = document.getElementById("sendAllEmailsBtn");
     const clearManagementBtn = document.getElementById("clearManagementBtn");
+    const loadAllCodesBtn = document.getElementById("loadAllCodesBtn");
     const managementStatus = document.getElementById("managementStatus");
+    const allCodesStatus = document.getElementById("allCodesStatus");
     const generatedCodesTableBody = document.querySelector("#generatedCodesTable tbody");
+    const allCodesTableBody = document.querySelector("#allCodesTable tbody");
 
     const dateModal = document.getElementById("dateModal");
     const periodSelect = document.getElementById("periodSelect");
@@ -756,10 +735,106 @@
     const activeStatusFilters = new Set();
     let currentTab = "activity";
 
-    // ── MFA state ──
-    let _mfaResolver = null;
-    let _verificationId = null;
-    let _recaptchaVerifier = null;
+    // Inactivity timeout: sign out after 30 minutes of no mouse/keyboard activity
+    const INACTIVITY_TIMEOUT_MS = 30 * 60 * 1000;
+    let inactivityTimer = null;
+
+    function resetInactivityTimer() {
+      if (!currentAccountant) return;
+      clearTimeout(inactivityTimer);
+      inactivityTimer = setTimeout(async () => {
+        await auth.signOut();
+        loginError.textContent = "You were signed out due to inactivity.";
+      }, INACTIVITY_TIMEOUT_MS);
+    }
+
+    function startInactivityTimer() {
+      resetInactivityTimer();
+      ["mousemove", "mousedown", "keydown", "touchstart", "scroll"].forEach((event) => {
+        document.addEventListener(event, resetInactivityTimer, { passive: true });
+      });
+    }
+
+    function stopInactivityTimer() {
+      clearTimeout(inactivityTimer);
+      inactivityTimer = null;
+      ["mousemove", "mousedown", "keydown", "touchstart", "scroll"].forEach((event) => {
+        document.removeEventListener(event, resetInactivityTimer);
+      });
+    }
+
+    // 2FA state
+    const TWO_FACTOR_TIMEOUT_MS = 5 * 60 * 1000;
+    let justLoggedIn = false;
+    let activeChallengeId = null;
+    let challengeUnsubscribe = null;
+    let twoFactorTimeout = null;
+    let twoFactorCountdownInterval = null;
+
+    function cleanUpChallenge() {
+      if (challengeUnsubscribe) { challengeUnsubscribe(); challengeUnsubscribe = null; }
+      if (twoFactorTimeout) { clearTimeout(twoFactorTimeout); twoFactorTimeout = null; }
+      if (twoFactorCountdownInterval) { clearInterval(twoFactorCountdownInterval); twoFactorCountdownInterval = null; }
+      activeChallengeId = null;
+    }
+
+    async function startChallengeFlow(user) {
+      const expiresAt = new Date(Date.now() + TWO_FACTOR_TIMEOUT_MS);
+      const challengeRef = await db.collection("twoFactorChallenges").add({
+        userId: user.uid,
+        email: user.email || null,
+        status: "pending",
+        createdAt: firebase.firestore.FieldValue.serverTimestamp(),
+        expiresAt: firebase.firestore.Timestamp.fromDate(expiresAt),
+        deviceInfo: navigator.userAgent,
+      });
+      activeChallengeId = challengeRef.id;
+
+      loginSection.style.display = "none";
+      twoFactorSection.style.display = "block";
+      twoFactorError.textContent = "";
+      twoFactorStatus.textContent = "Waiting for phone approval…";
+      twoFactorDevice.textContent = "Sign-in from: " + window.location.hostname;
+
+      const startTime = Date.now();
+      twoFactorCountdownInterval = setInterval(() => {
+        const remaining = Math.max(0, TWO_FACTOR_TIMEOUT_MS - (Date.now() - startTime));
+        const m = Math.floor(remaining / 60000);
+        const s = Math.floor((remaining % 60000) / 1000);
+        twoFactorTimer.textContent = "Expires in " + m + ":" + String(s).padStart(2, "0");
+      }, 1000);
+
+      twoFactorTimeout = setTimeout(async () => {
+        cleanUpChallenge();
+        await auth.signOut();
+        twoFactorSection.style.display = "none";
+        loginSection.style.display = "block";
+        loginError.textContent = "Login timed out — no response on phone. Please try again.";
+      }, TWO_FACTOR_TIMEOUT_MS);
+
+      challengeUnsubscribe = challengeRef.onSnapshot((snap) => {
+        const data = snap.data();
+        if (!data) return;
+        if (data.status === "approved") {
+          cleanUpChallenge();
+          twoFactorSection.style.display = "none";
+          startAuthenticatedSession(user);
+        } else if (data.status === "denied") {
+          cleanUpChallenge();
+          auth.signOut();
+          twoFactorSection.style.display = "none";
+          loginSection.style.display = "block";
+          loginError.textContent = "Login was denied on your phone. Please try again.";
+        }
+      });
+    }
+
+    cancelTwoFactorBtn.addEventListener("click", async () => {
+      cleanUpChallenge();
+      await auth.signOut();
+      twoFactorSection.style.display = "none";
+      resetToLoginScreen();
+    });
 
     function toMoney(value) {
       return Number(value).toFixed(2);
@@ -1159,20 +1234,123 @@
     }
 
     function renderGeneratedCodesTable(rows) {
+      const wrap = document.getElementById("generatedCodesWrap");
       if (!rows.length) {
-        generatedCodesTableBody.innerHTML = '<tr><td colspan="3" class="empty-cell">No codes generated yet.</td></tr>';
+        generatedCodesTableBody.innerHTML = '<tr><td colspan="5" class="empty-cell">No codes generated yet.</td></tr>';
+        wrap.style.display = "none";
+        sendAllEmailsBtn.style.display = "none";
         return;
       }
 
-      generatedCodesTableBody.innerHTML = rows
-        .map((row) => (
+      generatedCodesTableBody.innerHTML = rows.map((row) => {
+        const emailCell = row.email
+          ? '<a href="' + buildMailtoLink(row) + '" style="color:var(--blue)">' + escHtml(row.email) + '</a>'
+          : '<span style="color:#aaa">—</span>';
+        const sendBtn = row.email
+          ? '<a href="' + buildMailtoLink(row) + '" class="btn-secondary" style="padding:5px 12px;font-size:0.82rem;border-radius:8px;text-decoration:none;display:inline-block">✉ Send</a>'
+          : "";
+        const remindBtn = row.email
+          ? '<a href="' + buildReminderMailtoLink(row) + '" class="btn-secondary" style="padding:5px 12px;font-size:0.82rem;border-radius:8px;text-decoration:none;display:inline-block;margin-left:6px">🔔 Remind</a>'
+          : "";
+        return (
           "<tr>" +
-            "<td>" + row.name + "</td>" +
-            "<td><strong>" + row.code + "</strong></td>" +
-            "<td>" + row.status + "</td>" +
+            "<td>" + escHtml(row.name) + "</td>" +
+            "<td>" + emailCell + "</td>" +
+            "<td><strong>" + escHtml(row.code) + "</strong></td>" +
+            "<td>" + escHtml(row.status) + "</td>" +
+            "<td>" + sendBtn + remindBtn + "</td>" +
           "</tr>"
-        ))
-        .join("");
+        );
+      }).join("");
+
+      wrap.style.display = "";
+      const hasEmails = rows.some((r) => r.email);
+      sendAllEmailsBtn.style.display = hasEmails ? "inline-flex" : "none";
+    }
+
+    function escHtml(str) {
+      return String(str || "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+    }
+
+    function buildMailtoLink(row) {
+      const subject = encodeURIComponent("Welcome to Express Accounts");
+      const body = encodeURIComponent(buildEmailBody(row.name, row.code));
+      return "mailto:" + encodeURIComponent(row.email) + "?subject=" + subject + "&body=" + body;
+    }
+
+    function buildReminderMailtoLink(row) {
+      const subject = encodeURIComponent("A reminder from Express Accounts");
+      const body = encodeURIComponent(buildReminderEmailBody(row.name, row.code));
+      return "mailto:" + encodeURIComponent(row.email) + "?subject=" + subject + "&body=" + body;
+    }
+
+    function buildReminderEmailBody(clientName, code) {
+      return [
+        "<p>Hi " + clientName + ",</p>",
+        "<p>Hello again from Express Accounts!</p>",
+        "<p>Just a reminder of the Express Accounts app — the simple way to track your receipts, income and expenses.</p>",
+        "<p>Download the app for your device:</p>",
+        
+        <!-- HTML Badges Table -->
+        '<table border="0" cellpadding="0" cellspacing="0" style="margin: 15px 0;">',
+        '  <tr>',
+        '    <td valign="middle" style="vertical-align: middle; padding-right: 12px;">',
+        '      <a href="https://apps.apple.com/us/app/express-accounts/id6749811043" target="_blank" style="text-decoration: none;">',
+        '        <img src="https://tools.applemediaservices.com/api/badges/download-on-the-app-store/black/en-us?size=250x83" alt="Download on the App Store" height="40" style="height: 40px; display: block; border: 0;">',
+        '      </a>',
+        '    </td>',
+        '    <td valign="middle" style="vertical-align: middle;">',
+        '      <a href="https://play.google.com/store/apps/details?id=com.caistec.expressaccounts" target="_blank" style="text-decoration: none;">',
+        '        <img src="https://play.google.com/intl/en_us/badges/images/generic/en_badge_web_generic.png" alt="Get it on Google Play" height="58" style="height: 58px; display: block; border: 0;">',
+        '      </a>',
+        '    </td>',
+        '  </tr>',
+        '</table>',
+        
+        "<p>Don't forget to enter your code when you are prompted:</p>",
+        "<p style='font-weight: bold; font-size: 16px; margin-left: 20px;'>" + code + "</p>",
+        "<p>If you have any questions, feel free to reply to this email.</p>",
+        "<p>Warmest regards,<br>The Express Accounts Team</p>"
+      ].join("\n");
+    }
+
+    function buildEmailBody(clientName, code) {
+      return [
+        "<p>Hi " + clientName + ",</p>",
+        "<p>Welcome to Express Accounts — the simple way to track your receipts, income and expenses.</p>",
+        "<p>Download the app for your device:</p>",
+        
+        // HTML Badges Table
+        '<table border="0" cellpadding="0" cellspacing="0" style="margin: 15px 0;">',
+        '  <tr>',
+        '    <td valign="middle" style="vertical-align: middle; padding-right: 12px;">',
+        '      <a href="https://apps.apple.com/us/app/express-accounts/id6749811043" target="_blank" style="text-decoration: none;">',
+        '        <img src="https://tools.applemediaservices.com/api/badges/download-on-the-app-store/black/en-us?size=250x83" alt="Download on the App Store" height="40" style="height: 40px; display: block; border: 0;">',
+        '      </a>',
+        '    </td>',
+        '    <td valign="middle" style="vertical-align: middle;">',
+        '      <a href="https://play.google.com/store/apps/details?id=com.caistec.expressaccounts" target="_blank" style="text-decoration: none;">',
+        '        <img src="https://play.google.com/intl/en_us/badges/images/generic/en_badge_web_generic.png" alt="Get it on Google Play" height="58" style="height: 58px; display: block; border: 0;">',
+        '      </a>',
+        '    </td>',
+        '  </tr>',
+        '</table>',
+        
+        "<p>Your unique client code is:</p>",
+        "<p style='font-weight: bold; font-size: 16px; margin-left: 20px;'>" + code + "</p>",
+        "<p>Please enter this code when you sign up so we can link your account to your client profile. If you have already signed up, you can enter it via the side menu inside the app.</p>",
+        "<p>If you have any questions, feel free to reply to this email.</p>",
+        "<p>Warmest regards,<br>The Express Accounts Team</p>"
+      ].join("\n");
+    }
+
+    function sendAllEmails(rows) {
+      const withEmail = rows.filter((r) => r.email);
+      withEmail.forEach((row, i) => {
+        setTimeout(() => {
+          window.open(buildMailtoLink(row), "_blank");
+        }, i * 600);
+      });
     }
 
     function readTextFile(file) {
@@ -1184,17 +1362,16 @@
       });
     }
 
-    async function collectVerificationNames() {
+    async function collectVerificationClients() {
       const csvFile = verificationCsvInput.files && verificationCsvInput.files[0];
-      const csvNames = csvFile
-        ? ClientVerification.parseCsvNames(await readTextFile(csvFile))
+      const csvClients = csvFile
+        ? ClientVerification.parseCsvClients(await readTextFile(csvFile))
         : [];
-      const typedNames = ClientVerification.parseDelimitedNames(bulkNamesInput.value);
-      const combined = [...typedNames, ...csvNames];
+      const typedClients = ClientVerification.parseDelimitedClients(bulkNamesInput.value);
+      const combined = [...typedClients, ...csvClients];
       const seen = new Set();
-
-      return combined.filter((name) => {
-        const key = name.toLowerCase();
+      return combined.filter((c) => {
+        const key = c.name.toLowerCase();
         if (seen.has(key)) return false;
         seen.add(key);
         return true;
@@ -1222,19 +1399,20 @@
       managementStatus.textContent = "Generating verification codes…";
 
       try {
-        const names = await collectVerificationNames();
-        if (!names.length) {
-          managementStatus.textContent = "Add at least one client name via CSV or semicolon-separated text.";
+        const clients = await collectVerificationClients();
+        if (!clients.length) {
+          managementStatus.textContent = "Add at least one client via CSV or the text box above.";
           renderGeneratedCodesTable([]);
           return;
         }
 
         const rows = [];
-        for (const name of names) {
+        for (const client of clients) {
           const code = await generateUniqueClientCode();
           await db.collection("VerificationCodes").doc(code).set({
             code,
-            accountantSubmittedName: name,
+            accountantSubmittedName: client.name,
+            accountantSubmittedEmail: client.email || null,
             createdAt: firebase.firestore.FieldValue.serverTimestamp(),
             createdByUid: currentAccountant.uid,
             createdByEmail: currentAccountant.email || null,
@@ -1242,11 +1420,12 @@
             usedAt: null,
             verificationStatus: "available",
           }, { merge: true });
-          rows.push({ name, code, status: "Created" });
+          rows.push({ name: client.name, email: client.email || "", code, status: "Created" });
         }
 
         renderGeneratedCodesTable(rows);
-        managementStatus.textContent = "Generated " + rows.length + " verification code(s).";
+        managementStatus.textContent = "Generated " + rows.length + " code(s). Click ✉ Send to email each client.";
+        sendAllEmailsBtn._rows = rows;
       } catch (error) {
         console.error("Code generation error:", error);
         managementStatus.textContent = "Code generation failed: " + error.message;
@@ -1260,6 +1439,117 @@
       verificationCsvInput.value = "";
       managementStatus.textContent = "Generate verification codes for active clients here.";
       renderGeneratedCodesTable([]);
+      sendAllEmailsBtn.style.display = "none";
+      sendAllEmailsBtn._rows = [];
+    }
+
+    async function loadAllCodes() {
+      if (!currentAccountant) { allCodesStatus.textContent = "You must be signed in."; return; }
+      loadAllCodesBtn.disabled = true;
+      allCodesStatus.textContent = "Loading codes…";
+      try {
+        const snap = await db.collection("VerificationCodes").orderBy("createdAt", "desc").get();
+        const codes = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+        renderAllCodesTable(codes);
+        allCodesStatus.textContent = codes.length + " code(s) found.";
+        document.getElementById("allCodesWrap").style.display = "";
+      } catch (err) {
+        console.error("loadAllCodes error", err);
+        allCodesStatus.textContent = "Failed to load codes: " + err.message;
+      } finally {
+        loadAllCodesBtn.disabled = false;
+      }
+    }
+
+    function renderAllCodesTable(codes) {
+      if (!codes.length) {
+        allCodesTableBody.innerHTML = '<tr><td colspan="6" class="empty-cell">No codes found.</td></tr>';
+        return;
+      }
+      allCodesTableBody.innerHTML = codes.map((c) => {
+        const statusLabel = c.verificationStatus === "verified"
+          ? '<span style="color:var(--success-green);font-weight:600">Verified</span>'
+          : c.verificationStatus === "available"
+          ? '<span style="color:#888">Available</span>'
+          : escHtml(c.verificationStatus || "—");
+        const emailVal = c.accountantSubmittedEmail || "";
+        const emailCell = emailVal
+          ? '<a href="mailto:' + encodeURIComponent(emailVal) + '?subject=' + encodeURIComponent("Welcome to Express Accounts") + '&body=' + encodeURIComponent(buildEmailBody(c.accountantSubmittedName || "", c.code)) + '" style="color:var(--blue)">' + escHtml(emailVal) + '</a>'
+          : '<span style="color:#aaa">—</span>';
+        const remindBtn = emailVal
+          ? '<a href="' + buildReminderMailtoLink({ name: c.accountantSubmittedName || "", email: emailVal, code: c.code || c.id }) + '" class="btn-secondary" style="padding:5px 12px;font-size:0.82rem;border-radius:8px;text-decoration:none;display:inline-block;margin-right:6px">🔔 Remind</a>'
+          : "";
+        return (
+          "<tr>" +
+            "<td>" + escHtml(c.accountantSubmittedName || "—") + "</td>" +
+            "<td>" + emailCell + "</td>" +
+            "<td><strong>" + escHtml(c.code || c.id) + "</strong></td>" +
+            "<td>" + statusLabel + "</td>" +
+            "<td>" + escHtml(c.usedBy || "—") + "</td>" +
+            '<td style="white-space:nowrap">' + remindBtn + '<button class="btn-secondary" style="padding:5px 12px;font-size:0.82rem;border-radius:8px;color:#b42318;border-color:#f5c6c3" data-delete-code="' + escHtml(c.id) + '">Delete</button></td>' +
+          "</tr>"
+        );
+      }).join("");
+
+      allCodesTableBody.querySelectorAll("[data-delete-code]").forEach((btn) => {
+        btn.addEventListener("click", () => deleteCode(btn.dataset.deleteCode));
+      });
+    }
+
+    async function deleteCode(codeId) {
+      if (!confirm("Delete code " + codeId + "? This cannot be undone.")) return;
+      try {
+        const codeRef = db.collection("VerificationCodes").doc(codeId);
+        const codeSnap = await codeRef.get();
+
+        if (!codeSnap.exists) {
+          allCodesStatus.textContent = "Code " + codeId + " no longer exists.";
+          await loadAllCodes();
+          return;
+        }
+
+        const codeData = codeSnap.data() || {};
+        const usedBy = codeData.usedBy || null;
+
+        await codeRef.delete();
+
+        let revokedUser = false;
+        if (usedBy) {
+          const userRef = db.collection("users").doc(usedBy);
+          await db.runTransaction(async (tx) => {
+            const userSnap = await tx.get(userRef);
+            if (!userSnap.exists) return;
+
+            const userData = userSnap.data() || {};
+            const linkedCode = String(userData.verificationCode || "");
+            if (linkedCode !== String(codeId)) {
+              return;
+            }
+
+            revokedUser = true;
+            tx.set(
+              userRef,
+              {
+                verificationStatus: firebase.firestore.FieldValue.delete(),
+                verifiedName: firebase.firestore.FieldValue.delete(),
+                verificationCode: firebase.firestore.FieldValue.delete(),
+                hideAds: false,
+                verificationRevokedAt: firebase.firestore.FieldValue.serverTimestamp(),
+                verificationRevokedReason: "code_deleted_by_accountant",
+                updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
+              },
+              { merge: true }
+            );
+          });
+        }
+
+        allCodesStatus.textContent = revokedUser
+          ? "Deleted code " + codeId + " and removed linked user verification."
+          : "Deleted code " + codeId + ".";
+        await loadAllCodes();
+      } catch (err) {
+        allCodesStatus.textContent = "Delete failed: " + err.message;
+      }
     }
 
     function openDateModal(user) {
@@ -1489,7 +1779,7 @@
           statement.statementEndDate || statement.date || "",
           entry.category || "Uncategorized",
           entry.vendor || "Unknown vendor",
-          toMoney(entry.total || 0),
+          toMoney((entry.moneyOut || 0) + (entry.moneyIn || 0)),
           entry.count != null ? String(entry.count) : "",
         ]);
       });
@@ -1600,106 +1890,15 @@
       loginBtn.disabled = true;
       loginError.textContent = "Signing in...";
       try {
+        justLoggedIn = true;
         await auth.signInWithEmailAndPassword(email, password);
         loginError.textContent = "";
       } catch (error) {
-        console.log("Sign-in error code:", error.code, "| resolver:", error.resolver);
-        if (error.code === "auth/multi-factor-auth-required") {
-          loginError.textContent = "";
-          loginBtn.disabled = false;
-          await initiateSmsStep(error.resolver);
-          return;
-        }
+        justLoggedIn = false;
         loginError.textContent = "Login failed: " + error.message;
       } finally {
         loginBtn.disabled = false;
       }
-    }
-
-    async function initiateSmsStep(resolver) {
-      _mfaResolver = resolver;
-
-      // Destroy any previous reCAPTCHA instance before creating a new one
-      if (_recaptchaVerifier) {
-        try { _recaptchaVerifier.clear(); } catch (_) {}
-        _recaptchaVerifier = null;
-      }
-
-      _recaptchaVerifier = new firebase.auth.RecaptchaVerifier("recaptcha-container", {
-        size: "invisible",
-      });
-
-      // Specifically find the phone (SMS) hint — ignore any TOTP/app-based factors
-      const hint = resolver.hints.find(h => h.factorId === "phone") || resolver.hints[0];
-      const maskedPhone = (hint && hint.phoneNumber) ? hint.phoneNumber : "your registered number";
-
-      smsPhoneHint.textContent = "Sending a verification code to " + maskedPhone + "…";
-      smsError.textContent = "";
-      smsCodeInput.value = "";
-
-      loginFormBody.style.display = "none";
-      smsStep.style.display = "block";
-      verifyBtn.disabled = true;
-
-      try {
-        const phoneAuthProvider = new firebase.auth.PhoneAuthProvider();
-        _verificationId = await phoneAuthProvider.verifyPhoneNumber(
-          { multiFactorHint: hint, session: resolver.session },
-          _recaptchaVerifier
-        );
-        smsPhoneHint.textContent = "A 6-digit code has been sent to " + maskedPhone + ". Enter it below.";
-        verifyBtn.disabled = false;
-        smsCodeInput.focus();
-      } catch (err) {
-        console.error("SMS send failed:", err);
-        smsError.textContent = "Could not send verification code. Please go back and try again.";
-      }
-    }
-
-    async function verifySmsCode() {
-      const code = smsCodeInput.value.trim();
-      if (code.length < 6) {
-        smsError.textContent = "Please enter the full 6-digit code.";
-        return;
-      }
-      if (!_verificationId || !_mfaResolver) {
-        smsError.textContent = "Session expired — please go back and sign in again.";
-        resetSmsStep();
-        return;
-      }
-
-      verifyBtn.disabled = true;
-      smsError.textContent = "Verifying…";
-      try {
-        const credential = firebase.auth.PhoneAuthProvider.credential(_verificationId, code);
-        const multiFactorAssertion = firebase.auth.PhoneMultiFactorGenerator.assertion(credential);
-        await _mfaResolver.resolveSignIn(multiFactorAssertion);
-        smsError.textContent = "";
-        // onAuthStateChanged will now fire and call startAuthenticatedSession
-      } catch (err) {
-        console.error("MFA verify failed:", err);
-        let msg = "Verification failed. Please check the code and try again.";
-        if (err.code === "auth/invalid-verification-code") {
-          msg = "That code is incorrect. Please check your SMS and try again.";
-        } else if (err.code === "auth/code-expired") {
-          msg = "The code has expired. Use the Resend button to get a new one.";
-        }
-        smsError.textContent = msg;
-        verifyBtn.disabled = false;
-      }
-    }
-
-    function resetSmsStep() {
-      smsStep.style.display = "none";
-      loginFormBody.style.display = "block";
-      _mfaResolver = null;
-      _verificationId = null;
-      if (_recaptchaVerifier) {
-        try { _recaptchaVerifier.clear(); } catch (_) {}
-        _recaptchaVerifier = null;
-      }
-      smsCodeInput.value = "";
-      smsError.textContent = "";
     }
 
     async function startAuthenticatedSession(user) {
@@ -1726,15 +1925,18 @@
         ? "Signed in as " + user.email + " | Previous login: " + previousLoginDate.toLocaleString()
         : "Signed in as " + user.email + " | First portal login";
 
+      startInactivityTimer();
       setActiveTab(currentTab);
       await reloadAndRenderBoard();
     }
 
     function resetToLoginScreen() {
+      cleanUpChallenge();
+      stopInactivityTimer();
       dashboardSection.style.display = "none";
+      twoFactorSection.style.display = "none";
       loginSection.style.display = "block";
       passwordInput.value = "";
-      resetSmsStep();
       statusLine.textContent = "Select a client tile to export receipt, income, and bank statement data.";
       closeDateModal();
       liveUsers = [];
@@ -1747,14 +1949,6 @@
     }
 
     loginBtn.addEventListener("click", attemptLogin);
-    verifyBtn.addEventListener("click", verifySmsCode);
-    smsBackBtn.addEventListener("click", resetSmsStep);
-    resendSmsBtn.addEventListener("click", () => {
-      if (_mfaResolver) initiateSmsStep(_mfaResolver);
-    });
-    smsCodeInput.addEventListener("keydown", (event) => {
-      if (event.key === "Enter") verifySmsCode();
-    });
     emailInput.addEventListener("keydown", (event) => {
       if (event.key === "Enter") attemptLogin();
     });
@@ -1770,7 +1964,9 @@
     activityTabBtn.addEventListener("click", () => setActiveTab("activity"));
     managementTabBtn.addEventListener("click", () => setActiveTab("management"));
     generateCodesBtn.addEventListener("click", generateVerificationCodes);
+    sendAllEmailsBtn.addEventListener("click", () => sendAllEmails(sendAllEmailsBtn._rows || []));
     clearManagementBtn.addEventListener("click", clearManagementInputs);
+    loadAllCodesBtn.addEventListener("click", loadAllCodes);
 
     cancelDateBtn.addEventListener("click", closeDateModal);
     resetNotifyBtn.addEventListener("click", async () => {
@@ -1809,6 +2005,7 @@
         resetToLoginScreen();
         return;
       }
+      justLoggedIn = false;
       loginError.textContent = "";
       updateStatusFilterButtonState();
       await startAuthenticatedSession(user);

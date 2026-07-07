@@ -35,7 +35,7 @@ export const months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "
 export const categories_meta = [
   {
     name: "Fuel",
-    meta: ["fuel", "filling", "petrol", "diesel", "unleaded", "pump", "gas station", "shell", "bp", "texaco", "applegreen"],
+    meta: ["fuel", "petrol", "diesel", "unleaded", "pump", "gas station", "shell", "bp", "texaco", "applegreen"],
     vatRate: 20,
   },
   {
@@ -50,20 +50,25 @@ export const categories_meta = [
   },
   {
     name: "Travel (bus, train, taxi)",
-    meta: ["rail", "train", "fare", "ticket", "single", "return", "zone", "tfl", "taxi", "uber", "bolt", "tube", "underground", "bus", "ferry"],
+    meta: ["rail", "railway", "train", "fare", "ticket", "eticket", "single", "return", "zone", "tfl", "taxi", "uber", "uberx", "ubereats", "bolt", "tube", "underground", "bus", "ferry"],
     vatRate: 0,
   },
   {
     name: "Accommodation",
-    meta: ["hotel", "inn", "travelodge", "premier inn", "airbnb", "stay", "lodging", "booking.com"],
+    meta: ["hotel", "inn", "travelodge", "premier inn", "airbnb", "stay", "lodging", "booking.com", "bed & breakfast", "b&b", "arrival", "departure", "room rate", "check-in", "check out", "hilton"],
     vatRate: 20,
   },
   {
     name: "Subsistence",
     meta: [
-      "cafe", "restaurant", "bar", "olive", "hungry", "coffee", "americano",
-      "latte", "cappacino", "steak", "peppercorn", "sirloin", "pizza", "meat",
-      "eat", "takeaway", "food", "burger", "lunch", "meal", "greggs", "mcdonalds"
+      "cafe", "restaurant", "bar", "pub", "bistro", "grill", "deli", "bakery", "brasserie",
+      "olive", "hungry", "coffee", "americano", "latte", "cappacino",
+      "steak", "peppercorn", "sirloin", "pizza", "meat",
+      "eat", "takeaway", "food", "burger", "lunch", "meal", "greggs", "mcdonalds",
+      "tesco", "asda", "sainsburys", "waitrose", "aldi", "lidl", "harrods",
+      "cake", "cookie", "biscuit", "chocolate", "donut", "snack",
+      "beer", "ale", "lager", "cola", "jelly", "confect",
+      "lebanese", "chinese", "indian", "thai", "italian"
     ],
     vatRate: 20,
   },
@@ -82,8 +87,8 @@ export const categories_meta = [
     meta: [
       "nail", "screw", "consumable", "paint", "cement", "wood", "metal", "plastic", 
       "slate", "stone", "sand", "B&Q", "lamanate", "floor", "deck", "plaster", 
-      "glue", "adhesive", "nuts", "bolts", "washer", "carpet", "timber", "brick", 
-      "phc", "wickes", "lbs", "travis perkins", "plumbpoint", "screwfix", "trade uk", 
+      "glue", "adhesive", "bolts", "washer", "carpet", "timber", "brick", 
+      "phc", "wickes", "travis perkins", "plumbpoint", "screwfix", "trade uk", 
       "howdens", "lliw", "plumbfix", "ja daly", "national plastics", "toolstation", "total plumbing"
     ],
     vatRate: 20,
@@ -115,7 +120,7 @@ export const categories_meta = [
   },
   {
     name: "Software",
-    meta: ["virus", "microsoft", "email", "website", "domain", "hosting", "saas", "adobe", "subscription", "cloud"],
+    meta: ["virus", "microsoft", "email", "website", "domain", "hosting", "saas", "adobe", "subscription", "cloud", "apple.com", "icloud", "ipad", "iphone", "itunes", "app store", "appstore", "google play"],
     vatRate: 20,
   },
   {

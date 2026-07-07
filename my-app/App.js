@@ -1,10 +1,11 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import { NavigationContainer } from "@react-navigation/native";
 import { createStackNavigator } from "@react-navigation/stack";
-import { createBottomTabNavigator } from "@react-navigation/bottom-tabs";
-import { View, Text, TouchableOpacity, StyleSheet, Platform, Alert } from "react-native";
+import { createMaterialTopTabNavigator } from "@react-navigation/material-top-tabs";
+import { View, Text, TouchableOpacity, StyleSheet, Platform, Alert, Modal, Image, Animated } from "react-native";
+import * as SplashScreen from 'expo-splash-screen';
 import { onAuthStateChanged, reload, sendEmailVerification, signOut } from "firebase/auth";
-import { doc, serverTimestamp, setDoc } from "firebase/firestore";
+import { doc, serverTimestamp, setDoc, collection, query, where, onSnapshot, updateDoc } from "firebase/firestore";
 import { Ionicons } from "@expo/vector-icons";
 import { auth, db } from "./firebaseConfig";
 import SignUpScreen from "./screens/Register";
@@ -19,16 +20,21 @@ import IncomeAdd from "./screens/IncomeAdd";
 import IncomeEdit from "./screens/IncomeEdit";
 import BankStatementAdd from "./screens/BankStatementAdd";
 import BankStatementEdit from "./screens/BankStatementEdit";
+import MileageAdd from "./screens/MileageAdd";
+import MileageEdit from "./screens/MileageEdit";
 import SummaryScreen from "./screens/SummaryScreen";
 import * as WebBrowser from "expo-web-browser";
 import { MD3LightTheme, PaperProvider } from 'react-native-paper';
 import { useSafeAreaInsets, SafeAreaProvider } from 'react-native-safe-area-context';
 import { ensureHapticsDefaultEnabled } from "./utils/haptics";
+import { DataProvider } from "./contexts/DataContext";
 
 WebBrowser.maybeCompleteAuthSession();
 
+SplashScreen.preventAutoHideAsync().catch(() => {});
+
 const Stack = createStackNavigator();
-const Tab = createBottomTabNavigator();
+const Tab = createMaterialTopTabNavigator();
 
 // Create a custom theme based on the Light Theme
 const theme = {
@@ -51,7 +57,7 @@ function isPasswordProviderUser(user) {
   return Boolean(user?.providerData?.some((provider) => provider?.providerId === "password"));
 }
 
-function VerifyEmailGate({ onRefreshAuth }) {
+function VerifyEmailGate({ onRefreshAuth, onLogout, email }) {
   const [busy, setBusy] = useState(false);
 
   const resendVerification = async () => {
@@ -105,6 +111,11 @@ function VerifyEmailGate({ onRefreshAuth }) {
     <View style={styles.verifyContainer}>
       <View style={styles.verifyCard}>
         <Text style={styles.verifyTitle}>Verify Your Email</Text>
+        {email ? (
+          <Text style={[styles.verifyText, { fontWeight: "600", marginBottom: 4 }]}>
+            Email sent to: {email}
+          </Text>
+        ) : null}
         <Text style={styles.verifyText}>
           Please verify your email address to enable the app.
         </Text>
@@ -128,7 +139,7 @@ function VerifyEmailGate({ onRefreshAuth }) {
         <TouchableOpacity
           disabled={busy}
           style={[styles.verifyPrimaryButton, styles.verifyLogoutButton]}
-          onPress={() => signOut(auth).catch(console.error)}
+          onPress={onLogout}
         >
           <Text style={styles.verifyPrimaryText}>Log Out</Text>
         </TouchableOpacity>
@@ -198,13 +209,7 @@ function CustomTabBar({ state, descriptors, navigation }) {
         );
       })}
 
-      {/* Floating Add Button */}
-      {/* <TouchableOpacity
-        style={styles.floatingButton}
-        onPress={() => navigation.navigate("Receipt")}
-      >
-        <Text style={styles.plusText}>+</Text>
-      </TouchableOpacity> */}
+
     </View>
   );
 }
@@ -213,34 +218,34 @@ function CustomTabBar({ state, descriptors, navigation }) {
 function AppTabs() {
   return (
     <Tab.Navigator
-      tabBar={(props) => <CustomTabBar {...props} />}
-      screenOptions={{
-        headerShown: false,
-        // Disable swipe gestures when a modal is open
-        swipeEnabled: !modalOpen,
-      }}
-    >
-      <Tab.Screen
-        name="Expenses"
-        component={ExpensesScreen}
-        options={{ tabBarLabel: "Receipts" }}
-      />
-      <Tab.Screen
-        name="Income"
-        component={IncomeScreen}
-        options={{ tabBarLabel: "Income" }}
-      />
-      <Tab.Screen
-        name="BankStatements"
-        component={BankStatementList}
-        options={{ tabBarLabel: "Bank" }}
-      />
-      <Tab.Screen
-        name="Summary"
-        component={SummaryScreen}
-        options={{ tabBarLabel: "Summary" }}
-      />
-    </Tab.Navigator>
+        tabBar={(props) => <CustomTabBar {...props} />}
+        tabBarPosition="bottom"
+        screenOptions={{
+          headerShown: false,
+          swipeEnabled: true,
+        }}
+      >
+        <Tab.Screen
+          name="Expenses"
+          component={ExpensesScreen}
+          options={{ tabBarLabel: "Expenses" }}
+        />
+        <Tab.Screen
+          name="Income"
+          component={IncomeScreen}
+          options={{ tabBarLabel: "Income" }}
+        />
+        <Tab.Screen
+          name="BankStatements"
+          component={BankStatementList}
+          options={{ tabBarLabel: "Bank" }}
+        />
+        <Tab.Screen
+          name="Summary"
+          component={SummaryScreen}
+          options={{ tabBarLabel: "Summary" }}
+        />
+      </Tab.Navigator>
   );
 }
 
@@ -249,6 +254,18 @@ export default function App() {
   const [user, setUser] = useState(null);
   const [checkingAuth, setCheckingAuth] = useState(true);
   const [authRefreshTick, setAuthRefreshTick] = useState(0);
+  const [pendingChallenge, setPendingChallenge] = useState(null);
+  const [welcomeVisible, setWelcomeVisible] = useState(false);
+  const welcomeOpacity = useRef(new Animated.Value(1)).current;
+  const navigationRef = useRef(null);
+
+  const handleChallengeResponse = async (challengeId, status) => {
+    try {
+      await updateDoc(doc(db, "twoFactorChallenges", challengeId), { status });
+    } catch (error) {
+      console.error("Could not respond to 2FA challenge", error);
+    }
+  };
 
   useEffect(() => {
     ensureHapticsDefaultEnabled().catch((error) => {
@@ -279,6 +296,51 @@ export default function App() {
     return unsubscribe;
   }, []);
 
+  useEffect(() => {
+    if (checkingAuth) return;
+    const run = async () => {
+      if (user) {
+        setWelcomeVisible(true);
+        await SplashScreen.hideAsync().catch(() => {});
+
+        // Fade out after 1.5s
+        setTimeout(() => {
+          Animated.timing(welcomeOpacity, {
+            toValue: 0,
+            duration: 400,
+            useNativeDriver: true,
+          }).start(() => setWelcomeVisible(false));
+        }, 1500);
+      } else {
+        await SplashScreen.hideAsync().catch(() => {});
+      }
+    };
+    run();
+  }, [checkingAuth]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Listen for pending 2FA challenges created from the web portal
+  useEffect(() => {
+    if (!user) {
+      setPendingChallenge(null);
+      return;
+    }
+    const now = new Date();
+    const challengesQuery = query(
+      collection(db, "twoFactorChallenges"),
+      where("userId", "==", user.uid),
+      where("status", "==", "pending")
+    );
+    const unsubscribe = onSnapshot(challengesQuery, (snapshot) => {
+      const valid = snapshot.docs
+        .map((d) => ({ id: d.id, ...d.data() }))
+        .filter((c) => c.expiresAt && c.expiresAt.toDate() > new Date());
+      setPendingChallenge(valid.length > 0 ? valid[0] : null);
+    }, (error) => {
+      console.warn("Could not listen for 2FA challenges", error);
+    });
+    return unsubscribe;
+  }, [user]);
+
   if (checkingAuth) return null;
 
   const activeUser = auth.currentUser || user;
@@ -290,7 +352,8 @@ export default function App() {
   return (
     /* Wrap everything in PaperProvider to fix the text color issue */
     <PaperProvider theme={theme}>
-      <NavigationContainer>
+      <DataProvider>
+      <NavigationContainer ref={navigationRef}>
         <Stack.Navigator
           initialRouteName={activeUser ? "MainTabs" : "SignIn"}
           screenOptions={{ headerShown: false }}
@@ -302,6 +365,15 @@ export default function App() {
               requiresEmailVerification ? (
                 <VerifyEmailGate
                   onRefreshAuth={() => setAuthRefreshTick((current) => current + 1)}
+                  onLogout={async () => {
+                    try {
+                      await signOut(auth);
+                      navigationRef.current?.reset({ index: 0, routes: [{ name: "SignIn" }] });
+                    } catch (error) {
+                      console.error("Could not sign out", error);
+                    }
+                  }}
+                  email={activeUser?.email}
                 />
               ) : (
                 <AppTabs key={`tabs-${authRefreshTick}`} />
@@ -315,27 +387,84 @@ export default function App() {
           <Stack.Screen name="IncomeDetails" component={IncomeEdit} />
           <Stack.Screen name="BankStatement" component={BankStatementAdd} />
           <Stack.Screen name="BankStatementDetails" component={BankStatementEdit} />
+          <Stack.Screen name="MileageRecord" component={MileageAdd} />
+          <Stack.Screen name="MileageDetails" component={MileageEdit} />
         </Stack.Navigator>
       </NavigationContainer>
+      </DataProvider>
+
+      <Modal visible={!!pendingChallenge} transparent animationType="fade">        <View style={styles.twoFactorOverlay}>
+          <View style={styles.twoFactorCard}>
+            <Text style={styles.twoFactorTitle}>Login Request</Text>
+            <Text style={styles.twoFactorText}>
+              Someone is trying to sign in to the accountant portal using your account.
+            </Text>
+            {pendingChallenge?.deviceInfo ? (
+              <Text style={styles.twoFactorDevice} numberOfLines={3}>
+                {pendingChallenge.deviceInfo}
+              </Text>
+            ) : null}
+            <Text style={styles.twoFactorPrompt}>Was this you?</Text>
+            <View style={styles.twoFactorActions}>
+              <TouchableOpacity
+                style={[styles.twoFactorButton, styles.twoFactorApprove]}
+                onPress={() => handleChallengeResponse(pendingChallenge.id, "approved")}
+              >
+                <Text style={styles.twoFactorButtonText}>Approve</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[styles.twoFactorButton, styles.twoFactorDeny]}
+                onPress={() => handleChallengeResponse(pendingChallenge.id, "denied")}
+              >
+                <Text style={styles.twoFactorButtonText}>Deny</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
+
+      {welcomeVisible && (
+        <Animated.View
+          style={[StyleSheet.absoluteFill, styles.welcomeSplash, { opacity: welcomeOpacity }]}
+          pointerEvents="none"
+        >
+          <Image
+            source={require('./assets/splash-icon.png')}
+            style={styles.welcomeLogo}
+            resizeMode="contain"
+          />
+          <Text style={styles.welcomeNameText}>
+            Welcome, {user?.displayName || 'back'}!
+          </Text>
+        </Animated.View>
+      )}
     </PaperProvider>
   );
 }
 
 // ---------------- Styles ----------------
 const styles = StyleSheet.create({
+  // For the tab navigation panel at the bottom of the screen ------------------
+
+  // The small space between the top of the tabs and the main space 
+
   tabBar: {
     flexDirection: "row",
     // height: 70,
-    backgroundColor: "#B5B3C6",
+    backgroundColor: "#ffffff",
+    borderTopWidth: 2,
+    borderTopColor: "#a60d49",
     alignItems: "center",
     justifyContent: "space-around",
     paddingBottom: Platform.OS === 'android' ? 60 : 0,
     paddingTop: 8,
   },
-  tabItem: { flex: 1, alignItems: "center", paddingVertical: 2 },
-  tabText: { color: "#7B7B7B", fontSize: 14 },
-  activeTab: { fontWeight: "bold", color: "#1C1C4E" },
+  tabItem: { flex: 1, alignItems: "center", paddingHorizontal: 2 },
+  tabText: { color: "#d31717", fontSize: 14 },
+  activeTab: { fontWeight: "bold", color: "#b64490" },
   tabIcon: { marginTop: 2 },
+
+  // Verification workflow --------------------------
   verifyContainer: {
     flex: 1,
     backgroundColor: "rgba(0,0,0,0.45)",
@@ -386,22 +515,90 @@ const styles = StyleSheet.create({
     color: "#a60d49",
     fontWeight: "700",
   },
-  floatingButton: {
-    position: "absolute",
-    bottom: 20,
-    alignSelf: "center",
-    backgroundColor: "#a60d49",
-    width: 60,
-    height: 60,
-    borderRadius: 30,
-    justifyContent: "center",
+
+
+  twoFactorOverlay: {
+    flex: 1,
+    backgroundColor: "rgba(0,0,0,0.6)",
     alignItems: "center",
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.3,
-    shadowRadius: 5,
-    elevation: 5,
-    zIndex: 10,
+    justifyContent: "center",
+    paddingHorizontal: 20,
   },
-  plusText: { color: "#fff", fontSize: 32, fontWeight: "bold" },
+  twoFactorCard: {
+    width: "90%",
+    maxWidth: 420,
+    backgroundColor: "#fff",
+    borderRadius: 20,
+    padding: 24,
+    alignItems: "center",
+  },
+  twoFactorTitle: {
+    fontSize: 20,
+    fontWeight: "800",
+    color: "#1C1C4E",
+    marginBottom: 10,
+  },
+  twoFactorText: {
+    fontSize: 15,
+    color: "#333",
+    textAlign: "center",
+    marginBottom: 12,
+  },
+  twoFactorDevice: {
+    fontSize: 12,
+    color: "#666",
+    textAlign: "center",
+    marginBottom: 12,
+    fontFamily: Platform.OS === "ios" ? "Menlo" : "monospace",
+  },
+  twoFactorPrompt: {
+    fontSize: 16,
+    fontWeight: "700",
+    color: "#1C1C4E",
+    marginBottom: 16,
+  },
+  twoFactorActions: {
+    flexDirection: "row",
+    gap: 12,
+    width: "100%",
+  },
+  twoFactorButton: {
+    flex: 1,
+    borderRadius: 24,
+    paddingVertical: 13,
+    alignItems: "center",
+  },
+  twoFactorApprove: {
+    backgroundColor: "#1f7a3f",
+  },
+  twoFactorDeny: {
+    backgroundColor: "#b42318",
+  },
+  twoFactorButtonText: {
+    color: "#fff",
+    fontWeight: "700",
+    fontSize: 15,
+  },
+
+  welcomeSplash: {
+    backgroundColor: '#ffffff',
+    alignItems: 'center',
+    justifyContent: 'center',
+    zIndex: 9999,
+  },
+
+  // Welcome screen logo and text
+  welcomeLogo: {
+    width: 280,
+    height: 280,
+    marginBottom: 24,
+  },
+
+  welcomeNameText: {
+    fontSize: 22,
+    fontWeight: '600',
+    color: '#302C66',
+  },
+
+
 });

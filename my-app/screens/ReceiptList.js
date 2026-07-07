@@ -12,6 +12,7 @@ import {
   Alert,
   Linking,
   Switch,
+  Image,
 } from "react-native";
 import { signOut, deleteUser, updateProfile } from "firebase/auth";
 import {
@@ -50,9 +51,12 @@ import {
   setHapticsEnabled,
   triggerHaptic,
 } from "../utils/haptics";
-import { getReceiptFilterKey, setReceiptFilterKey } from "../utils/appSettings";
+import { getReceiptFilterKey, setReceiptFilterKey, setAllFilterKeys, getVehicles } from "../utils/appSettings";
 import { verifyClientCode } from "../utils/verificationCodes";
-import { useTabSwipeNavigation } from "../utils/tabSwipeNavigation";
+import AddReceiptSheet from "../components/AddReceiptSheet";
+import RegisterVehicleModal from "../components/RegisterVehicleModal";
+import YourVehiclesModal from "../components/YourVehiclesModal";
+import { useData } from "../contexts/DataContext";
 
 // Inside your component
 const appVersion = appPackage?.version || Constants.expoConfig?.version || "unknown";
@@ -60,14 +64,18 @@ const internalBuildLabel = Constants.expoConfig?.extra?.internalBuildLabel || ""
 const versionLabel = internalBuildLabel ? `${appVersion} (${internalBuildLabel})` : appVersion;
 
 const ExpensesScreen = ({ navigation, route }) => {
+  const { receipts, initialLoading: dataLoading } = useData();
   const [displayName, setDisplayName] = useState("User");
   const [verifiedName, setVerifiedName] = useState("");
   const [verificationStatus, setVerificationStatus] = useState("");
-  const [receipts, setReceipts] = useState([]);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(false);
   const [loadingText, setLoadingText] = useState(null);
   const [refreshing, setRefreshing] = useState(false);
+  const [addSheetVisible, setAddSheetVisible] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
+  const [vehicles, setVehicles] = useState([]);
+  const [registerVehicleOpen, setRegisterVehicleOpen] = useState(false);
+  const [yourVehiclesOpen, setYourVehiclesOpen] = useState(false);
 
   // --- sorting state ---
   const [sortKey, setSortKey] = useState("date"); // "date" | "amount" | "category"
@@ -91,7 +99,6 @@ const ExpensesScreen = ({ navigation, route }) => {
   const [nameChangeModalVisible, setNameChangeModalVisible] = useState(false);
   const [newName, setNewName] = useState(displayName);
   const [federatedPromptMode, setFederatedPromptMode] = useState(false);
-  const swipeResponder = useTabSwipeNavigation(navigation, "Expenses");
 
   const handleSendFeedback = async () => {
   // 1. Validation
@@ -294,6 +301,8 @@ const ExpensesScreen = ({ navigation, route }) => {
     getReceiptFilterKey()
       .then(setActiveFilterKey)
       .catch(() => setActiveFilterKey("current-quarter"));
+
+    getVehicles().then(setVehicles).catch(() => {});
   }, []);
 
   useEffect(() => {
@@ -301,6 +310,8 @@ const ExpensesScreen = ({ navigation, route }) => {
       getReceiptFilterKey()
         .then(setActiveFilterKey)
         .catch(() => setActiveFilterKey("current-quarter"));
+
+      getVehicles().then(setVehicles).catch(() => {});
     });
 
     return unsubscribeFocus;
@@ -321,7 +332,7 @@ const ExpensesScreen = ({ navigation, route }) => {
     const checkItemTipStatus = async () => {
       const user = auth.currentUser;
       // Condition: 1 receipt exactly + not loading
-      if (user && !loading && sortedReceipts.length === 1) {
+      if (user && !loading && !dataLoading && sortedReceipts.length === 1) {
         try {
           const userRef = doc(db, "users", user.uid);
           const userSnap = await getDoc(userRef);
@@ -529,7 +540,7 @@ const ExpensesScreen = ({ navigation, route }) => {
   const handleFilterSelection = useCallback(
     async (nextKey) => {
       setActiveFilterKey(nextKey);
-      await setReceiptFilterKey(nextKey);
+      await setAllFilterKeys(nextKey);
     },
     []
   );
@@ -549,7 +560,6 @@ const ExpensesScreen = ({ navigation, route }) => {
     try {
       const user = auth.currentUser;
       if (!user) {
-        setReceipts([]);
         setDisplayName("User");
         setVerifiedName("");
         setVerificationStatus("");
@@ -567,31 +577,14 @@ const ExpensesScreen = ({ navigation, route }) => {
       const profileUpdate = { email: user.email, updatedAt: serverTimestamp() };
       if (user.displayName) profileUpdate.name = user.displayName;
       setDoc(userProfileRef, profileUpdate, { merge: true }).catch(() => {});
-
-
-      const q = query(
-        collection(db, "receipts"),
-        where("userId", "==", user.uid)
-      );
-      const querySnapshot = await getDocs(q);
-      const userReceipts = querySnapshot.docs.map((doc) => ({
-        id: doc.id,
-        ...doc.data(),
-      }));
-      setReceipts(userReceipts);
     } catch (err) {
       console.error("Error fetching receipts:", err);
     }
   }, []);
 
   useEffect(() => {
-    runWithLoading("Loading receipts…", fetchReceipts);
-
-    const unsubscribeFocus = navigation.addListener("focus", () => {
-      fetchReceipts().catch((e) => console.error("Refresh on focus failed", e));
-    });
-    return unsubscribeFocus;
-  }, [navigation, fetchReceipts]);
+    fetchReceipts().catch(console.error);
+  }, [fetchReceipts]);
 
   const onRefresh = useCallback(async () => {
     setRefreshing(true);
@@ -668,7 +661,9 @@ const ExpensesScreen = ({ navigation, route }) => {
         >
           <TouchableOpacity
             onPress={() =>
-              navigation.navigate("ReceiptDetails", { receipt: item })
+              item.type === "mileage"
+                ? navigation.navigate("MileageDetails", { item })
+                : navigation.navigate("ReceiptDetails", { receipt: item })
             }
             style={[styles.receiptItem, { width: "100%", marginBottom: 0 }]}
           >
@@ -677,7 +672,12 @@ const ExpensesScreen = ({ navigation, route }) => {
             </Text>
 
             <View style={{ flex: 1, alignItems: "flex-start", marginLeft: 25 }}>
-              {item.label ? (
+              {item.type === "mileage" ? (
+                <Text style={styles.receiptLabel} numberOfLines={1}>
+                  🚗 {item.mileageDetails?.vehicleReg || "Mileage"}
+                  {item.mileageDetails?.distance ? `  ·  ${item.mileageDetails.distance} mi` : ""}
+                </Text>
+              ) : item.label ? (
                 <Text
                   style={styles.receiptLabel}
                   numberOfLines={1}
@@ -710,26 +710,22 @@ const ExpensesScreen = ({ navigation, route }) => {
   };
 
   const renderEmptyState = () =>
-    loading ? null : (
+    dataLoading ? null : (
       <View style={styles.emptyState}>
-        <View style={styles.card}>
-          <Text style={styles.description}>
-            Click here to view a short video on how this app works
-          </Text>
-        </View>
         <TouchableOpacity
           style={styles.addButton}
-          onPress={() => navigation.navigate("Receipt")}
+          onPress={() => setAddSheetVisible(true)}
         >
-          <Text style={styles.buttonText}>Add Expenses</Text>
+          <Text style={styles.buttonText}>Add Receipts</Text>
         </TouchableOpacity>
       </View>
     );
 
-  const hasReceipts = !loading && sortedReceipts.length > 0;
+  const hasReceipts = !dataLoading && !loading && sortedReceipts.length > 0;
 
   return (
-    <SafeAreaView style={styles.container} {...swipeResponder.panHandlers}>
+    <SafeAreaView style={[styles.container, { backgroundColor: '#1C1C4E' }]}>
+      <StatusBar backgroundColor="#1C1C4E" barStyle="light-content" />
       {/* Top App Bar */}
       <View style={[styles.topBar, { paddingTop: 5 }]}>
         <TouchableOpacity
@@ -746,52 +742,74 @@ const ExpensesScreen = ({ navigation, route }) => {
       </View>
 
       <View style={styles.content}>
-        <View style={styles.card}>
-          <Text style={styles.title}>Welcome, {displayName}!</Text>
-          {loading ? null : sortedReceipts.length === 0 ? (
-            <Text style={styles.subtitle}>
-              You haven't added any expenses yet!
-            </Text>
-          ) : (
-            <Text style={styles.subtitle}>Your receipts are shown below:</Text>
-          )}
-        </View>
 
         {/* Header row OUTSIDE the FlatList to avoid Android sticky bug */}
         {hasReceipts ? (
-          <View style={{ marginTop: 28, marginBottom: 8 }}>
+          <View style={{ marginTop: 12, marginBottom: 8 }}>
             {renderHeaderRow()}
           </View>
         ) : null}
 
         <FlatList
-          ListEmptyComponent={!loading ? renderEmptyState : null}
-          data={loading ? [] : sortedReceipts}
+          ListEmptyComponent={(!dataLoading && !loading) ? renderEmptyState : null}
+          data={(loading || dataLoading) ? [] : sortedReceipts}
           keyExtractor={(item) => item.id}
           renderItem={renderReceiptItem}
           contentContainerStyle={[
-            // REMOVE styles.listContainer and the backgroundColor logic here
             { paddingVertical: 10 },
-            !hasReceipts ? { flexGrow: 1, justifyContent: "center" } : null,
+            !hasReceipts ? { flexGrow: 1, justifyContent: "center" } : { paddingBottom: 110 },
           ]}
           refreshControl={
             <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
           }
         />
 
-        {/* REMOVE the ItemTooltip from here (the bottom of your file) */}
       </View>
 
+      {/* Period filter bar — sits just above the bottom tab bar */}
+      {!dataLoading && !loading && filterOptions.length > 0 ? (
+        <View style={styles.filterBar}>
+          <DropDownPicker
+            open={filterOpen}
+            value={activeFilterKey}
+            items={filterItems}
+            setOpen={setFilterOpen}
+            setValue={(callback) => {
+              const nextKey = callback(activeFilterKey);
+              handleFilterSelection(nextKey).catch(() => {});
+              return nextKey;
+            }}
+            setItems={setFilterItems}
+            listMode="SCROLLVIEW"
+            dropDownDirection="TOP"
+            style={styles.filterDropdown}
+            dropDownContainerStyle={styles.filterDropdownContainer}
+            zIndex={3000}
+            zIndexInverse={1000}
+          />
+        </View>
+      ) : null}
+
       {/* Floating Add Expenses Button */}
-      <TouchableOpacity
-        style={styles.floatingButton}
-        onPress={() => navigation.navigate("Receipt")}
-      >
-        <Text style={styles.floatingButtonText}>+</Text>
-      </TouchableOpacity>
+      {!addSheetVisible && (
+        <TouchableOpacity
+          style={styles.floatingButton}
+          onPress={() => setAddSheetVisible(true)}
+        >
+          <Text style={styles.floatingButtonText}>+</Text>
+        </TouchableOpacity>
+      )}
+
+      <AddReceiptSheet
+        visible={addSheetVisible}
+        onClose={() => setAddSheetVisible(false)}
+        navigation={navigation}
+        itemLabel="receipt"
+        vehicles={vehicles}
+      />
 
       {/* Full-screen loading overlay */}
-      {loading && (
+      {(loading || dataLoading) && (
         <View style={styles.blockingOverlay} pointerEvents="auto">
           <View style={styles.loadingCard}>
             <ActivityIndicator size="large" />
@@ -829,9 +847,11 @@ const ExpensesScreen = ({ navigation, route }) => {
           </View>
 
           {/* Settings Button */}
-          <TouchableOpacity onPress={handleOpenSettings} style={styles.settingsMenuBtn}>
-            <Text style={styles.settingsMenuBtnText}>Settings</Text>
-          </TouchableOpacity>
+          <Image
+            source={require("../assets/images/logo.png")}
+            style={styles.menuLogo}
+            resizeMode="contain"
+          />
 
           {/* Middle Section: Notify Accountant */}
           <View style={{ marginTop: 20 }}>
@@ -855,15 +875,31 @@ const ExpensesScreen = ({ navigation, route }) => {
           </View>
 
           <View style={{ marginTop: 6 }}>
-            <TouchableOpacity onPress={handleIdPlaceholder} style={styles.secondaryMenuButton}>
-              <Text style={styles.secondaryMenuButtonText}>Add ID Image</Text>
+            <TouchableOpacity
+              onPress={() => { closeMenu(); setRegisterVehicleOpen(true); }}
+              style={styles.secondaryMenuButton}
+            >
+              <Text style={styles.secondaryMenuButtonText}>🚗  Register Vehicle</Text>
+            </TouchableOpacity>
+
+            {vehicles.length > 0 && (
+              <TouchableOpacity
+                onPress={() => { closeMenu(); setYourVehiclesOpen(true); }}
+                style={[styles.secondaryMenuButton, { marginTop: 10 }]}
+              >
+                <Text style={styles.secondaryMenuButtonText}>📋  Your Vehicles</Text>
+              </TouchableOpacity>
+            )}
+
+            <TouchableOpacity disabled style={[styles.secondaryMenuButton, styles.disabledMenuButton, { marginTop: 10 }]}>
+              <Text style={[styles.secondaryMenuButtonText, styles.disabledMenuButtonText]}>Add ID Image</Text>
             </TouchableOpacity>
 
             <TouchableOpacity
-              onPress={handleAddressPlaceholder}
-              style={[styles.secondaryMenuButton, { marginTop: 10 }]}
+              disabled
+              style={[styles.secondaryMenuButton, styles.disabledMenuButton, { marginTop: 10 }]}
             >
-              <Text style={styles.secondaryMenuButtonText}>Add Address</Text>
+              <Text style={[styles.secondaryMenuButtonText, styles.disabledMenuButtonText]}>Add Address</Text>
             </TouchableOpacity>
           </View>
 
@@ -980,10 +1016,7 @@ const ExpensesScreen = ({ navigation, route }) => {
         visible={settingsModalVisible}
         transparent
         animationType="slide"
-        onRequestClose={() => {
-          setSettingsModalVisible(false);
-          setFilterOpen(false);
-        }}
+        onRequestClose={() => setSettingsModalVisible(false)}
       >
         <View style={styles.modalOverlay}>
           <View style={[styles.loadingCard, styles.settingsModalCard]}>
@@ -999,34 +1032,8 @@ const ExpensesScreen = ({ navigation, route }) => {
               />
             </View>
 
-            {filterOptions.length > 0 ? (
-              <View style={styles.settingsFilterSection}>
-                <Text style={styles.settingsLabel}>Filter by quarter or year</Text>
-                <DropDownPicker
-                  open={filterOpen}
-                  value={activeFilterKey}
-                  items={filterItems}
-                  setOpen={setFilterOpen}
-                  setValue={(callback) => {
-                    const nextKey = callback(activeFilterKey);
-                    handleFilterSelection(nextKey).catch(() => {});
-                    return nextKey;
-                  }}
-                  setItems={setFilterItems}
-                  listMode="SCROLLVIEW"
-                  style={styles.filterDropdown}
-                  dropDownContainerStyle={styles.filterDropdownContainer}
-                  zIndex={3000}
-                  zIndexInverse={1000}
-                />
-              </View>
-            ) : null}
-
             <TouchableOpacity
-              onPress={() => {
-                setSettingsModalVisible(false);
-                setFilterOpen(false);
-              }}
+              onPress={() => setSettingsModalVisible(false)}
               style={[styles.signOutBtn, { width: "100%" }]}
             >
               <Text style={styles.signOutText}>Done</Text>
@@ -1191,6 +1198,20 @@ const ExpensesScreen = ({ navigation, route }) => {
           </View>
         </View>
       </Modal>
+      {/* Vehicle Modals */}
+      <RegisterVehicleModal
+        visible={registerVehicleOpen}
+        onClose={() => setRegisterVehicleOpen(false)}
+        onSaved={(updated) => setVehicles(updated)}
+        vehicle={null}
+      />
+      <YourVehiclesModal
+        visible={yourVehiclesOpen}
+        onClose={() => setYourVehiclesOpen(false)}
+        vehicles={vehicles}
+        onChanged={(updated) => setVehicles(updated)}
+      />
+
     </SafeAreaView>
   );
 };
@@ -1216,12 +1237,24 @@ const styles = StyleSheet.create({
     marginTop: 14,
     textAlign: "center",
   },
+  filterBar: {
+    position: "absolute",
+    bottom: 0,
+    left: 0,
+    right: 0,
+    backgroundColor: "#1C1C4E",
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    zIndex: 1000,
+  },
   filterDropdown: {
     borderColor: Colors.border,
     borderRadius: 10,
+    backgroundColor: Colors.card,
   },
   filterDropdownContainer: {
     borderColor: Colors.border,
+    backgroundColor: Colors.card,
   },
   description: {
     fontSize: 16,
@@ -1231,9 +1264,9 @@ const styles = StyleSheet.create({
   },
   addButton: {
     backgroundColor: Colors.accent,
-    paddingVertical: 17,
-    paddingHorizontal: 43,
-    borderRadius: 35,
+    paddingVertical: 16,
+    paddingHorizontal: 28,
+    borderRadius: 28,
     alignSelf: "center",
     marginTop: 20,
     shadowColor: "#a60d49",
@@ -1241,7 +1274,7 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.3,
     shadowRadius: 5,
   },
-  buttonText: { fontSize: 25, fontWeight: "bold", color: "white" },
+  buttonText: { fontSize: 18, fontWeight: "700", color: "white" },
 
   emptyState: {
     flex: 1,
@@ -1297,7 +1330,7 @@ const styles = StyleSheet.create({
     color: Colors.textPrimary,
     textAlign: "right",
   },
-  headerArrow: { fontSize: 12, color: "#555" },
+  headerArrow: { fontSize: 12, color: Colors.textMuted },
 
   receiptItem: {
     backgroundColor: "#f0f0f0",
@@ -1311,7 +1344,7 @@ const styles = StyleSheet.create({
     alignItems: "flex-end",
     minHeight: 60,
   },
-  receiptDate: { fontSize: 14, color: "#555", minWidth: 90 },
+  receiptDate: { fontSize: 14, color: Colors.textMuted, minWidth: 90 },
   receiptLabel: {
     fontSize: 12,
     color: Colors.textMuted,
@@ -1333,7 +1366,7 @@ const styles = StyleSheet.create({
 
   floatingButton: {
     position: "absolute",
-    bottom: 100,
+    bottom: 70,
     right: 30,
     backgroundColor: Colors.accent,
     width: 60,
@@ -1370,48 +1403,39 @@ const styles = StyleSheet.create({
     padding: 20, // Keep card away from screen edges
   },
   loadingCard: {
-    backgroundColor: "white",
+    backgroundColor: Colors.surface,
     paddingVertical: 20,
-    paddingHorizontal: 24,
+    paddingHorizontal: 26,
     borderRadius: 12,
     alignItems: "center",
     minWidth: 200,
   },
-  loadingText: { marginTop: 10, fontSize: 16, fontWeight: "600" },
+  loadingText: { marginTop: 10, fontSize: 16, fontWeight: "600", color: Colors.textPrimary },
   topBar: {
-    backgroundColor: Colors.card,
+    backgroundColor: '#1C1C4E',
     width: "100%",
-    // height is paddingTop (status bar) + this content height
-    // keep the content area comfy:
     paddingHorizontal: 12,
     paddingBottom: 10,
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
-    // subtle shadow/elevation
-    elevation: 3,
-    shadowColor: "#000",
-    shadowOpacity: 0.1,
-    shadowRadius: 4,
-    shadowOffset: { width: 0, height: 2 },
+    borderBottomWidth: 1,
+    borderBottomColor: Colors.accent,
   },
   topBarButton: {
-    width: 44,
-    height: 36,
-    borderRadius: 18,
-    backgroundColor: Colors.inputBg,
+    width: 52,
+    height: 48,
     alignItems: "center",
     justifyContent: "center",
   },
   topBarButtonText: {
-    fontSize: 18,
-    fontWeight: "700",
-    color: Colors.textPrimary,
+    fontSize: 32,
+    color: "#fff",
   },
   topBarTitle: {
     fontSize: 18,
-    fontWeight: "800",
-    color: Colors.textPrimary,
+    fontWeight: "700",
+    color: "#fff",
   },
   menuTitle: {
     fontSize: 22,
@@ -1454,18 +1478,11 @@ const styles = StyleSheet.create({
     color: Colors.textPrimary,
     fontSize: 14,
   },
-  settingsMenuBtn: {
-    backgroundColor: "#9999AA",
-    paddingVertical: 14,
-    paddingHorizontal: 16,
-    borderRadius: 10,
-    marginTop: 16,
-    alignItems: "center",
-  },
-  settingsMenuBtnText: {
-    color: "white",
-    fontWeight: "700",
-    textAlign: "center",
+  menuLogo: {
+    width: "100%",
+    height: 60,
+    marginTop: 8,
+    marginBottom: 4,
   },
   redButton: {
     backgroundColor: Colors.accent,
@@ -1563,6 +1580,14 @@ const styles = StyleSheet.create({
     color: Colors.textPrimary,
     fontWeight: "600",
     textAlign: "center",
+  },
+  disabledMenuButton: {
+    backgroundColor: "#f0f0f0",
+    borderColor: "#ddd",
+    opacity: 0.55,
+  },
+  disabledMenuButtonText: {
+    color: "#aaa",
   },
   // The new transparent style (formerly for Delete, now for Sign Out)
   signOutLink: {

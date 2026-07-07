@@ -15,6 +15,7 @@ export default ({ config }) => ({
 
   name: "Express Accounts",
   slug: "express-accounts",
+  owner: "dubway4201",
   scheme: "com.caistec.expressaccounts",
   version: appVersion,
   orientation: "portrait",
@@ -32,7 +33,6 @@ export default ({ config }) => ({
   ios: {
     supportsTablet: false,
     bundleIdentifier: "com.caistec.expressaccounts",
-    buildNumber: String(numericBuild),
     googleServicesFile: "./GoogleService-Info.plist",
     usesAppleSignIn: true,
     infoPlist: {
@@ -41,7 +41,9 @@ export default ({ config }) => ({
       NSCameraUsageDescription:
         "Express Accounts needs access to your camera to take photos of receipts and documents.",
       NSPhotoLibraryAddUsageDescription:
-        "Express Accounts needs permission to save receipts and documents back to your photo library."
+        "Express Accounts needs permission to save receipts and documents back to your photo library.",
+      NSLocationWhenInUseUsageDescription:
+        "Express Accounts needs your location to track mileage for business trips."
     }
   },
 
@@ -53,15 +55,32 @@ export default ({ config }) => ({
       backgroundColor: "#ffffff"
     },
     permissions: [
-      "android.permission.CAMERA", 
+      "android.permission.CAMERA",
       "android.permission.WRITE_EXTERNAL_STORAGE",
-      "android.permission.READ_EXTERNAL_STORAGE"
+      "android.permission.READ_EXTERNAL_STORAGE",
+      "android.permission.ACCESS_FINE_LOCATION",
+      "android.permission.ACCESS_COARSE_LOCATION"
     ]
   },
 
   plugins: [
     "expo-apple-authentication",
     "expo-router",
+    [
+      "expo-location",
+      {
+        "locationWhenInUsePermission": "Express Accounts needs your location to record mileage trips."
+      }
+    ],
+    [
+      "expo-splash-screen",
+      {
+        "image": "./assets/splash-icon.png",
+        "imageWidth": 960,
+        "resizeMode": "contain",
+        "backgroundColor": "#ffffff"
+      }
+    ],
     [
       "expo-image-picker",
       {
@@ -111,6 +130,8 @@ export default ({ config }) => ({
     GOOGLE_WEB_CLIENT_ID: process.env.GOOGLE_WEB_CLIENT_ID,
     GOOGLE_ANDROID_CLIENT_ID: process.env.GOOGLE_ANDROID_CLIENT_ID,
     GOOGLE_IOS_CLIENT_ID: process.env.GOOGLE_IOS_CLIENT_ID,
-    BANK_PDF_OCR_URL: process.env.BANK_PDF_OCR_URL
+    GOOGLE_MAPS_API_KEY: process.env.GOOGLE_MAPS_API_KEY,
+    BANK_PDF_OCR_URL: process.env.BANK_PDF_OCR_URL,
+    RECEIPT_IMAGE_OCR_URL: process.env.RECEIPT_IMAGE_OCR_URL
   }
 });

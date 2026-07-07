@@ -13,7 +13,6 @@ import {
   StatusBar,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
-import { collection, query, where, getDocs } from "firebase/firestore";
 import SideMenu from "../components/SideMenu";
 import SharedTabMenu from "../components/SharedTabMenu";
 import { db, auth } from "../firebaseConfig";
@@ -25,13 +24,13 @@ import {
   filterReceiptsByDateRange,
 } from "../utils/financialPeriods";
 import { formatDate } from "../utils/format_style";
-import { getReceiptFilterKey, setReceiptFilterKey } from "../utils/appSettings";
 import DropDownPicker from "react-native-dropdown-picker";
-import { useTabSwipeNavigation } from "../utils/tabSwipeNavigation";
+import { useData } from "../contexts/DataContext";
+import { getSummaryFilterKey, setAllFilterKeys } from "../utils/appSettings";
 
 const screenWidth = Dimensions.get("window").width;
 const CHART_CARD_WIDTH = screenWidth * 0.9;
-const CHART_CARD_PADDING = 15;
+const CHART_CARD_PADDING = 20; // matches SharedStyles.chartCard padding
 const PIE_CHART_SIZE = Math.max(
   0,
   Math.min(screenWidth * 0.7, CHART_CARD_WIDTH - CHART_CARD_PADDING * 2)
@@ -42,16 +41,13 @@ const BAR_CHART_HEIGHT = 220;
 const Y_AXIS_WIDTH = 46;
 
 export default function SummaryScreen({ navigation }) {
-  const [loading, setLoading] = useState(true);
+  const { receipts, incomeItems, bankStatements, initialLoading } = useData();
+  const loading = initialLoading;
   const [refreshing, setRefreshing] = useState(false);
-  const [receipts, setReceipts] = useState([]);
-  const [incomeItems, setIncomeItems] = useState([]);
-  const [bankStatements, setBankStatements] = useState([]);
   const [activeFilterKey, setActiveFilterKey] = useState("current-quarter");
   const [filterOpen, setFilterOpen] = useState(false);
   const [filterItems, setFilterItems] = useState([]);
   const [menuOpen, setMenuOpen] = useState(false);
-  const swipeResponder = useTabSwipeNavigation(navigation, "Summary");
 
   const barChartScrollRef = React.useRef(null);
   
@@ -64,47 +60,9 @@ export default function SummaryScreen({ navigation }) {
     return vat;
   };
 
-  const fetchSummaryData = useCallback(async () => {
-    try {
-      const user = auth.currentUser;
-      if (!user) {
-        setReceipts([]);
-        setIncomeItems([]);
-        setBankStatements([]);
-        return;
-      }
-
-      const [receiptSnapshot, incomeSnapshot, bankSnapshot] = await Promise.all([
-        getDocs(query(collection(db, "receipts"), where("userId", "==", user.uid))),
-        getDocs(query(collection(db, "income"), where("userId", "==", user.uid))),
-        getDocs(
-          query(collection(db, "bankStatements"), where("userId", "==", user.uid))
-        ),
-      ]);
-
-      const userReceipts = receiptSnapshot.docs.map((doc) => ({
-        id: doc.id,
-        ...doc.data(),
-      }));
-      const userIncome = incomeSnapshot.docs.map((doc) => ({
-        id: doc.id,
-        ...doc.data(),
-      }));
-      const userStatements = bankSnapshot.docs.map((doc) => ({
-        id: doc.id,
-        ...doc.data(),
-      }));
-      setReceipts(userReceipts);
-      setIncomeItems(userIncome);
-      setBankStatements(userStatements);
-    } catch (err) {
-      console.error("Error fetching summary data:", err);
-    }
-  }, []);
-
   const filterOptions = useMemo(
-    () => buildFinancialFilterOptions(receipts, new Date()),
-    [receipts]
+    () => buildFinancialFilterOptions([...receipts, ...incomeItems, ...bankStatements], new Date()),
+    [receipts, incomeItems, bankStatements]
   );
 
   const activeFilter = useMemo(
@@ -113,24 +71,25 @@ export default function SummaryScreen({ navigation }) {
   );
 
   useEffect(() => {
+    getSummaryFilterKey()
+      .then(setActiveFilterKey)
+      .catch(() => setActiveFilterKey("current-quarter"));
+  }, []);
+
+  useEffect(() => {
+    const unsubscribeFocus = navigation.addListener("focus", () => {
+      getSummaryFilterKey()
+        .then(setActiveFilterKey)
+        .catch(() => setActiveFilterKey("current-quarter"));
+    });
+    return unsubscribeFocus;
+  }, [navigation]);
+
+  useEffect(() => {
     if (!activeFilter && filterOptions[0]) {
       setActiveFilterKey(filterOptions[0].key);
     }
   }, [activeFilter, filterOptions]);
-
-  useEffect(() => {
-    getReceiptFilterKey()
-      .then(setActiveFilterKey)
-      .catch(() => setActiveFilterKey("current-quarter"));
-
-    const unsubscribeFocus = navigation.addListener("focus", () => {
-      getReceiptFilterKey()
-        .then(setActiveFilterKey)
-        .catch(() => setActiveFilterKey("current-quarter"));
-    });
-
-    return unsubscribeFocus;
-  }, [navigation]);
 
   useEffect(() => {
     if (filterOptions.length === 0) {
@@ -213,15 +172,6 @@ export default function SummaryScreen({ navigation }) {
   }, [filteredBankStatements, filteredIncome, filteredReceipts]);
 
   useEffect(() => {
-    fetchSummaryData().finally(() => setLoading(false));
-
-    const unsubscribeFocus = navigation.addListener("focus", () => {
-      fetchSummaryData().catch((e) => console.error("Refresh on focus failed", e));
-    });
-    return unsubscribeFocus;
-  }, [navigation, fetchSummaryData]);
-
-  useEffect(() => {
   if (!loading && monthlyData.length > 0) {
     // Small timeout ensures the layout has calculated widths before scrolling
     setTimeout(() => {
@@ -232,12 +182,8 @@ export default function SummaryScreen({ navigation }) {
 
   const onRefresh = useCallback(async () => {
     setRefreshing(true);
-    try {
-      await fetchSummaryData();
-    } finally {
-      setRefreshing(false);
-    }
-  }, [fetchSummaryData]);
+    setTimeout(() => setRefreshing(false), 600);
+  }, []);
 
   const closeMenu = () => setMenuOpen(false);
 
@@ -250,7 +196,7 @@ export default function SummaryScreen({ navigation }) {
     legendFontSize: 13,
   }));
 
-  const monthlyData = groupCashflowByMonth(filteredReceipts, filteredIncome);
+  const monthlyData = groupCashflowByMonth(filteredReceipts, filteredIncome, activeFilter?.startDate, activeFilter?.endDate);
 
   // Build nice Y axis ticks
   const monthlyTotals = monthlyData.flatMap((month) => [
@@ -260,7 +206,8 @@ export default function SummaryScreen({ navigation }) {
   const { yTicks } = getYAxisTicks(monthlyTotals, 5);
 
   return (
-    <SafeAreaView style={styles.container} {...swipeResponder.panHandlers}>
+    <SafeAreaView style={[styles.container, { backgroundColor: '#1C1C4E' }]}>
+      <StatusBar backgroundColor="#1C1C4E" barStyle="light-content" />
       <View style={[styles.topBar, { paddingTop: 5 }]}> 
         <TouchableOpacity style={styles.topBarButton} onPress={() => setMenuOpen(true)}>
           <Text style={styles.topBarButtonText}>≡</Text>
@@ -285,7 +232,6 @@ export default function SummaryScreen({ navigation }) {
         >
           {/* Summary totals card */}
           <View style={[styles.card, { zIndex: 10, overflow: "visible" }]}>
-            <Text style={styles.title}>Summary</Text>
 
             <DropDownPicker
               open={filterOpen}
@@ -295,7 +241,7 @@ export default function SummaryScreen({ navigation }) {
               setValue={(callback) => {
                 const nextKey = typeof callback === "function" ? callback(activeFilterKey) : callback;
                 setActiveFilterKey(nextKey);
-                setReceiptFilterKey(nextKey).catch(() => {});
+                setAllFilterKeys(nextKey).catch(() => {});
               }}
               setItems={setFilterItems}
               listMode="SCROLLVIEW"
@@ -319,7 +265,9 @@ export default function SummaryScreen({ navigation }) {
           </View>
           {/* Monthly bar chart card */}
           <View style={styles.chartCard}>
-            <Text style={styles.chartTitle}>Monthly Income vs Spending (Current FY)</Text>
+              <Text style={styles.chartTitle}>
+                Monthly Income vs Spending ({activeFilter?.label || "Current Financial Quarter"})
+              </Text>
             <View style={styles.cashflowLegendRow}>
               <View style={styles.cashflowLegendItem}>
                 <View style={[styles.cashflowLegendSwatch, styles.expenseSwatch]} />
@@ -362,7 +310,7 @@ export default function SummaryScreen({ navigation }) {
                     ) * BAR_CHART_HEIGHT;
 
                     return (
-                      <View key={month.label} style={styles.cashflowMonthColumn}>
+                      <View key={`${month._year}-${month._month}`} style={styles.cashflowMonthColumn}>
                         <View style={styles.cashflowBarsRow}>
                           <View style={styles.singleBarWrap}>
                             <View
@@ -433,6 +381,89 @@ export default function SummaryScreen({ navigation }) {
               <Text style={styles.noData}>No receipts yet!</Text>
             )}
           </View>
+
+          {/* Separate panels for bank and credit card statements */}
+          {[
+            { type: "bank", label: "Bank Statements" },
+            { type: "credit", label: "Credit Card Statements" },
+          ].map(({ type, label }) => {
+            const stmts = filteredBankStatements.filter((s) => s.statementType === type);
+            if (stmts.length === 0) return null;
+
+            const moneyIn = stmts.reduce((sum, s) => sum + (Number(s.moneyInTotal) || 0), 0);
+            const moneyOut = stmts.reduce((sum, s) => sum + (Number(s.moneyOutTotal) || 0), 0);
+
+            const vendorMap = {};
+            for (const s of stmts) {
+              for (const vt of s.vendorTotals || []) {
+                if (vt.moneyOut > 0) vendorMap[vt.vendor] = (vendorMap[vt.vendor] || 0) + vt.moneyOut;
+              }
+            }
+            const topVendors = Object.entries(vendorMap)
+              .sort((a, b) => b[1] - a[1])
+              .slice(0, 8)
+              .map(([vendor, total], i) => ({
+                name: vendor,
+                population: Number(total.toFixed(2)),
+                color: CHART_COLORS[i % CHART_COLORS.length],
+                legendFontColor: "#333",
+                legendFontSize: 13,
+              }));
+
+            const maxCashflow = Math.max(moneyIn, moneyOut, 1);
+
+            return (
+              <View key={type} style={styles.statementSection}>
+                {(moneyIn > 0 || moneyOut > 0) && (
+                  <View style={styles.chartCard}>
+                    <Text style={styles.chartTitle}>{label} – Cash Flow</Text>
+                    {[
+                      { label: "Money In", value: moneyIn, color: "#4ade80" },
+                      { label: "Money Out", value: moneyOut, color: "#f87171" },
+                    ].map((row) => (
+                      <View key={row.label} style={{ marginVertical: 6, alignSelf: "stretch" }}>
+                        <View style={{ flexDirection: "row", alignItems: "center", marginBottom: 3 }}>
+                          <Text style={{ width: 90, fontSize: 13, color: Colors.textSecondary }}>{row.label}</Text>
+                          <Text style={{ fontSize: 13, fontWeight: "700", color: row.color }}>£{row.value.toFixed(2)}</Text>
+                        </View>
+                        <View style={{ height: 22, backgroundColor: "#e8e8e8", borderRadius: 4, overflow: "hidden", width: "100%" }}>
+                          <View style={{ height: "100%", width: `${(row.value / maxCashflow) * 100}%`, backgroundColor: row.color, borderRadius: 4 }} />
+                        </View>
+                      </View>
+                    ))}
+                  </View>
+                )}
+                {topVendors.length > 0 && (
+                  <View style={styles.chartCard}>
+                    <Text style={styles.chartTitle}>{label} – Top Vendor Spending</Text>
+                    <View style={styles.pieChartWrapper}>
+                      <PieChart
+                        data={topVendors}
+                        width={PIE_CHART_SIZE}
+                        height={PIE_CHART_SIZE}
+                        chartConfig={chartConfig}
+                        accessor="population"
+                        backgroundColor="transparent"
+                        paddingLeft={PIE_CHART_PADDING_LEFT}
+                        absolute
+                        hasLegend={false}
+                        center={[PIE_CHART_CENTER_X, 0]}
+                        style={styles.pieChart}
+                      />
+                    </View>
+                    <View style={styles.legendContainer}>
+                      {topVendors.map((d) => (
+                        <View key={d.name} style={styles.legendItem}>
+                          <View style={[styles.legendDot, { backgroundColor: d.color }]} />
+                          <Text style={styles.legendText}>{d.name}: £{Number(d.population).toFixed(2)}</Text>
+                        </View>
+                      ))}
+                    </View>
+                  </View>
+                )}
+              </View>
+            );
+          })}
         </ScrollView>
       )}
 
@@ -484,33 +515,27 @@ const chartConfig = {
 const styles = StyleSheet.create({
   container: SharedStyles.screen,
   topBar: {
-    backgroundColor: Colors.card,
+    backgroundColor: '#1C1C4E',
     width: "100%",
     paddingHorizontal: 12,
     paddingBottom: 10,
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
-    elevation: 3,
-    shadowColor: "#000",
-    shadowOpacity: 0.1,
-    shadowRadius: 4,
-    shadowOffset: { width: 0, height: 2 },
+    borderBottomWidth: 1,
+    borderBottomColor: Colors.accent,
   },
   topBarButton: {
-    width: 44,
-    height: 36,
-    borderRadius: 18,
-    backgroundColor: Colors.inputBg,
+    width: 52,
+    height: 48,
     alignItems: "center",
     justifyContent: "center",
   },
   topBarButtonText: {
-    fontSize: 18,
-    fontWeight: "700",
-    color: Colors.textPrimary,
+    fontSize: 32,
+    color: "#fff",
   },
-  topBarTitle: { fontSize: 18, fontWeight: "800", color: Colors.textPrimary },
+  topBarTitle: { fontSize: 18, fontWeight: "700", color: "#fff" },
   content: {
   ...SharedStyles.content,
   paddingTop: 5,
@@ -544,6 +569,10 @@ const styles = StyleSheet.create({
     fontSize: 13,
   },
   chartCard: { ...SharedStyles.chartCard, overflow: "visible" },
+  statementSection: {
+    width: "100%",
+    alignItems: "center",
+  },
   chartTitle: { fontSize: 16, fontWeight: "bold", marginBottom: 12, textAlign: "center", color: "black" },
   noData: { fontSize: 15, color: "#666", marginTop: 10, textAlign: "center" },
   center: { flex: 1, justifyContent: "center", alignItems: "center" },

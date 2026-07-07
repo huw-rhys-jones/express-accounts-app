@@ -480,21 +480,20 @@ export const ReceiptStyles = StyleSheet.create({
     minWidth: 180,
   },
 
-  // Fullscreen close button
-  fullScreenCloseButtonWrapper: {
-    position: "absolute",
-    bottom: 30,
-    left: 0,
-    right: 0,
-    alignItems: "center",
-  },
+  // Fullscreen close button (top-left X circle)
   fullScreenCloseButton: {
-    backgroundColor: "rgba(166, 13, 73, 0.9)",
-    paddingVertical: 8,
-    paddingHorizontal: 24,
-    borderRadius: 20,
+    position: "absolute",
+    top: 44,
+    left: 16,
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: "rgba(166, 13, 73, 0.88)",
+    alignItems: "center",
+    justifyContent: "center",
+    zIndex: 999,
   },
-  fullScreenCloseText: { color: "#fff", fontWeight: "bold", fontSize: 16 },
+  fullScreenCloseText: { color: "#fff", fontWeight: "bold", fontSize: 18, lineHeight: 20 },
 
   // hint text
   fullscreenHint: {

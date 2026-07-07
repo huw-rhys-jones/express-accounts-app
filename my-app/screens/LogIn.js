@@ -30,6 +30,7 @@ import { Ionicons } from "@expo/vector-icons";
 import { KeyboardAwareScrollView } from "react-native-keyboard-aware-scroll-view";
 import { Colors, AuthStyles } from "../utils/sharedStyles";
 import { triggerHaptic } from "../utils/haptics";
+import { setReceiptFilterKey, setIncomeFilterKey, setBankFilterKey } from "../utils/appSettings";
 
 WebBrowser.maybeCompleteAuthSession();
 
@@ -124,7 +125,12 @@ const LoginScreen = ({ navigation }) => {
     }
   };
 
-  const navigateToExpenses = (params = {}) => {
+  const navigateToExpenses = async (params = {}) => {
+    await Promise.all([
+      setReceiptFilterKey("current-quarter"),
+      setIncomeFilterKey("current-quarter"),
+      setBankFilterKey("current-quarter"),
+    ]);
     navigation.reset({
       index: 0,
       routes: [

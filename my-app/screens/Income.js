@@ -12,63 +12,77 @@ import {
   View,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
-import { collection, getDocs, onSnapshot, query, where } from "firebase/firestore";
 import SideMenu from "../components/SideMenu";
 import SharedTabMenu from "../components/SharedTabMenu";
-import { auth, db } from "../firebaseConfig";
+import AddReceiptSheet from "../components/AddReceiptSheet";
+import { auth } from "../firebaseConfig";
 import { formatDate } from "../utils/format_style";
 import { Colors } from "../utils/sharedStyles";
-import { useTabSwipeNavigation } from "../utils/tabSwipeNavigation";
+import { useData } from "../contexts/DataContext";
+import DropDownPicker from "react-native-dropdown-picker";
+import {
+  buildFinancialFilterOptions,
+  filterReceiptsByDateRange,
+} from "../utils/financialPeriods";
+import { getIncomeFilterKey, setIncomeFilterKey, setAllFilterKeys } from "../utils/appSettings";
 
 export default function IncomeScreen({ navigation }) {
-  const [incomeItems, setIncomeItems] = useState([]);
-  const [loading, setLoading] = useState(true);
+  const { incomeItems, initialLoading } = useData();
+  const loading = initialLoading;
   const [refreshing, setRefreshing] = useState(false);
   const [sortKey, setSortKey] = useState("date");
   const [sortDir, setSortDir] = useState("desc");
   const [menuOpen, setMenuOpen] = useState(false);
-  const swipeResponder = useTabSwipeNavigation(navigation, "Income");
+  const [addSheetVisible, setAddSheetVisible] = useState(false);
+  const [filterOpen, setFilterOpen] = useState(false);
+  const [activeFilterKey, setActiveFilterKey] = useState("current-quarter");
+  const [filterItems, setFilterItems] = useState([]);
 
-  const fetchIncome = useCallback(async () => {
-    const user = auth.currentUser;
-    if (!user) {
-      setIncomeItems([]);
-      return;
-    }
+  const filterOptions = useMemo(
+    () => buildFinancialFilterOptions(incomeItems, new Date()),
+    [incomeItems]
+  );
 
-    const snapshot = await getDocs(
-      query(collection(db, "income"), where("userId", "==", user.uid))
-    );
-    setIncomeItems(snapshot.docs.map((item) => ({ id: item.id, ...item.data() })));
+  const activeFilter = useMemo(
+    () => filterOptions.find((o) => o.key === activeFilterKey) || filterOptions[0],
+    [activeFilterKey, filterOptions]
+  );
+
+  useEffect(() => {
+    setFilterItems(filterOptions.map((o) => ({ label: o.label, value: o.key })));
+  }, [filterOptions]);
+
+  useEffect(() => {
+    getIncomeFilterKey()
+      .then(setActiveFilterKey)
+      .catch(() => setActiveFilterKey("current-quarter"));
   }, []);
 
   useEffect(() => {
-    const user = auth.currentUser;
-    if (!user) {
-      setIncomeItems([]);
-      setLoading(false);
-      return undefined;
-    }
+    const unsub = navigation.addListener("focus", () => {
+      getIncomeFilterKey()
+        .then(setActiveFilterKey)
+        .catch(() => setActiveFilterKey("current-quarter"));
+    });
+    return unsub;
+  }, [navigation]);
 
-    const unsubscribeSnapshot = onSnapshot(
-      query(collection(db, "income"), where("userId", "==", user.uid)),
-      (snapshot) => {
-        setIncomeItems(snapshot.docs.map((item) => ({ id: item.id, ...item.data() })));
-        setLoading(false);
-      },
-      (error) => {
-        console.error("Error listening to income", error);
-        setLoading(false);
-      }
+  const handleFilterSelection = useCallback(async (nextKey) => {
+    setActiveFilterKey(nextKey);
+    await setAllFilterKeys(nextKey);
+  }, []);
+
+  const filteredIncome = useMemo(() => {
+    if (!activeFilter) return incomeItems;
+    return filterReceiptsByDateRange(
+      incomeItems,
+      activeFilter.startDate,
+      activeFilter.endDate
     );
-
-    return () => {
-      unsubscribeSnapshot();
-    };
-  }, [fetchIncome, navigation]);
+  }, [activeFilter, incomeItems]);
 
   const sortedIncome = useMemo(() => {
-    const data = [...incomeItems];
+    const data = [...filteredIncome];
     data.sort((left, right) => {
       let comparison = 0;
       if (sortKey === "amount") {
@@ -87,16 +101,12 @@ export default function IncomeScreen({ navigation }) {
       return sortDir === "asc" ? comparison : -comparison;
     });
     return data;
-  }, [incomeItems, sortDir, sortKey]);
+  }, [filteredIncome, sortDir, sortKey]);
 
   const onRefresh = useCallback(async () => {
     setRefreshing(true);
-    try {
-      await fetchIncome();
-    } finally {
-      setRefreshing(false);
-    }
-  }, [fetchIncome]);
+    setTimeout(() => setRefreshing(false), 600);
+  }, []);
 
   const toggleSort = (nextKey) => {
     if (sortKey === nextKey) {
@@ -161,7 +171,8 @@ export default function IncomeScreen({ navigation }) {
   );
 
   return (
-    <SafeAreaView style={styles.container} {...swipeResponder.panHandlers}>
+    <SafeAreaView style={[styles.container, { backgroundColor: '#1C1C4E' }]}>
+      <StatusBar backgroundColor="#1C1C4E" barStyle="light-content" />
       <View style={[styles.topBar, { paddingTop: 5 }]}>
         <TouchableOpacity style={styles.topBarButton} onPress={() => setMenuOpen(true)}>
           <Text style={styles.topBarButtonText}>≡</Text>
@@ -173,17 +184,9 @@ export default function IncomeScreen({ navigation }) {
       </View>
 
       <View style={styles.content}>
-        <View style={styles.card}>
-          <Text style={styles.title}>Income Records</Text>
-          <Text style={styles.subtitle}>
-            {sortedIncome.length > 0
-              ? "Your income statements are shown below."
-              : "You haven't added any income yet."}
-          </Text>
-        </View>
 
         {sortedIncome.length > 0 ? (
-          <View style={{ marginTop: 28, marginBottom: 8 }}>{renderHeader()}</View>
+          <View style={{ marginTop: 12, marginBottom: 8 }}>{renderHeader()}</View>
         ) : null}
 
         <FlatList
@@ -196,7 +199,7 @@ export default function IncomeScreen({ navigation }) {
               <View style={styles.emptyState}>
                 <TouchableOpacity
                   style={styles.addButton}
-                  onPress={() => navigation.navigate("IncomeRecord")}
+                  onPress={() => setAddSheetVisible(true)}
                 >
                   <Text style={styles.addButtonText}>Add Income</Text>
                 </TouchableOpacity>
@@ -211,12 +214,46 @@ export default function IncomeScreen({ navigation }) {
         />
       </View>
 
-      <TouchableOpacity
-        style={styles.floatingButton}
-        onPress={() => navigation.navigate("IncomeRecord")}
-      >
-        <Text style={styles.floatingButtonText}>+</Text>
-      </TouchableOpacity>
+      {/* Period filter bar — sits just above the bottom tab bar */}
+      {!loading && filterOptions.length > 0 ? (
+        <View style={styles.filterBar}>
+          <DropDownPicker
+            open={filterOpen}
+            value={activeFilterKey}
+            items={filterItems}
+            setOpen={setFilterOpen}
+            setValue={(callback) => {
+              const nextKey = callback(activeFilterKey);
+              handleFilterSelection(nextKey).catch(() => {});
+              return nextKey;
+            }}
+            setItems={setFilterItems}
+            listMode="SCROLLVIEW"
+            dropDownDirection="TOP"
+            style={styles.filterDropdown}
+            dropDownContainerStyle={styles.filterDropdownContainer}
+            zIndex={3000}
+            zIndexInverse={1000}
+          />
+        </View>
+      ) : null}
+
+      {!addSheetVisible && (
+        <TouchableOpacity
+          style={styles.floatingButton}
+          onPress={() => setAddSheetVisible(true)}
+        >
+          <Text style={styles.floatingButtonText}>+</Text>
+        </TouchableOpacity>
+      )}
+
+      <AddReceiptSheet
+        visible={addSheetVisible}
+        onClose={() => setAddSheetVisible(false)}
+        navigation={navigation}
+        targetScreen="IncomeRecord"
+        itemLabel="invoice or proof of income"
+      />
 
       <SideMenu open={menuOpen} onClose={closeMenu}>
         <SharedTabMenu
@@ -241,33 +278,27 @@ export default function IncomeScreen({ navigation }) {
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: Colors.background },
   topBar: {
-    backgroundColor: Colors.card,
+    backgroundColor: '#1C1C4E',
     width: "100%",
     paddingHorizontal: 12,
     paddingBottom: 10,
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
-    elevation: 3,
-    shadowColor: "#000",
-    shadowOpacity: 0.1,
-    shadowRadius: 4,
-    shadowOffset: { width: 0, height: 2 },
+    borderBottomWidth: 1,
+    borderBottomColor: Colors.accent,
   },
   topBarButton: {
-    width: 44,
-    height: 36,
-    borderRadius: 18,
-    backgroundColor: Colors.inputBg,
+    width: 52,
+    height: 48,
     alignItems: "center",
     justifyContent: "center",
   },
   topBarButtonText: {
-    fontSize: 18,
-    fontWeight: "700",
-    color: Colors.textPrimary,
+    fontSize: 32,
+    color: "#fff",
   },
-  topBarTitle: { fontSize: 18, fontWeight: "800", color: Colors.textPrimary },
+  topBarTitle: { fontSize: 18, fontWeight: "700", color: "#fff" },
   content: { flex: 1, alignItems: "center", paddingBottom: 20 },
   card: {
     backgroundColor: Colors.card,
@@ -292,6 +323,25 @@ const styles = StyleSheet.create({
     paddingVertical: 12,
     flexDirection: "row",
     alignItems: "center",
+  },
+  filterBar: {
+    position: "absolute",
+    bottom: 0,
+    left: 0,
+    right: 0,
+    backgroundColor: "#1C1C4E",
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    zIndex: 1000,
+  },
+  filterDropdown: {
+    borderColor: Colors.border,
+    borderRadius: 10,
+    backgroundColor: Colors.card,
+  },
+  filterDropdownContainer: {
+    borderColor: Colors.border,
+    backgroundColor: Colors.card,
   },
   headerCellDate: { width: 90, flexDirection: "row", gap: 6, alignItems: "center" },
   headerCellReference: { flex: 1, flexDirection: "row", gap: 6, alignItems: "center", paddingLeft: 16 },
@@ -330,7 +380,7 @@ const styles = StyleSheet.create({
     alignItems: "flex-end",
     minHeight: 60,
   },
-  rowDate: { fontSize: 14, color: "#555", minWidth: 90 },
+  rowDate: { fontSize: 14, color: Colors.textMuted, minWidth: 90 },
   referenceWrap: {
     flex: 1,
     alignItems: "flex-start",
@@ -447,7 +497,7 @@ const styles = StyleSheet.create({
   floatingButton: {
     position: "absolute",
     right: 30,
-    bottom: 100,
+    bottom: 70,
     width: 60,
     height: 60,
     borderRadius: 30,

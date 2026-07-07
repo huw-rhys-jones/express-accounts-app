@@ -1,0 +1,456 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Express Accounts – Sign In</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;600;700&family=DM+Sans:wght@400;500;700&display=swap" rel="stylesheet" />
+  <style>
+    :root {
+      --ink: #12243a;
+      --text: #17324d;
+      --surface: #f5f8fc;
+      --card: #ffffff;
+      --outline: rgba(18, 36, 58, 0.12);
+      --accent: #ff6d00;
+      --error: #b42318;
+      --success: #1f7a3f;
+      --shadow: 0 20px 40px rgba(18, 36, 58, 0.12);
+    }
+
+    * { box-sizing: border-box; }
+
+    body {
+      margin: 0;
+      min-height: 100vh;
+      font-family: "DM Sans", sans-serif;
+      color: var(--text);
+      display: flex;
+      align-items: flex-start;
+      justify-content: center;
+      background:
+        radial-gradient(circle at 20% 0%, rgba(255, 109, 0, 0.18) 0%, transparent 40%),
+        radial-gradient(circle at 85% 20%, rgba(46, 134, 222, 0.18) 0%, transparent 35%),
+        linear-gradient(165deg, #f7f9fd 0%, #edf3fb 100%);
+      padding: 24px;
+    }
+
+    .wrap {
+      width: 100%;
+      max-width: 460px;
+      margin-top: 8vh;
+      animation: rise 0.5s ease-out;
+    }
+
+    @keyframes rise {
+      from { opacity: 0; transform: translateY(18px); }
+      to   { opacity: 1; transform: translateY(0); }
+    }
+
+    .card {
+      background: var(--card);
+      border: 1px solid var(--outline);
+      border-radius: 24px;
+      box-shadow: var(--shadow);
+      overflow: hidden;
+    }
+
+    .card-head {
+      padding: 32px 32px 20px;
+      background: linear-gradient(135deg, #0f2742, #1f4e79);
+      color: #fff;
+    }
+
+    .card-head h1 {
+      margin: 0 0 6px;
+      font-family: "Space Grotesk", sans-serif;
+      font-size: 1.75rem;
+      letter-spacing: 0.2px;
+    }
+
+    .card-head p {
+      margin: 0;
+      color: rgba(255, 255, 255, 0.82);
+      font-size: 0.95rem;
+    }
+
+    .card-body {
+      padding: 28px 32px 32px;
+    }
+
+    label {
+      display: block;
+      font-weight: 600;
+      font-size: 0.88rem;
+      margin-bottom: 6px;
+      color: var(--ink);
+    }
+
+    input[type="email"],
+    input[type="password"] {
+      width: 100%;
+      padding: 12px 14px;
+      border: 1.5px solid var(--outline);
+      border-radius: 10px;
+      font-size: 1rem;
+      font-family: inherit;
+      color: var(--text);
+      background: var(--surface);
+      transition: border-color 0.2s;
+      outline: none;
+      margin-bottom: 18px;
+    }
+
+    input:focus {
+      border-color: #2e86de;
+    }
+
+    .btn {
+      width: 100%;
+      padding: 13px;
+      border: none;
+      border-radius: 10px;
+      font-size: 1rem;
+      font-weight: 700;
+      font-family: inherit;
+      cursor: pointer;
+      transition: opacity 0.15s, transform 0.1s;
+    }
+
+    .btn:active { transform: scale(0.98); }
+    .btn:disabled { opacity: 0.55; cursor: not-allowed; }
+
+    .btn-primary {
+      background: var(--accent);
+      color: #fff;
+    }
+
+    .btn-secondary {
+      background: #e8edf4;
+      color: var(--ink);
+      margin-top: 10px;
+    }
+
+    .error-msg {
+      background: #fff0ef;
+      border: 1px solid #f5c6c3;
+      color: var(--error);
+      border-radius: 10px;
+      padding: 11px 14px;
+      font-size: 0.9rem;
+      margin-bottom: 18px;
+      display: none;
+    }
+
+    /* ── 2FA wait screen ─────────────────────────────────────── */
+    .tfa-screen {
+      text-align: center;
+    }
+
+    .phone-icon {
+      font-size: 3.5rem;
+      margin-bottom: 12px;
+      animation: pulse 1.8s ease-in-out infinite;
+    }
+
+    @keyframes pulse {
+      0%, 100% { transform: scale(1); }
+      50%       { transform: scale(1.1); }
+    }
+
+    .tfa-screen h2 {
+      font-family: "Space Grotesk", sans-serif;
+      margin: 0 0 10px;
+      font-size: 1.4rem;
+      color: var(--ink);
+    }
+
+    .tfa-screen p {
+      margin: 0 0 8px;
+      color: #556;
+      font-size: 0.95rem;
+      line-height: 1.5;
+    }
+
+    .status-badge {
+      display: inline-block;
+      padding: 5px 14px;
+      border-radius: 20px;
+      font-size: 0.85rem;
+      font-weight: 600;
+      margin: 12px 0 20px;
+    }
+
+    .badge-waiting  { background: #fff3cd; color: #856404; }
+    .badge-approved { background: #d1e7dd; color: var(--success); }
+    .badge-denied   { background: #f8d7da; color: var(--error); }
+    .badge-expired  { background: #e2e3e5; color: #444; }
+
+    .timer {
+      font-size: 0.82rem;
+      color: #888;
+      margin-bottom: 22px;
+    }
+
+    .divider {
+      height: 1px;
+      background: var(--outline);
+      margin: 0 0 24px;
+    }
+
+    /* ── screens ─────────────────────────────────────────────── */
+    #screen-login  { display: block; }
+    #screen-tfa    { display: none; }
+    #screen-done   { display: none; }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="card">
+
+      <!-- ── Login screen ─────────────────────────────── -->
+      <div id="screen-login">
+        <div class="card-head">
+          <h1>Sign In</h1>
+          <p>Express Accounts – secure access</p>
+        </div>
+        <div class="card-body">
+          <div class="error-msg" id="login-error"></div>
+          <label for="email">Email address</label>
+          <input type="email" id="email" placeholder="you@example.com" autocomplete="email" />
+          <label for="password">Password</label>
+          <input type="password" id="password" placeholder="••••••••" autocomplete="current-password" />
+          <button class="btn btn-primary" id="btn-login">Sign In</button>
+        </div>
+      </div>
+
+      <!-- ── 2FA wait screen ──────────────────────────── -->
+      <div id="screen-tfa">
+        <div class="card-head">
+          <h1>Verify It's You</h1>
+          <p>Open the Express Accounts app on your phone</p>
+        </div>
+        <div class="card-body tfa-screen">
+          <div class="phone-icon">📱</div>
+          <h2>Approval required</h2>
+          <p>A login request has been sent to your phone.<br/>Tap <strong>Approve</strong> in the app to continue.</p>
+          <div class="status-badge badge-waiting" id="tfa-badge">Waiting for phone…</div>
+          <div class="timer" id="tfa-timer">Expires in 5:00</div>
+          <div class="divider"></div>
+          <button class="btn btn-secondary" id="btn-cancel-tfa">Cancel &amp; Sign Out</button>
+        </div>
+      </div>
+
+      <!-- ── Done screen ──────────────────────────────── -->
+      <div id="screen-done">
+        <div class="card-head" style="background: linear-gradient(135deg, #0f4726, #1f7a3f);">
+          <h1>Access Granted ✓</h1>
+          <p>Your identity was confirmed on your phone</p>
+        </div>
+        <div class="card-body tfa-screen">
+          <div style="font-size:3rem;margin-bottom:12px;">🎉</div>
+          <h2>You're signed in!</h2>
+          <p id="done-message">Redirecting you now…</p>
+        </div>
+      </div>
+
+    </div><!-- .card -->
+  </div><!-- .wrap -->
+
+  <!-- Firebase compat SDK — config auto-injected by Firebase Hosting -->
+  <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-auth-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore-compat.js"></script>
+  <script src="/__/firebase/init.js"></script>
+
+  <script>
+    "use strict";
+
+    const auth = firebase.auth();
+    const db   = firebase.firestore();
+
+    // ── DOM helpers ──────────────────────────────────────────────
+    const $  = (id) => document.getElementById(id);
+    const show = (id) => $(id).style.display = "block";
+    const hide = (id) => $(id).style.display = "none";
+
+    function showScreen(name) {
+      hide("screen-login");
+      hide("screen-tfa");
+      hide("screen-done");
+      show("screen-" + name);
+    }
+
+    function showLoginError(msg) {
+      const el = $("login-error");
+      el.textContent = msg;
+      el.style.display = "block";
+    }
+
+    // ── Login ────────────────────────────────────────────────────
+    $("btn-login").addEventListener("click", handleLogin);
+    $("email").addEventListener("keydown", (e) => { if (e.key === "Enter") $("password").focus(); });
+    $("password").addEventListener("keydown", (e) => { if (e.key === "Enter") handleLogin(); });
+
+    async function handleLogin() {
+      const email    = $("email").value.trim();
+      const password = $("password").value;
+      const btn      = $("btn-login");
+
+      $("login-error").style.display = "none";
+
+      if (!email || !password) {
+        showLoginError("Please enter your email and password.");
+        return;
+      }
+
+      btn.disabled    = true;
+      btn.textContent = "Signing in…";
+
+      try {
+        const { user } = await auth.signInWithEmailAndPassword(email, password);
+        await startTwoFactor(user);
+      } catch (err) {
+        console.error("Login error", err);
+        showLoginError(friendlyAuthError(err));
+        btn.disabled    = false;
+        btn.textContent = "Sign In";
+      }
+    }
+
+    function friendlyAuthError(err) {
+      switch (err.code) {
+        case "auth/invalid-email":          return "That email address isn't valid.";
+        case "auth/user-not-found":
+        case "auth/wrong-password":
+        case "auth/invalid-credential":     return "Incorrect email or password.";
+        case "auth/too-many-requests":      return "Too many attempts. Please wait a moment and try again.";
+        case "auth/network-request-failed": return "Network error. Please check your connection.";
+        default:                            return err.message || "An unexpected error occurred.";
+      }
+    }
+
+    // ── 2FA ─────────────────────────────────────────────────────
+    const CHALLENGE_TTL_MS = 5 * 60 * 1000; // 5 minutes
+
+    let challengeUnsubscribe = null;
+    let timerInterval        = null;
+
+    async function startTwoFactor(user) {
+      // Create a pending challenge document for this user
+      const expiresAt = new Date(Date.now() + CHALLENGE_TTL_MS);
+
+      const challengeRef = db.collection("twoFactorChallenges").doc();
+      await challengeRef.set({
+        userId:      user.uid,
+        status:      "pending",
+        createdAt:   firebase.firestore.FieldValue.serverTimestamp(),
+        expiresAt:   firebase.firestore.Timestamp.fromDate(expiresAt),
+        browserInfo: getBrowserInfo(),
+      });
+
+      showScreen("tfa");
+      startTimer(expiresAt, challengeRef);
+      listenForChallenge(challengeRef);
+    }
+
+    function listenForChallenge(challengeRef) {
+      if (challengeUnsubscribe) challengeUnsubscribe();
+
+      challengeUnsubscribe = challengeRef.onSnapshot((snap) => {
+        if (!snap.exists) return;
+        const { status } = snap.data();
+
+        if (status === "approved") {
+          handleApproved(challengeRef);
+        } else if (status === "denied") {
+          handleDenied(challengeRef);
+        }
+      });
+    }
+
+    function startTimer(expiresAt, challengeRef) {
+      clearInterval(timerInterval);
+
+      timerInterval = setInterval(() => {
+        const remaining = Math.max(0, expiresAt.getTime() - Date.now());
+        const mins = Math.floor(remaining / 60000);
+        const secs = Math.floor((remaining % 60000) / 1000);
+        $("tfa-timer").textContent =
+          `Expires in ${mins}:${secs.toString().padStart(2, "0")}`;
+
+        if (remaining <= 0) {
+          clearInterval(timerInterval);
+          handleExpired(challengeRef);
+        }
+      }, 1000);
+    }
+
+    async function handleApproved(challengeRef) {
+      cleanup();
+      await challengeRef.delete().catch(() => {});
+      showScreen("done");
+      $("done-message").textContent = "Login approved on your phone. Redirecting you now…";
+      // Redirect to the client portal (or wherever is appropriate after sign-in)
+      setTimeout(() => {
+        window.location.href = "/client-portal-mock.html";
+      }, 2000);
+    }
+
+    async function handleDenied(challengeRef) {
+      cleanup();
+      await challengeRef.delete().catch(() => {});
+      updateBadge("denied", "Denied on phone");
+      $("tfa-timer").textContent = "";
+      await auth.signOut();
+      showLoginError("Login was denied on your phone.");
+      showScreen("login");
+    }
+
+    async function handleExpired(challengeRef) {
+      cleanup();
+      updateBadge("expired", "Request expired");
+      await challengeRef.update({ status: "expired" }).catch(() => {});
+      await auth.signOut();
+      setTimeout(() => {
+        showLoginError("The approval request expired. Please sign in again.");
+        showScreen("login");
+        $("btn-login").disabled    = false;
+        $("btn-login").textContent = "Sign In";
+      }, 1200);
+    }
+
+    $("btn-cancel-tfa").addEventListener("click", async () => {
+      cleanup();
+      await auth.signOut();
+      showScreen("login");
+      $("btn-login").disabled    = false;
+      $("btn-login").textContent = "Sign In";
+    });
+
+    function updateBadge(type, text) {
+      const badge = $("tfa-badge");
+      badge.className = "status-badge badge-" + type;
+      badge.textContent = text;
+    }
+
+    function cleanup() {
+      if (challengeUnsubscribe) { challengeUnsubscribe(); challengeUnsubscribe = null; }
+      clearInterval(timerInterval);
+    }
+
+    function getBrowserInfo() {
+      const ua = navigator.userAgent;
+      // Return a short human-readable description
+      if (/iPhone|iPad/.test(ua))   return "Safari on iPhone/iPad";
+      if (/Android/.test(ua))        return "Browser on Android";
+      if (/Chrome/.test(ua))         return "Chrome";
+      if (/Firefox/.test(ua))        return "Firefox";
+      if (/Safari/.test(ua))         return "Safari";
+      return "Web browser";
+    }
+  </script>
+</body>
+</html>

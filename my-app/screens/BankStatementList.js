@@ -1,7 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import {
   ActivityIndicator,
-  Alert,
   FlatList,
   Platform,
   RefreshControl,
@@ -12,62 +11,78 @@ import {
   View,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
-import { collection, getDocs, onSnapshot, query, where } from "firebase/firestore";
 import SideMenu from "../components/SideMenu";
 import SharedTabMenu from "../components/SharedTabMenu";
-import { auth, db } from "../firebaseConfig";
+import AddBankStatementSheet from "../components/AddBankStatementSheet";
+import { auth } from "../firebaseConfig";
 import { Colors } from "../utils/sharedStyles";
 import { formatDate } from "../utils/format_style";
-import { useTabSwipeNavigation } from "../utils/tabSwipeNavigation";
+import { useData } from "../contexts/DataContext";
+import DropDownPicker from "react-native-dropdown-picker";
+import {
+  buildFinancialFilterOptions,
+  filterReceiptsByDateRange,
+} from "../utils/financialPeriods";
+import { getBankFilterKey, setBankFilterKey, setAllFilterKeys } from "../utils/appSettings";
 
 export default function BankStatementList({ navigation }) {
-  const [statements, setStatements] = useState([]);
-  const [loading, setLoading] = useState(true);
+  const { bankStatements, initialLoading } = useData();
+  const statements = bankStatements;
+  const loading = initialLoading;
   const [refreshing, setRefreshing] = useState(false);
   const [sortKey, setSortKey] = useState("date");
   const [sortDir, setSortDir] = useState("desc");
   const [menuOpen, setMenuOpen] = useState(false);
-  const swipeResponder = useTabSwipeNavigation(navigation, "BankStatements");
+  const [addSheetVisible, setAddSheetVisible] = useState(false);
+  const [filterOpen, setFilterOpen] = useState(false);
+  const [activeFilterKey, setActiveFilterKey] = useState("current-quarter");
+  const [filterItems, setFilterItems] = useState([]);
 
-  const fetchStatements = useCallback(async () => {
-    const user = auth.currentUser;
-    if (!user) {
-      setStatements([]);
-      return;
-    }
-    const snapshot = await getDocs(
-      query(collection(db, "bankStatements"), where("userId", "==", user.uid))
-    );
-    setStatements(snapshot.docs.map((item) => ({ id: item.id, ...item.data() })));
+  const filterOptions = useMemo(
+    () => buildFinancialFilterOptions(statements, new Date()),
+    [statements]
+  );
+
+  const activeFilter = useMemo(
+    () => filterOptions.find((o) => o.key === activeFilterKey) || filterOptions[0],
+    [activeFilterKey, filterOptions]
+  );
+
+  useEffect(() => {
+    setFilterItems(filterOptions.map((o) => ({ label: o.label, value: o.key })));
+  }, [filterOptions]);
+
+  useEffect(() => {
+    getBankFilterKey()
+      .then(setActiveFilterKey)
+      .catch(() => setActiveFilterKey("current-quarter"));
   }, []);
 
   useEffect(() => {
-    const user = auth.currentUser;
-    if (!user) {
-      setStatements([]);
-      setLoading(false);
-      return undefined;
-    }
+    const unsub = navigation.addListener("focus", () => {
+      getBankFilterKey()
+        .then(setActiveFilterKey)
+        .catch(() => setActiveFilterKey("current-quarter"));
+    });
+    return unsub;
+  }, [navigation]);
 
-    const unsubscribeSnapshot = onSnapshot(
-      query(collection(db, "bankStatements"), where("userId", "==", user.uid)),
-      (snapshot) => {
-        setStatements(snapshot.docs.map((item) => ({ id: item.id, ...item.data() })));
-        setLoading(false);
-      },
-      (error) => {
-        console.error("Error listening to bank statements", error);
-        setLoading(false);
-      }
+  const handleFilterSelection = useCallback(async (nextKey) => {
+    setActiveFilterKey(nextKey);
+    await setAllFilterKeys(nextKey);
+  }, []);
+
+  const filteredStatements = useMemo(() => {
+    if (!activeFilter) return statements;
+    return filterReceiptsByDateRange(
+      statements,
+      activeFilter.startDate,
+      activeFilter.endDate
     );
-
-    return () => {
-      unsubscribeSnapshot();
-    };
-  }, [fetchStatements, navigation]);
+  }, [activeFilter, statements]);
 
   const sortedStatements = useMemo(() => {
-    const data = [...statements];
+    const data = [...filteredStatements];
     data.sort((left, right) => {
       let comparison = 0;
       if (sortKey === "accountName") {
@@ -87,16 +102,12 @@ export default function BankStatementList({ navigation }) {
       return sortDir === "asc" ? comparison : -comparison;
     });
     return data;
-  }, [statements, sortDir, sortKey]);
+  }, [filteredStatements, sortDir, sortKey]);
 
   const onRefresh = useCallback(async () => {
     setRefreshing(true);
-    try {
-      await fetchStatements();
-    } finally {
-      setRefreshing(false);
-    }
-  }, [fetchStatements]);
+    setTimeout(() => setRefreshing(false), 600);
+  }, []);
 
   const toggleSort = (nextKey) => {
     if (sortKey === nextKey) {
@@ -114,19 +125,7 @@ export default function BankStatementList({ navigation }) {
 
   const closeMenu = () => setMenuOpen(false);
 
-  const openAddStatementSelector = () => {
-    Alert.alert("Add Statement", "Choose the type of statement to add.", [
-      {
-        text: "Bank statement",
-        onPress: () => navigation.navigate("BankStatement", { initialStatementType: "bank" }),
-      },
-      {
-        text: "Credit card statement",
-        onPress: () => navigation.navigate("BankStatement", { initialStatementType: "credit" }),
-      },
-      { text: "Cancel", style: "cancel" },
-    ]);
-  };
+  const openAddStatementSelector = () => setAddSheetVisible(true);
 
   const renderItem = ({ item }) => (
     <View style={styles.rowOuter}>
@@ -153,7 +152,8 @@ export default function BankStatementList({ navigation }) {
   );
 
   return (
-    <SafeAreaView style={styles.container} {...swipeResponder.panHandlers}>
+    <SafeAreaView style={[styles.container, { backgroundColor: '#1C1C4E' }]}>
+      <StatusBar backgroundColor="#1C1C4E" barStyle="light-content" />
       <View style={[styles.topBar, { paddingTop: 5 }]}> 
         <TouchableOpacity style={styles.topBarButton} onPress={() => setMenuOpen(true)}>
           <Text style={styles.topBarButtonText}>≡</Text>
@@ -165,17 +165,9 @@ export default function BankStatementList({ navigation }) {
       </View>
 
       <View style={styles.content}>
-        <View style={styles.card}>
-          <Text style={styles.title}>Bank & Credit Statements</Text>
-          <Text style={styles.subtitle}>
-            {sortedStatements.length > 0
-              ? "Your bank and credit statement records are shown below."
-              : "Upload statements to track money in and money out."}
-          </Text>
-        </View>
 
         {sortedStatements.length > 0 ? (
-          <View style={{ marginTop: 28, marginBottom: 8 }}>
+          <View style={{ marginTop: 12, marginBottom: 8 }}>
             <View style={styles.headerRow}>
               <TouchableOpacity style={styles.headerDate} onPress={() => toggleSort("date")}>
                 <Text style={styles.headerText}>Date</Text>
@@ -218,12 +210,42 @@ export default function BankStatementList({ navigation }) {
         />
       </View>
 
+      {/* Period filter bar — sits just above the bottom tab bar */}
+      {!loading && filterOptions.length > 0 ? (
+        <View style={styles.filterBar}>
+          <DropDownPicker
+            open={filterOpen}
+            value={activeFilterKey}
+            items={filterItems}
+            setOpen={setFilterOpen}
+            setValue={(callback) => {
+              const nextKey = callback(activeFilterKey);
+              handleFilterSelection(nextKey).catch(() => {});
+              return nextKey;
+            }}
+            setItems={setFilterItems}
+            listMode="SCROLLVIEW"
+            dropDownDirection="TOP"
+            style={styles.filterDropdown}
+            dropDownContainerStyle={styles.filterDropdownContainer}
+            zIndex={3000}
+            zIndexInverse={1000}
+          />
+        </View>
+      ) : null}
+
       <TouchableOpacity
         style={styles.floatingButton}
         onPress={openAddStatementSelector}
       >
         <Text style={styles.floatingButtonText}>+</Text>
       </TouchableOpacity>
+
+      <AddBankStatementSheet
+        visible={addSheetVisible}
+        onClose={() => setAddSheetVisible(false)}
+        navigation={navigation}
+      />
 
       <SideMenu open={menuOpen} onClose={closeMenu}>
         <SharedTabMenu
@@ -248,33 +270,27 @@ export default function BankStatementList({ navigation }) {
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: Colors.background },
   topBar: {
-    backgroundColor: Colors.card,
+    backgroundColor: '#1C1C4E',
     width: "100%",
     paddingHorizontal: 12,
     paddingBottom: 10,
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
-    elevation: 3,
-    shadowColor: "#000",
-    shadowOpacity: 0.1,
-    shadowRadius: 4,
-    shadowOffset: { width: 0, height: 2 },
+    borderBottomWidth: 1,
+    borderBottomColor: Colors.accent,
   },
   topBarButton: {
-    width: 44,
-    height: 36,
-    borderRadius: 18,
-    backgroundColor: Colors.inputBg,
+    width: 52,
+    height: 48,
     alignItems: "center",
     justifyContent: "center",
   },
   topBarButtonText: {
-    fontSize: 18,
-    fontWeight: "700",
-    color: Colors.textPrimary,
+    fontSize: 32,
+    color: "#fff",
   },
-  topBarTitle: { fontSize: 18, fontWeight: "800", color: Colors.textPrimary },
+  topBarTitle: { fontSize: 18, fontWeight: "700", color: "#fff" },
   content: { flex: 1, alignItems: "center", paddingBottom: 20 },
   card: {
     backgroundColor: Colors.card,
@@ -299,6 +315,25 @@ const styles = StyleSheet.create({
     paddingVertical: 12,
     flexDirection: "row",
     alignItems: "center",
+  },
+  filterBar: {
+    position: "absolute",
+    bottom: 0,
+    left: 0,
+    right: 0,
+    backgroundColor: "#1C1C4E",
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    zIndex: 1000,
+  },
+  filterDropdown: {
+    borderColor: Colors.border,
+    borderRadius: 10,
+    backgroundColor: Colors.card,
+  },
+  filterDropdownContainer: {
+    borderColor: Colors.border,
+    backgroundColor: Colors.card,
   },
   headerDate: { width: 90, flexDirection: "row", gap: 6, alignItems: "center" },
   headerAccount: { flex: 1, flexDirection: "row", gap: 6, alignItems: "center" },
@@ -337,7 +372,7 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "flex-start",
   },
-  rowDate: { width: 90, color: Colors.textMuted, fontSize: 14, paddingTop: 12 },
+  rowDate: { width: 90, color: Colors.textMuted, fontSize: 14, marginTop: 16 },
   accountWrap: {
     flex: 1,
     paddingRight: 14,
@@ -358,7 +393,7 @@ const styles = StyleSheet.create({
     color: Colors.accent,
     fontWeight: "700",
     fontSize: 15,
-    paddingTop: 12,
+    marginTop: 16,
   },
   userInfo: {
     marginBottom: 20,
@@ -453,7 +488,7 @@ const styles = StyleSheet.create({
   floatingButton: {
     position: "absolute",
     right: 30,
-    bottom: 100,
+    bottom: 70,
     width: 60,
     height: 60,
     borderRadius: 30,
@@ -480,5 +515,5 @@ const styles = StyleSheet.create({
     borderRadius: 12,
     alignItems: "center",
   },
-  loadingText: { marginTop: 10, color: Colors.textPrimary, fontSize: 16 },
+  loadingText: { marginTop: 10, color: Colors.textPrimary, fontSize: 16, fontWeight: "600" },
 });

@@ -6,7 +6,7 @@ service cloud.firestore {
     // Keep this list in sync with ALLOWED_EMAILS in client-portal-mock.html.
     function isAccountant() {
       return request.auth != null &&
-             request.auth.token.email in ["info@caistec.com", "info@expressaccounts.biz", "kitty_lapue@hotmail.co.uk"];
+             request.auth.token.email in ["info@caistec.com", "info@expressaccounts.biz", "catrin@expressaccounts.biz"];
     }
 
     // Helper: the caller owns the document (matches their Firebase Auth UID).
@@ -74,6 +74,18 @@ service cloud.firestore {
     match /users/{userId} {
       allow read, write: if isOwner(userId);
       allow read, update: if isAccountant();
+    }
+
+    // 2FA challenges: users create and approve/deny their own challenges.
+    match /twoFactorChallenges/{challengeId} {
+      allow create: if request.auth != null &&
+                       request.resource.data.userId == request.auth.uid;
+      allow read: if request.auth != null &&
+                     resource.data.userId == request.auth.uid;
+      allow update: if request.auth != null &&
+                       resource.data.userId == request.auth.uid &&
+                       request.resource.data.status in ["approved", "denied"] &&
+                       request.resource.data.userId == resource.data.userId;
     }
 
     // Verification codes: accountants manage the catalog; authenticated users can validate a single code.
