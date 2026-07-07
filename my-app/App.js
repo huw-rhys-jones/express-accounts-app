@@ -209,13 +209,7 @@ function CustomTabBar({ state, descriptors, navigation }) {
         );
       })}
 
-      {/* Floating Add Button */}
-      {/* <TouchableOpacity
-        style={styles.floatingButton}
-        onPress={() => navigation.navigate("Receipt")}
-      >
-        <Text style={styles.plusText}>+</Text>
-      </TouchableOpacity> */}
+
     </View>
   );
 }
@@ -308,6 +302,7 @@ export default function App() {
       if (user) {
         setWelcomeVisible(true);
         await SplashScreen.hideAsync().catch(() => {});
+
         // Fade out after 1.5s
         setTimeout(() => {
           Animated.timing(welcomeOpacity, {
@@ -449,6 +444,10 @@ export default function App() {
 
 // ---------------- Styles ----------------
 const styles = StyleSheet.create({
+  // For the tab navigation panel at the bottom of the screen ------------------
+
+  // The small space between the top of the tabs and the main space 
+
   tabBar: {
     flexDirection: "row",
     // height: 70,
@@ -460,10 +459,12 @@ const styles = StyleSheet.create({
     paddingBottom: Platform.OS === 'android' ? 60 : 0,
     paddingTop: 8,
   },
-  tabItem: { flex: 1, alignItems: "center", paddingVertical: 2 },
-  tabText: { color: "#7B7B7B", fontSize: 14 },
-  activeTab: { fontWeight: "bold", color: "#1C1C4E" },
+  tabItem: { flex: 1, alignItems: "center", paddingHorizontal: 2 },
+  tabText: { color: "#d31717", fontSize: 14 },
+  activeTab: { fontWeight: "bold", color: "#b64490" },
   tabIcon: { marginTop: 2 },
+
+  // Verification workflow --------------------------
   verifyContainer: {
     flex: 1,
     backgroundColor: "rgba(0,0,0,0.45)",
@@ -514,24 +515,8 @@ const styles = StyleSheet.create({
     color: "#a60d49",
     fontWeight: "700",
   },
-  floatingButton: {
-    position: "absolute",
-    bottom: 20,
-    alignSelf: "center",
-    backgroundColor: "#a60d49",
-    width: 60,
-    height: 60,
-    borderRadius: 30,
-    justifyContent: "center",
-    alignItems: "center",
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.3,
-    shadowRadius: 5,
-    elevation: 5,
-    zIndex: 10,
-  },
-  plusText: { color: "#fff", fontSize: 32, fontWeight: "bold" },
+
+
   twoFactorOverlay: {
     flex: 1,
     backgroundColor: "rgba(0,0,0,0.6)",
@@ -594,20 +579,26 @@ const styles = StyleSheet.create({
     fontWeight: "700",
     fontSize: 15,
   },
+
   welcomeSplash: {
     backgroundColor: '#ffffff',
     alignItems: 'center',
     justifyContent: 'center',
     zIndex: 9999,
   },
+
+  // Welcome screen logo and text
   welcomeLogo: {
-    width: 180,
-    height: 180,
+    width: 280,
+    height: 280,
     marginBottom: 24,
   },
+
   welcomeNameText: {
     fontSize: 22,
     fontWeight: '600',
     color: '#302C66',
   },
+
+
 });
