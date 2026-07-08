@@ -63,6 +63,8 @@ export default function MileageAdd({ navigation }) {
   const [startAddress, setStartAddress] = useState("");
   const [endAddress, setEndAddress] = useState("");
   const [distance, setDistance] = useState("");
+  const [isReturnTrip, setIsReturnTrip] = useState(false);
+  const [lastCalculatedOneWayMiles, setLastCalculatedOneWayMiles] = useState(null);
   const [loadingRoute, setLoadingRoute] = useState(false);
 
   // Autocomplete suggestion lists
@@ -119,7 +121,9 @@ export default function MileageAdd({ navigation }) {
       const data = await res.json();
       if (data.status === "OK" && data.routes?.length) {
         const metres = data.routes[0].legs[0].distance.value;
-        setDistance((metres / 1609.344).toFixed(2));
+        const oneWayMiles = metres / 1609.344;
+        setLastCalculatedOneWayMiles(oneWayMiles);
+        setDistance((oneWayMiles * (isReturnTrip ? 2 : 1)).toFixed(2));
       }
     } catch (err) {
       console.error("Directions error", err);
@@ -182,6 +186,21 @@ export default function MileageAdd({ navigation }) {
     if (startAddress) calculateRoute(startAddress, addr);
   };
 
+  const handleToggleReturnTrip = () => {
+    setIsReturnTrip((prev) => {
+      const next = !prev;
+      if (lastCalculatedOneWayMiles !== null) {
+        setDistance((lastCalculatedOneWayMiles * (next ? 2 : 1)).toFixed(2));
+      }
+      return next;
+    });
+  };
+
+  const handleDistanceChange = (text) => {
+    setDistance(text);
+    setLastCalculatedOneWayMiles(null);
+  };
+
   // ─────────────────────────────────────────────────────────────────────────
   // Save
   // ─────────────────────────────────────────────────────────────────────────
@@ -204,6 +223,11 @@ export default function MileageAdd({ navigation }) {
           startAddress,
           endAddress,
           distance: effectiveMiles,
+          oneWayDistance:
+            lastCalculatedOneWayMiles !== null
+              ? parseFloat(lastCalculatedOneWayMiles.toFixed(2))
+              : null,
+          returnTrip: isReturnTrip,
           vehicleId,
           vehicleReg: selectedVehicle?.registrationNumber || "",
           ratePerMile,
@@ -332,6 +356,13 @@ export default function MileageAdd({ navigation }) {
             )}
           </View>
 
+          <TouchableOpacity style={styles.returnTripRow} onPress={handleToggleReturnTrip} activeOpacity={0.8}>
+            <View style={[styles.checkbox, isReturnTrip && styles.checkboxChecked]}>
+              {isReturnTrip ? <Text style={styles.checkboxTick}>✓</Text> : null}
+            </View>
+            <Text style={styles.returnTripLabel}>Return trip (double distance)</Text>
+          </TouchableOpacity>
+
           {/* Distance */}
           <Text style={styles.fieldLabel}>
             Distance (miles) <Text style={styles.required}>*</Text>
@@ -340,7 +371,7 @@ export default function MileageAdd({ navigation }) {
           <TextInput
             style={styles.input}
             value={distance}
-            onChangeText={setDistance}
+            onChangeText={handleDistanceChange}
             placeholder="0.0"
             placeholderTextColor="#999"
             keyboardType="decimal-pad"
@@ -423,6 +454,30 @@ const styles = StyleSheet.create({
   dropdown: { borderColor: Colors.border, borderRadius: 10, backgroundColor: "#fff" },
   dropdownContainer: { borderColor: Colors.border, backgroundColor: "#fff" },
   noVehicleHint: { fontSize: 14, color: "#888", marginTop: 4, marginBottom: 4 },
+  returnTripRow: {
+    marginTop: 14,
+    marginBottom: 2,
+    flexDirection: "row",
+    alignItems: "center",
+    alignSelf: "flex-start",
+  },
+  checkbox: {
+    width: 20,
+    height: 20,
+    borderWidth: 1,
+    borderColor: Colors.border,
+    borderRadius: 5,
+    marginRight: 10,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "#fff",
+  },
+  checkboxChecked: {
+    backgroundColor: Colors.accent,
+    borderColor: Colors.accent,
+  },
+  checkboxTick: { color: "#fff", fontSize: 13, fontWeight: "800" },
+  returnTripLabel: { fontSize: 14, color: Colors.textPrimary, fontWeight: "500" },
   summaryBox: {
     backgroundColor: "#fff",
     borderRadius: 14,

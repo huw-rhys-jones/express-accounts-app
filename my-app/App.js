@@ -460,8 +460,8 @@ const styles = StyleSheet.create({
     paddingTop: 8,
   },
   tabItem: { flex: 1, alignItems: "center", paddingHorizontal: 2 },
-  tabText: { color: "#d31717", fontSize: 14 },
-  activeTab: { fontWeight: "bold", color: "#b64490" },
+  tabText: { color: "#a60d49", fontSize: 14 },
+  activeTab: { fontWeight: "bold", color: "#4A148C" },
   tabIcon: { marginTop: 2 },
 
   // Verification workflow --------------------------
