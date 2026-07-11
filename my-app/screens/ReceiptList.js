@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useMemo } from "react";
+import React, { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import {
   View,
   Text,
@@ -99,6 +99,7 @@ const ExpensesScreen = ({ navigation, route }) => {
   const [nameChangeModalVisible, setNameChangeModalVisible] = useState(false);
   const [newName, setNewName] = useState(displayName);
   const [federatedPromptMode, setFederatedPromptMode] = useState(false);
+  const menuToModalTimerRef = useRef(null);
 
   const handleSendFeedback = async () => {
   // 1. Validation
@@ -386,6 +387,26 @@ const ExpensesScreen = ({ navigation, route }) => {
     }
     setMenuOpen(false);
   }, [dismissNotifyTip, showNotifyTip]);
+
+  const openAfterMenuClose = useCallback((openFn) => {
+    closeMenu();
+    if (menuToModalTimerRef.current) {
+      clearTimeout(menuToModalTimerRef.current);
+    }
+    // iOS can drop modal presentations if a second modal opens during the first modal's close animation.
+    menuToModalTimerRef.current = setTimeout(() => {
+      openFn(true);
+      menuToModalTimerRef.current = null;
+    }, 260);
+  }, [closeMenu]);
+
+  useEffect(() => {
+    return () => {
+      if (menuToModalTimerRef.current) {
+        clearTimeout(menuToModalTimerRef.current);
+      }
+    };
+  }, []);
 
   useEffect(() => {
     if (!menuOpen) {
@@ -876,7 +897,7 @@ const ExpensesScreen = ({ navigation, route }) => {
 
           <View style={{ marginTop: 6 }}>
             <TouchableOpacity
-              onPress={() => { closeMenu(); setRegisterVehicleOpen(true); }}
+              onPress={() => openAfterMenuClose(setRegisterVehicleOpen)}
               style={styles.secondaryMenuButton}
             >
               <Text style={styles.secondaryMenuButtonText}>🚗  Register Vehicle</Text>
@@ -884,7 +905,7 @@ const ExpensesScreen = ({ navigation, route }) => {
 
             {vehicles.length > 0 && (
               <TouchableOpacity
-                onPress={() => { closeMenu(); setYourVehiclesOpen(true); }}
+                onPress={() => openAfterMenuClose(setYourVehiclesOpen)}
                 style={[styles.secondaryMenuButton, { marginTop: 10 }]}
               >
                 <Text style={styles.secondaryMenuButtonText}>📋  Your Vehicles</Text>

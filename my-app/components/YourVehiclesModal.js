@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
 import {
   Modal,
   ScrollView,
@@ -13,6 +13,25 @@ import RegisterVehicleModal from "./RegisterVehicleModal";
 export default function YourVehiclesModal({ visible, onClose, vehicles, onChanged }) {
   const [editingVehicle, setEditingVehicle] = useState(null);
   const [registerOpen, setRegisterOpen] = useState(false);
+  const [pendingEditVehicle, setPendingEditVehicle] = useState(null);
+  const [pendingCreateVehicle, setPendingCreateVehicle] = useState(false);
+
+  useEffect(() => {
+    if (visible) {
+      return;
+    }
+
+    if (pendingEditVehicle) {
+      setEditingVehicle(pendingEditVehicle);
+      setPendingEditVehicle(null);
+      return;
+    }
+
+    if (pendingCreateVehicle) {
+      setRegisterOpen(true);
+      setPendingCreateVehicle(false);
+    }
+  }, [pendingCreateVehicle, pendingEditVehicle, visible]);
 
   const engineLabel = (key) => {
     if (key === "over_2000") return "Over 2000cc";
@@ -36,7 +55,8 @@ export default function YourVehiclesModal({ visible, onClose, vehicles, onChange
                     key={v.id}
                     style={styles.vehicleRow}
                     onPress={() => {
-                      setEditingVehicle(v);
+                      setPendingEditVehicle(v);
+                      onClose?.();
                     }}
                     activeOpacity={0.75}
                   >
@@ -58,7 +78,10 @@ export default function YourVehiclesModal({ visible, onClose, vehicles, onChange
 
               <TouchableOpacity
                 style={styles.addBtn}
-                onPress={() => setRegisterOpen(true)}
+                onPress={() => {
+                  setPendingCreateVehicle(true);
+                  onClose?.();
+                }}
               >
                 <Text style={styles.addBtnText}>+ Add Another Vehicle</Text>
               </TouchableOpacity>
