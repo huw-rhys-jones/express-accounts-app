@@ -23,7 +23,7 @@ import { Button, Checkbox, ProgressBar } from "react-native-paper";
 import DateTimePickerModal from "react-native-modal-datetime-picker";
 import * as ImagePicker from "react-native-image-picker";
 import { KeyboardAwareScrollView } from "react-native-keyboard-aware-scroll-view";
-import { SafeAreaView } from "react-native-safe-area-context";
+import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import DropDownPicker from "react-native-dropdown-picker";
 import CategorySelector from "../components/CategorySelector";
 import { db, auth } from "../firebaseConfig";
@@ -54,7 +54,20 @@ import {
 } from "../utils/financialPeriods";
 import { triggerHaptic } from "../utils/haptics";
 
+function navigateBackToReceipts(navigation) {
+  navigation.reset({
+    index: 0,
+    routes: [
+      {
+        name: "MainTabs",
+        state: { routes: [{ name: "Receipts" }] },
+      },
+    ],
+  });
+}
+
 const ReceiptAdd = ({ navigation, route }) => {
+  const insets = useSafeAreaInsets();
   const [amount, setAmount] = useState("");
   const [vatAmount, setVatAmount] = useState("");
   const [vatRate, setVatRate] = useState(""); // string
@@ -129,6 +142,7 @@ const ReceiptAdd = ({ navigation, route }) => {
   const [fullScreenImageIndex, setFullScreenImageIndex] = useState(null);
   const [ocrFrames, setOcrFrames] = useState(null);
   const [detectProgress, setDetectProgress] = useState(0);
+  const [detectMode, setDetectMode] = useState("cloud");
 
   const getCanonicalCategoryName = (value) => {
     const normalized = String(value || "").trim().toLowerCase();
@@ -159,6 +173,8 @@ const ReceiptAdd = ({ navigation, route }) => {
 
   const scrollRef = useRef(null);
   const processedInitialImagesKeyRef = useRef(null);
+  const pendingDetectionAssetsRef = useRef([]);
+  const detectRequestIdRef = useRef(0);
   const draftSlideX = useRef(new Animated.Value(0)).current;
   const draftFade = useRef(new Animated.Value(1)).current;
 
@@ -417,6 +433,83 @@ const ReceiptAdd = ({ navigation, route }) => {
     processedInitialImagesKeyRef.current = null;
   };
 
+  const processInitialImages = React.useCallback(
+    async (initialImages, { preferLocal = false } = {}) => {
+      const requestId = detectRequestIdRef.current + 1;
+      detectRequestIdRef.current = requestId;
+      setDetectMode(preferLocal ? "local" : "cloud");
+      setIsDetecting(true);
+      setDetectProgress(0);
+
+      try {
+        const groups = await detectReceiptGroupsFromAssets(
+          initialImages,
+          (p) => {
+            if (detectRequestIdRef.current === requestId) {
+              setDetectProgress(p);
+            }
+          },
+          { preferLocal },
+        );
+
+        if (detectRequestIdRef.current !== requestId) return;
+
+        const effectiveGroups =
+          groups.length > 0
+            ? groups
+            : [{ assets: initialImages, analysis: {} }];
+
+        if (effectiveGroups.length === 1) {
+          const draft = createDraftFromAnalysis(effectiveGroups[0]);
+          applyDraftToForm(draft);
+          setReceiptDrafts([]);
+          setReceiptReviewStates([]);
+          scrollToTop();
+        } else {
+          const nextDrafts = effectiveGroups.map((group) =>
+            createDraftFromAnalysis(group),
+          );
+          setReceiptDrafts(nextDrafts);
+          setReceiptReviewStates(Array(nextDrafts.length).fill("pending"));
+          setCurrentReceiptIndex(0);
+          applyDraftToForm(nextDrafts[0]);
+          scrollToTop();
+          showToast(`${nextDrafts.length} receipts detected`);
+        }
+      } catch (error) {
+        if (detectRequestIdRef.current !== requestId) return;
+        console.error("❌ OCR error:", error);
+        const fallbackDraft = createDraftFromAnalysis({
+          analysis: {},
+          assets: initialImages,
+        });
+        applyDraftToForm(fallbackDraft);
+        setReceiptDrafts([]);
+        setReceiptReviewStates([]);
+        scrollToTop();
+      } finally {
+        if (detectRequestIdRef.current === requestId) {
+          setIsDetecting(false);
+          setDetectProgress(0);
+        }
+      }
+    },
+    [],
+  );
+
+  const cancelDetectionAndExit = () => {
+    detectRequestIdRef.current += 1;
+    setIsDetecting(false);
+    setDetectProgress(0);
+    navigateBackToReceipts(navigation);
+  };
+
+  const processDetectionLocally = () => {
+    const assets = pendingDetectionAssetsRef.current;
+    if (!assets?.length) return;
+    processInitialImages(assets, { preferLocal: true });
+  };
+
   // ------- effects -------
 
   // Process images passed in from AddReceiptSheet (camera/gallery flow)
@@ -430,48 +523,8 @@ const ReceiptAdd = ({ navigation, route }) => {
     }
     processedInitialImagesKeyRef.current = modeKey;
 
-    setIsDetecting(true);
-    setDetectProgress(0);
-
-    detectReceiptGroupsFromAssets(initialImages, (p) => setDetectProgress(p))
-      .then((groups) => {
-        const effectiveGroups =
-          groups.length > 0
-            ? groups
-            : [{ assets: initialImages, analysis: {} }];
-
-        if (effectiveGroups.length === 1) {
-          // Single receipt — just populate the form directly
-          const draft = createDraftFromAnalysis(effectiveGroups[0]);
-          applyDraftToForm(draft);
-          setReceiptDrafts([]);
-          setReceiptReviewStates([]);
-          scrollToTop();
-        } else {
-          // Multiple receipts detected
-          const nextDrafts = effectiveGroups.map((group) =>
-            createDraftFromAnalysis(group),
-          );
-          setReceiptDrafts(nextDrafts);
-          setReceiptReviewStates(Array(nextDrafts.length).fill("pending"));
-          setCurrentReceiptIndex(0);
-          applyDraftToForm(nextDrafts[0]);
-          scrollToTop();
-          showToast(`${nextDrafts.length} receipts detected`);
-        }
-      })
-      .catch((error) => {
-        console.error("❌ OCR error:", error);
-        const fallbackDraft = createDraftFromAnalysis({
-          analysis: {},
-          assets: initialImages,
-        });
-        applyDraftToForm(fallbackDraft);
-        setReceiptDrafts([]);
-        setReceiptReviewStates([]);
-        scrollToTop();
-      })
-      .finally(() => { setIsDetecting(false); setDetectProgress(0); });
+    pendingDetectionAssetsRef.current = initialImages;
+    processInitialImages(initialImages, { preferLocal: false });
   }, [route?.params?.initialImages]);
 
   useEffect(() => {
@@ -738,7 +791,6 @@ const ReceiptAdd = ({ navigation, route }) => {
     handleUploadSingleReceipt();
   };
 
-  const handleResetPress = () => setConfirmReset(true);
   const handleLeavePress = () => setShowConfirmLeaveModal(true);
 
   const handleRejectCurrentReceipt = () => {
@@ -1128,7 +1180,24 @@ const ReceiptAdd = ({ navigation, route }) => {
 
   // ------- render -------
   return (
-    <SafeAreaView style={ReceiptStyles.safeArea}>
+    <SafeAreaView
+      style={ReceiptStyles.safeArea}
+      edges={["left", "right", "bottom"]}
+    >
+      <View style={[localStyles.header, { paddingTop: Math.max(insets.top + 10, 24) }]}>
+        <TouchableOpacity
+          onPress={handleLeavePress}
+          style={localStyles.headerBtn}
+          activeOpacity={0.8}
+        >
+          <Text style={localStyles.headerBtnText}>‹</Text>
+        </TouchableOpacity>
+        <Text style={localStyles.headerTitle}>
+          {isMultiReceiptMode ? "Review Receipts" : "Record Receipt"}
+        </Text>
+        <View style={localStyles.headerBtn} />
+      </View>
+
       {/* IMAGE SECTION — large fixed panel at top with inline annotation boxes */}
       <View
         style={localStyles.imageSection}
@@ -1221,14 +1290,6 @@ const ReceiptAdd = ({ navigation, route }) => {
           </View>
         )}
       </View>
-      {/* Floating X close button — top-left of screen */}
-      <TouchableOpacity
-        style={localStyles.floatingCloseBtn}
-        onPress={!isMultiReceiptMode ? handleResetPress : handleLeavePress}
-        activeOpacity={0.8}
-      >
-        <Text style={localStyles.floatingCloseBtnText}>✕</Text>
-      </TouchableOpacity>
       <KeyboardAwareScrollView
         ref={scrollRef}
         contentContainerStyle={{ flexGrow: 1, paddingBottom: 20 }}
@@ -2064,14 +2125,34 @@ const ReceiptAdd = ({ navigation, route }) => {
           <View style={ReceiptStyles.uploadCard}>
             <ActivityIndicator size="large" color="#a60d49" />
             <Text style={{ marginTop: 12, fontWeight: "700", fontSize: 15 }}>
-              Detecting receipts…
+              {detectMode === "local" ? "Processing receipts locally…" : "Processing receipts in the cloud…"}
             </Text>
             <Text style={{ marginTop: 4, color: "#666", fontSize: 12, textAlign: "center" }}>
-              Please wait while we analyse your images
+              {detectMode === "local"
+                ? "This may be faster, but results can be less accurate."
+                : "Please wait while we process your images in the cloud."}
             </Text>
             <View style={{ alignSelf: "stretch", marginTop: 16 }}>
               <ProgressBar progress={detectProgress} color="#a60d49" style={{ borderRadius: 4 }} />
             </View>
+            <View style={localStyles.detectingActions}>
+              <Button mode="outlined" onPress={cancelDetectionAndExit}>
+                Cancel
+              </Button>
+              <Button
+                mode="contained"
+                buttonColor={Colors.accent}
+                onPress={processDetectionLocally}
+                disabled={detectMode === "local"}
+              >
+                Process locally
+              </Button>
+            </View>
+            {detectMode !== "local" ? (
+              <Text style={localStyles.detectingHint}>
+                Local processing can be quicker, but is usually less accurate.
+              </Text>
+            ) : null}
           </View>
         </View>
       )}
@@ -2127,6 +2208,17 @@ const ANNOTATIONS = [
 ];
 
 const localStyles = StyleSheet.create({
+  header: {
+    backgroundColor: "#1C1C4E",
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    paddingHorizontal: 16,
+    paddingBottom: 14,
+  },
+  headerTitle: { color: "#fff", fontSize: 17, fontWeight: "700" },
+  headerBtn: { width: 40, alignItems: "center" },
+  headerBtnText: { color: "#fff", fontWeight: "600", fontSize: 22 },
   imageSection: {
     height: IMAGE_HEIGHT,
     overflow: "hidden",
@@ -2169,25 +2261,6 @@ const localStyles = StyleSheet.create({
     fontSize: 11,
     fontWeight: "700",
   },
-  floatingCloseBtn: {
-    position: "absolute",
-    top: 12,
-    left: 12,
-    width: 36,
-    height: 36,
-    borderRadius: 18,
-    backgroundColor: "#a60d49",
-    justifyContent: "center",
-    alignItems: "center",
-    zIndex: 200,
-    elevation: 6,
-  },
-  floatingCloseBtnText: {
-    color: "#fff",
-    fontSize: 18,
-    lineHeight: 20,
-    fontWeight: "bold",
-  },
   stickyButtonBar: {
     flexDirection: "row",
     justifyContent: "space-between",
@@ -2214,6 +2287,19 @@ const localStyles = StyleSheet.create({
     justifyContent: "center",
     alignItems: "center",
     zIndex: 1200,
+  },
+  detectingActions: {
+    marginTop: 16,
+    width: "100%",
+    flexDirection: "row",
+    justifyContent: "space-between",
+    gap: 10,
+  },
+  detectingHint: {
+    marginTop: 8,
+    color: "#666",
+    fontSize: 11,
+    textAlign: "center",
   },
   labelAligned: {
     marginLeft: 10,

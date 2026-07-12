@@ -19,7 +19,7 @@ import {
   Dimensions,
 } from "react-native";
 import { KeyboardAwareScrollView } from "react-native-keyboard-aware-scroll-view";
-import { SafeAreaView } from "react-native-safe-area-context";
+import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import { Button, Checkbox } from "react-native-paper";
 import DateTimePickerModal from "react-native-modal-datetime-picker";
 import DropDownPicker from "react-native-dropdown-picker";
@@ -45,6 +45,7 @@ import { triggerHaptic } from "../utils/haptics";
 const IMAGE_HEIGHT = Math.round(Dimensions.get("window").height * 0.45);
 
 export default function ReceiptDetailsScreen({ route, navigation }) {
+  const insets = useSafeAreaInsets();
   const { receipt } = route.params;
 
   // --- base form state
@@ -462,7 +463,22 @@ export default function ReceiptDetailsScreen({ route, navigation }) {
     !Number.isNaN(parseFloat(vatRate));
 
   return (
-    <SafeAreaView style={ReceiptStyles.safeArea}>
+    <SafeAreaView
+      style={ReceiptStyles.safeArea}
+      edges={["left", "right", "bottom"]}
+    >
+      <View style={[localStyles.header, { paddingTop: Math.max(insets.top + 10, 24) }]}>
+        <TouchableOpacity
+          onPress={safeNavigateToExpenses}
+          style={localStyles.headerBtn}
+          activeOpacity={0.8}
+        >
+          <Text style={localStyles.headerBtnText}>‹</Text>
+        </TouchableOpacity>
+        <Text style={localStyles.headerTitle}>Edit Receipt</Text>
+        <View style={localStyles.headerBtn} />
+      </View>
+
       {/* Fixed image panel */}
       <View
         style={localStyles.imageSection}
@@ -499,18 +515,9 @@ export default function ReceiptDetailsScreen({ route, navigation }) {
         ) : null}
       </View>
 
-      {/* Floating X close button */}
-      <TouchableOpacity
-        style={localStyles.floatingCloseBtn}
-        onPress={safeNavigateToExpenses}
-        activeOpacity={0.8}
-      >
-        <Text style={localStyles.floatingCloseBtnText}>✕</Text>
-      </TouchableOpacity>
-
       <KeyboardAwareScrollView
         ref={scrollRef}
-        contentContainerStyle={{ flexGrow: 1, paddingBottom: 80 }}
+        contentContainerStyle={{ flexGrow: 1, paddingBottom: 160 }}
         enableOnAndroid={true}
         enableAutomaticScroll={false}
         keyboardShouldPersistTaps="always"
@@ -785,34 +792,36 @@ export default function ReceiptDetailsScreen({ route, navigation }) {
               />
             </View>
 
-            {/* Bottom actions */}
-            <View style={ReceiptStyles.bottomButtons}>
-              <View style={ReceiptStyles.primaryRow}>
-                <Button
-                  mode="contained"
-                  onPress={saveChanges}
-                  buttonColor="#a60d49"
-                  style={ReceiptStyles.actionBtn}
-                  disabled={!isReceiptFormValid}
-                >
-                  Save
-                </Button>
-              </View>
-
-              <View style={ReceiptStyles.deleteRow}>
-                <Button
-                  mode="outlined"
-                  onPress={deleteReceipt}
-                  textColor="#a60d49"
-                  style={ReceiptStyles.deleteBtn}
-                >
-                  Delete Receipt
-                </Button>
-              </View>
-            </View>
           </View>
         </View>
       </KeyboardAwareScrollView>
+
+      <View
+        style={[
+          localStyles.bottomBar,
+          { paddingBottom: Math.max(insets.bottom, Platform.OS === "android" ? 24 : 16) },
+        ]}
+      >
+        <Button
+          mode="outlined"
+          onPress={deleteReceipt}
+          textColor="#a60d49"
+          style={localStyles.bottomActionBtn}
+          contentStyle={localStyles.bottomActionContent}
+        >
+          Delete Receipt
+        </Button>
+        <Button
+          mode="contained"
+          onPress={saveChanges}
+          buttonColor={Colors.accent}
+          style={localStyles.bottomActionBtn}
+          contentStyle={localStyles.bottomActionContent}
+          disabled={!isReceiptFormValid}
+        >
+          Save
+        </Button>
+      </View>
 
       {/* OCR Preview + Accept Modal */}
       <Modal
@@ -1109,6 +1118,17 @@ export default function ReceiptDetailsScreen({ route, navigation }) {
 }
 
 const localStyles = StyleSheet.create({
+  header: {
+    backgroundColor: "#1C1C4E",
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    paddingHorizontal: 16,
+    paddingBottom: 14,
+  },
+  headerTitle: { color: "#fff", fontSize: 17, fontWeight: "700" },
+  headerBtn: { width: 40, alignItems: "center" },
+  headerBtnText: { color: "#fff", fontWeight: "600", fontSize: 22 },
   imageSection: {
     height: IMAGE_HEIGHT,
     overflow: "hidden",
@@ -1130,24 +1150,21 @@ const localStyles = StyleSheet.create({
     justifyContent: "center",
     alignItems: "center",
   },
-  floatingCloseBtn: {
-    position: "absolute",
-    top: 12,
-    left: 12,
-    width: 36,
-    height: 36,
-    borderRadius: 18,
-    backgroundColor: "#a60d49",
-    justifyContent: "center",
-    alignItems: "center",
-    zIndex: 200,
-    elevation: 6,
+  bottomBar: {
+    flexDirection: "row",
+    gap: 12,
+    paddingHorizontal: 16,
+    paddingTop: 10,
+    backgroundColor: "#fff",
+    borderTopWidth: 1,
+    borderTopColor: "#e8e8e8",
   },
-  floatingCloseBtnText: {
-    color: "#fff",
-    fontSize: 18,
-    lineHeight: 20,
-    fontWeight: "bold",
+  bottomActionBtn: {
+    flex: 1,
+    borderRadius: 25,
+  },
+  bottomActionContent: {
+    height: 48,
   },
   labelAligned: {
     marginLeft: 10,

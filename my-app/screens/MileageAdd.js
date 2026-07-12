@@ -250,7 +250,7 @@ export default function MileageAdd({ navigation }) {
   return (
     <View style={styles.container}>
       {/* Header */}
-      <View style={styles.header}>
+      <View style={[styles.header, { paddingTop: Math.max(insets.top + 10, 24) }]}>
         <TouchableOpacity onPress={() => navigation.goBack()} style={styles.headerBtn}>
           <Text style={styles.headerBtnText}>‹</Text>
         </TouchableOpacity>
@@ -431,7 +431,6 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "space-between",
     paddingHorizontal: 16,
-    paddingTop: Platform.OS === "ios" ? 56 : 16,
     paddingBottom: 14,
   },
   headerTitle: { color: "#fff", fontSize: 17, fontWeight: "700" },
@@ -524,18 +523,16 @@ const styles = StyleSheet.create({
   },
   saveBtnDisabled: { backgroundColor: "#b0b0c0" },
   saveBtnText: { color: "#fff", fontWeight: "700", fontSize: 16 },
-  autocompleteWrap: { position: "relative", zIndex: 10 },
+  autocompleteWrap: { position: "relative" },
   suggestionList: {
-    position: "absolute",
-    top: "100%",
-    left: 0,
-    right: 0,
+    marginTop: 6,
     backgroundColor: "#fff",
     borderWidth: 1,
     borderColor: Colors.border,
     borderRadius: 10,
     zIndex: 100,
     elevation: 4,
+    overflow: "hidden",
   },
   suggestionRow: {
     paddingHorizontal: 14,

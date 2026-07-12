@@ -305,10 +305,11 @@ async function isUserVerified() {
   }
 }
 
-async function analyzeAssetsCloudFirst(assets, onProgress) {
+async function analyzeAssetsCloudFirst(assets, onProgress, options = {}) {
   const n = assets.length || 1;
+  const { preferLocal = false } = options;
   const verified = await isUserVerified();
-  if (verified) {
+  if (verified && !preferLocal) {
     try {
       const response = await extractReceiptImagesInCloud(assets);
       const cloudImages = Array.isArray(response?.images) ? response.images : [];
@@ -358,8 +359,10 @@ async function analyzeAssetsCloudFirst(assets, onProgress) {
     } catch (error) {
       console.warn("Cloud receipt OCR unavailable, falling back to on-device OCR.", error);
     }
-  } else {
+  } else if (!verified) {
     console.log("Receipt OCR source: local (ml-kit) — user not verified");
+  } else if (preferLocal) {
+    console.log("Receipt OCR source: local (ml-kit) — forced by user");
   }
 
   console.log("Receipt OCR source: local (ml-kit)");
@@ -383,14 +386,14 @@ async function analyzeAssetsCloudFirst(assets, onProgress) {
  * into one block, then run data extraction once on the combined text.
  * Returns a structured result object (same shape as ocrResult in the hook).
  */
-export async function runOcrOnAssets(assets) {
-  const analyses = await analyzeAssetsCloudFirst(assets || []);
+export async function runOcrOnAssets(assets, options = {}) {
+  const analyses = await analyzeAssetsCloudFirst(assets || [], undefined, options);
   const combined = analyses.map((entry) => entry.raw).filter(Boolean).join("\n\n");
   return toStructuredOcrResult(extractData(combined), combined);
 }
 
-export async function detectReceiptGroupsFromAssets(assets, onProgress) {
-  const analyses = await analyzeAssetsCloudFirst(assets || [], onProgress);
+export async function detectReceiptGroupsFromAssets(assets, onProgress, options = {}) {
+  const analyses = await analyzeAssetsCloudFirst(assets || [], onProgress, options);
   if (!analyses.length) return [];
 
   const groups = [];

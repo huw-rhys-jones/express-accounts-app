@@ -250,7 +250,7 @@ export default function MileageEdit({ navigation, route }) {
   // ─────────────────────────────────────────────────────────────────────────
   return (
     <View style={styles.container}>
-      <View style={styles.header}>
+      <View style={[styles.header, { paddingTop: Math.max(insets.top + 10, 24) }]}>
         <TouchableOpacity onPress={() => navigation.goBack()} style={styles.headerBtn}>
           <Text style={styles.headerBtnText}>‹</Text>
         </TouchableOpacity>
@@ -386,7 +386,6 @@ const styles = StyleSheet.create({
     backgroundColor: "#1C1C4E",
     flexDirection: "row", alignItems: "center", justifyContent: "space-between",
     paddingHorizontal: 16,
-    paddingTop: Platform.OS === "ios" ? 56 : 16,
     paddingBottom: 14,
   },
   headerTitle: { color: "#fff", fontSize: 17, fontWeight: "700" },
@@ -428,11 +427,12 @@ const styles = StyleSheet.create({
   },
   checkboxTick: { color: "#fff", fontSize: 13, fontWeight: "800" },
   returnTripLabel: { fontSize: 14, color: Colors.textPrimary, fontWeight: "500" },
-  autocompleteWrap: { position: "relative", zIndex: 10 },
+  autocompleteWrap: { position: "relative" },
   suggestionList: {
-    position: "absolute", top: "100%", left: 0, right: 0,
+    marginTop: 6,
     backgroundColor: "#fff", borderWidth: 1, borderColor: Colors.border,
     borderRadius: 10, zIndex: 100, elevation: 4,
+    overflow: "hidden",
   },
   suggestionRow: { paddingHorizontal: 14, paddingVertical: 11, borderBottomWidth: 1, borderBottomColor: "#f0f0f0" },
   suggestionText: { fontSize: 14, color: Colors.textPrimary },

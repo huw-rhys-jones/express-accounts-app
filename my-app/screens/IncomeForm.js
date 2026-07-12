@@ -17,7 +17,7 @@ import {
   View,
 } from "react-native";
 import ImageViewer from "react-native-image-zoom-viewer";
-import { SafeAreaView } from "react-native-safe-area-context";
+import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import { KeyboardAwareScrollView } from "react-native-keyboard-aware-scroll-view";
 import { Button, Checkbox, ProgressBar } from "react-native-paper";
 import DropDownPicker from "react-native-dropdown-picker";
@@ -70,6 +70,7 @@ function navigateBackToIncome(navigation) {
 }
 
 export default function IncomeFormScreen({ navigation, route, mode }) {
+  const insets = useSafeAreaInsets();
   const income = route?.params?.income;
   const [amount, setAmount] = useState(
     income?.amount != null ? String(income.amount) : ""
@@ -784,7 +785,24 @@ export default function IncomeFormScreen({ navigation, route, mode }) {
     !Number.isNaN(Number(vatRate));
 
   return (
-    <SafeAreaView style={ReceiptStyles.safeArea}>
+    <SafeAreaView
+      style={ReceiptStyles.safeArea}
+      edges={["left", "right", "bottom"]}
+    >
+      <View style={[styles.header, { paddingTop: Math.max(insets.top + 10, 24) }]}>
+        <TouchableOpacity
+          onPress={() => navigateBackToIncome(navigation)}
+          style={styles.headerBtn}
+          activeOpacity={0.8}
+        >
+          <Text style={styles.headerBtnText}>‹</Text>
+        </TouchableOpacity>
+        <Text style={styles.headerTitle}>
+          {mode === "edit" ? "Edit Income" : isMultiDraftMode ? "Review Income" : "Add Income"}
+        </Text>
+        <View style={styles.headerBtn} />
+      </View>
+
       {/* Fixed image panel */}
       <View
         style={styles.imageSection}
@@ -870,15 +888,6 @@ export default function IncomeFormScreen({ navigation, route, mode }) {
           </View>
         )}
       </View>
-
-      {/* Floating X close button */}
-      <TouchableOpacity
-        style={styles.floatingCloseBtn}
-        onPress={() => navigateBackToIncome(navigation)}
-        activeOpacity={0.8}
-      >
-        <Text style={styles.floatingCloseBtnText}>✕</Text>
-      </TouchableOpacity>
 
       <KeyboardAwareScrollView
         contentContainerStyle={styles.scrollContent}
@@ -1424,6 +1433,17 @@ const stylesConst = {
 };
 
 const styles = StyleSheet.create({
+  header: {
+    backgroundColor: "#1C1C4E",
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    paddingHorizontal: 16,
+    paddingBottom: 14,
+  },
+  headerTitle: { color: "#fff", fontSize: 17, fontWeight: "700" },
+  headerBtn: { width: 40, alignItems: "center" },
+  headerBtnText: { color: "#fff", fontWeight: "600", fontSize: 22 },
   scrollContent: { flexGrow: 1, paddingBottom: 160 },
   imageSection: {
     height: IMAGE_HEIGHT,
@@ -1481,25 +1501,6 @@ const styles = StyleSheet.create({
     color: "#fff",
     fontSize: 13,
     fontWeight: "600",
-  },
-  floatingCloseBtn: {
-    position: "absolute",
-    top: 12,
-    left: 12,
-    width: 36,
-    height: 36,
-    borderRadius: 18,
-    backgroundColor: "#a60d49",
-    justifyContent: "center",
-    alignItems: "center",
-    zIndex: 200,
-    elevation: 6,
-  },
-  floatingCloseBtnText: {
-    color: "#fff",
-    fontSize: 18,
-    lineHeight: 20,
-    fontWeight: "bold",
   },
   fieldGroup: { marginBottom: 18 },
   attachmentSection: { marginTop: 16 },
