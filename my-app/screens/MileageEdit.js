@@ -24,6 +24,7 @@ import { Colors } from "../utils/sharedStyles";
 import { formatDate } from "../utils/format_style";
 import DateTimePickerModal from "react-native-modal-datetime-picker";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { Button } from "react-native-paper";
 import {
   getVehicles,
   setLastUsedVehicleId,
@@ -354,26 +355,25 @@ export default function MileageEdit({ navigation, route }) {
         </ScrollView>
 
         {/* Bottom action bar */}
-        <View
-          style={[
-            styles.bottomBar,
-            { paddingBottom: Math.max(insets.bottom, Platform.OS === "android" ? 24 : 16) },
-          ]}
-        >
-          <TouchableOpacity
-            style={styles.deleteBtn}
+        <View style={[styles.bottomBar, { paddingBottom: Math.max(insets.bottom, Platform.OS === "android" ? 24 : 16) }]}>
+          <Button
+            mode="outlined"
             onPress={handleDelete}
+            textColor={Colors.accent}
+            style={styles.bottomActionBtn}
             disabled={deleting}
           >
-            {deleting ? <ActivityIndicator color="#fff" size="small" /> : <Text style={styles.deleteBtnText}>Delete</Text>}
-          </TouchableOpacity>
-          <TouchableOpacity
-            style={[styles.saveBtn, !canSave && styles.saveBtnDisabled]}
+            {deleting ? <ActivityIndicator color={Colors.accent} size="small" /> : "Delete"}
+          </Button>
+          <Button
+            mode="contained"
             onPress={handleSave}
+            buttonColor={Colors.accent}
+            style={styles.bottomActionBtn}
             disabled={!canSave || saving}
           >
-            {saving ? <ActivityIndicator color="#fff" size="small" /> : <Text style={styles.saveBtnText}>Save</Text>}
-          </TouchableOpacity>
+            {saving ? <ActivityIndicator color="#fff" size="small" /> : "Save"}
+          </Button>
         </View>
       </KeyboardAvoidingView>
     </View>
@@ -444,14 +444,15 @@ const styles = StyleSheet.create({
   summaryLabelBold: { fontSize: 16, color: Colors.textPrimary, fontWeight: "700" },
   summaryValueBold: { fontSize: 18, color: Colors.accent, fontWeight: "800" },
   bottomBar: {
-    flexDirection: "row", padding: 16,
-    paddingBottom: 16,
-    gap: 12, backgroundColor: "#f4f4f8",
-    borderTopWidth: 1, borderTopColor: "#e0e0e8",
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    backgroundColor: "#fff",
+    gap: 12,
+    borderTopWidth: 1,
+    borderTopColor: "#e8e8e8",
   },
-  deleteBtn: { flex: 1, backgroundColor: "#cc2222", paddingVertical: 14, borderRadius: 30, alignItems: "center" },
-  deleteBtnText: { color: "#fff", fontWeight: "700", fontSize: 16 },
-  saveBtn: { flex: 1, backgroundColor: Colors.accent, paddingVertical: 14, borderRadius: 30, alignItems: "center" },
-  saveBtnDisabled: { backgroundColor: "#b0b0c0" },
-  saveBtnText: { color: "#fff", fontWeight: "700", fontSize: 16 },
+  bottomActionBtn: { flex: 1 },
 });

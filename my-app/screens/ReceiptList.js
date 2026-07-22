@@ -100,6 +100,7 @@ const ExpensesScreen = ({ navigation, route }) => {
   const [newName, setNewName] = useState(displayName);
   const [federatedPromptMode, setFederatedPromptMode] = useState(false);
   const menuToModalTimerRef = useRef(null);
+  const isVerifiedAccount = verificationStatus === "verified";
 
   const handleSendFeedback = async () => {
   // 1. Validation
@@ -928,19 +929,21 @@ const ExpensesScreen = ({ navigation, route }) => {
           <View style={styles.footerContainer}>
             {/* Enter Client Code Button - Green */}
             <TouchableOpacity
+              disabled={isVerifiedAccount}
               onPress={() => {
+                if (isVerifiedAccount) return;
                 setReferralCode("");
                 setReferralCodeModalVisible(true);
               }}
               style={[
                 styles.referralBtn,
-                verificationStatus === "verified" ? styles.disabledActionButton : null,
+                isVerifiedAccount ? styles.disabledActionButton : null,
               ]}
             >
               <Text
                 style={[
                   styles.filledBtnText,
-                  verificationStatus === "verified" ? styles.disabledActionButtonText : null,
+                  isVerifiedAccount ? styles.disabledActionButtonText : null,
                 ]}
               >
                 Enter Client Code
@@ -1477,6 +1480,16 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     borderRadius: 10,
     marginTop: 20,
+  },
+  input: {
+    width: "100%",
+    borderWidth: 1,
+    borderColor: Colors.border,
+    backgroundColor: Colors.inputBg,
+    borderRadius: 10,
+    paddingHorizontal: 12,
+    paddingVertical: 12,
+    color: Colors.textPrimary,
   },
   signOutText: {
     color: "white",

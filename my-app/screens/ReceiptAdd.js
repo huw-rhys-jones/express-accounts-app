@@ -793,6 +793,13 @@ const ReceiptAdd = ({ navigation, route }) => {
 
   const handleLeavePress = () => setShowConfirmLeaveModal(true);
 
+  const confirmRemoveImage = (onConfirm) => {
+    Alert.alert("Remove Image", "Are you sure you want to remove this image?", [
+      { text: "Cancel", style: "cancel" },
+      { text: "Remove", style: "destructive", onPress: onConfirm },
+    ]);
+  };
+
   const handleRejectCurrentReceipt = () => {
     if (!isMultiReceiptMode || receiptDrafts.length === 0) return;
 
@@ -1214,50 +1221,61 @@ const ReceiptAdd = ({ navigation, route }) => {
             {images.map((item, index) => {
               const isAnnotated = ocrFrames?.imageUri === item.uri;
               return (
-                <TouchableOpacity
-                  key={String(index)}
-                  style={[localStyles.carouselPage, { width: imageContainerWidth }]}
-                  activeOpacity={0.9}
-                  onPress={() => setFullScreenImageIndex(index)}
-                >
-                  <Image
-                    source={{ uri: item.uri }}
-                    style={[localStyles.carouselImage, { width: imageContainerWidth }]}
-                    resizeMode="contain"
-                  />
-                  {isAnnotated && ANNOTATIONS.filter(({ key }) => ocrFrames[key]).map(({ key, label, color }) => {
-                    const naturalW = ocrFrames.imageW;
-                    const naturalH = ocrFrames.imageH;
-                    if (!naturalW) return null;
-                    const scale = Math.min(imageContainerWidth / naturalW, IMAGE_HEIGHT / naturalH);
-                    const renderedW = naturalW * scale;
-                    const renderedH = naturalH * scale;
-                    const offsetX = (imageContainerWidth - renderedW) / 2;
-                    const offsetY = (IMAGE_HEIGHT - renderedH) / 2;
-                    const frame = ocrFrames[key];
-                    const box = {
-                      left: frame.left * scale + offsetX,
-                      top: frame.top * scale + offsetY,
-                      width: frame.width * scale,
-                      height: frame.height * scale,
-                    };
-                    const PAD = 8;
-                    const padded = {
-                      left: box.left - PAD,
-                      top: box.top - PAD,
-                      width: box.width + PAD * 2,
-                      height: box.height + PAD * 2,
-                    };
-                    return (
-                      <React.Fragment key={key}>
-                        <View style={[localStyles.annBox, { ...padded, borderColor: color }]} />
-                        <View style={[localStyles.annChip, { backgroundColor: color, top: padded.top - 18, left: padded.left - 1 }]}>
-                          <Text style={localStyles.annChipText}>{label}</Text>
-                        </View>
-                      </React.Fragment>
-                    );
-                  })}
-                </TouchableOpacity>
+                <View key={String(index)} style={{ position: "relative" }}>
+                  <TouchableOpacity
+                    style={[localStyles.carouselPage, { width: imageContainerWidth }]}
+                    activeOpacity={0.9}
+                    onPress={() => setFullScreenImageIndex(index)}
+                  >
+                    <Image
+                      source={{ uri: item.uri }}
+                      style={[localStyles.carouselImage, { width: imageContainerWidth }]}
+                      resizeMode="contain"
+                    />
+                    {isAnnotated && ANNOTATIONS.filter(({ key }) => ocrFrames[key]).map(({ key, label, color }) => {
+                      const naturalW = ocrFrames.imageW;
+                      const naturalH = ocrFrames.imageH;
+                      if (!naturalW) return null;
+                      const scale = Math.min(imageContainerWidth / naturalW, IMAGE_HEIGHT / naturalH);
+                      const renderedW = naturalW * scale;
+                      const renderedH = naturalH * scale;
+                      const offsetX = (imageContainerWidth - renderedW) / 2;
+                      const offsetY = (IMAGE_HEIGHT - renderedH) / 2;
+                      const frame = ocrFrames[key];
+                      const box = {
+                        left: frame.left * scale + offsetX,
+                        top: frame.top * scale + offsetY,
+                        width: frame.width * scale,
+                        height: frame.height * scale,
+                      };
+                      const PAD = 8;
+                      const padded = {
+                        left: box.left - PAD,
+                        top: box.top - PAD,
+                        width: box.width + PAD * 2,
+                        height: box.height + PAD * 2,
+                      };
+                      return (
+                        <React.Fragment key={key}>
+                          <View style={[localStyles.annBox, { ...padded, borderColor: color }]} />
+                          <View style={[localStyles.annChip, { backgroundColor: color, top: padded.top - 18, left: padded.left - 1 }]}>
+                            <Text style={localStyles.annChipText}>{label}</Text>
+                          </View>
+                        </React.Fragment>
+                      );
+                    })}
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    style={localStyles.carouselRemoveBtn}
+                    onPress={() =>
+                      confirmRemoveImage(() => {
+                        setImages((prev) => prev.filter((_, imageIndex) => imageIndex !== index));
+                      })
+                    }
+                  >
+                    <Text style={localStyles.carouselRemoveText}>×</Text>
+                  </TouchableOpacity>
+                </View>
               );
             })}
             {ocrProcessing ? (
@@ -1651,7 +1669,7 @@ const ReceiptAdd = ({ navigation, route }) => {
             <Button
               mode={isCurrentRejected ? "contained" : "outlined"}
               buttonColor={isCurrentRejected ? "#555" : undefined}
-              textColor={isCurrentRejected ? "#fff" : "#a60d49"}
+              textColor={isCurrentRejected ? "#fff" : Colors.accent}
               style={[
                 localStyles.stickyActionButton,
                 !isCurrentRejected && !isCurrentAccepted
@@ -1667,8 +1685,8 @@ const ReceiptAdd = ({ navigation, route }) => {
             <Button
               mode={isCurrentAccepted ? "contained" : "outlined"}
               onPress={handleSavePress}
-              buttonColor={isCurrentAccepted ? "#a60d49" : undefined}
-              textColor={isCurrentAccepted ? "#fff" : "#a60d49"}
+              buttonColor={isCurrentAccepted ? Colors.accent : undefined}
+              textColor={isCurrentAccepted ? "#fff" : Colors.accent}
               disabled={!isReceiptFormValid && !isCurrentAccepted}
               style={[
                 localStyles.stickyActionButton,
@@ -1685,7 +1703,7 @@ const ReceiptAdd = ({ navigation, route }) => {
           <>
             <Button
               mode="contained"
-              buttonColor="#a60d49"
+              buttonColor={Colors.accent}
               style={localStyles.stickyActionButton}
               onPress={handleLeavePress}
             >
@@ -1695,7 +1713,7 @@ const ReceiptAdd = ({ navigation, route }) => {
             <Button
               mode="contained"
               onPress={handleSavePress}
-              buttonColor="#a60d49"
+              buttonColor={Colors.accent}
               style={localStyles.stickyActionButton}
               disabled={!isReceiptFormValid}
             >
@@ -2526,10 +2544,21 @@ const localStyles = StyleSheet.create({
     textAlign: "right",
   },
   sideTipWrapper: {
-    flexDirection: "row",
+    flexDirection: "column",
     alignItems: "center",
-    marginLeft: 5, // Pulls the triangle right up to the box edge
+    marginTop: 8,
     zIndex: 5000,
+  },
+  sideTopTriangle: {
+    width: 0,
+    height: 0,
+    borderLeftWidth: 8,
+    borderRightWidth: 8,
+    borderBottomWidth: 10,
+    borderLeftColor: "transparent",
+    borderRightColor: "transparent",
+    borderBottomColor: "#F0D1FF",
+    marginBottom: -1,
   },
   skipButton: {
     marginTop: 2,
@@ -2723,6 +2752,23 @@ const localStyles = StyleSheet.create({
     borderRadius: 8,
     backgroundColor: "#f9f9f9",
   },
+  carouselRemoveBtn: {
+    position: "absolute",
+    top: 8,
+    right: 8,
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    backgroundColor: "rgba(0,0,0,0.65)",
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  carouselRemoveText: {
+    color: "#fff",
+    fontSize: 20,
+    lineHeight: 20,
+    fontWeight: "bold",
+  },
   scanningText: {
     fontSize: 11,
     color: "#999",
@@ -2753,7 +2799,7 @@ export default ReceiptAdd;
 
 const ScannerTooltip = ({ onDismiss }) => (
   <View style={localStyles.sideTipWrapper}>
-    <View style={localStyles.leftTriangle} />
+    <View style={localStyles.sideTopTriangle} />
     <View style={localStyles.sideTipBox}>
       <Text style={localStyles.sideTipText}>
         Tap to scan your receipt. We'll auto-fill the details! ✨

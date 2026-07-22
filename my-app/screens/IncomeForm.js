@@ -731,6 +731,20 @@ export default function IncomeFormScreen({ navigation, route, mode }) {
     ]);
   };
 
+  const confirmRemoveImage = (onConfirm) => {
+    Alert.alert("Remove Image", "Are you sure you want to remove this image?", [
+      { text: "Cancel", style: "cancel" },
+      { text: "Remove", style: "destructive", onPress: onConfirm },
+    ]);
+  };
+
+  const removeAttachmentByUri = (uriToRemove) => {
+    if (!uriToRemove) return;
+    setAttachments((current) =>
+      current.filter((item) => getAttachmentUri(item) !== uriToRemove)
+    );
+  };
+
   const renderAttachment = (attachment, index) => {
     const uri = getAttachmentUri(attachment);
     if (!uri) return null;
@@ -750,7 +764,9 @@ export default function IncomeFormScreen({ navigation, route, mode }) {
         <TouchableOpacity
           style={styles.removeAttachmentButton}
           onPress={() =>
-            setAttachments((current) => current.filter((item) => item.id !== attachment.id))
+            confirmRemoveImage(() => {
+              removeAttachmentByUri(uri);
+            })
           }
         >
           <Text style={styles.removeAttachmentText}>×</Text>
@@ -770,10 +786,10 @@ export default function IncomeFormScreen({ navigation, route, mode }) {
 
   const deletePreviewImage = () => {
     if (!preview?.uri) return;
-    setAttachments((current) =>
-      current.filter((item) => getAttachmentUri(item) !== preview.uri)
-    );
-    setOcrModalVisible(false);
+    confirmRemoveImage(() => {
+      removeAttachmentByUri(preview.uri);
+      setOcrModalVisible(false);
+    });
   };
 
   const isIncomeFormValid =
@@ -859,7 +875,11 @@ export default function IncomeFormScreen({ navigation, route, mode }) {
                   })}
                   <TouchableOpacity
                     style={styles.carouselRemoveBtn}
-                    onPress={() => setAttachments((current) => current.filter((item) => item.id !== att.id))}
+                    onPress={() =>
+                      confirmRemoveImage(() => {
+                        removeAttachmentByUri(uri);
+                      })
+                    }
                   >
                     <Text style={styles.carouselRemoveText}>×</Text>
                   </TouchableOpacity>
@@ -1025,16 +1045,6 @@ export default function IncomeFormScreen({ navigation, route, mode }) {
               />
             </View>
 
-            {mode === "edit" ? (
-              <Button
-                mode="outlined"
-                textColor={Colors.accent}
-                onPress={deleteIncome}
-                style={styles.deleteButton}
-              >
-                Delete Income
-              </Button>
-            ) : null}
           </Animated.View>
         </View>
       </KeyboardAwareScrollView>
@@ -1388,23 +1398,47 @@ export default function IncomeFormScreen({ navigation, route, mode }) {
           </>
         ) : (
           <>
-            <Button
-              mode="contained"
-              buttonColor={Colors.accent}
-              style={styles.stickyActionButton}
-              onPress={() => navigateBackToIncome(navigation)}
-            >
-              Cancel
-            </Button>
-            <Button
-              mode="contained"
-              buttonColor={Colors.accent}
-              style={styles.stickyActionButton}
-              onPress={saveIncome}
-              disabled={isSaving || !isIncomeFormValid}
-            >
-              Save
-            </Button>
+            {mode === "edit" ? (
+              <>
+                <Button
+                  mode="outlined"
+                  textColor={Colors.accent}
+                  style={styles.stickyActionButton}
+                  onPress={deleteIncome}
+                >
+                  Delete
+                </Button>
+                <Button
+                  mode="contained"
+                  buttonColor={Colors.accent}
+                  style={styles.stickyActionButton}
+                  onPress={saveIncome}
+                  disabled={isSaving || !isIncomeFormValid}
+                >
+                  Save
+                </Button>
+              </>
+            ) : (
+              <>
+                <Button
+                  mode="contained"
+                  buttonColor={Colors.accent}
+                  style={styles.stickyActionButton}
+                  onPress={() => navigateBackToIncome(navigation)}
+                >
+                  Cancel
+                </Button>
+                <Button
+                  mode="contained"
+                  buttonColor={Colors.accent}
+                  style={styles.stickyActionButton}
+                  onPress={saveIncome}
+                  disabled={isSaving || !isIncomeFormValid}
+                >
+                  Save
+                </Button>
+              </>
+            )}
           </>
         )}
       </View>
@@ -1536,31 +1570,32 @@ const styles = StyleSheet.create({
   },
   removeAttachmentText: { color: Colors.surface, fontSize: 18, lineHeight: 18 },
   sideTipWrapper: {
-    flexDirection: "row",
     alignItems: "center",
-    marginLeft: 8,
+    marginTop: 8,
     zIndex: 10,
   },
-  leftTriangle: {
+  topTriangle: {
     width: 0,
     height: 0,
-    borderTopWidth: 7,
-    borderBottomWidth: 7,
-    borderRightWidth: 10,
-    borderTopColor: "transparent",
-    borderBottomColor: "transparent",
-    borderRightColor: "#F0D1FF",
+    borderLeftWidth: 8,
+    borderRightWidth: 8,
+    borderBottomWidth: 10,
+    borderLeftColor: "transparent",
+    borderRightColor: "transparent",
+    borderBottomColor: "#F0D1FF",
+    marginBottom: -1,
   },
   sideTipBox: {
     backgroundColor: "#F0D1FF",
     padding: 10,
     borderRadius: 12,
-    maxWidth: 170,
+    maxWidth: 190,
   },
   sideTipText: {
     color: "#4A148C",
     fontSize: 11,
     lineHeight: 15,
+    textAlign: "center",
   },
   sideGotIt: {
     color: "#4A148C",
@@ -1686,7 +1721,7 @@ const styles = StyleSheet.create({
 
 const ScannerTooltip = ({ onDismiss, text }) => (
   <View style={styles.sideTipWrapper}>
-    <View style={styles.leftTriangle} />
+    <View style={styles.topTriangle} />
     <View style={styles.sideTipBox}>
       <Text style={styles.sideTipText}>{text}</Text>
       <TouchableOpacity onPress={onDismiss}>

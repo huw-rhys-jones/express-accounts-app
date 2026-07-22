@@ -453,6 +453,13 @@ export default function ReceiptDetailsScreen({ route, navigation }) {
     ]);
   };
 
+  const confirmRemoveImage = (onConfirm) => {
+    Alert.alert("Remove Image", "Are you sure you want to remove this image?", [
+      { text: "Cancel", style: "cancel" },
+      { text: "Remove", style: "destructive", onPress: onConfirm },
+    ]);
+  };
+
   const isReceiptFormValid =
     selectedCategory &&
     amount.trim().length > 0 &&
@@ -493,18 +500,29 @@ export default function ReceiptDetailsScreen({ route, navigation }) {
             style={{ width: imageContainerWidth }}
           >
             {images.map((item, index) => (
-              <TouchableOpacity
-                key={String(index)}
-                style={[localStyles.carouselPage, { width: imageContainerWidth }]}
-                activeOpacity={0.9}
-                onPress={() => setFullScreenImageIndex(index)}
-              >
-                <Image
-                  source={{ uri: item.uri }}
-                  style={[localStyles.carouselImage, { width: imageContainerWidth }]}
-                  resizeMode="contain"
-                />
-              </TouchableOpacity>
+              <View key={String(index)} style={{ position: "relative" }}>
+                <TouchableOpacity
+                  style={[localStyles.carouselPage, { width: imageContainerWidth }]}
+                  activeOpacity={0.9}
+                  onPress={() => setFullScreenImageIndex(index)}
+                >
+                  <Image
+                    source={{ uri: item.uri }}
+                    style={[localStyles.carouselImage, { width: imageContainerWidth }]}
+                    resizeMode="contain"
+                  />
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={localStyles.carouselRemoveBtn}
+                  onPress={() =>
+                    confirmRemoveImage(() => {
+                      setImages((prev) => prev.filter((_, imageIndex) => imageIndex !== index));
+                    })
+                  }
+                >
+                  <Text style={localStyles.carouselRemoveText}>×</Text>
+                </TouchableOpacity>
+              </View>
             ))}
             <View style={[localStyles.carouselPage, { width: imageContainerWidth }]}>
               <TouchableOpacity style={localStyles.carouselAddBtn} onPress={pickImageOption}>
@@ -805,18 +823,16 @@ export default function ReceiptDetailsScreen({ route, navigation }) {
         <Button
           mode="outlined"
           onPress={deleteReceipt}
-          textColor="#a60d49"
+          textColor={Colors.accent}
           style={localStyles.bottomActionBtn}
-          contentStyle={localStyles.bottomActionContent}
         >
-          Delete Receipt
+          Delete
         </Button>
         <Button
           mode="contained"
           onPress={saveChanges}
           buttonColor={Colors.accent}
           style={localStyles.bottomActionBtn}
-          contentStyle={localStyles.bottomActionContent}
           disabled={!isReceiptFormValid}
         >
           Save
@@ -1002,7 +1018,11 @@ export default function ReceiptDetailsScreen({ route, navigation }) {
                   {!isNewImageSession && (
                     <Button
                       mode="outlined"
-                      onPress={() => deleteCurrentImage(setImages)}
+                      onPress={() =>
+                        confirmRemoveImage(() => {
+                          deleteCurrentImage(setImages);
+                        })
+                      }
                       textColor="#a60d49"
                     >
                       Delete Image
@@ -1150,21 +1170,36 @@ const localStyles = StyleSheet.create({
     justifyContent: "center",
     alignItems: "center",
   },
+  carouselRemoveBtn: {
+    position: "absolute",
+    top: 8,
+    right: 8,
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    backgroundColor: "rgba(0,0,0,0.65)",
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  carouselRemoveText: {
+    color: "#fff",
+    fontSize: 20,
+    lineHeight: 20,
+    fontWeight: "bold",
+  },
   bottomBar: {
     flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
     gap: 12,
     paddingHorizontal: 16,
-    paddingTop: 10,
+    paddingVertical: 10,
     backgroundColor: "#fff",
     borderTopWidth: 1,
     borderTopColor: "#e8e8e8",
   },
   bottomActionBtn: {
     flex: 1,
-    borderRadius: 25,
-  },
-  bottomActionContent: {
-    height: 48,
   },
   labelAligned: {
     marginLeft: 10,
