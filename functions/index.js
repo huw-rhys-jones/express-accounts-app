@@ -1,8 +1,6 @@
 /* eslint-disable max-len, require-jsdoc */
 const admin = require("firebase-admin");
-const functions = require("firebase-functions");
 const {onRequest} = require("firebase-functions/v2/https");
-const nodemailer = require("nodemailer");
 const cors = require("cors")({origin: true});
 const pdfParse = require("pdf-parse");
 const {DocumentProcessorServiceClient} = require("@google-cloud/documentai").v1;
@@ -31,17 +29,6 @@ function getDocAiClient(location) {
   }
   return _docAiClient;
 }
-
-const GMAIL_USER = "janus.antithesis@gmail.com";
-const GMAIL_PASS = "bchz bnwo pjhd qpzy";
-
-const transporter = nodemailer.createTransport({
-  service: "gmail",
-  auth: {
-    user: GMAIL_USER,
-    pass: GMAIL_PASS,
-  },
-});
 
 const MAX_INLINE_IMAGE_BYTES = 8 * 1024 * 1024;
 const MAX_RECEIPT_IMAGES_PER_REQUEST = 12;
@@ -161,56 +148,6 @@ async function extractTextFromReceiptImage(imageBase64, mimeType) {
     provider: "vision-ocr",
   };
 }
-
-exports.submitDeletionRequest = functions.https.onRequest((req, res) => {
-  cors(req, res, () => {
-    if (req.method !== "POST") {
-      return res.status(405).send("Method Not Allowed");
-    }
-
-    const {email, message} = req.body;
-
-    const mailOptions = {
-      from: GMAIL_USER,
-      to: "info@caistec.com",
-      subject: "New Data Deletion Request",
-      text: `Email: ${email}\n\nMessage:\n${message || "(no message)"}`,
-    };
-
-    transporter.sendMail(mailOptions, (error) => {
-      if (error) {
-        console.error("Error sending mail", error);
-        return res.status(500).send("Failed to send request");
-      }
-      return res.status(200).send("Request received. We'll handle it shortly.");
-    });
-  });
-});
-
-exports.submitFeedback = functions.https.onRequest((req, res) => {
-  cors(req, res, () => {
-    if (req.method !== "POST") {
-      return res.status(405).send("Method Not Allowed");
-    }
-
-    const {name, email, message} = req.body;
-
-    const mailOptions = {
-      from: GMAIL_USER,
-      to: "info@caistec.com",
-      subject: `Express Accounts Feedback - ${name}`,
-      text: `${message}\n\n---\nSent from: ${email}`,
-    };
-
-    transporter.sendMail(mailOptions, (error) => {
-      if (error) {
-        console.error("Error sending feedback email", error);
-        return res.status(500).send("Failed to send feedback");
-      }
-      return res.status(200).send("Feedback received.");
-    });
-  });
-});
 
 exports.extractBankStatementPdf = onRequest({region: OCR_FUNCTION_REGION}, (req, res) => {
   cors(req, res, async () => {
