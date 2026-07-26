@@ -6,6 +6,38 @@
   "storage": {
     "rules": "storage.rules"
   },
+  "hosting": {
+    "public": "public",
+    "ignore": [
+      "firebase.json",
+      "**/.*",
+      "**/node_modules/**"
+    ],
+    "rewrites": [
+      {
+        "source": "/submit-deletion-request",
+        "function": "submitDeletionRequest"
+      },
+      {
+        "source": "/submit-feedback",
+        "function": "submitFeedback"
+      },
+      {
+        "source": "/extract-bank-statement-pdf",
+        "function": {
+          "functionId": "extractBankStatementPdf",
+          "region": "europe-west2"
+        }
+      },
+      {
+        "source": "/extract-receipt-images",
+        "function": {
+          "functionId": "extractReceiptImages",
+          "region": "europe-west2"
+        }
+      }
+    ]
+  },
   "functions": [
     {
       "source": "functions",

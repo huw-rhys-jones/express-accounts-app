@@ -494,6 +494,7 @@
   <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-auth-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore-compat.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js"></script>
   <script src="/__/firebase/init.js"></script>
   <script src="/utils/taxQuarter.js"></script>
   <script src="/utils/clientVerification.js"></script>
@@ -675,7 +676,7 @@
         <div class="modal-actions">
           <button id="resetNotifyBtn" type="button" class="btn-success" style="display:none">Mark As Processed</button>
           <button id="cancelDateBtn" type="button" class="btn-secondary">Cancel</button>
-          <button id="confirmDateBtn" type="button" class="btn-primary">Download Excel</button>
+          <button id="confirmDateBtn" type="button" class="btn-primary">Download ZIP</button>
         </div>
       </div>
     </div>
@@ -883,6 +884,113 @@
       ].join("-");
     }
 
+    function sanitizeFileSegment(value, fallback) {
+      const cleaned = String(value || "")
+        .trim()
+        .replace(/[^a-zA-Z0-9._-]+/g, "-")
+        .replace(/-+/g, "-")
+        .replace(/(^-|-$)/g, "");
+      return cleaned || fallback;
+    }
+
+    function inferAttachmentExtension(attachment) {
+      const attachmentName = String(attachment && attachment.name ? attachment.name : "").trim();
+      if (attachmentName.includes(".")) {
+        const ext = attachmentName.split(".").pop().toLowerCase().replace(/[^a-z0-9]/g, "");
+        if (ext) return "." + ext;
+      }
+
+      const mimeType = String(attachment && attachment.mimeType ? attachment.mimeType : "").toLowerCase();
+      if (mimeType === "image/jpeg") return ".jpg";
+      if (mimeType === "image/png") return ".png";
+      if (mimeType === "image/webp") return ".webp";
+      if (mimeType === "image/heic") return ".heic";
+      if (mimeType === "image/heif") return ".heif";
+      if (mimeType === "image/gif") return ".gif";
+
+      const sourceUrl = String(attachment && attachment.url ? attachment.url : "");
+      const urlWithoutQuery = sourceUrl.split("?")[0];
+      if (urlWithoutQuery.includes(".")) {
+        const urlExt = urlWithoutQuery.split(".").pop().toLowerCase().replace(/[^a-z0-9]/g, "");
+        if (urlExt) return "." + urlExt;
+      }
+
+      return ".jpg";
+    }
+
+    function normalizePortalAttachments(attachments) {
+      return (Array.isArray(attachments) ? attachments : [])
+        .map((attachment, index) => {
+          if (!attachment) return null;
+          if (typeof attachment === "string") {
+            return {
+              id: "attachment-" + index,
+              name: "attachment-" + (index + 1),
+              mimeType: "",
+              kind: "image",
+              url: attachment,
+            };
+          }
+          return {
+            id: attachment.id || attachment.url || "attachment-" + index,
+            name: attachment.name || attachment.fileName || ("attachment-" + (index + 1)),
+            mimeType: attachment.mimeType || attachment.type || "",
+            kind: attachment.kind || "",
+            url: attachment.url || attachment.downloadURL || "",
+          };
+        })
+        .filter(Boolean);
+    }
+
+    function isImageLikeAttachment(attachment) {
+      const mimeType = String(attachment && attachment.mimeType ? attachment.mimeType : "").toLowerCase();
+      const kind = String(attachment && attachment.kind ? attachment.kind : "").toLowerCase();
+      if (mimeType.startsWith("image/")) return true;
+      if (kind === "image") return true;
+      const ext = inferAttachmentExtension(attachment);
+      return [".jpg", ".jpeg", ".png", ".webp", ".heic", ".heif", ".gif"].includes(ext);
+    }
+
+    function buildExportItems(entries, prefix) {
+      const sortedEntries = [...(entries || [])].sort((a, b) => {
+        const dateA = String(a && (a.date || a.loggedAt || "") || "");
+        const dateB = String(b && (b.date || b.loggedAt || "") || "");
+        const dateCompare = dateA.localeCompare(dateB);
+        if (dateCompare !== 0) return dateCompare;
+        return String(a && a.id ? a.id : "").localeCompare(String(b && b.id ? b.id : ""));
+      });
+
+      return sortedEntries.map((entry, index) => {
+        const exportId = prefix + String(index + 1).padStart(4, "0");
+        const imageAttachments = normalizePortalAttachments(entry && entry.attachments)
+          .filter((attachment) => attachment.url && isImageLikeAttachment(attachment))
+          .map((attachment, imageIndex) => ({
+            ...attachment,
+            exportAttachmentId: exportId + "-" + (imageIndex + 1),
+          }));
+
+        return {
+          entry,
+          exportId,
+          imageAttachments,
+        };
+      });
+    }
+
+    function triggerBlobDownload(blob, fileName) {
+      const objectUrl = URL.createObjectURL(blob);
+      const anchor = document.createElement("a");
+      anchor.href = objectUrl;
+      anchor.download = fileName;
+      anchor.style.display = "none";
+      document.body.appendChild(anchor);
+      anchor.click();
+      setTimeout(() => {
+        URL.revokeObjectURL(objectUrl);
+        anchor.remove();
+      }, 1000);
+    }
+
     function getFinancialYearStartYear(date) {
       const day = startOfLocalDay(date || new Date());
       const aprilSixThisYear = new Date(day.getFullYear(), 3, 6);
@@ -1061,6 +1169,7 @@
             vatAmount: data.vatAmount != null ? Number(data.vatAmount) : null,
             date: data.date ? String(data.date).split("T")[0] : "",
             category: data.category || "Uncategorized",
+            attachments: normalizePortalAttachments(data.attachments),
             loggedAt: createdDate ? createdDate.toISOString() : (data.date || ""),
           });
         });
@@ -1082,6 +1191,7 @@
             reference: data.reference || "",
             label: data.label || "",
             notes: data.notes || "",
+            attachments: normalizePortalAttachments(data.attachments),
             attachmentsCount: Array.isArray(data.attachments) ? data.attachments.length : 0,
             loggedAt: createdDate ? createdDate.toISOString() : (data.date || ""),
           });
@@ -1622,23 +1732,29 @@
       );
     }
 
-    function buildReceiptWorkbookRows(filteredReceipts) {
-      const rows = filteredReceipts.map((receipt) => {
+    function buildReceiptWorkbookRows(receiptExportItems) {
+      const rows = receiptExportItems.map((exportItem) => {
+        const receipt = exportItem.entry;
         const vatAmount = Number.isFinite(Number(receipt.vatAmount))
           ? Number(receipt.vatAmount)
           : ((Number(receipt.amount) || 0) * (Number(receipt.vatRate) || 0)) /
             (100 + (Number(receipt.vatRate) || 0) || 1);
         return [
+          exportItem.exportId,
           toMoney(receipt.amount),
           toMoney(vatAmount),
           receipt.vatRate + "%",
           receipt.date,
           receipt.category,
+          exportItem.imageAttachments.map((attachment) => attachment.exportAttachmentId).join(", "),
+          String(exportItem.imageAttachments.length),
           toDateTimeString(receipt.loggedAt)
         ];
       });
 
-      const totals = calculateReceiptTotalsByCategory(filteredReceipts);
+      const receiptEntries = receiptExportItems.map((item) => item.entry);
+
+      const totals = calculateReceiptTotalsByCategory(receiptEntries);
 
       const categorySummaryRows = Object.entries(totals.byCategoryPence)
         .sort(([a], [b]) => a.localeCompare(b, undefined, { sensitivity: "base" }))
@@ -1647,7 +1763,7 @@
           toMoney(fromPence(amountPence)),
         ]);
 
-      const header = ["Amount", "VAT Amount", "VAT Rate", "Date", "Category", "Logged At"];
+      const header = ["Item ID", "Amount", "VAT Amount", "VAT Rate", "Date", "Category", "Image IDs", "Image Count", "Logged At"];
       const aoa = [
         header,
         ...rows,
@@ -1660,7 +1776,7 @@
         ...categorySummaryRows,
       ];
       if (rows.length === 0) {
-        aoa.splice(1, 0, ["No receipts found for this period.", "", "", "", "", ""]);
+        aoa.splice(1, 0, ["No receipts found for this period.", "", "", "", "", "", "", "", ""]);
       }
       return aoa;
     }
@@ -1678,25 +1794,32 @@
       );
     }
 
-    function buildIncomeWorkbookRows(filteredIncome) {
-      const rows = filteredIncome.map((entry) => [
-        toMoney(entry.amount),
-        toMoney(entry.vatAmount),
-        entry.vatRate + "%",
-        entry.date,
-        entry.reference || "",
-        entry.label || "",
-        entry.notes || "",
-        toDateTimeString(entry.loggedAt),
-      ]);
+    function buildIncomeWorkbookRows(incomeExportItems) {
+      const rows = incomeExportItems.map((exportItem) => {
+        const entry = exportItem.entry;
+        return [
+          exportItem.exportId,
+          toMoney(entry.amount),
+          toMoney(entry.vatAmount),
+          entry.vatRate + "%",
+          entry.date,
+          entry.reference || "",
+          entry.label || "",
+          entry.notes || "",
+          exportItem.imageAttachments.map((attachment) => attachment.exportAttachmentId).join(", "),
+          String(exportItem.imageAttachments.length),
+          toDateTimeString(entry.loggedAt),
+        ];
+      });
 
-      const totals = calculateIncomeTotals(filteredIncome);
+      const incomeEntries = incomeExportItems.map((item) => item.entry);
+      const totals = calculateIncomeTotals(incomeEntries);
       const labelSummaryRows = Object.entries(totals.byLabelPence)
         .sort(([a], [b]) => a.localeCompare(b, undefined, { sensitivity: "base" }))
         .map(([label, amountPence]) => [label, toMoney(fromPence(amountPence))]);
 
       const aoa = [
-        ["Amount", "VAT Amount", "VAT Rate", "Date", "Reference", "Label", "Notes", "Logged At"],
+        ["Item ID", "Amount", "VAT Amount", "VAT Rate", "Date", "Reference", "Label", "Notes", "Image IDs", "Image Count", "Logged At"],
         ...rows,
         [],
         ["Summary", ""],
@@ -1708,10 +1831,29 @@
       ];
 
       if (rows.length === 0) {
-        aoa.splice(1, 0, ["No income records found for this period.", "", "", "", "", "", "", ""]);
+        aoa.splice(1, 0, ["No income records found for this period.", "", "", "", "", "", "", "", "", "", ""]);
       }
 
       return aoa;
+    }
+
+    async function addImageAttachmentsToZip(zipFolder, exportItems, sourceLabel, errors) {
+      for (const exportItem of exportItems) {
+        for (const attachment of exportItem.imageAttachments) {
+          try {
+            const response = await fetch(attachment.url, { mode: "cors" });
+            if (!response.ok) {
+              throw new Error("HTTP " + response.status);
+            }
+            const blob = await response.blob();
+            const extension = inferAttachmentExtension(attachment);
+            const fileName = sanitizeFileSegment(attachment.exportAttachmentId, "attachment") + extension;
+            zipFolder.file(fileName, blob);
+          } catch (error) {
+            errors.push(sourceLabel + " " + attachment.exportAttachmentId + " failed: " + (error && error.message ? error.message : String(error)));
+          }
+        }
+      }
     }
 
     function buildBankStatementWorkbookRows(filteredStatements) {
@@ -1848,7 +1990,7 @@
       return aoa;
     }
 
-    function downloadUserData(user, selectedPeriod) {
+    async function downloadUserData(user, selectedPeriod) {
       const startDate = selectedPeriod && selectedPeriod.startDate ? toLocalYmd(selectedPeriod.startDate) : null;
       const endDate = selectedPeriod && selectedPeriod.endDate ? toLocalYmd(selectedPeriod.endDate) : null;
       const filteredReceipts = filterEntriesByPeriod(user.receipts, startDate, endDate, (receipt) => receipt.date);
@@ -1860,19 +2002,49 @@
         (statement) => statement.date || statement.statementEndDate || statement.statementStartDate || statement.loggedAt
       );
 
+      const receiptExportItems = buildExportItems(filteredReceipts, "E");
+      const incomeExportItems = buildExportItems(filteredIncome, "I");
+
       const workbook = XLSX.utils.book_new();
-      XLSX.utils.book_append_sheet(workbook, XLSX.utils.aoa_to_sheet(buildReceiptWorkbookRows(filteredReceipts)), "Receipts");
-      XLSX.utils.book_append_sheet(workbook, XLSX.utils.aoa_to_sheet(buildIncomeWorkbookRows(filteredIncome)), "Income");
+      XLSX.utils.book_append_sheet(workbook, XLSX.utils.aoa_to_sheet(buildReceiptWorkbookRows(receiptExportItems)), "Receipts");
+      XLSX.utils.book_append_sheet(workbook, XLSX.utils.aoa_to_sheet(buildIncomeWorkbookRows(incomeExportItems)), "Income");
       XLSX.utils.book_append_sheet(workbook, XLSX.utils.aoa_to_sheet(buildBankStatementWorkbookRows(filteredStatements)), "Bank Statements");
 
-      const safeName = user.name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/(^-|-$)/g, "");
+      const safeName = sanitizeFileSegment((user && user.name ? user.name : "client").toLowerCase(), "client");
       const fileSuffix = startDate && endDate
         ? startDate + "-to-" + endDate
         : "all-time";
-      const fileName = safeName + "-" + fileSuffix + ".xlsx";
-      XLSX.writeFile(workbook, fileName);
+      const baseName = safeName + "-" + fileSuffix;
+      const workbookFileName = baseName + ".xlsx";
+      const zipFileName = baseName + ".zip";
 
-      statusLine.textContent = "Downloaded " + user.name + " data: " + filteredReceipts.length + " receipts, " + filteredIncome.length + " income record(s), and " + filteredStatements.length + " bank statement(s) (" + (selectedPeriod ? selectedPeriod.label : "All time") + ").";
+      const zip = new JSZip();
+      const workbookBytes = XLSX.write(workbook, { bookType: "xlsx", type: "array" });
+      zip.file(workbookFileName, workbookBytes);
+
+      const imagesFolder = zip.folder("images");
+      const expenseImagesFolder = imagesFolder.folder("expenses");
+      const incomeImagesFolder = imagesFolder.folder("income");
+      const imageDownloadErrors = [];
+
+      await addImageAttachmentsToZip(expenseImagesFolder, receiptExportItems, "expense", imageDownloadErrors);
+      await addImageAttachmentsToZip(incomeImagesFolder, incomeExportItems, "income", imageDownloadErrors);
+
+      if (imageDownloadErrors.length) {
+        zip.file("image-download-errors.txt", imageDownloadErrors.join("\n"));
+      }
+
+      const zipBlob = await zip.generateAsync({ type: "blob" });
+      triggerBlobDownload(zipBlob, zipFileName);
+
+      const receiptImageCount = receiptExportItems.reduce((sum, item) => sum + item.imageAttachments.length, 0);
+      const incomeImageCount = incomeExportItems.reduce((sum, item) => sum + item.imageAttachments.length, 0);
+      const totalImageCount = receiptImageCount + incomeImageCount;
+
+      statusLine.textContent = "Downloaded ZIP for " + user.name + ": " + filteredReceipts.length + " receipts, " + filteredIncome.length + " income record(s), " + filteredStatements.length + " bank statement(s), and " + totalImageCount + " image(s) (" + (selectedPeriod ? selectedPeriod.label : "All time") + ").";
+      if (imageDownloadErrors.length) {
+        statusLine.textContent += " " + imageDownloadErrors.length + " image(s) could not be fetched and were listed in image-download-errors.txt.";
+      }
     }
 
     async function attemptLogin() {
@@ -1973,15 +2145,30 @@
       await markNotifyAsProcessed();
     });
 
-    confirmDateBtn.addEventListener("click", () => {
+    confirmDateBtn.addEventListener("click", async () => {
       if (!selectedUser) return;
       const selectedPeriod = getSelectedExportPeriod();
       if (!selectedPeriod) {
         statusLine.textContent = "Please choose an export period before downloading.";
         return;
       }
-      downloadUserData(selectedUser, selectedPeriod);
-      closeDateModal();
+
+      const targetUser = selectedUser;
+      const originalButtonText = confirmDateBtn.textContent;
+      confirmDateBtn.disabled = true;
+      confirmDateBtn.textContent = "Preparing ZIP...";
+      statusLine.textContent = "Preparing ZIP export for " + targetUser.name + "...";
+
+      try {
+        await downloadUserData(targetUser, selectedPeriod);
+        closeDateModal();
+      } catch (error) {
+        console.error("ZIP export failed", error);
+        statusLine.textContent = "Export failed: " + (error && error.message ? error.message : String(error));
+      } finally {
+        confirmDateBtn.disabled = false;
+        confirmDateBtn.textContent = originalButtonText;
+      }
     });
 
     logOutBtn.addEventListener("click", async () => {

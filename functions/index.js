@@ -1,7 +1,9 @@
 /* eslint-disable max-len, require-jsdoc */
 const admin = require("firebase-admin");
+const functions = require("firebase-functions");
 const {onRequest} = require("firebase-functions/v2/https");
 const cors = require("cors")({origin: true});
+const nodemailer = require("nodemailer");
 const pdfParse = require("pdf-parse");
 const {DocumentProcessorServiceClient} = require("@google-cloud/documentai").v1;
 const vision = require("@google-cloud/vision");
@@ -33,6 +35,33 @@ function getDocAiClient(location) {
 const MAX_INLINE_IMAGE_BYTES = 8 * 1024 * 1024;
 const MAX_RECEIPT_IMAGES_PER_REQUEST = 12;
 const OCR_FUNCTION_REGION = process.env.OCR_FUNCTION_REGION || "europe-west2";
+
+const GMAIL_USER = process.env.GMAIL_USER || "";
+const GMAIL_PASS = process.env.GMAIL_PASS || "";
+const NOTIFY_TO = process.env.NOTIFY_TO || "info@caistec.com";
+
+let transporter = null;
+function getMailTransporter() {
+  if (transporter) {
+    return transporter;
+  }
+
+  if (!GMAIL_USER || !GMAIL_PASS) {
+    const error = new Error("Missing GMAIL_USER or GMAIL_PASS environment variables.");
+    error.statusCode = 500;
+    throw error;
+  }
+
+  transporter = nodemailer.createTransport({
+    service: "gmail",
+    auth: {
+      user: GMAIL_USER,
+      pass: GMAIL_PASS,
+    },
+  });
+
+  return transporter;
+}
 
 function getDocumentAiConfig() {
   return {
@@ -148,6 +177,52 @@ async function extractTextFromReceiptImage(imageBase64, mimeType) {
     provider: "vision-ocr",
   };
 }
+
+exports.submitDeletionRequest = functions.https.onRequest((req, res) => {
+  cors(req, res, async () => {
+    if (req.method !== "POST") {
+      return res.status(405).send("Method Not Allowed");
+    }
+
+    try {
+      const {email, message} = req.body || {};
+      const mailer = getMailTransporter();
+      await mailer.sendMail({
+        from: GMAIL_USER,
+        to: NOTIFY_TO,
+        subject: "New Data Deletion Request",
+        text: `Email: ${email || "(missing)"}\n\nMessage:\n${message || "(no message)"}`,
+      });
+      return res.status(200).send("Request received. We'll handle it shortly.");
+    } catch (error) {
+      console.error("Error sending deletion request email", error);
+      return res.status(500).send("Failed to send request");
+    }
+  });
+});
+
+exports.submitFeedback = functions.https.onRequest((req, res) => {
+  cors(req, res, async () => {
+    if (req.method !== "POST") {
+      return res.status(405).send("Method Not Allowed");
+    }
+
+    try {
+      const {name, email, message} = req.body || {};
+      const mailer = getMailTransporter();
+      await mailer.sendMail({
+        from: GMAIL_USER,
+        to: NOTIFY_TO,
+        subject: `Express Accounts Feedback - ${name || "Unknown"}`,
+        text: `${message || "(no message)"}\n\n---\nSent from: ${email || "(missing)"}`,
+      });
+      return res.status(200).send("Feedback received.");
+    } catch (error) {
+      console.error("Error sending feedback email", error);
+      return res.status(500).send("Failed to send feedback");
+    }
+  });
+});
 
 exports.extractBankStatementPdf = onRequest({region: OCR_FUNCTION_REGION}, (req, res) => {
   cors(req, res, async () => {
