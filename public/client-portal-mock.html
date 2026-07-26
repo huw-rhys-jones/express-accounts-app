@@ -493,6 +493,7 @@
   <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-app-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-auth-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-storage-compat.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js"></script>
   <script src="/__/firebase/init.js"></script>
@@ -501,6 +502,7 @@
   <script>
     const auth = firebase.auth();
     const db = firebase.firestore();
+    const storage = firebase.storage();
     // Session-only persistence: signing out automatically when the tab/browser closes
     auth.setPersistence(firebase.auth.Auth.Persistence.SESSION);
   </script>
@@ -918,6 +920,180 @@
       return ".jpg";
     }
 
+    function appendTokenIfPresent(url, token) {
+      const cleanToken = String(token || "").trim();
+      if (!cleanToken) return url;
+      if (/([?&])token=/.test(url)) return url;
+      return url + (url.includes("?") ? "&" : "?") + "token=" + encodeURIComponent(cleanToken);
+    }
+
+    function parseGsUrl(url) {
+      const match = String(url || "").match(/^gs:\/\/([^/]+)\/(.+)$/i);
+      if (!match) return null;
+      return { bucket: match[1], objectPath: match[2] };
+    }
+
+    function parseStorageGoogleapisUrl(url) {
+      const value = String(url || "");
+      const match = value.match(/^https:\/\/storage\.googleapis\.com\/([^/]+)\/(.+)$/i);
+      if (!match) return null;
+      return { bucket: match[1], objectPath: decodeURIComponent(match[2]) };
+    }
+
+    function parseFirebaseStorageMediaUrl(url) {
+      const value = String(url || "");
+      const match = value.match(/^https:\/\/firebasestorage\.googleapis\.com\/v0\/b\/([^/]+)\/o\/([^?]+)(\?.*)?$/i);
+      if (!match) return null;
+      return {
+        bucket: match[1],
+        objectPath: decodeURIComponent(match[2]),
+      };
+    }
+
+    function buildFirebaseMediaUrl(bucket, objectPath, token) {
+      if (!bucket || !objectPath) return "";
+      let url = "https://firebasestorage.googleapis.com/v0/b/" + bucket + "/o/" + encodeURIComponent(objectPath) + "?alt=media";
+      url = appendTokenIfPresent(url, token);
+      return url;
+    }
+
+    function buildAttachmentFetchCandidates(attachment) {
+      const candidates = [];
+      const pushCandidate = (candidate) => {
+        const value = String(candidate || "").trim();
+        if (!value) return;
+        if (!candidates.includes(value)) {
+          candidates.push(value);
+        }
+      };
+
+      const token = attachment.downloadToken || attachment.token || attachment.firebaseStorageDownloadToken || "";
+      const rawUrl = String(attachment && attachment.url ? attachment.url : "").trim();
+      pushCandidate(rawUrl);
+
+      const gsInfo = parseGsUrl(rawUrl || attachment.gsUrl || "");
+      if (gsInfo) {
+        pushCandidate(buildFirebaseMediaUrl(gsInfo.bucket, gsInfo.objectPath, token));
+        if (gsInfo.bucket.endsWith(".firebasestorage.app")) {
+          pushCandidate(buildFirebaseMediaUrl(gsInfo.bucket.replace(/\.firebasestorage\.app$/i, ".appspot.com"), gsInfo.objectPath, token));
+        }
+      }
+
+      const storageApiInfo = parseStorageGoogleapisUrl(rawUrl);
+      if (storageApiInfo) {
+        pushCandidate(buildFirebaseMediaUrl(storageApiInfo.bucket, storageApiInfo.objectPath, token));
+        if (storageApiInfo.bucket.endsWith(".firebasestorage.app")) {
+          pushCandidate(buildFirebaseMediaUrl(storageApiInfo.bucket.replace(/\.firebasestorage\.app$/i, ".appspot.com"), storageApiInfo.objectPath, token));
+        }
+      }
+
+      const firebaseMediaInfo = parseFirebaseStorageMediaUrl(rawUrl);
+      if (firebaseMediaInfo) {
+        pushCandidate(buildFirebaseMediaUrl(firebaseMediaInfo.bucket, firebaseMediaInfo.objectPath, token));
+        if (firebaseMediaInfo.bucket.endsWith(".firebasestorage.app")) {
+          pushCandidate(buildFirebaseMediaUrl(firebaseMediaInfo.bucket.replace(/\.firebasestorage\.app$/i, ".appspot.com"), firebaseMediaInfo.objectPath, token));
+        }
+      }
+
+      if (!rawUrl && attachment.bucket && attachment.fullPath) {
+        pushCandidate(buildFirebaseMediaUrl(attachment.bucket, attachment.fullPath, token));
+        if (String(attachment.bucket).endsWith(".firebasestorage.app")) {
+          pushCandidate(buildFirebaseMediaUrl(String(attachment.bucket).replace(/\.firebasestorage\.app$/i, ".appspot.com"), attachment.fullPath, token));
+        }
+      }
+
+      return candidates;
+    }
+
+    function removeTokenParam(url) {
+      const value = String(url || "");
+      return value
+        .replace(/([?&])token=[^&]*/i, "$1")
+        .replace(/[?&]$/, "");
+    }
+
+    async function fetchAttachmentBlobWithRetry(url, idToken) {
+      const candidates = [url, removeTokenParam(url)].filter(Boolean);
+
+      const headerSets = [
+        {},
+      ];
+
+      if (idToken) {
+        headerSets.push({ Authorization: "Firebase " + idToken });
+        headerSets.push({ Authorization: "Bearer " + idToken });
+      }
+
+      let lastError = "No fetch attempts made";
+
+      for (const candidateUrl of candidates) {
+        for (const headers of headerSets) {
+          try {
+            const response = await fetch(candidateUrl, {
+              mode: "cors",
+              headers,
+            });
+            if (!response.ok) {
+              throw new Error("HTTP " + response.status);
+            }
+            const blob = await response.blob();
+            if (!blob || blob.size === 0) {
+              throw new Error("Empty file response");
+            }
+            return blob;
+          } catch (error) {
+            lastError = error && error.message ? error.message : String(error);
+          }
+        }
+      }
+
+      throw new Error(lastError);
+    }
+
+    async function fetchAttachmentBlobViaProxy(attachment, idToken) {
+      const payload = JSON.stringify({
+        sourceUrl: attachment.url || "",
+        gsUrl: attachment.gsUrl || "",
+        bucket: attachment.bucket || "",
+        fullPath: attachment.fullPath || "",
+      });
+
+      const endpoints = [
+        "/portal-fetch-image",
+        "https://europe-west2-express-accounts-73d38.cloudfunctions.net/fetchPortalAttachment",
+      ];
+
+      let lastError = "proxy request failed";
+
+      for (const endpoint of endpoints) {
+        try {
+          const response = await fetch(endpoint, {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              ...(idToken ? { Authorization: "Bearer " + idToken } : {}),
+            },
+            body: payload,
+          });
+
+          if (!response.ok) {
+            throw new Error("proxy HTTP " + response.status + " via " + endpoint);
+          }
+
+          const blob = await response.blob();
+          if (!blob || blob.size === 0) {
+            throw new Error("proxy empty file response via " + endpoint);
+          }
+
+          return blob;
+        } catch (error) {
+          lastError = error && error.message ? error.message : String(error);
+        }
+      }
+
+      throw new Error(lastError);
+    }
+
     function normalizePortalAttachments(attachments) {
       return (Array.isArray(attachments) ? attachments : [])
         .map((attachment, index) => {
@@ -931,15 +1107,44 @@
               url: attachment,
             };
           }
+
+          const normalizedUrl =
+            attachment.url ||
+            attachment.downloadURL ||
+            attachment.uri ||
+            attachment.localUri ||
+            attachment.sourceUri ||
+            "";
+
           return {
-            id: attachment.id || attachment.url || "attachment-" + index,
+            id: attachment.id || normalizedUrl || "attachment-" + index,
             name: attachment.name || attachment.fileName || ("attachment-" + (index + 1)),
             mimeType: attachment.mimeType || attachment.type || "",
             kind: attachment.kind || "",
-            url: attachment.url || attachment.downloadURL || "",
+            url: normalizedUrl,
+            gsUrl: attachment.gsUrl || attachment.gsURI || attachment.storageUri || attachment.uri || "",
+            bucket: attachment.bucket || "",
+            fullPath: attachment.fullPath || attachment.path || attachment.storagePath || "",
+            downloadToken: attachment.downloadToken || attachment.token || attachment.firebaseStorageDownloadToken || "",
           };
         })
         .filter(Boolean);
+    }
+
+    function mergeAttachmentSources(primaryAttachments, imageUrls) {
+      const merged = [
+        ...normalizePortalAttachments(primaryAttachments),
+        ...normalizePortalAttachments(imageUrls),
+      ];
+
+      const seen = new Set();
+      return merged.filter((item) => {
+        const key = String(item && item.url ? item.url : item && item.id ? item.id : "").trim();
+        if (!key) return false;
+        if (seen.has(key)) return false;
+        seen.add(key);
+        return true;
+      });
     }
 
     function isImageLikeAttachment(attachment) {
@@ -1169,7 +1374,7 @@
             vatAmount: data.vatAmount != null ? Number(data.vatAmount) : null,
             date: data.date ? String(data.date).split("T")[0] : "",
             category: data.category || "Uncategorized",
-            attachments: normalizePortalAttachments(data.attachments),
+            attachments: mergeAttachmentSources(data.attachments, data.images),
             loggedAt: createdDate ? createdDate.toISOString() : (data.date || ""),
           });
         });
@@ -1838,19 +2043,45 @@
     }
 
     async function addImageAttachmentsToZip(zipFolder, exportItems, sourceLabel, errors) {
+      const idToken = auth.currentUser ? await auth.currentUser.getIdToken() : "";
+
       for (const exportItem of exportItems) {
         for (const attachment of exportItem.imageAttachments) {
-          try {
-            const response = await fetch(attachment.url, { mode: "cors" });
-            if (!response.ok) {
-              throw new Error("HTTP " + response.status);
+          const candidates = buildAttachmentFetchCandidates(attachment);
+          let added = false;
+          let lastError = "No download URL candidates";
+
+          for (const candidateUrl of candidates) {
+            try {
+              const blob = await fetchAttachmentBlobWithRetry(candidateUrl, idToken);
+
+              const extension = inferAttachmentExtension(attachment);
+              const fileName = sanitizeFileSegment(attachment.exportAttachmentId, "attachment") + extension;
+              zipFolder.file(fileName, blob);
+              added = true;
+              break;
+            } catch (error) {
+              lastError = error && error.message ? error.message : String(error);
             }
-            const blob = await response.blob();
-            const extension = inferAttachmentExtension(attachment);
-            const fileName = sanitizeFileSegment(attachment.exportAttachmentId, "attachment") + extension;
-            zipFolder.file(fileName, blob);
-          } catch (error) {
-            errors.push(sourceLabel + " " + attachment.exportAttachmentId + " failed: " + (error && error.message ? error.message : String(error)));
+          }
+
+          if (!added) {
+            try {
+              const blob = await fetchAttachmentBlobViaProxy(attachment, idToken);
+              const extension = inferAttachmentExtension(attachment);
+              const fileName = sanitizeFileSegment(attachment.exportAttachmentId, "attachment") + extension;
+              zipFolder.file(fileName, blob);
+              added = true;
+            } catch (proxyError) {
+              lastError = proxyError && proxyError.message ? proxyError.message : String(proxyError);
+            }
+          }
+
+          if (!added) {
+            const sourceHint = attachment.url || attachment.gsUrl || attachment.fullPath || "(missing source URL)";
+            errors.push(
+              sourceLabel + " " + attachment.exportAttachmentId + " failed: " + lastError + " | source=" + sourceHint
+            );
           }
         }
       }
@@ -2002,48 +2233,54 @@
         (statement) => statement.date || statement.statementEndDate || statement.statementStartDate || statement.loggedAt
       );
 
-      const receiptExportItems = buildExportItems(filteredReceipts, "E");
-      const incomeExportItems = buildExportItems(filteredIncome, "I");
-
-      const workbook = XLSX.utils.book_new();
-      XLSX.utils.book_append_sheet(workbook, XLSX.utils.aoa_to_sheet(buildReceiptWorkbookRows(receiptExportItems)), "Receipts");
-      XLSX.utils.book_append_sheet(workbook, XLSX.utils.aoa_to_sheet(buildIncomeWorkbookRows(incomeExportItems)), "Income");
-      XLSX.utils.book_append_sheet(workbook, XLSX.utils.aoa_to_sheet(buildBankStatementWorkbookRows(filteredStatements)), "Bank Statements");
-
       const safeName = sanitizeFileSegment((user && user.name ? user.name : "client").toLowerCase(), "client");
       const fileSuffix = startDate && endDate
         ? startDate + "-to-" + endDate
         : "all-time";
-      const baseName = safeName + "-" + fileSuffix;
-      const workbookFileName = baseName + ".xlsx";
-      const zipFileName = baseName + ".zip";
+      const fallbackZipName = safeName + "-" + fileSuffix + ".zip";
 
-      const zip = new JSZip();
-      const workbookBytes = XLSX.write(workbook, { bookType: "xlsx", type: "array" });
-      zip.file(workbookFileName, workbookBytes);
-
-      const imagesFolder = zip.folder("images");
-      const expenseImagesFolder = imagesFolder.folder("expenses");
-      const incomeImagesFolder = imagesFolder.folder("income");
-      const imageDownloadErrors = [];
-
-      await addImageAttachmentsToZip(expenseImagesFolder, receiptExportItems, "expense", imageDownloadErrors);
-      await addImageAttachmentsToZip(incomeImagesFolder, incomeExportItems, "income", imageDownloadErrors);
-
-      if (imageDownloadErrors.length) {
-        zip.file("image-download-errors.txt", imageDownloadErrors.join("\n"));
+      const currentUser = auth.currentUser;
+      if (!currentUser) {
+        throw new Error("Please sign in again before exporting.");
       }
 
-      const zipBlob = await zip.generateAsync({ type: "blob" });
+      const idToken = await currentUser.getIdToken();
+      const response = await fetch("/export-client-zip", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: "Bearer " + idToken,
+        },
+        body: JSON.stringify({
+          userId: user.id,
+          userName: user.name,
+          startDate,
+          endDate,
+          periodLabel: selectedPeriod ? selectedPeriod.label : "All time",
+        }),
+      });
+
+      if (!response.ok) {
+        let message = "Could not generate encrypted export ZIP.";
+        try {
+          const err = await response.json();
+          message = err && err.error ? err.error : message;
+        } catch {
+          // ignore parse errors
+        }
+        throw new Error(message);
+      }
+
+      const zipBlob = await response.blob();
+      const disposition = response.headers.get("content-disposition") || "";
+      const fileNameMatch = disposition.match(/filename="?([^";]+)"?/i);
+      const zipFileName = fileNameMatch && fileNameMatch[1] ? fileNameMatch[1] : fallbackZipName;
       triggerBlobDownload(zipBlob, zipFileName);
 
-      const receiptImageCount = receiptExportItems.reduce((sum, item) => sum + item.imageAttachments.length, 0);
-      const incomeImageCount = incomeExportItems.reduce((sum, item) => sum + item.imageAttachments.length, 0);
-      const totalImageCount = receiptImageCount + incomeImageCount;
-
-      statusLine.textContent = "Downloaded ZIP for " + user.name + ": " + filteredReceipts.length + " receipts, " + filteredIncome.length + " income record(s), " + filteredStatements.length + " bank statement(s), and " + totalImageCount + " image(s) (" + (selectedPeriod ? selectedPeriod.label : "All time") + ").";
-      if (imageDownloadErrors.length) {
-        statusLine.textContent += " " + imageDownloadErrors.length + " image(s) could not be fetched and were listed in image-download-errors.txt.";
+      const imageErrors = Number(response.headers.get("x-export-image-errors") || "0");
+      statusLine.textContent = "Downloaded encrypted ZIP for " + user.name + ": " + filteredReceipts.length + " receipts, " + filteredIncome.length + " income record(s), and " + filteredStatements.length + " bank statement(s) (" + (selectedPeriod ? selectedPeriod.label : "All time") + ").";
+      if (imageErrors > 0) {
+        statusLine.textContent += " " + imageErrors + " image(s) could not be fetched and were listed in image-download-errors.txt.";
       }
     }
 
