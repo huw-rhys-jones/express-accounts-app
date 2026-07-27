@@ -817,7 +817,7 @@ export default function ReceiptDetailsScreen({ route, navigation }) {
       <View
         style={[
           localStyles.bottomBar,
-          { paddingBottom: Math.max(insets.bottom, Platform.OS === "android" ? 24 : 16) },
+          { paddingBottom: Math.max(insets.bottom, 6) },
         ]}
       >
         <Button

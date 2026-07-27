@@ -1,5 +1,11 @@
 {
   "expo": {
+    "name": "Express Accounts",
+    "slug": "express-accounts",
+    "scheme": "com.caistec.expressaccounts",
+    "android": {
+      "package": "com.caistec.expressaccounts"
+    },
     "extra": {
       "eas": {
         "projectId": "16c9e165-6b01-4086-9bdc-cac4dbc76261"

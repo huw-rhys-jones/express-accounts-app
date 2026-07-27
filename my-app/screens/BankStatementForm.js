@@ -1037,7 +1037,7 @@ export default function BankStatementForm({ navigation, route, mode }) {
       <View
         style={[
           styles.bottomBar,
-          { paddingBottom: Math.max(insets.bottom, Platform.OS === "android" ? 24 : 16) },
+          { paddingBottom: Math.max(insets.bottom, 6) },
         ]}
       >
         {mode === "edit" ? (

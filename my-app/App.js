@@ -202,7 +202,7 @@ function CustomTabBar({ state, descriptors, navigation }) {
             <Ionicons
               name={iconName}
               size={18}
-              color={isFocused ? "#1C1C4E" : "#7B7B7B"}
+              color={isFocused ? "#ffffff" : "#d6d8ef"}
               style={styles.tabIcon}
             />
           </TouchableOpacity>
@@ -451,17 +451,17 @@ const styles = StyleSheet.create({
   tabBar: {
     flexDirection: "row",
     // height: 70,
-    backgroundColor: "#ffffff",
+    backgroundColor: "#1C1C4E",
     borderTopWidth: 2,
     borderTopColor: "#a60d49",
     alignItems: "center",
     justifyContent: "space-around",
-    paddingBottom: Platform.OS === 'android' ? 60 : 0,
+    paddingBottom: 0,
     paddingTop: 8,
   },
   tabItem: { flex: 1, alignItems: "center", paddingHorizontal: 2 },
-  tabText: { color: "#a60d49", fontSize: 14 },
-  activeTab: { fontWeight: "bold", color: "#4A148C" },
+  tabText: { color: "#d6d8ef", fontSize: 14 },
+  activeTab: { fontWeight: "bold", color: "#ffffff" },
   tabIcon: { marginTop: 2 },
 
   // Verification workflow --------------------------
