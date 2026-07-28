@@ -3,6 +3,9 @@ import {
   Animated,
   PanResponder,
   PermissionsAndroid,
+  KeyboardAvoidingView,
+  TouchableWithoutFeedback,
+  Keyboard,
   View,
   Text,
   TextInput,
@@ -68,6 +71,8 @@ function navigateBackToReceipts(navigation) {
 
 const ReceiptAdd = ({ navigation, route }) => {
   const insets = useSafeAreaInsets();
+  const heroHeightAnim = useRef(new Animated.Value(HERO_EXPANDED_HEIGHT)).current;
+  const [heroHeight, setHeroHeight] = useState(HERO_EXPANDED_HEIGHT);
   const [amount, setAmount] = useState("");
   const [vatAmount, setVatAmount] = useState("");
   const [vatRate, setVatRate] = useState(""); // string
@@ -114,6 +119,7 @@ const ReceiptAdd = ({ navigation, route }) => {
     skippedCount: 0,
   });
   const [successMode, setSuccessMode] = useState("single");
+  const [imageContainerHeight, setImageContainerHeight] = useState(HERO_EXPANDED_HEIGHT);
 
   // isMultiReceiptMode is true when we have multiple detected receipt drafts
   const isMultiReceiptMode = receiptDrafts.length > 1;
@@ -535,6 +541,39 @@ const ReceiptAdd = ({ navigation, route }) => {
       });
     }
   }, [images]);
+
+  useEffect(() => {
+    const id = heroHeightAnim.addListener(({ value }) => {
+      setHeroHeight(value);
+      setImageContainerHeight(value);
+    });
+    return () => heroHeightAnim.removeListener(id);
+  }, [heroHeightAnim]);
+
+  useEffect(() => {
+    const shrinkHero = () => {
+      Animated.timing(heroHeightAnim, {
+        toValue: HERO_COLLAPSED_HEIGHT,
+        duration: 220,
+        useNativeDriver: false,
+      }).start();
+    };
+
+    const expandHero = () => {
+      Animated.timing(heroHeightAnim, {
+        toValue: HERO_EXPANDED_HEIGHT,
+        duration: 220,
+        useNativeDriver: false,
+      }).start();
+    };
+
+    const showSub = Keyboard.addListener("keyboardDidShow", shrinkHero);
+    const hideSub = Keyboard.addListener("keyboardDidHide", expandHero);
+    return () => {
+      showSub.remove();
+      hideSub.remove();
+    };
+  }, [heroHeightAnim]);
 
   useEffect(() => {
     const sub = navigation.addListener("blur", () => {
@@ -1185,6 +1224,35 @@ const ReceiptAdd = ({ navigation, route }) => {
   const isCurrentRejected = currentReviewState === "rejected";
   const isCurrentAccepted = currentReviewState === "accepted";
 
+  const buildPercentOverlay = (frame) => {
+    const naturalW = ocrFrames?.imageW;
+    const naturalH = ocrFrames?.imageH;
+    const containerW = imageContainerWidth;
+    const containerH = imageContainerHeight || heroHeight;
+    if (!frame || !naturalW || !naturalH || !containerW || !containerH) return null;
+
+    const scale = Math.min(containerW / naturalW, containerH / naturalH);
+    const renderedW = naturalW * scale;
+    const renderedH = naturalH * scale;
+    const offsetX = (containerW - renderedW) / 2;
+    const offsetY = (containerH - renderedH) / 2;
+    const PAD = 8;
+
+    const left = frame.left * scale + offsetX - PAD;
+    const top = frame.top * scale + offsetY - PAD;
+    const width = frame.width * scale + PAD * 2;
+    const height = frame.height * scale + PAD * 2;
+
+    const toPct = (value, total) => `${Math.max(0, (value / total) * 100).toFixed(4)}%`;
+
+    return {
+      left: toPct(left, containerW),
+      top: toPct(top, containerH),
+      width: toPct(width, containerW),
+      height: toPct(height, containerH),
+    };
+  };
+
   // ------- render -------
   return (
     <SafeAreaView
@@ -1205,10 +1273,19 @@ const ReceiptAdd = ({ navigation, route }) => {
         <View style={localStyles.headerBtn} />
       </View>
 
+      <KeyboardAvoidingView
+        style={{ flex: 1 }}
+        behavior={Platform.OS === "ios" ? "padding" : "height"}
+      >
+      <TouchableWithoutFeedback onPress={Keyboard.dismiss} accessible={false}>
+      <View style={{ flex: 1 }}>
       {/* IMAGE SECTION — large fixed panel at top with inline annotation boxes */}
-      <View
-        style={localStyles.imageSection}
-        onLayout={(e) => setImageContainerWidth(e.nativeEvent.layout.width)}
+      <Animated.View
+        style={[localStyles.imageSection, { height: heroHeightAnim }]}
+        onLayout={(e) => {
+          setImageContainerWidth(e.nativeEvent.layout.width);
+          setImageContainerHeight(e.nativeEvent.layout.height);
+        }}
       >
         {imageContainerWidth > 0 ? (
           <ScrollView
@@ -1232,38 +1309,22 @@ const ReceiptAdd = ({ navigation, route }) => {
                       style={[localStyles.carouselImage, { width: imageContainerWidth }]}
                       resizeMode="contain"
                     />
-                    {isAnnotated && ANNOTATIONS.filter(({ key }) => ocrFrames[key]).map(({ key, label, color }) => {
-                      const naturalW = ocrFrames.imageW;
-                      const naturalH = ocrFrames.imageH;
-                      if (!naturalW) return null;
-                      const scale = Math.min(imageContainerWidth / naturalW, IMAGE_HEIGHT / naturalH);
-                      const renderedW = naturalW * scale;
-                      const renderedH = naturalH * scale;
-                      const offsetX = (imageContainerWidth - renderedW) / 2;
-                      const offsetY = (IMAGE_HEIGHT - renderedH) / 2;
-                      const frame = ocrFrames[key];
-                      const box = {
-                        left: frame.left * scale + offsetX,
-                        top: frame.top * scale + offsetY,
-                        width: frame.width * scale,
-                        height: frame.height * scale,
-                      };
-                      const PAD = 8;
-                      const padded = {
-                        left: box.left - PAD,
-                        top: box.top - PAD,
-                        width: box.width + PAD * 2,
-                        height: box.height + PAD * 2,
-                      };
-                      return (
-                        <React.Fragment key={key}>
-                          <View style={[localStyles.annBox, { ...padded, borderColor: color }]} />
-                          <View style={[localStyles.annChip, { backgroundColor: color, top: padded.top - 18, left: padded.left - 1 }]}>
-                            <Text style={localStyles.annChipText}>{label}</Text>
-                          </View>
-                        </React.Fragment>
-                      );
-                    })}
+                    {isAnnotated ? (
+                      <View style={localStyles.annotationOverlay} pointerEvents="none">
+                        {ANNOTATIONS.filter(({ key }) => ocrFrames[key]).map(({ key, label, color }) => {
+                          const frame = ocrFrames[key];
+                          const overlayBox = buildPercentOverlay(frame);
+                          if (!overlayBox) return null;
+                          return (
+                            <View key={key} style={[localStyles.annBox, { ...overlayBox, borderColor: color }]}> 
+                              <View style={[localStyles.annChip, { backgroundColor: color }]}> 
+                                <Text style={localStyles.annChipText}>{label}</Text>
+                              </View>
+                            </View>
+                          );
+                        })}
+                      </View>
+                    ) : null}
                   </TouchableOpacity>
                   <TouchableOpacity
                     style={localStyles.carouselRemoveBtn}
@@ -1307,34 +1368,41 @@ const ReceiptAdd = ({ navigation, route }) => {
             />
           </View>
         )}
-      </View>
+      </Animated.View>
       <KeyboardAwareScrollView
         ref={scrollRef}
-        contentContainerStyle={{ flexGrow: 1, paddingBottom: 20 }}
+        contentContainerStyle={{ flexGrow: 1, paddingBottom: 12 }}
         enableOnAndroid={true}
         enableAutomaticScroll={false} // Disable auto-scroll so our manual scroll doesn't fight it
         keyboardShouldPersistTaps="always"
         extraScrollHeight={0}
-        style={{ flex: 1 }}
+        style={{ flex: 1, marginTop: 8 }}
       >
-        <View style={[ReceiptStyles.container, { justifyContent: "flex-start", paddingTop: 4 }]}>
+        <View
+          style={[
+            ReceiptStyles.container,
+            {
+              justifyContent: "flex-start",
+              paddingTop: 8,
+              paddingBottom: 12,
+              paddingHorizontal: 12,
+            },
+          ]}
+        >
           <Animated.View
             style={[
               ReceiptStyles.borderContainer,
               {
                 transform: [{ translateX: draftSlideX }],
                 opacity: draftFade,
-                paddingVertical: 14,
+                paddingVertical: 12,
+                paddingHorizontal: 12,
                 borderRadius: 16,
                 borderWidth: 3,
               },
             ]}
             {...(isMultiReceiptMode ? draftSwipeResponder.panHandlers : {})}
           >
-            {!isMultiReceiptMode ? (
-              <Text style={ReceiptStyles.header}>Your Receipt</Text>
-            ) : null}
-
             {/* Amount + Date row */}
             <View style={localStyles.amountDateRow}>
               <Animated.View
@@ -1372,6 +1440,13 @@ const ReceiptAdd = ({ navigation, route }) => {
                       if (!vatAmountEdited && v && vatRate) {
                         setVatAmount(computeVat(v, vatRate));
                       }
+                    }}
+                    onFocus={() => {
+                      Animated.timing(heroHeightAnim, {
+                        toValue: HERO_COLLAPSED_HEIGHT,
+                        duration: 220,
+                        useNativeDriver: false,
+                      }).start();
                     }}
                   />
                 </View>
@@ -1464,6 +1539,13 @@ const ReceiptAdd = ({ navigation, route }) => {
                       }}
                       onBlur={() => {
                         if (!vatAmount.trim()) setVatAmountEdited(false);
+                      }}
+                      onFocus={() => {
+                        Animated.timing(heroHeightAnim, {
+                          toValue: HERO_COLLAPSED_HEIGHT,
+                          duration: 220,
+                          useNativeDriver: false,
+                        }).start();
                       }}
                     />
                   </View>
@@ -1571,6 +1653,13 @@ const ReceiptAdd = ({ navigation, route }) => {
                 onChangeText={setLabel}
                 placeholder="An optional label"
                 placeholderTextColor={Colors.textSecondary}
+                onFocus={() => {
+                  Animated.timing(heroHeightAnim, {
+                    toValue: HERO_COLLAPSED_HEIGHT,
+                    duration: 220,
+                    useNativeDriver: false,
+                  }).start();
+                }}
               />
             </View>
 
@@ -1606,6 +1695,9 @@ const ReceiptAdd = ({ navigation, route }) => {
           </Animated.View>
         </View>
       </KeyboardAwareScrollView>
+      </View>
+      </TouchableWithoutFeedback>
+      </KeyboardAvoidingView>
 
       {/* Dark red divider line — top of fixed area */}
       {isMultiReceiptMode ? <View style={localStyles.buttonBarDivider} /> : null}
@@ -2229,6 +2321,8 @@ const ReceiptAdd = ({ navigation, route }) => {
 };
 
 const IMAGE_HEIGHT = Math.round(Dimensions.get("window").height * 0.55);
+const HERO_EXPANDED_HEIGHT = Math.round(Dimensions.get("window").height * 0.52);
+const HERO_COLLAPSED_HEIGHT = Math.round(Dimensions.get("window").height * 0.37);
 
 const ANNOTATIONS = [
   { key: "amount", label: "Amount", color: "#2E9F46" },
@@ -2281,12 +2375,18 @@ const localStyles = StyleSheet.create({
     position: "absolute",
     borderWidth: 2,
     borderRadius: 4,
+    overflow: "visible",
   },
   annChip: {
     position: "absolute",
+    top: -18,
+    left: 0,
     paddingHorizontal: 5,
     paddingVertical: 1,
     borderRadius: 3,
+  },
+  annotationOverlay: {
+    ...StyleSheet.absoluteFillObject,
   },
   annChipText: {
     color: "#fff",
@@ -2358,7 +2458,7 @@ const localStyles = StyleSheet.create({
     marginHorizontal: 0,
   },
   fieldGroup: {
-    marginBottom: 8,
+    marginBottom: 6,
   },
   multiReceiptHeader: {
     marginTop: 6,

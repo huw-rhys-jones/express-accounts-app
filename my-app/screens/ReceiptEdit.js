@@ -1,9 +1,12 @@
 import React, { useRef, useMemo, useState, useEffect } from "react";
 import {
+  Animated,
   View,
   Text,
   TextInput,
   TouchableOpacity,
+  TouchableWithoutFeedback,
+  Pressable,
   Image,
   ScrollView,
   findNodeHandle,
@@ -15,6 +18,7 @@ import {
   ActivityIndicator,
   Platform,
   PermissionsAndroid,
+  KeyboardAvoidingView,
   StyleSheet,
   Dimensions,
 } from "react-native";
@@ -43,9 +47,12 @@ import { getCurrentYearAprilSix } from "../utils/financialPeriods";
 import { triggerHaptic } from "../utils/haptics";
 
 const IMAGE_HEIGHT = Math.round(Dimensions.get("window").height * 0.45);
+const HERO_EXPANDED_HEIGHT = Math.round(Dimensions.get("window").height * 0.45);
+const HERO_COLLAPSED_HEIGHT = Math.round(Dimensions.get("window").height * 0.35);
 
 export default function ReceiptDetailsScreen({ route, navigation }) {
   const insets = useSafeAreaInsets();
+  const heroHeightAnim = useRef(new Animated.Value(HERO_EXPANDED_HEIGHT)).current;
   const { receipt } = route.params;
 
   // --- base form state
@@ -241,6 +248,31 @@ export default function ReceiptDetailsScreen({ route, navigation }) {
       isActive = false;
     };
   }, [ocrModalVisible, ocrLoading]);
+
+  useEffect(() => {
+    const shrinkHero = () => {
+      Animated.timing(heroHeightAnim, {
+        toValue: HERO_COLLAPSED_HEIGHT,
+        duration: 220,
+        useNativeDriver: false,
+      }).start();
+    };
+
+    const expandHero = () => {
+      Animated.timing(heroHeightAnim, {
+        toValue: HERO_EXPANDED_HEIGHT,
+        duration: 220,
+        useNativeDriver: false,
+      }).start();
+    };
+
+    const showSub = Keyboard.addListener("keyboardDidShow", shrinkHero);
+    const hideSub = Keyboard.addListener("keyboardDidHide", expandHero);
+    return () => {
+      showSub.remove();
+      hideSub.remove();
+    };
+  }, [heroHeightAnim]);
 
   // ✅ Safe navigate back
   const safeNavigateToExpenses = () => {
@@ -486,9 +518,15 @@ export default function ReceiptDetailsScreen({ route, navigation }) {
         <View style={localStyles.headerBtn} />
       </View>
 
+      <KeyboardAvoidingView
+        style={{ flex: 1 }}
+        behavior={Platform.OS === "ios" ? "padding" : "height"}
+      >
+      <TouchableWithoutFeedback onPress={Keyboard.dismiss} accessible={false}>
+      <View style={{ flex: 1 }}>
       {/* Fixed image panel */}
-      <View
-        style={localStyles.imageSection}
+      <Animated.View
+        style={[localStyles.imageSection, { height: heroHeightAnim }]}
         onLayout={(e) => setImageContainerWidth(e.nativeEvent.layout.width)}
       >
         {imageContainerWidth > 0 ? (
@@ -531,7 +569,7 @@ export default function ReceiptDetailsScreen({ route, navigation }) {
             </View>
           </ScrollView>
         ) : null}
-      </View>
+      </Animated.View>
 
       <KeyboardAwareScrollView
         ref={scrollRef}
@@ -540,11 +578,20 @@ export default function ReceiptDetailsScreen({ route, navigation }) {
         enableAutomaticScroll={false}
         keyboardShouldPersistTaps="always"
         extraScrollHeight={0}
+        style={{ marginTop: 8 }}
       >
-        <View style={ReceiptStyles.container}>
+        <View
+          style={[
+            ReceiptStyles.container,
+            {
+              justifyContent: "flex-start",
+              paddingTop: 8,
+              paddingBottom: 12,
+              paddingHorizontal: 12,
+            },
+          ]}
+        >
           <View style={ReceiptStyles.borderContainer}>
-            <Text style={ReceiptStyles.header}>Edit Receipt</Text>
-
             {/* Amount */}
             <View style={localStyles.fieldGroup}>
               <Text style={[ReceiptStyles.label, localStyles.labelAligned]}>
@@ -573,6 +620,13 @@ export default function ReceiptDetailsScreen({ route, navigation }) {
                     if (!vatAmountEdited && v && vatRate) {
                       setVatAmount(computeVat(v, vatRate));
                     }
+                  }}
+                  onFocus={() => {
+                    Animated.timing(heroHeightAnim, {
+                      toValue: HERO_COLLAPSED_HEIGHT,
+                      duration: 220,
+                      useNativeDriver: false,
+                    }).start();
                   }}
                 />
               </View>
@@ -615,6 +669,13 @@ export default function ReceiptDetailsScreen({ route, navigation }) {
                       }}
                       onBlur={() => {
                         if (!vatAmount.trim()) setVatAmountEdited(false);
+                      }}
+                      onFocus={() => {
+                        Animated.timing(heroHeightAnim, {
+                          toValue: HERO_COLLAPSED_HEIGHT,
+                          duration: 220,
+                          useNativeDriver: false,
+                        }).start();
                       }}
                     />
                   </View>
@@ -792,8 +853,8 @@ export default function ReceiptDetailsScreen({ route, navigation }) {
                   );
                 }}
                 style={[ReceiptStyles.dropdown, localStyles.dropdownAligned]}
-                zIndex={1000}
-                zIndexInverse={3000}
+                zIndex={4000}
+                zIndexInverse={5000}
               />
             </View>
 
@@ -807,12 +868,29 @@ export default function ReceiptDetailsScreen({ route, navigation }) {
                 onChangeText={setLabel}
                 placeholder="An optional label"
                 placeholderTextColor={Colors.textSecondary}
+                onFocus={() => {
+                  Animated.timing(heroHeightAnim, {
+                    toValue: HERO_COLLAPSED_HEIGHT,
+                    duration: 220,
+                    useNativeDriver: false,
+                  }).start();
+                }}
               />
             </View>
 
           </View>
         </View>
       </KeyboardAwareScrollView>
+      </View>
+      </TouchableWithoutFeedback>
+      </KeyboardAvoidingView>
+
+      {open ? (
+        <Pressable
+          style={localStyles.dropdownDismissOverlay}
+          onPress={() => setOpen(false)}
+        />
+      ) : null}
 
       <View
         style={[
@@ -1158,19 +1236,19 @@ const localStyles = StyleSheet.create({
   headerBtn: { width: 40, alignItems: "center" },
   headerBtnText: { color: "#fff", fontWeight: "600", fontSize: 22 },
   imageSection: {
-    height: IMAGE_HEIGHT,
+    height: HERO_EXPANDED_HEIGHT,
     overflow: "hidden",
     backgroundColor: "#000",
     borderBottomWidth: 1,
     borderBottomColor: "#333",
   },
   carouselPage: {
-    height: IMAGE_HEIGHT,
+    height: "100%",
     justifyContent: "center",
     alignItems: "center",
   },
   carouselImage: {
-    height: IMAGE_HEIGHT,
+    height: "100%",
   },
   carouselAddBtn: {
     flex: 1,
@@ -1194,6 +1272,12 @@ const localStyles = StyleSheet.create({
     fontSize: 20,
     lineHeight: 20,
     fontWeight: "bold",
+  },
+  dropdownDismissOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    zIndex: 3000,
+    elevation: 3000,
+    backgroundColor: "transparent",
   },
   bottomBar: {
     flexDirection: "row",
@@ -1228,7 +1312,7 @@ const localStyles = StyleSheet.create({
     marginHorizontal: 10,
   },
   fieldGroup: {
-    marginBottom: 16,
+    marginBottom: 8,
   },
   fieldTopSpacingTight: {
     marginTop: 0,

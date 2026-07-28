@@ -4,6 +4,8 @@ import {
   Alert,
   Animated,
   Dimensions,
+  Keyboard,
+  KeyboardAvoidingView,
   Image,
   Modal,
   PanResponder,
@@ -14,6 +16,7 @@ import {
   Text,
   TextInput,
   TouchableOpacity,
+  TouchableWithoutFeedback,
   View,
 } from "react-native";
 import ImageViewer from "react-native-image-zoom-viewer";
@@ -71,6 +74,8 @@ function navigateBackToIncome(navigation) {
 
 export default function IncomeFormScreen({ navigation, route, mode }) {
   const insets = useSafeAreaInsets();
+  const heroHeightAnim = useRef(new Animated.Value(HERO_EXPANDED_HEIGHT)).current;
+  const [heroHeight, setHeroHeight] = useState(HERO_EXPANDED_HEIGHT);
   const income = route?.params?.income;
   const [amount, setAmount] = useState(
     income?.amount != null ? String(income.amount) : ""
@@ -116,6 +121,7 @@ export default function IncomeFormScreen({ navigation, route, mode }) {
   const [pickerBusyText, setPickerBusyText] = useState("Opening attachment options…");
   const [ocrProcessing, setOcrProcessing] = useState(false);
   const [imageContainerWidth, setImageContainerWidth] = useState(0);
+  const [imageContainerHeight, setImageContainerHeight] = useState(HERO_EXPANDED_HEIGHT);
   const [fullScreenImageIndex, setFullScreenImageIndex] = useState(null);
   const [ocrFrames, setOcrFrames] = useState(null);
 
@@ -443,6 +449,39 @@ export default function IncomeFormScreen({ navigation, route, mode }) {
       }
     }
   }, [amount, vatRate, vatAmountEdited]);
+
+  useEffect(() => {
+    const id = heroHeightAnim.addListener(({ value }) => {
+      setHeroHeight(value);
+      setImageContainerHeight(value);
+    });
+    return () => heroHeightAnim.removeListener(id);
+  }, [heroHeightAnim]);
+
+  useEffect(() => {
+    const shrinkHero = () => {
+      Animated.timing(heroHeightAnim, {
+        toValue: HERO_COLLAPSED_HEIGHT,
+        duration: 220,
+        useNativeDriver: false,
+      }).start();
+    };
+
+    const expandHero = () => {
+      Animated.timing(heroHeightAnim, {
+        toValue: HERO_EXPANDED_HEIGHT,
+        duration: 220,
+        useNativeDriver: false,
+      }).start();
+    };
+
+    const showSub = Keyboard.addListener("keyboardDidShow", shrinkHero);
+    const hideSub = Keyboard.addListener("keyboardDidHide", expandHero);
+    return () => {
+      showSub.remove();
+      hideSub.remove();
+    };
+  }, [heroHeightAnim]);
 
   // Process images passed via route params (from AddReceiptSheet)
   useEffect(() => {
@@ -800,6 +839,34 @@ export default function IncomeFormScreen({ navigation, route, mode }) {
     !Number.isNaN(Number(vatAmount)) &&
     !Number.isNaN(Number(vatRate));
 
+  const buildPercentOverlay = (frame) => {
+    const naturalW = ocrFrames?.imageW;
+    const naturalH = ocrFrames?.imageH;
+    const containerW = imageContainerWidth;
+    const containerH = imageContainerHeight || heroHeight;
+    if (!frame || !naturalW || !naturalH || !containerW || !containerH) return null;
+
+    const scale = Math.min(containerW / naturalW, containerH / naturalH);
+    const renderedW = naturalW * scale;
+    const renderedH = naturalH * scale;
+    const offsetX = (containerW - renderedW) / 2;
+    const offsetY = (containerH - renderedH) / 2;
+    const PAD = 8;
+
+    const left = frame.left * scale + offsetX - PAD;
+    const top = frame.top * scale + offsetY - PAD;
+    const width = frame.width * scale + PAD * 2;
+    const height = frame.height * scale + PAD * 2;
+
+    const toPct = (value, total) => `${Math.max(0, (value / total) * 100).toFixed(4)}%`;
+    return {
+      left: toPct(left, containerW),
+      top: toPct(top, containerH),
+      width: toPct(width, containerW),
+      height: toPct(height, containerH),
+    };
+  };
+
   return (
     <SafeAreaView
       style={[ReceiptStyles.safeArea, styles.safeAreaLight]}
@@ -819,10 +886,19 @@ export default function IncomeFormScreen({ navigation, route, mode }) {
         <View style={styles.headerBtn} />
       </View>
 
+      <KeyboardAvoidingView
+        style={{ flex: 1 }}
+        behavior={Platform.OS === "ios" ? "padding" : "height"}
+      >
+      <TouchableWithoutFeedback onPress={Keyboard.dismiss} accessible={false}>
+      <View style={{ flex: 1 }}>
       {/* Fixed image panel */}
-      <View
-        style={styles.imageSection}
-        onLayout={(e) => setImageContainerWidth(e.nativeEvent.layout.width)}
+      <Animated.View
+        style={[styles.imageSection, { height: heroHeightAnim }]}
+        onLayout={(e) => {
+          setImageContainerWidth(e.nativeEvent.layout.width);
+          setImageContainerHeight(e.nativeEvent.layout.height);
+        }}
       >
         {imageContainerWidth > 0 ? (
           <ScrollView
@@ -847,32 +923,22 @@ export default function IncomeFormScreen({ navigation, route, mode }) {
                       resizeMode="contain"
                     />
                   </TouchableOpacity>
-                  {isAnnotated && ANNOTATIONS.filter(({ key }) => ocrFrames[key]).map(({ key, label, color }) => {
-                    const naturalW = ocrFrames.imageW;
-                    const naturalH = ocrFrames.imageH;
-                    if (!naturalW) return null;
-                    const scale = Math.min(imageContainerWidth / naturalW, IMAGE_HEIGHT / naturalH);
-                    const renderedW = naturalW * scale;
-                    const renderedH = naturalH * scale;
-                    const offsetX = (imageContainerWidth - renderedW) / 2;
-                    const offsetY = (IMAGE_HEIGHT - renderedH) / 2;
-                    const frame = ocrFrames[key];
-                    const PAD = 8;
-                    const padded = {
-                      left: frame.left * scale + offsetX - PAD,
-                      top: frame.top * scale + offsetY - PAD,
-                      width: frame.width * scale + PAD * 2,
-                      height: frame.height * scale + PAD * 2,
-                    };
-                    return (
-                      <React.Fragment key={key}>
-                        <View style={[styles.annBox, { ...padded, borderColor: color }]} />
-                        <View style={[styles.annChip, { backgroundColor: color, top: padded.top - 18, left: padded.left - 1 }]}>
-                          <Text style={styles.annChipText}>{label}</Text>
-                        </View>
-                      </React.Fragment>
-                    );
-                  })}
+                  {isAnnotated ? (
+                    <View style={styles.annotationOverlay} pointerEvents="none">
+                      {ANNOTATIONS.filter(({ key }) => ocrFrames[key]).map(({ key, label, color }) => {
+                        const frame = ocrFrames[key];
+                        const overlayBox = buildPercentOverlay(frame);
+                        if (!overlayBox) return null;
+                        return (
+                          <View key={key} style={[styles.annBox, { ...overlayBox, borderColor: color }]}> 
+                            <View style={[styles.annChip, { backgroundColor: color }]}> 
+                              <Text style={styles.annChipText}>{label}</Text>
+                            </View>
+                          </View>
+                        );
+                      })}
+                    </View>
+                  ) : null}
                   <TouchableOpacity
                     style={styles.carouselRemoveBtn}
                     onPress={() =>
@@ -907,23 +973,37 @@ export default function IncomeFormScreen({ navigation, route, mode }) {
             />
           </View>
         )}
-      </View>
+      </Animated.View>
 
       <KeyboardAwareScrollView
         contentContainerStyle={styles.scrollContent}
         enableOnAndroid
         keyboardShouldPersistTaps="handled"
+        style={{ marginTop: 8 }}
       >
-        <View style={ReceiptStyles.container}>
+        <View
+          style={[
+            ReceiptStyles.container,
+            {
+              justifyContent: "flex-start",
+              paddingTop: 8,
+              paddingBottom: 12,
+              paddingHorizontal: 12,
+            },
+          ]}
+        >
           <Animated.View
-            style={[ReceiptStyles.borderContainer, { transform: [{ translateX: draftSlideX }], opacity: draftFade }]}
+            style={[
+              ReceiptStyles.borderContainer,
+              {
+                transform: [{ translateX: draftSlideX }],
+                opacity: draftFade,
+                paddingVertical: 12,
+                paddingHorizontal: 12,
+              },
+            ]}
             {...(isMultiDraftMode ? draftSwipeResponder.panHandlers : {})}
           >
-            <Text style={ReceiptStyles.header}>
-              {mode === "edit" ? "Edit Income" : isMultiDraftMode ? "Review Income" : "Add Income"}
-            </Text>
-
-
             <View style={styles.moneyRow}>
               <Animated.View style={[styles.moneyColumn, {
                   backgroundColor: flashAmount.interpolate({ inputRange: [0, 1], outputRange: ["transparent", "rgba(253,224,71,0.45)"] }),
@@ -940,7 +1020,14 @@ export default function IncomeFormScreen({ navigation, route, mode }) {
                     keyboardType="decimal-pad"
                     placeholder="0.00"
                     placeholderTextColor={Colors.textSecondary}
-                    style={[ReceiptStyles.input, styles.amountInput, styles.inputWithCurrency]}
+                    onFocus={() => {
+                      Animated.timing(heroHeightAnim, {
+                        toValue: HERO_COLLAPSED_HEIGHT,
+                        duration: 220,
+                        useNativeDriver: false,
+                      }).start();
+                    }}
+                    style={[ReceiptStyles.input, styles.amountInput, styles.inputWithCurrency, styles.compactInput]}
                   />
                 </View>
               </Animated.View>
@@ -969,7 +1056,14 @@ export default function IncomeFormScreen({ navigation, route, mode }) {
                 onChangeText={setReference}
                 placeholder="Invoice number or source"
                 placeholderTextColor={stylesConst.placeholder}
-                style={ReceiptStyles.input}
+                onFocus={() => {
+                  Animated.timing(heroHeightAnim, {
+                    toValue: HERO_COLLAPSED_HEIGHT,
+                    duration: 220,
+                    useNativeDriver: false,
+                  }).start();
+                }}
+                style={[ReceiptStyles.input, styles.compactInput]}
               />
             </Animated.View>
 
@@ -992,7 +1086,14 @@ export default function IncomeFormScreen({ navigation, route, mode }) {
                     keyboardType="decimal-pad"
                     placeholder="0.00"
                     placeholderTextColor={Colors.textSecondary}
-                    style={[ReceiptStyles.input, styles.inputWithCurrency]}
+                    onFocus={() => {
+                      Animated.timing(heroHeightAnim, {
+                        toValue: HERO_COLLAPSED_HEIGHT,
+                        duration: 220,
+                        useNativeDriver: false,
+                      }).start();
+                    }}
+                    style={[ReceiptStyles.input, styles.inputWithCurrency, styles.compactInput]}
                   />
                 </View>
               </Animated.View>
@@ -1027,7 +1128,14 @@ export default function IncomeFormScreen({ navigation, route, mode }) {
                 onChangeText={setLabel}
                 placeholder="An optional label"
                 placeholderTextColor={stylesConst.placeholder}
-                style={ReceiptStyles.input}
+                onFocus={() => {
+                  Animated.timing(heroHeightAnim, {
+                    toValue: HERO_COLLAPSED_HEIGHT,
+                    duration: 220,
+                    useNativeDriver: false,
+                  }).start();
+                }}
+                style={[ReceiptStyles.input, styles.compactInput]}
               />
             </View>
 
@@ -1040,7 +1148,14 @@ export default function IncomeFormScreen({ navigation, route, mode }) {
                 onChangeText={setNotes}
                 placeholder="Optional notes"
                 placeholderTextColor={stylesConst.placeholder}
-                style={[ReceiptStyles.input, styles.notesInput]}
+                onFocus={() => {
+                  Animated.timing(heroHeightAnim, {
+                    toValue: HERO_COLLAPSED_HEIGHT,
+                    duration: 220,
+                    useNativeDriver: false,
+                  }).start();
+                }}
+                style={[ReceiptStyles.input, styles.compactInput, styles.notesInput]}
                 multiline
               />
             </View>
@@ -1048,6 +1163,9 @@ export default function IncomeFormScreen({ navigation, route, mode }) {
           </Animated.View>
         </View>
       </KeyboardAwareScrollView>
+      </View>
+      </TouchableWithoutFeedback>
+      </KeyboardAvoidingView>
 
       <DateTimePickerModal
         isVisible={isDatePickerVisible}
@@ -1473,6 +1591,9 @@ export default function IncomeFormScreen({ navigation, route, mode }) {
   );
 }
 
+const HERO_EXPANDED_HEIGHT = Math.round(Dimensions.get("window").height * 0.45);
+const HERO_COLLAPSED_HEIGHT = Math.round(Dimensions.get("window").height * 0.35);
+
 const stylesConst = {
   placeholder: "#8f8f95",
 };
@@ -1492,21 +1613,21 @@ const styles = StyleSheet.create({
   headerTitle: { color: "#fff", fontSize: 17, fontWeight: "700" },
   headerBtn: { width: 40, alignItems: "center" },
   headerBtnText: { color: "#fff", fontWeight: "600", fontSize: 22 },
-  scrollContent: { flexGrow: 1, paddingBottom: 160 },
+  scrollContent: { flexGrow: 1, paddingBottom: 12 },
   imageSection: {
-    height: IMAGE_HEIGHT,
+    height: HERO_EXPANDED_HEIGHT,
     overflow: "hidden",
     backgroundColor: "#000",
     borderBottomWidth: 1,
     borderBottomColor: "#333",
   },
   carouselPage: {
-    height: IMAGE_HEIGHT,
+    height: "100%",
     justifyContent: "center",
     alignItems: "center",
   },
   carouselImage: {
-    height: IMAGE_HEIGHT,
+    height: "100%",
   },
   carouselAddBtn: {
     flex: 1,
@@ -1550,7 +1671,7 @@ const styles = StyleSheet.create({
     fontSize: 13,
     fontWeight: "600",
   },
-  fieldGroup: { marginBottom: 18 },
+  fieldGroup: { marginBottom: 10 },
   attachmentSection: { marginTop: 16 },
   dateButtonAligned: { marginHorizontal: 0 },
   currencyField: { position: "relative" },
@@ -1567,8 +1688,9 @@ const styles = StyleSheet.create({
   currencyText: { color: Colors.textSecondary, fontSize: 16, fontWeight: "600" },
   amountInput: { flex: 1 },
   inputWithCurrency: { paddingLeft: 28 },
-  notesInput: { height: 110, textAlignVertical: "top", paddingTop: 10 },
-  moneyRow: { flexDirection: "row", justifyContent: "space-between", gap: 12, marginBottom: 18, zIndex: 2000 },
+  notesInput: { height: 96, textAlignVertical: "top", paddingTop: 8 },
+  moneyRow: { flexDirection: "row", justifyContent: "space-between", gap: 8, marginBottom: 10, zIndex: 2000 },
+  compactInput: { paddingVertical: 8 },
   moneyColumn: { flex: 1 },
   attachmentCard: { marginRight: 12, position: "relative" },
   removeAttachmentButton: {
@@ -1656,12 +1778,18 @@ const styles = StyleSheet.create({
     position: "absolute",
     borderWidth: 2,
     borderRadius: 4,
+    overflow: "visible",
   },
   annChip: {
     position: "absolute",
+    top: -18,
+    left: 0,
     paddingHorizontal: 5,
     paddingVertical: 1,
     borderRadius: 3,
+  },
+  annotationOverlay: {
+    ...StyleSheet.absoluteFillObject,
   },
   annChipText: {
     color: "#fff",

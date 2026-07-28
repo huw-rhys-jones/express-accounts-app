@@ -87,6 +87,13 @@ export function buildFinancialFilterOptions(receipts = [], now = new Date()) {
 
   const currentQuarter = getCurrentFinancialQuarter(now);
   options.push({
+    key: "all-time",
+    label: "All Time",
+    startDate: null,
+    endDate: null,
+  });
+
+  options.push({
     key: "current-quarter",
     label: `Current Financial Quarter (${currentQuarter.quarterName})`,
     startDate: currentQuarter.startDate,
