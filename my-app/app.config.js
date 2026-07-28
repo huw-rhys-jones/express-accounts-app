@@ -24,6 +24,10 @@ export default ({ config }) => ({
   userInterfaceStyle: "light",
   newArchEnabled: false, // Keeping this false as per your current setup
   backgroundColor: "#302C66",
+  androidNavigationBar: {
+    backgroundColor: "#ffffff",
+    barStyle: "dark-content",
+  },
 
   splash: {
     image: "./assets/splash-icon.png",

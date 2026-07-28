@@ -400,7 +400,12 @@ export default function MileageAdd({ navigation }) {
         <View
           style={[
             styles.bottomBar,
-            { paddingBottom: Math.max(insets.bottom, Platform.OS === "android" ? 24 : 16) },
+            {
+              paddingBottom:
+                Platform.OS === "android"
+                  ? Math.max(insets.bottom, 10)
+                  : Math.max(insets.bottom, 16),
+            },
           ]}
         >
           <TouchableOpacity style={styles.cancelBtn} onPress={() => navigation.goBack()}>
@@ -502,7 +507,7 @@ const styles = StyleSheet.create({
     padding: 16,
     paddingBottom: 16,
     gap: 12,
-    backgroundColor: "#f4f4f8",
+    backgroundColor: "#fff",
     borderTopWidth: 1,
     borderTopColor: "#e0e0e8",
   },

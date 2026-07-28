@@ -471,8 +471,8 @@ export default function ReceiptDetailsScreen({ route, navigation }) {
 
   return (
     <SafeAreaView
-      style={ReceiptStyles.safeArea}
-      edges={["left", "right", "bottom"]}
+      style={[ReceiptStyles.safeArea, localStyles.safeAreaLight]}
+      edges={["left", "right"]}
     >
       <View style={[localStyles.header, { paddingTop: Math.max(insets.top + 10, 24) }]}>
         <TouchableOpacity
@@ -817,7 +817,12 @@ export default function ReceiptDetailsScreen({ route, navigation }) {
       <View
         style={[
           localStyles.bottomBar,
-          { paddingBottom: Math.max(insets.bottom, Platform.OS === "android" ? 24 : 16) },
+          {
+            paddingBottom:
+              Platform.OS === "android"
+                ? Math.max(insets.bottom, 10)
+                : Math.max(insets.bottom, 16),
+          },
         ]}
       >
         <Button
@@ -1138,6 +1143,9 @@ export default function ReceiptDetailsScreen({ route, navigation }) {
 }
 
 const localStyles = StyleSheet.create({
+  safeAreaLight: {
+    backgroundColor: "#fff",
+  },
   header: {
     backgroundColor: "#1C1C4E",
     flexDirection: "row",

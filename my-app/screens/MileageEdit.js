@@ -355,7 +355,17 @@ export default function MileageEdit({ navigation, route }) {
         </ScrollView>
 
         {/* Bottom action bar */}
-        <View style={[styles.bottomBar, { paddingBottom: Math.max(insets.bottom, Platform.OS === "android" ? 24 : 16) }]}>
+        <View
+          style={[
+            styles.bottomBar,
+            {
+              paddingBottom:
+                Platform.OS === "android"
+                  ? Math.max(insets.bottom, 10)
+                  : Math.max(insets.bottom, 16),
+            },
+          ]}
+        >
           <Button
             mode="outlined"
             onPress={handleDelete}

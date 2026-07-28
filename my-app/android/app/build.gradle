@@ -67,7 +67,6 @@ react {
  * Set this to true in release builds to optimize the app using [R8](https://developer.android.com/topic/performance/app-optimization/enable-app-optimization).
  */
 def enableMinifyInReleaseBuilds = (findProperty('android.enableMinifyInReleaseBuilds') ?: false).toBoolean()
-def googleMapsApiKey = (findProperty('GOOGLE_MAPS_API_KEY') ?: System.getenv('GOOGLE_MAPS_API_KEY') ?: "")
 
 /**
  * The preferred build flavor of JavaScriptCore (JSC)
@@ -93,9 +92,8 @@ android {
         applicationId 'com.caistec.expressaccounts'
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
-        versionCode (findProperty('android.versionCode') as Integer) ?: 1
-        versionName (findProperty('android.versionName') ?: '1.2.0')
-        manifestPlaceholders = [GOOGLE_MAPS_API_KEY: googleMapsApiKey]
+        versionCode 10506
+        versionName "1.5.6"
 
         buildConfigField "String", "REACT_NATIVE_RELEASE_LEVEL", "\"${findProperty('reactNativeReleaseLevel') ?: 'stable'}\""
     }

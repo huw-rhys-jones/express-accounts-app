@@ -802,8 +802,8 @@ export default function IncomeFormScreen({ navigation, route, mode }) {
 
   return (
     <SafeAreaView
-      style={ReceiptStyles.safeArea}
-      edges={["left", "right", "bottom"]}
+      style={[ReceiptStyles.safeArea, styles.safeAreaLight]}
+      edges={["left", "right"]}
     >
       <View style={[styles.header, { paddingTop: Math.max(insets.top + 10, 24) }]}>
         <TouchableOpacity
@@ -1362,7 +1362,18 @@ export default function IncomeFormScreen({ navigation, route, mode }) {
           </Button>
         </View>
       ) : null}
-      <View style={[styles.stickyButtonBar, isMultiDraftMode && { borderTopWidth: 0 }]}>
+      <View
+        style={[
+          styles.stickyButtonBar,
+          {
+            paddingBottom:
+              Platform.OS === "android"
+                ? Math.max(insets.bottom, 10)
+                : 10,
+          },
+          isMultiDraftMode && { borderTopWidth: 0 },
+        ]}
+      >
         {isMultiDraftMode ? (
           <>
             {(() => {
@@ -1467,6 +1478,9 @@ const stylesConst = {
 };
 
 const styles = StyleSheet.create({
+  safeAreaLight: {
+    backgroundColor: "#fff",
+  },
   header: {
     backgroundColor: "#1C1C4E",
     flexDirection: "row",

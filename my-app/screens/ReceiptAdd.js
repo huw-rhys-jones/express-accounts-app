@@ -1188,8 +1188,8 @@ const ReceiptAdd = ({ navigation, route }) => {
   // ------- render -------
   return (
     <SafeAreaView
-      style={ReceiptStyles.safeArea}
-      edges={["left", "right", "bottom"]}
+      style={[ReceiptStyles.safeArea, localStyles.safeAreaLight]}
+      edges={["left", "right"]}
     >
       <View style={[localStyles.header, { paddingTop: Math.max(insets.top + 10, 24) }]}>
         <TouchableOpacity
@@ -1663,7 +1663,18 @@ const ReceiptAdd = ({ navigation, route }) => {
       ) : null}
 
       {/* Sticky action bar — always visible above keyboard */}
-      <View style={[localStyles.stickyButtonBar, isMultiReceiptMode && { borderTopWidth: 0 }]}>
+      <View
+        style={[
+          localStyles.stickyButtonBar,
+          {
+            paddingBottom:
+              Platform.OS === "android"
+                ? Math.max(insets.bottom, 10)
+                : 10,
+          },
+          isMultiReceiptMode && { borderTopWidth: 0 },
+        ]}
+      >
         {isMultiReceiptMode ? (
           <>
             <Button
@@ -2226,6 +2237,9 @@ const ANNOTATIONS = [
 ];
 
 const localStyles = StyleSheet.create({
+  safeAreaLight: {
+    backgroundColor: "#fff",
+  },
   header: {
     backgroundColor: "#1C1C4E",
     flexDirection: "row",
