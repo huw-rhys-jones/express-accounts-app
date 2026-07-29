@@ -56,6 +56,7 @@ const DEBUG_DISABLE_RECEIPT_TOP_IMAGE_SECTION = false;
 const DEBUG_DUMMY_SCROLL_BLOCKS = 18;
 const DEBUG_USE_PLAIN_SCROLL_VIEW = true;
 const DEBUG_DISABLE_KEYBOARD_DISMISS_WRAPPER = true;
+const DEBUG_DISABLE_RECORD_SWIPE = true;
 
 export default function ReceiptDetailsScreen({ route, navigation }) {
   const FormScrollView = DEBUG_USE_PLAIN_SCROLL_VIEW ? ScrollView : KeyboardAwareScrollView;
@@ -207,6 +208,7 @@ export default function ReceiptDetailsScreen({ route, navigation }) {
           markDebugEvent("pan terminate");
         },
         onMoveShouldSetPanResponder: (_, gestureState) => {
+          if (DEBUG_DISABLE_RECORD_SWIPE) return false;
           if (editableReceiptList.length <= 1) return false;
           if (isFormScrollActiveRef.current) return false;
           if (categoryModalVisible || vatRateOpen) return false;
@@ -219,6 +221,7 @@ export default function ReceiptDetailsScreen({ route, navigation }) {
           return shouldSet;
         },
         onPanResponderRelease: (_, gestureState) => {
+          if (DEBUG_DISABLE_RECORD_SWIPE) return;
           const { dx, dy } = gestureState;
           setDebugPanState("released");
           markDebugEvent(`pan release dx=${Math.round(dx)} dy=${Math.round(dy)}`);
@@ -645,7 +648,7 @@ export default function ReceiptDetailsScreen({ route, navigation }) {
         <Animated.View
           style={[localStyles.imageSection, { height: heroHeightAnim }]}
           onLayout={(e) => setImageContainerWidth(e.nativeEvent.layout.width)}
-          {...(editableReceiptList.length > 1 ? detailSwipeResponder.panHandlers : {})}
+          {...(editableReceiptList.length > 1 && !DEBUG_DISABLE_RECORD_SWIPE ? detailSwipeResponder.panHandlers : {})}
         >
           {imageContainerWidth > 0 ? (
             <ScrollView

@@ -6,14 +6,12 @@ const cors = require("cors")({origin: true});
 const nodemailer = require("nodemailer");
 const pdfParse = require("pdf-parse");
 const archiver = require("archiver");
-const zipEncrypted = require("archiver-zip-encrypted");
 const XLSX = require("xlsx");
 const {PassThrough} = require("stream");
 const {DocumentProcessorServiceClient} = require("@google-cloud/documentai").v1;
 const vision = require("@google-cloud/vision");
 const {extractBankStatementData} = require("./bankStatementExtractors");
-
-archiver.registerFormat("zip-encrypted", zipEncrypted);
+const {createExportEnvelope} = require("./exportEnvelope");
 
 if (!admin.apps.length) {
   admin.initializeApp();
@@ -370,7 +368,6 @@ exports.exportClientZip = onRequest(
     region: OCR_FUNCTION_REGION,
     timeoutSeconds: 540,
     memory: "1GiB",
-    secrets: ["EXPORT_ZIP_PASSWORD"],
   },
   (req, res) => {
     cors(req, res, async () => {
@@ -698,7 +695,7 @@ exports.exportClientZip = onRequest(
             try {
               const [downloaded] = await admin.storage().bucket(bucketName).file(objectPath).download();
               return downloaded;
-            } catch {
+            } catch (error) {
               // try next candidate
             }
           }
@@ -720,11 +717,6 @@ exports.exportClientZip = onRequest(
         const decodedToken = await verifyAuthenticatedUser(req);
         if (!isAccountantEmail(decodedToken.email)) {
           return res.status(403).json({error: "Only accountant users may export client ZIPs."});
-        }
-
-        const zipPassword = process.env.EXPORT_ZIP_PASSWORD;
-        if (!zipPassword) {
-          return res.status(500).json({error: "Missing export ZIP password secret configuration."});
         }
 
         const payload = req.body || {};
@@ -829,10 +821,8 @@ exports.exportClientZip = onRequest(
         const chunks = [];
         output.on("data", (chunk) => chunks.push(chunk));
 
-        const archive = archiver.create("zip-encrypted", {
+        const archive = archiver.create("zip", {
           zlib: {level: 9},
-          encryptionMethod: "aes256",
-          password: zipPassword,
         });
 
         const finalizePromise = new Promise((resolve, reject) => {
@@ -876,19 +866,28 @@ exports.exportClientZip = onRequest(
 
         await archive.finalize();
         const zipBuffer = await finalizePromise;
+        const envelopePassword = process.env.EXPORT_ENVELOPE_PASSWORD;
+        if (!envelopePassword) {
+          throw new Error("EXPORT_ENVELOPE_PASSWORD is not configured.");
+        }
 
-        res.set("Content-Type", "application/zip");
-        res.set("Content-Disposition", `attachment; filename="${zipFileName}"`);
+        const encryptedBuffer = createExportEnvelope({
+          password: envelopePassword,
+          payload: zipBuffer,
+        });
+
+        res.set("Content-Type", "application/octet-stream");
+        res.set("Content-Disposition", `attachment; filename="${zipFileName}.enc"`);
         res.set("X-Export-Receipts", String(filteredReceipts.length));
         res.set("X-Export-Income", String(filteredIncome.length));
         res.set("X-Export-Statements", String(filteredStatements.length));
         res.set("X-Export-Image-Errors", String(imageErrors.length));
-        return res.status(200).send(zipBuffer);
+        return res.status(200).send(encryptedBuffer);
       } catch (error) {
-        console.error("Encrypted client ZIP export failed", error);
+        console.error("Client ZIP export failed", error);
         const statusCode = error && error.statusCode ? error.statusCode : 500;
         return res.status(statusCode).json({
-          error: statusCode === 401 ? error.message : "Could not build encrypted export ZIP.",
+          error: statusCode === 401 ? error.message : "Could not build export ZIP.",
         });
       }
     });
@@ -911,7 +910,7 @@ exports.extractBankStatementPdf = onRequest({region: OCR_FUNCTION_REGION}, (req,
       // Bank statement / credit card OCR is restricted to verified users only
       const userRecord = await admin.firestore()
         .collection("users").doc(decodedToken.uid).get();
-      if (!userRecord.exists || userRecord.data()?.verificationStatus !== "verified") {
+      if (!userRecord.exists || (userRecord.data() && userRecord.data().verificationStatus !== "verified")) {
         return res.status(403).json({
           error: "Bank statement scanning is only available to verified users. Please enter your client code in the app settings.",
         });
@@ -1015,18 +1014,18 @@ exports.extractReceiptImages = onRequest({region: OCR_FUNCTION_REGION, memory: "
 
       return res.status(200).json({
         images: results,
-        provider: results.every((entry) => entry.provider === results[0]?.provider)
-          ? results[0]?.provider || null
+        provider: results.every((entry) => entry.provider === (results[0] && results[0].provider))
+          ? (results[0] && results[0].provider) || null
           : "mixed",
       });
     } catch (error) {
       console.error("Receipt image OCR failed", error);
-      const details = typeof error?.details === "string" ? error.details : "";
-      const message = error?.message || details || "Receipt image scan failed. Please try again with another image.";
+      const details = error && typeof error.details === "string" ? error.details : "";
+      const message = (error && error.message) || details || "Receipt image scan failed. Please try again with another image.";
       const statusCode =
         error && error.statusCode
           ? error.statusCode
-          : error?.code === 7
+          : error && error.code === 7
             ? 503
             : 500;
       return res.status(statusCode).json({
