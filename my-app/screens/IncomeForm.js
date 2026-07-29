@@ -60,6 +60,10 @@ const ANNOTATIONS = [
   { key: "vat",    label: "VAT",    color: "#E06B6B" },
 ];
 
+// Temporary isolation switch for scroll debugging.
+const DEBUG_DISABLE_LOWER_FIELDS = false;
+const DEBUG_DISABLE_KEYBOARD_DISMISS_WRAPPER = true;
+
 function navigateBackToIncome(navigation) {
   navigation.reset({
     index: 0,
@@ -77,6 +81,23 @@ export default function IncomeFormScreen({ navigation, route, mode }) {
   const heroHeightAnim = useRef(new Animated.Value(HERO_EXPANDED_HEIGHT)).current;
   const [heroHeight, setHeroHeight] = useState(HERO_EXPANDED_HEIGHT);
   const income = route?.params?.income;
+  const initialIncomeList = useMemo(() => {
+    if (Array.isArray(route?.params?.incomeList) && route.params.incomeList.length > 0) {
+      return route.params.incomeList;
+    }
+    return income ? [income] : [];
+  }, [income, route?.params?.incomeList]);
+  const [editableIncomeList, setEditableIncomeList] = useState(initialIncomeList);
+  const [currentIndex, setCurrentIndex] = useState(route?.params?.initialIndex || 0);
+
+  useEffect(() => {
+    setEditableIncomeList(initialIncomeList);
+    setCurrentIndex(route?.params?.initialIndex || 0);
+  }, [initialIncomeList, route?.params?.initialIndex]);
+
+  const currentIncome = mode === "edit"
+    ? editableIncomeList[currentIndex] || income
+    : income;
   const [amount, setAmount] = useState(
     income?.amount != null ? String(income.amount) : ""
   );
@@ -265,6 +286,34 @@ export default function IncomeFormScreen({ navigation, route, mode }) {
     [isMultiDraftMode],
   );
 
+  const detailSwipeResponder = React.useMemo(
+    () =>
+      PanResponder.create({
+        onMoveShouldSetPanResponder: (_, gestureState) => {
+          if (mode !== "edit" || isMultiDraftMode || editableIncomeList.length <= 1) {
+            return false;
+          }
+          const { dx, dy } = gestureState;
+          return Math.abs(dx) > 22 && Math.abs(dx) > Math.abs(dy) * 1.4;
+        },
+        onPanResponderRelease: (_, gestureState) => {
+          if (mode !== "edit" || isMultiDraftMode || editableIncomeList.length <= 1) {
+            return;
+          }
+          const { dx, dy } = gestureState;
+          if (Math.abs(dx) < 72 || Math.abs(dx) < Math.abs(dy) * 1.2) return;
+
+          Keyboard.dismiss();
+          if (dx < 0) {
+            setCurrentIndex((prev) => Math.min(prev + 1, editableIncomeList.length - 1));
+          } else {
+            setCurrentIndex((prev) => Math.max(prev - 1, 0));
+          }
+        },
+      }),
+    [editableIncomeList.length, isMultiDraftMode, mode],
+  );
+
   const confirmIncomeDraft = () => {
     const synced = syncIncomeDrafts();
     setDraftReviewStates((prev) => {
@@ -397,8 +446,8 @@ export default function IncomeFormScreen({ navigation, route, mode }) {
   });
 
   const existingRemoteAttachments = useMemo(
-    () => normalizeStoredAttachments(income?.attachments || []),
-    [income?.attachments]
+    () => normalizeStoredAttachments((mode === "edit" ? currentIncome?.attachments : income?.attachments) || []),
+    [currentIncome?.attachments, income?.attachments, mode]
   );
 
   useEffect(() => {
@@ -449,6 +498,19 @@ export default function IncomeFormScreen({ navigation, route, mode }) {
       }
     }
   }, [amount, vatRate, vatAmountEdited]);
+
+  useEffect(() => {
+    if (mode !== "edit" || !currentIncome) return;
+    setAmount(currentIncome?.amount != null ? String(currentIncome.amount) : "");
+    setVatAmount(currentIncome?.vatAmount != null ? String(currentIncome.vatAmount) : "");
+    setVatRate(currentIncome?.vatRate != null ? String(currentIncome.vatRate) : "");
+    setVatAmountEdited(currentIncome?.vatAmount != null && currentIncome?.vatAmount !== "");
+    setReference(currentIncome?.reference || "");
+    setLabel(currentIncome?.label || "");
+    setNotes(currentIncome?.notes || "");
+    setSelectedDate(currentIncome?.date ? new Date(currentIncome.date) : new Date());
+    setAttachments(normalizeStoredAttachments(currentIncome?.attachments || []));
+  }, [currentIncome?.id, mode]);
 
   useEffect(() => {
     const id = heroHeightAnim.addListener(({ value }) => {
@@ -726,8 +788,8 @@ export default function IncomeFormScreen({ navigation, route, mode }) {
         updatedAt: serverTimestamp(),
       };
 
-      if (mode === "edit" && income?.id) {
-        await updateDoc(doc(db, "income", income.id), payload);
+      if (mode === "edit" && currentIncome?.id) {
+        await updateDoc(doc(db, "income", currentIncome.id), payload);
       } else {
         await addDoc(collection(db, "income"), {
           ...payload,
@@ -746,7 +808,7 @@ export default function IncomeFormScreen({ navigation, route, mode }) {
   };
 
   const deleteIncome = async () => {
-    if (!(mode === "edit" && income?.id)) return;
+    if (!(mode === "edit" && currentIncome?.id)) return;
 
     Alert.alert("Delete Income", "Delete this income record and its attachments?", [
       { text: "Cancel", style: "cancel" },
@@ -757,7 +819,7 @@ export default function IncomeFormScreen({ navigation, route, mode }) {
           setIsSaving(true);
           try {
             await deleteStoredAttachments(attachments);
-            await deleteDoc(doc(db, "income", income.id));
+            await deleteDoc(doc(db, "income", currentIncome.id));
             navigateBackToIncome(navigation);
           } catch (error) {
             console.error("Error deleting income", error);
@@ -883,6 +945,9 @@ export default function IncomeFormScreen({ navigation, route, mode }) {
         <Text style={styles.headerTitle}>
           {mode === "edit" ? "Edit Income" : isMultiDraftMode ? "Review Income" : "Add Income"}
         </Text>
+        {mode === "edit" && editableIncomeList.length > 1 ? (
+          <Text style={styles.indexPill}>{`${currentIndex + 1}/${editableIncomeList.length}`}</Text>
+        ) : null}
         <View style={styles.headerBtn} />
       </View>
 
@@ -890,7 +955,11 @@ export default function IncomeFormScreen({ navigation, route, mode }) {
         style={{ flex: 1 }}
         behavior={Platform.OS === "ios" ? "padding" : "height"}
       >
-      <TouchableWithoutFeedback onPress={Keyboard.dismiss} accessible={false}>
+      <TouchableWithoutFeedback
+        onPress={Keyboard.dismiss}
+        accessible={false}
+        disabled={DEBUG_DISABLE_KEYBOARD_DISMISS_WRAPPER}
+      >
       <View style={{ flex: 1 }}>
       {/* Fixed image panel */}
       <Animated.View
@@ -899,6 +968,7 @@ export default function IncomeFormScreen({ navigation, route, mode }) {
           setImageContainerWidth(e.nativeEvent.layout.width);
           setImageContainerHeight(e.nativeEvent.layout.height);
         }}
+        {...detailSwipeResponder.panHandlers}
       >
         {imageContainerWidth > 0 ? (
           <ScrollView
@@ -981,29 +1051,49 @@ export default function IncomeFormScreen({ navigation, route, mode }) {
         keyboardShouldPersistTaps="handled"
         style={{ marginTop: 8 }}
       >
-        <View
-          style={[
-            ReceiptStyles.container,
-            {
-              justifyContent: "flex-start",
-              paddingTop: 8,
-              paddingBottom: 12,
-              paddingHorizontal: 12,
-            },
-          ]}
-        >
-          <Animated.View
+        {DEBUG_DISABLE_LOWER_FIELDS ? (
+          <View
             style={[
-              ReceiptStyles.borderContainer,
+              ReceiptStyles.container,
               {
-                transform: [{ translateX: draftSlideX }],
-                opacity: draftFade,
-                paddingVertical: 12,
+                justifyContent: "flex-start",
+                paddingTop: 8,
+                paddingBottom: 12,
                 paddingHorizontal: 12,
               },
             ]}
-            {...(isMultiDraftMode ? draftSwipeResponder.panHandlers : {})}
           >
+            <View style={[ReceiptStyles.borderContainer, { paddingVertical: 16, paddingHorizontal: 12 }]}> 
+              <Text style={ReceiptStyles.label}>Debug Mode</Text>
+              <Text style={{ color: Colors.textSecondary }}>
+                Lower form fields are temporarily disabled to isolate scrolling and gesture behavior.
+              </Text>
+            </View>
+          </View>
+        ) : (
+          <View
+            style={[
+              ReceiptStyles.container,
+              {
+                justifyContent: "flex-start",
+                paddingTop: 8,
+                paddingBottom: 12,
+                paddingHorizontal: 12,
+              },
+            ]}
+          >
+            <Animated.View
+              style={[
+                ReceiptStyles.borderContainer,
+                {
+                  transform: [{ translateX: draftSlideX }],
+                  opacity: draftFade,
+                  paddingVertical: 12,
+                  paddingHorizontal: 12,
+                },
+              ]}
+              {...(isMultiDraftMode ? draftSwipeResponder.panHandlers : {})}
+            >
             <View style={styles.moneyRow}>
               <Animated.View style={[styles.moneyColumn, {
                   backgroundColor: flashAmount.interpolate({ inputRange: [0, 1], outputRange: ["transparent", "rgba(253,224,71,0.45)"] }),
@@ -1160,8 +1250,9 @@ export default function IncomeFormScreen({ navigation, route, mode }) {
               />
             </View>
 
-          </Animated.View>
-        </View>
+            </Animated.View>
+          </View>
+        )}
       </KeyboardAwareScrollView>
       </View>
       </TouchableWithoutFeedback>
@@ -1613,6 +1704,18 @@ const styles = StyleSheet.create({
   headerTitle: { color: "#fff", fontSize: 17, fontWeight: "700" },
   headerBtn: { width: 40, alignItems: "center" },
   headerBtnText: { color: "#fff", fontWeight: "600", fontSize: 22 },
+  indexPill: {
+    position: "absolute",
+    right: 54,
+    top: 12,
+    color: "#fff",
+    fontSize: 12,
+    fontWeight: "700",
+    backgroundColor: "rgba(255,255,255,0.18)",
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 12,
+  },
   scrollContent: { flexGrow: 1, paddingBottom: 12 },
   imageSection: {
     height: HERO_EXPANDED_HEIGHT,

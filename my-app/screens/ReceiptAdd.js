@@ -69,7 +69,15 @@ function navigateBackToReceipts(navigation) {
   });
 }
 
+// Temporary isolation switch for scroll debugging.
+const DEBUG_DISABLE_RECEIPT_LOWER_FIELDS = false;
+const DEBUG_DISABLE_RECEIPT_TOP_IMAGE_SECTION = false;
+const DEBUG_DUMMY_SCROLL_BLOCKS = 18;
+const DEBUG_USE_PLAIN_SCROLL_VIEW = true;
+const DEBUG_DISABLE_KEYBOARD_DISMISS_WRAPPER = true;
+
 const ReceiptAdd = ({ navigation, route }) => {
+  const FormScrollView = DEBUG_USE_PLAIN_SCROLL_VIEW ? ScrollView : KeyboardAwareScrollView;
   const insets = useSafeAreaInsets();
   const heroHeightAnim = useRef(new Animated.Value(HERO_EXPANDED_HEIGHT)).current;
   const [heroHeight, setHeroHeight] = useState(HERO_EXPANDED_HEIGHT);
@@ -174,10 +182,16 @@ const ReceiptAdd = ({ navigation, route }) => {
   };
   const [vatRateOpen, setVatRateOpen] = useState(false);
   const [vatRateItems, setVatRateItems] = useState(deriveVatRateItems());
+  const [debugOverlayVisible, setDebugOverlayVisible] = useState(true);
+  const [debugScrollState, setDebugScrollState] = useState("idle");
+  const [debugPanState, setDebugPanState] = useState("idle");
+  const [debugKeyboardState, setDebugKeyboardState] = useState("hidden");
+  const [debugLastEvent, setDebugLastEvent] = useState("init");
 
   const flatListRef = useRef(null);
 
   const scrollRef = useRef(null);
+  const isFormScrollActiveRef = useRef(false);
   const processedInitialImagesKeyRef = useRef(null);
   const pendingDetectionAssetsRef = useRef([]);
   const detectRequestIdRef = useRef(0);
@@ -203,6 +217,10 @@ const ReceiptAdd = ({ navigation, route }) => {
   const categoryWrapperRef = useRef(null);
 
   const [categoryY, setCategoryY] = useState(0);
+
+  const markDebugEvent = (label) => {
+    setDebugLastEvent(`${new Date().toLocaleTimeString()} ${label}`);
+  };
 
   const beginPickerHold = (text = "Opening image options…") => {
     setPickerBusyText(text);
@@ -405,17 +423,37 @@ const ReceiptAdd = ({ navigation, route }) => {
   const draftSwipeResponder = React.useMemo(
     () =>
       PanResponder.create({
+        onStartShouldSetPanResponder: () => false,
+        onPanResponderTerminationRequest: () => true,
+        onShouldBlockNativeResponder: () => false,
+        onPanResponderGrant: () => {
+          setDebugPanState("active");
+          markDebugEvent("pan grant");
+        },
+        onPanResponderTerminate: () => {
+          setDebugPanState("terminated");
+          markDebugEvent("pan terminate");
+        },
         onMoveShouldSetPanResponder: (_, gestureState) => {
+          if (isFormScrollActiveRef.current) return false;
+          if (vatRateOpen || categoryModalVisible) return false;
           const { dx, dy } = gestureState;
-          return (
+          const shouldSet = (
             isMultiReceiptMode &&
-            Math.abs(dx) > 18 &&
-            Math.abs(dx) > Math.abs(dy) * 1.4
+            Math.abs(dx) > 30 &&
+            Math.abs(dx) > Math.abs(dy) * 1.8
           );
+          if (shouldSet) {
+            setDebugPanState("captured");
+            markDebugEvent(`pan capture dx=${Math.round(dx)} dy=${Math.round(dy)}`);
+          }
+          return shouldSet;
         },
         onPanResponderRelease: (_, gestureState) => {
           if (!isMultiReceiptMode) return;
           const { dx, dy } = gestureState;
+          setDebugPanState("released");
+          markDebugEvent(`pan release dx=${Math.round(dx)} dy=${Math.round(dy)}`);
           if (Math.abs(dx) < 72 || Math.abs(dx) < Math.abs(dy) * 1.2) {
             return;
           }
@@ -427,7 +465,7 @@ const ReceiptAdd = ({ navigation, route }) => {
           }
         },
       }),
-    [isMultiReceiptMode, currentReceiptIndex, receiptDrafts],
+    [isMultiReceiptMode, currentReceiptIndex, receiptDrafts, vatRateOpen, categoryModalVisible],
   );
 
   const clearBatchState = () => {
@@ -552,6 +590,8 @@ const ReceiptAdd = ({ navigation, route }) => {
 
   useEffect(() => {
     const shrinkHero = () => {
+      setDebugKeyboardState("visible");
+      markDebugEvent("keyboard show");
       Animated.timing(heroHeightAnim, {
         toValue: HERO_COLLAPSED_HEIGHT,
         duration: 220,
@@ -560,6 +600,8 @@ const ReceiptAdd = ({ navigation, route }) => {
     };
 
     const expandHero = () => {
+      setDebugKeyboardState("hidden");
+      markDebugEvent("keyboard hide");
       Animated.timing(heroHeightAnim, {
         toValue: HERO_EXPANDED_HEIGHT,
         duration: 220,
@@ -1277,108 +1319,157 @@ const ReceiptAdd = ({ navigation, route }) => {
         style={{ flex: 1 }}
         behavior={Platform.OS === "ios" ? "padding" : "height"}
       >
-      <TouchableWithoutFeedback onPress={Keyboard.dismiss} accessible={false}>
-      <View style={{ flex: 1 }}>
-      {/* IMAGE SECTION — large fixed panel at top with inline annotation boxes */}
-      <Animated.View
-        style={[localStyles.imageSection, { height: heroHeightAnim }]}
-        onLayout={(e) => {
-          setImageContainerWidth(e.nativeEvent.layout.width);
-          setImageContainerHeight(e.nativeEvent.layout.height);
-        }}
+      <TouchableWithoutFeedback
+        onPress={Keyboard.dismiss}
+        accessible={false}
+        disabled={DEBUG_DISABLE_KEYBOARD_DISMISS_WRAPPER}
       >
-        {imageContainerWidth > 0 ? (
-          <ScrollView
-            ref={flatListRef}
-            horizontal
-            pagingEnabled
-            showsHorizontalScrollIndicator={false}
-            style={{ width: imageContainerWidth }}
-          >
-            {images.map((item, index) => {
-              const isAnnotated = ocrFrames?.imageUri === item.uri;
-              return (
-                <View key={String(index)} style={{ position: "relative" }}>
-                  <TouchableOpacity
-                    style={[localStyles.carouselPage, { width: imageContainerWidth }]}
-                    activeOpacity={0.9}
-                    onPress={() => setFullScreenImageIndex(index)}
-                  >
-                    <Image
-                      source={{ uri: item.uri }}
-                      style={[localStyles.carouselImage, { width: imageContainerWidth }]}
-                      resizeMode="contain"
-                    />
-                    {isAnnotated ? (
-                      <View style={localStyles.annotationOverlay} pointerEvents="none">
-                        {ANNOTATIONS.filter(({ key }) => ocrFrames[key]).map(({ key, label, color }) => {
-                          const frame = ocrFrames[key];
-                          const overlayBox = buildPercentOverlay(frame);
-                          if (!overlayBox) return null;
-                          return (
-                            <View key={key} style={[localStyles.annBox, { ...overlayBox, borderColor: color }]}> 
-                              <View style={[localStyles.annChip, { backgroundColor: color }]}> 
-                                <Text style={localStyles.annChipText}>{label}</Text>
+      <View style={{ flex: 1 }}>
+      {/* IMAGE SECTION — disabled for scroll isolation */}
+      {DEBUG_DISABLE_RECEIPT_TOP_IMAGE_SECTION ? (
+        <View
+          style={[
+            localStyles.imageSection,
+            {
+              height: HERO_EXPANDED_HEIGHT,
+              alignItems: "center",
+              justifyContent: "center",
+              opacity: 0.5,
+            },
+          ]}
+          pointerEvents="none"
+        >
+          <Text style={ReceiptStyles.label}>Top image area disabled (debug)</Text>
+        </View>
+      ) : (
+        <Animated.View
+          style={[localStyles.imageSection, { height: heroHeightAnim }]}
+          onLayout={(e) => {
+            setImageContainerWidth(e.nativeEvent.layout.width);
+            setImageContainerHeight(e.nativeEvent.layout.height);
+          }}
+          {...(isMultiReceiptMode ? draftSwipeResponder.panHandlers : {})}
+        >
+          {imageContainerWidth > 0 ? (
+            <ScrollView
+              ref={flatListRef}
+              horizontal
+              pagingEnabled
+              showsHorizontalScrollIndicator={false}
+              style={{ width: imageContainerWidth }}
+            >
+              {images.map((item, index) => {
+                const isAnnotated = ocrFrames?.imageUri === item.uri;
+                return (
+                  <View key={String(index)} style={{ position: "relative" }}>
+                    <TouchableOpacity
+                      style={[localStyles.carouselPage, { width: imageContainerWidth }]}
+                      activeOpacity={0.9}
+                      onPress={() => setFullScreenImageIndex(index)}
+                    >
+                      <Image
+                        source={{ uri: item.uri }}
+                        style={[localStyles.carouselImage, { width: imageContainerWidth }]}
+                        resizeMode="contain"
+                      />
+                      {isAnnotated ? (
+                        <View style={localStyles.annotationOverlay} pointerEvents="none">
+                          {ANNOTATIONS.filter(({ key }) => ocrFrames[key]).map(({ key, label, color }) => {
+                            const frame = ocrFrames[key];
+                            const overlayBox = buildPercentOverlay(frame);
+                            if (!overlayBox) return null;
+                            return (
+                              <View key={key} style={[localStyles.annBox, { ...overlayBox, borderColor: color }]}> 
+                                <View style={[localStyles.annChip, { backgroundColor: color }]}> 
+                                  <Text style={localStyles.annChipText}>{label}</Text>
+                                </View>
                               </View>
-                            </View>
-                          );
-                        })}
-                      </View>
-                    ) : null}
-                  </TouchableOpacity>
-                  <TouchableOpacity
-                    style={localStyles.carouselRemoveBtn}
-                    onPress={() =>
-                      confirmRemoveImage(() => {
-                        setImages((prev) => prev.filter((_, imageIndex) => imageIndex !== index));
-                      })
-                    }
-                  >
-                    <Text style={localStyles.carouselRemoveText}>×</Text>
-                  </TouchableOpacity>
+                            );
+                          })}
+                        </View>
+                      ) : null}
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                      style={localStyles.carouselRemoveBtn}
+                      onPress={() =>
+                        confirmRemoveImage(() => {
+                          setImages((prev) => prev.filter((_, imageIndex) => imageIndex !== index));
+                        })
+                      }
+                    >
+                      <Text style={localStyles.carouselRemoveText}>×</Text>
+                    </TouchableOpacity>
+                  </View>
+                );
+              })}
+              {ocrProcessing ? (
+                <View style={[localStyles.carouselPage, { width: imageContainerWidth }]}> 
+                  <View style={localStyles.carouselAddBtn}>
+                    <ActivityIndicator color={Colors.accent} size="small" />
+                    <Text style={localStyles.scanningText}>Scanning…</Text>
+                  </View>
                 </View>
-              );
-            })}
-            {ocrProcessing ? (
-              <View style={[localStyles.carouselPage, { width: imageContainerWidth }]}>
-                <View style={localStyles.carouselAddBtn}>
-                  <ActivityIndicator color={Colors.accent} size="small" />
-                  <Text style={localStyles.scanningText}>Scanning…</Text>
-                </View>
+              ) : null}
+              <View style={[localStyles.carouselPage, { width: imageContainerWidth }]}> 
+                <TouchableOpacity style={localStyles.carouselAddBtn} onPress={pickImageOption}>
+                  <Text style={ReceiptStyles.plus}>+</Text>
+                </TouchableOpacity>
+                {showTip && !isMultiReceiptMode && <ScannerTooltip onDismiss={dismissTip} />}
               </View>
-            ) : null}
-            <View style={[localStyles.carouselPage, { width: imageContainerWidth }]}>
-              <TouchableOpacity style={localStyles.carouselAddBtn} onPress={pickImageOption}>
-                <Text style={ReceiptStyles.plus}>+</Text>
-              </TouchableOpacity>
-              {showTip && !isMultiReceiptMode && <ScannerTooltip onDismiss={dismissTip} />}
+            </ScrollView>
+          ) : null}
+          {ocrProcessing && (
+            <View style={localStyles.scanningBanner}>
+              <View style={localStyles.scanningBannerRow}>
+                <ActivityIndicator color="#fff" size="small" />
+                <Text style={localStyles.scanningBannerText}>Scanning…</Text>
+              </View>
+              <ProgressBar
+                indeterminate
+                color="#fff"
+                style={{ alignSelf: "stretch", marginTop: 6, borderRadius: 4 }}
+              />
             </View>
-          </ScrollView>
-        ) : null}
-        {ocrProcessing && (
-          <View style={localStyles.scanningBanner}>
-            <View style={localStyles.scanningBannerRow}>
-              <ActivityIndicator color="#fff" size="small" />
-              <Text style={localStyles.scanningBannerText}>Scanning…</Text>
-            </View>
-            <ProgressBar
-              indeterminate
-              color="#fff"
-              style={{ alignSelf: "stretch", marginTop: 6, borderRadius: 4 }}
-            />
-          </View>
-        )}
-      </Animated.View>
-      <KeyboardAwareScrollView
+          )}
+        </Animated.View>
+      )}
+      <FormScrollView
         ref={scrollRef}
         contentContainerStyle={{ flexGrow: 1, paddingBottom: 12 }}
-        enableOnAndroid={true}
-        enableAutomaticScroll={false} // Disable auto-scroll so our manual scroll doesn't fight it
         keyboardShouldPersistTaps="always"
-        extraScrollHeight={0}
+        {...(!DEBUG_USE_PLAIN_SCROLL_VIEW
+          ? {
+              enableOnAndroid: true,
+              enableAutomaticScroll: false,
+              extraScrollHeight: 0,
+            }
+          : {
+              nestedScrollEnabled: true,
+            })}
         style={{ flex: 1, marginTop: 8 }}
+        onScrollBeginDrag={() => {
+          isFormScrollActiveRef.current = true;
+          setDebugScrollState("dragging");
+          markDebugEvent("scroll begin drag");
+        }}
+        onScrollEndDrag={() => {
+          isFormScrollActiveRef.current = false;
+          setDebugScrollState("idle");
+          markDebugEvent("scroll end drag");
+        }}
+        onMomentumScrollBegin={() => {
+          isFormScrollActiveRef.current = true;
+          setDebugScrollState("momentum");
+          markDebugEvent("scroll momentum begin");
+        }}
+        onMomentumScrollEnd={() => {
+          isFormScrollActiveRef.current = false;
+          setDebugScrollState("idle");
+          markDebugEvent("scroll momentum end");
+        }}
       >
         <View
+          pointerEvents={DEBUG_DISABLE_RECEIPT_LOWER_FIELDS ? "none" : "auto"}
           style={[
             ReceiptStyles.container,
             {
@@ -1387,22 +1478,22 @@ const ReceiptAdd = ({ navigation, route }) => {
               paddingBottom: 12,
               paddingHorizontal: 12,
             },
+            DEBUG_DISABLE_RECEIPT_LOWER_FIELDS ? { opacity: 0.65 } : null,
           ]}
         >
-          <Animated.View
-            style={[
-              ReceiptStyles.borderContainer,
-              {
-                transform: [{ translateX: draftSlideX }],
-                opacity: draftFade,
-                paddingVertical: 12,
-                paddingHorizontal: 12,
-                borderRadius: 16,
-                borderWidth: 3,
-              },
-            ]}
-            {...(isMultiReceiptMode ? draftSwipeResponder.panHandlers : {})}
-          >
+            <Animated.View
+              style={[
+                ReceiptStyles.borderContainer,
+                {
+                  transform: [{ translateX: draftSlideX }],
+                  opacity: draftFade,
+                  paddingVertical: 12,
+                  paddingHorizontal: 12,
+                  borderRadius: 16,
+                  borderWidth: 3,
+                },
+              ]}
+            >
             {/* Amount + Date row */}
             <View style={localStyles.amountDateRow}>
               <Animated.View
@@ -1690,11 +1781,34 @@ const ReceiptAdd = ({ navigation, route }) => {
               </View>
             ) : null}
 
+            {DEBUG_DISABLE_RECEIPT_LOWER_FIELDS ? (
+              <View style={localStyles.fieldGroup}>
+                {Array.from({ length: DEBUG_DUMMY_SCROLL_BLOCKS }).map((_, index) => (
+                  <View
+                    key={`debug-fill-${index}`}
+                    style={[
+                      ReceiptStyles.input,
+                      {
+                        marginTop: 10,
+                        height: 42,
+                        justifyContent: "center",
+                        opacity: 0.8,
+                      },
+                    ]}
+                  >
+                    <Text style={{ color: Colors.textSecondary }}>
+                      Debug filler row {index + 1}
+                    </Text>
+                  </View>
+                ))}
+              </View>
+            ) : null}
 
 
-          </Animated.View>
-        </View>
-      </KeyboardAwareScrollView>
+
+            </Animated.View>
+          </View>
+      </FormScrollView>
       </View>
       </TouchableWithoutFeedback>
       </KeyboardAvoidingView>
@@ -2887,6 +3001,67 @@ const localStyles = StyleSheet.create({
     fontSize: 11,
     color: "#999",
     marginTop: 6,
+  },
+  debugOverlayWrap: {
+    position: "absolute",
+    top: 110,
+    right: 10,
+    zIndex: 9000,
+    elevation: 9000,
+  },
+  debugOverlayCard: {
+    minWidth: 210,
+    maxWidth: 260,
+    backgroundColor: "rgba(15,15,20,0.9)",
+    borderRadius: 10,
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.2)",
+  },
+  debugOverlayHeader: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    marginBottom: 4,
+  },
+  debugOverlayTitle: {
+    color: "#fff",
+    fontSize: 12,
+    fontWeight: "700",
+  },
+  debugOverlayHide: {
+    color: "#b8d5ff",
+    fontSize: 12,
+    fontWeight: "600",
+  },
+  debugOverlayText: {
+    color: "#fff",
+    fontSize: 11,
+    marginTop: 2,
+  },
+  debugOverlayLast: {
+    color: "#d0d0d0",
+    fontSize: 10,
+    marginTop: 6,
+  },
+  debugOverlayToggle: {
+    position: "absolute",
+    right: 10,
+    top: 110,
+    zIndex: 9000,
+    elevation: 9000,
+    backgroundColor: "rgba(15,15,20,0.9)",
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.2)",
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+  },
+  debugOverlayToggleText: {
+    color: "#fff",
+    fontSize: 11,
+    fontWeight: "700",
   },
   // Toast
   toastContainer: {

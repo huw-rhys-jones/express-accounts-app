@@ -80,6 +80,8 @@ const ExpensesScreen = ({ navigation, route }) => {
   // --- sorting state ---
   const [sortKey, setSortKey] = useState("date"); // "date" | "amount" | "category"
   const [sortDir, setSortDir] = useState("desc"); // "asc" | "desc"
+  const [isSelectionMode, setIsSelectionMode] = useState(false);
+  const [selectedIds, setSelectedIds] = useState(new Set());
 
   const [showItemTip, setShowItemTip] = useState(false);
 
@@ -294,6 +296,66 @@ const ExpensesScreen = ({ navigation, route }) => {
     });
     return data;
   }, [filteredReceipts, sortKey, sortDir]);
+
+  const swipeableReceipts = useMemo(
+    () => sortedReceipts.filter((entry) => entry.type !== "mileage"),
+    [sortedReceipts],
+  );
+
+  const clearSelectionMode = useCallback(() => {
+    setIsSelectionMode(false);
+    setSelectedIds(new Set());
+  }, []);
+
+  const toggleSelectedId = useCallback((id) => {
+    setSelectedIds((previous) => {
+      const next = new Set(previous);
+      if (next.has(id)) {
+        next.delete(id);
+      } else {
+        next.add(id);
+      }
+      if (next.size === 0) {
+        setIsSelectionMode(false);
+      }
+      return next;
+    });
+  }, []);
+
+  const beginSelectionWithId = useCallback((id) => {
+    setIsSelectionMode(true);
+    setSelectedIds(new Set([id]));
+  }, []);
+
+  const handleBatchDeleteReceipts = useCallback(() => {
+    if (selectedIds.size === 0) {
+      return;
+    }
+
+    const idsToDelete = Array.from(selectedIds);
+    Alert.alert(
+      "Delete Receipts",
+      `Are you sure you want to delete ${idsToDelete.length} items?`,
+      [
+        { text: "Cancel", style: "cancel" },
+        {
+          text: "Delete",
+          style: "destructive",
+          onPress: async () => {
+            await runWithLoading("Deleting receipts…", async () => {
+              const batch = writeBatch(db);
+              idsToDelete.forEach((id) => {
+                batch.delete(doc(db, "receipts", id));
+              });
+              await batch.commit();
+            });
+            triggerHaptic("success").catch(() => {});
+            clearSelectionMode();
+          },
+        },
+      ],
+    );
+  }, [clearSelectionMode, selectedIds]);
 
   useEffect(() => {
     getHapticsEnabled()
@@ -671,6 +733,7 @@ const ExpensesScreen = ({ navigation, route }) => {
 
   const renderReceiptItem = ({ item, index }) => {
     const isFirst = index === 0;
+    const isSelected = selectedIds.has(item.id);
 
     return (
       <View style={{ width: "100%", alignItems: "center" }}>
@@ -682,13 +745,39 @@ const ExpensesScreen = ({ navigation, route }) => {
           ]}
         >
           <TouchableOpacity
-            onPress={() =>
-              item.type === "mileage"
-                ? navigation.navigate("MileageDetails", { item })
-                : navigation.navigate("ReceiptDetails", { receipt: item })
-            }
-            style={[styles.receiptItem, { width: "100%", marginBottom: 0 }]}
+            onPress={() => {
+              if (isSelectionMode) {
+                toggleSelectedId(item.id);
+                return;
+              }
+
+              if (item.type === "mileage") {
+                navigation.navigate("MileageDetails", { item });
+                return;
+              }
+
+              const initialIndex = swipeableReceipts.findIndex(
+                (entry) => entry.id === item.id,
+              );
+              navigation.navigate("ReceiptDetails", {
+                receipt: item,
+                receiptList: swipeableReceipts,
+                initialIndex: initialIndex >= 0 ? initialIndex : 0,
+              });
+            }}
+            onLongPress={() => beginSelectionWithId(item.id)}
+            delayLongPress={220}
+            style={[
+              styles.receiptItem,
+              { width: "100%", marginBottom: 0 },
+              isSelected && styles.selectedReceiptItem,
+            ]}
           >
+            {isSelectionMode ? (
+              <View style={[styles.selectionBadge, isSelected && styles.selectionBadgeActive]}>
+                <Text style={styles.selectionBadgeText}>{isSelected ? "✓" : ""}</Text>
+              </View>
+            ) : null}
             <Text style={styles.receiptDate}>
               {formatDate(new Date(item.date))}
             </Text>
@@ -724,7 +813,7 @@ const ExpensesScreen = ({ navigation, route }) => {
         </View>
 
         {/* 2. The Tooltip (Sibling to the blue box) */}
-        {isFirst && showItemTip && sortedReceipts.length === 1 && (
+        {isFirst && !isSelectionMode && showItemTip && sortedReceipts.length === 1 && (
           <ItemTooltip onDismiss={dismissItemTip} />
         )}
       </View>
@@ -750,23 +839,41 @@ const ExpensesScreen = ({ navigation, route }) => {
       <StatusBar backgroundColor="#1C1C4E" barStyle="light-content" />
       {/* Top App Bar */}
       <View style={[styles.topBar, { paddingTop: 5 }]}>
-        <TouchableOpacity
-          style={styles.topBarButton}
-          onPress={() => setMenuOpen(true)}
-        >
-          <Text style={styles.topBarButtonText}>≡</Text>
-        </TouchableOpacity>
+        {isSelectionMode ? (
+          <>
+            <TouchableOpacity style={styles.topBarButton} onPress={clearSelectionMode}>
+              <Text style={styles.topBarButtonText}>✕</Text>
+            </TouchableOpacity>
+            <Text style={styles.topBarTitle}>{selectedIds.size} selected</Text>
+            <TouchableOpacity
+              style={[styles.topBarButton, selectedIds.size === 0 && { opacity: 0.4 }]}
+              disabled={selectedIds.size === 0}
+              onPress={handleBatchDeleteReceipts}
+            >
+              <Text style={styles.topBarButtonText}>🗑</Text>
+            </TouchableOpacity>
+          </>
+        ) : (
+          <>
+            <TouchableOpacity
+              style={styles.topBarButton}
+              onPress={() => setMenuOpen(true)}
+            >
+              <Text style={styles.topBarButtonText}>≡</Text>
+            </TouchableOpacity>
 
-        <Text style={styles.topBarTitle}>Expenses</Text>
+            <Text style={styles.topBarTitle}>Expenses</Text>
 
-        {/* Right spacer to balance the layout (same width as the button) */}
-        <View style={{ width: 44 }} />
+            {/* Right spacer to balance the layout (same width as the button) */}
+            <View style={{ width: 44 }} />
+          </>
+        )}
       </View>
 
       <View style={styles.content}>
 
         {/* Header row OUTSIDE the FlatList to avoid Android sticky bug */}
-        {hasReceipts ? (
+        {hasReceipts && !isSelectionMode ? (
           <View style={{ marginTop: 12, marginBottom: 8 }}>
             {renderHeaderRow()}
           </View>
@@ -777,6 +884,7 @@ const ExpensesScreen = ({ navigation, route }) => {
           data={(loading || dataLoading) ? [] : sortedReceipts}
           keyExtractor={(item) => item.id}
           renderItem={renderReceiptItem}
+          extraData={{ isSelectionMode, selectedIds: Array.from(selectedIds).join("|") }}
           contentContainerStyle={[
             { paddingVertical: 10 },
             !hasReceipts ? { flexGrow: 1, justifyContent: "center" } : { paddingBottom: 110 },
@@ -789,7 +897,7 @@ const ExpensesScreen = ({ navigation, route }) => {
       </View>
 
       {/* Period filter bar — sits just above the bottom tab bar */}
-      {!dataLoading && !loading && filterOptions.length > 0 ? (
+      {!isSelectionMode && !dataLoading && !loading && filterOptions.length > 0 ? (
         <View style={styles.filterBar}>
           <DropDownPicker
             open={filterOpen}
@@ -813,7 +921,7 @@ const ExpensesScreen = ({ navigation, route }) => {
       ) : null}
 
       {/* Floating Add Expenses Button */}
-      {!addSheetVisible && (
+      {!isSelectionMode && !addSheetVisible && (
         <TouchableOpacity
           style={styles.floatingButton}
           onPress={() => setAddSheetVisible(true)}
@@ -1367,6 +1475,34 @@ const styles = StyleSheet.create({
     justifyContent: "space-between",
     alignItems: "flex-end",
     minHeight: 60,
+    position: "relative",
+  },
+  selectedReceiptItem: {
+    borderWidth: 2,
+    borderColor: Colors.accent,
+  },
+  selectionBadge: {
+    position: "absolute",
+    top: 8,
+    right: 8,
+    width: 22,
+    height: 22,
+    borderRadius: 11,
+    borderWidth: 1,
+    borderColor: "#999",
+    backgroundColor: "#fff",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  selectionBadgeActive: {
+    borderColor: Colors.accent,
+    backgroundColor: Colors.accent,
+  },
+  selectionBadgeText: {
+    color: "#fff",
+    fontSize: 13,
+    fontWeight: "700",
+    lineHeight: 14,
   },
   receiptDate: { fontSize: 14, color: Colors.textMuted, minWidth: 90 },
   receiptLabel: {

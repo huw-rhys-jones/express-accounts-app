@@ -35,6 +35,7 @@ SplashScreen.preventAutoHideAsync().catch(() => {});
 
 const Stack = createStackNavigator();
 const Tab = createMaterialTopTabNavigator();
+const DEBUG_DISABLE_TAB_SWIPE = false;
 
 // Create a custom theme based on the Light Theme
 const theme = {
@@ -222,7 +223,7 @@ function AppTabs() {
         tabBarPosition="bottom"
         screenOptions={{
           headerShown: false,
-          swipeEnabled: true,
+          swipeEnabled: !DEBUG_DISABLE_TAB_SWIPE,
         }}
       >
         <Tab.Screen

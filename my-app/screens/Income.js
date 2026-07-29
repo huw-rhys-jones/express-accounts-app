@@ -15,11 +15,12 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import SideMenu from "../components/SideMenu";
 import SharedTabMenu from "../components/SharedTabMenu";
 import AddReceiptSheet from "../components/AddReceiptSheet";
-import { auth } from "../firebaseConfig";
+import { auth, db } from "../firebaseConfig";
 import { formatDate } from "../utils/format_style";
 import { Colors } from "../utils/sharedStyles";
 import { useData } from "../contexts/DataContext";
 import DropDownPicker from "react-native-dropdown-picker";
+import { doc, writeBatch } from "firebase/firestore";
 import {
   buildFinancialFilterOptions,
   filterReceiptsByDateRange,
@@ -32,6 +33,8 @@ export default function IncomeScreen({ navigation }) {
   const [refreshing, setRefreshing] = useState(false);
   const [sortKey, setSortKey] = useState("date");
   const [sortDir, setSortDir] = useState("desc");
+  const [isSelectionMode, setIsSelectionMode] = useState(false);
+  const [selectedIds, setSelectedIds] = useState(new Set());
   const [menuOpen, setMenuOpen] = useState(false);
   const [addSheetVisible, setAddSheetVisible] = useState(false);
   const [filterOpen, setFilterOpen] = useState(false);
@@ -124,6 +127,58 @@ export default function IncomeScreen({ navigation }) {
 
   const closeMenu = () => setMenuOpen(false);
 
+  const clearSelectionMode = useCallback(() => {
+    setIsSelectionMode(false);
+    setSelectedIds(new Set());
+  }, []);
+
+  const toggleSelectedId = useCallback((id) => {
+    setSelectedIds((previous) => {
+      const next = new Set(previous);
+      if (next.has(id)) {
+        next.delete(id);
+      } else {
+        next.add(id);
+      }
+      if (next.size === 0) {
+        setIsSelectionMode(false);
+      }
+      return next;
+    });
+  }, []);
+
+  const beginSelectionWithId = useCallback((id) => {
+    setIsSelectionMode(true);
+    setSelectedIds(new Set([id]));
+  }, []);
+
+  const handleBatchDeleteIncome = useCallback(() => {
+    if (selectedIds.size === 0) {
+      return;
+    }
+
+    const idsToDelete = Array.from(selectedIds);
+    Alert.alert(
+      "Delete Receipts",
+      `Are you sure you want to delete ${idsToDelete.length} items?`,
+      [
+        { text: "Cancel", style: "cancel" },
+        {
+          text: "Delete",
+          style: "destructive",
+          onPress: async () => {
+            const batch = writeBatch(db);
+            idsToDelete.forEach((id) => {
+              batch.delete(doc(db, "income", id));
+            });
+            await batch.commit();
+            clearSelectionMode();
+          },
+        },
+      ],
+    );
+  }, [clearSelectionMode, selectedIds]);
+
   const renderHeader = () => (
     <View style={styles.headerRow}>
       <TouchableOpacity style={styles.headerCellDate} onPress={() => toggleSort("date")}>
@@ -141,7 +196,9 @@ export default function IncomeScreen({ navigation }) {
     </View>
   );
 
-  const renderItem = ({ item }) => (
+  const renderItem = ({ item }) => {
+    const isSelected = selectedIds.has(item.id);
+    return (
     <View style={styles.rowOuter}>
       <View
         style={[
@@ -150,9 +207,31 @@ export default function IncomeScreen({ navigation }) {
         ]}
       >
         <TouchableOpacity
-          style={[styles.row, { width: "100%", marginBottom: 0 }]}
-          onPress={() => navigation.navigate("IncomeDetails", { income: item })}
+          style={[
+            styles.row,
+            { width: "100%", marginBottom: 0 },
+            isSelected && styles.selectedRow,
+          ]}
+          onPress={() => {
+            if (isSelectionMode) {
+              toggleSelectedId(item.id);
+              return;
+            }
+            const initialIndex = sortedIncome.findIndex((entry) => entry.id === item.id);
+            navigation.navigate("IncomeDetails", {
+              income: item,
+              incomeList: sortedIncome,
+              initialIndex: initialIndex >= 0 ? initialIndex : 0,
+            });
+          }}
+          onLongPress={() => beginSelectionWithId(item.id)}
+          delayLongPress={220}
         >
+          {isSelectionMode ? (
+            <View style={[styles.selectionBadge, isSelected && styles.selectionBadgeActive]}>
+              <Text style={styles.selectionBadgeText}>{isSelected ? "✓" : ""}</Text>
+            </View>
+          ) : null}
           <Text style={styles.rowDate}>{formatDate(new Date(item.date))}</Text>
           <View style={styles.referenceWrap}>
             {item.label ? (
@@ -169,23 +248,44 @@ export default function IncomeScreen({ navigation }) {
       </View>
     </View>
   );
+  };
 
   return (
     <SafeAreaView style={[styles.container, { backgroundColor: '#1C1C4E' }]}>
       <StatusBar backgroundColor="#1C1C4E" barStyle="light-content" />
       <View style={[styles.topBar, { paddingTop: 5 }]}>
-        <TouchableOpacity style={styles.topBarButton} onPress={() => setMenuOpen(true)}>
-          <Text style={styles.topBarButtonText}>≡</Text>
-        </TouchableOpacity>
+        {isSelectionMode ? (
+          <>
+            <TouchableOpacity style={styles.topBarButton} onPress={clearSelectionMode}>
+              <Text style={styles.topBarButtonText}>✕</Text>
+            </TouchableOpacity>
 
-        <Text style={styles.topBarTitle}>Income</Text>
+            <Text style={styles.topBarTitle}>{selectedIds.size} selected</Text>
 
-        <View style={{ width: 44 }} />
+            <TouchableOpacity
+              style={[styles.topBarButton, selectedIds.size === 0 && { opacity: 0.4 }]}
+              disabled={selectedIds.size === 0}
+              onPress={handleBatchDeleteIncome}
+            >
+              <Text style={styles.topBarButtonText}>🗑</Text>
+            </TouchableOpacity>
+          </>
+        ) : (
+          <>
+            <TouchableOpacity style={styles.topBarButton} onPress={() => setMenuOpen(true)}>
+              <Text style={styles.topBarButtonText}>≡</Text>
+            </TouchableOpacity>
+
+            <Text style={styles.topBarTitle}>Income</Text>
+
+            <View style={{ width: 44 }} />
+          </>
+        )}
       </View>
 
       <View style={styles.content}>
 
-        {sortedIncome.length > 0 ? (
+        {sortedIncome.length > 0 && !isSelectionMode ? (
           <View style={{ marginTop: 12, marginBottom: 8 }}>{renderHeader()}</View>
         ) : null}
 
@@ -194,6 +294,7 @@ export default function IncomeScreen({ navigation }) {
           data={loading ? [] : sortedIncome}
           keyExtractor={(item) => item.id}
           renderItem={renderItem}
+          extraData={{ isSelectionMode, selectedIds: Array.from(selectedIds).join("|") }}
           ListEmptyComponent={
             !loading ? (
               <View style={styles.emptyState}>
@@ -215,7 +316,7 @@ export default function IncomeScreen({ navigation }) {
       </View>
 
       {/* Period filter bar — sits just above the bottom tab bar */}
-      {!loading && filterOptions.length > 0 ? (
+      {!isSelectionMode && !loading && filterOptions.length > 0 ? (
         <View style={styles.filterBar}>
           <DropDownPicker
             open={filterOpen}
@@ -238,7 +339,7 @@ export default function IncomeScreen({ navigation }) {
         </View>
       ) : null}
 
-      {!addSheetVisible && (
+      {!isSelectionMode && !addSheetVisible && (
         <TouchableOpacity
           style={styles.floatingButton}
           onPress={() => setAddSheetVisible(true)}
@@ -379,6 +480,34 @@ const styles = StyleSheet.create({
     justifyContent: "space-between",
     alignItems: "flex-end",
     minHeight: 60,
+    position: "relative",
+  },
+  selectedRow: {
+    borderWidth: 2,
+    borderColor: Colors.accent,
+  },
+  selectionBadge: {
+    position: "absolute",
+    top: 8,
+    right: 8,
+    width: 22,
+    height: 22,
+    borderRadius: 11,
+    borderWidth: 1,
+    borderColor: "#999",
+    backgroundColor: "#fff",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  selectionBadgeActive: {
+    borderColor: Colors.accent,
+    backgroundColor: Colors.accent,
+  },
+  selectionBadgeText: {
+    color: "#fff",
+    fontSize: 13,
+    fontWeight: "700",
+    lineHeight: 14,
   },
   rowDate: { fontSize: 14, color: Colors.textMuted, minWidth: 90 },
   referenceWrap: {
