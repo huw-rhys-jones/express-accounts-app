@@ -7,8 +7,10 @@ import {
   TextInput,
   TouchableOpacity,
   TouchableWithoutFeedback,
+  Pressable,
   Image,
   ScrollView,
+  findNodeHandle,
   FlatList,
   Alert,
   Keyboard,
@@ -26,7 +28,6 @@ import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context"
 import { Button, Checkbox } from "react-native-paper";
 import DateTimePickerModal from "react-native-modal-datetime-picker";
 import DropDownPicker from "react-native-dropdown-picker";
-import CategorySelector from "../components/CategorySelector";
 import * as ImagePicker from "react-native-image-picker";
 import { db, auth } from "../firebaseConfig";
 import { doc, updateDoc, deleteDoc, getDoc, setDoc } from "firebase/firestore";
@@ -50,16 +51,7 @@ const IMAGE_HEIGHT = Math.round(Dimensions.get("window").height * 0.45);
 const HERO_EXPANDED_HEIGHT = Math.round(Dimensions.get("window").height * 0.45);
 const HERO_COLLAPSED_HEIGHT = Math.round(Dimensions.get("window").height * 0.35);
 
-// Temporary isolation switch for scroll debugging.
-const DEBUG_DISABLE_RECEIPT_LOWER_FIELDS = false;
-const DEBUG_DISABLE_RECEIPT_TOP_IMAGE_SECTION = false;
-const DEBUG_DUMMY_SCROLL_BLOCKS = 18;
-const DEBUG_USE_PLAIN_SCROLL_VIEW = true;
-const DEBUG_DISABLE_KEYBOARD_DISMISS_WRAPPER = true;
-const DEBUG_DISABLE_RECORD_SWIPE = true;
-
 export default function ReceiptDetailsScreen({ route, navigation }) {
-  const FormScrollView = DEBUG_USE_PLAIN_SCROLL_VIEW ? ScrollView : KeyboardAwareScrollView;
   const insets = useSafeAreaInsets();
   const heroHeightAnim = useRef(new Animated.Value(HERO_EXPANDED_HEIGHT)).current;
   const receipt = route?.params?.receipt;
@@ -101,7 +93,6 @@ export default function ReceiptDetailsScreen({ route, navigation }) {
   const [selectedCategory, setSelectedCategory] = useState(
     receipt?.category || ""
   );
-  const [categoryModalVisible, setCategoryModalVisible] = useState(false);
   const [label, setLabel] = useState(receipt?.label || "");
   const [images, setImages] = useState(
     (receipt?.images || []).map((url) => ({ uri: url }))
@@ -112,6 +103,10 @@ export default function ReceiptDetailsScreen({ route, navigation }) {
     [currentReceipt?.id],
   );
 
+  const [open, setOpen] = useState(false);
+  const [items, setItems] = useState(
+    categories_meta.map((cat) => ({ label: cat.name, value: cat.name }))
+  );
   const [debugOverlayVisible, setDebugOverlayVisible] = useState(true);
   const [debugScrollState, setDebugScrollState] = useState("idle");
   const [debugPanState, setDebugPanState] = useState("idle");
@@ -170,6 +165,11 @@ export default function ReceiptDetailsScreen({ route, navigation }) {
   const [imageContainerWidth, setImageContainerWidth] = useState(0);
   const [fullScreenImageIndex, setFullScreenImageIndex] = useState(null);
 
+  const allCategoryItems = categories_meta.map((cat) => ({
+    label: cat.name,
+    value: cat.name,
+  }));
+
   // ===== VAT rate options from categories_meta =====
   const deriveVatRateItems = () => {
     const unique = Array.from(
@@ -189,6 +189,9 @@ export default function ReceiptDetailsScreen({ route, navigation }) {
   const scrollRef = useRef(null);
   const isFormScrollActiveRef = useRef(false);
 
+  const categoryWrapperRef = useRef(null);
+
+  const [categoryY, setCategoryY] = useState(0);
   const markDebugEvent = (label) => {
     setDebugLastEvent(`${new Date().toLocaleTimeString()} ${label}`);
   };
@@ -208,10 +211,9 @@ export default function ReceiptDetailsScreen({ route, navigation }) {
           markDebugEvent("pan terminate");
         },
         onMoveShouldSetPanResponder: (_, gestureState) => {
-          if (DEBUG_DISABLE_RECORD_SWIPE) return false;
           if (editableReceiptList.length <= 1) return false;
           if (isFormScrollActiveRef.current) return false;
-          if (categoryModalVisible || vatRateOpen) return false;
+          if (open || vatRateOpen) return false;
           const { dx, dy } = gestureState;
           const shouldSet = Math.abs(dx) > 30 && Math.abs(dx) > Math.abs(dy) * 1.8;
           if (shouldSet) {
@@ -221,7 +223,6 @@ export default function ReceiptDetailsScreen({ route, navigation }) {
           return shouldSet;
         },
         onPanResponderRelease: (_, gestureState) => {
-          if (DEBUG_DISABLE_RECORD_SWIPE) return;
           const { dx, dy } = gestureState;
           setDebugPanState("released");
           markDebugEvent(`pan release dx=${Math.round(dx)} dy=${Math.round(dy)}`);
@@ -229,7 +230,7 @@ export default function ReceiptDetailsScreen({ route, navigation }) {
           if (Math.abs(dx) < 72 || Math.abs(dx) < Math.abs(dy) * 1.2) return;
 
           Keyboard.dismiss();
-          setCategoryModalVisible(false);
+          setOpen(false);
           setVatRateOpen(false);
 
           if (dx < 0) {
@@ -239,7 +240,7 @@ export default function ReceiptDetailsScreen({ route, navigation }) {
           }
         },
       }),
-    [editableReceiptList.length, categoryModalVisible, vatRateOpen],
+    [editableReceiptList.length, open, vatRateOpen],
   );
 
   useEffect(() => {
@@ -374,7 +375,7 @@ export default function ReceiptDetailsScreen({ route, navigation }) {
   // ✅ Safe navigate back
   const safeNavigateToExpenses = () => {
     Keyboard.dismiss();
-  setCategoryModalVisible(false);
+    setOpen(false);
     setDatePickerVisibility(false);
     requestAnimationFrame(() => {
       InteractionManager.runAfterInteractions(() => {
@@ -622,90 +623,63 @@ export default function ReceiptDetailsScreen({ route, navigation }) {
         style={{ flex: 1 }}
         behavior={Platform.OS === "ios" ? "padding" : "height"}
       >
-      <TouchableWithoutFeedback
-        onPress={Keyboard.dismiss}
-        accessible={false}
-        disabled={DEBUG_DISABLE_KEYBOARD_DISMISS_WRAPPER}
-      >
+      <TouchableWithoutFeedback onPress={Keyboard.dismiss} accessible={false}>
       <View style={{ flex: 1 }}>
-      {/* Fixed image panel (disabled for scroll isolation) */}
-      {DEBUG_DISABLE_RECEIPT_TOP_IMAGE_SECTION ? (
-        <View
-          style={[
-            localStyles.imageSection,
-            {
-              height: HERO_EXPANDED_HEIGHT,
-              alignItems: "center",
-              justifyContent: "center",
-              opacity: 0.5,
-            },
-          ]}
-          pointerEvents="none"
-        >
-          <Text style={ReceiptStyles.label}>Top image area disabled (debug)</Text>
-        </View>
-      ) : (
-        <Animated.View
-          style={[localStyles.imageSection, { height: heroHeightAnim }]}
-          onLayout={(e) => setImageContainerWidth(e.nativeEvent.layout.width)}
-          {...(editableReceiptList.length > 1 && !DEBUG_DISABLE_RECORD_SWIPE ? detailSwipeResponder.panHandlers : {})}
-        >
-          {imageContainerWidth > 0 ? (
-            <ScrollView
-              ref={flatListRef}
-              horizontal
-              pagingEnabled
-              showsHorizontalScrollIndicator={false}
-              style={{ width: imageContainerWidth }}
-            >
-              {images.map((item, index) => (
-                <View key={String(index)} style={{ position: "relative" }}>
-                  <TouchableOpacity
-                    style={[localStyles.carouselPage, { width: imageContainerWidth }]}
-                    activeOpacity={0.9}
-                    onPress={() => setFullScreenImageIndex(index)}
-                  >
-                    <Image
-                      source={{ uri: item.uri }}
-                      style={[localStyles.carouselImage, { width: imageContainerWidth }]}
-                      resizeMode="contain"
-                    />
-                  </TouchableOpacity>
-                  <TouchableOpacity
-                    style={localStyles.carouselRemoveBtn}
-                    onPress={() =>
-                      confirmRemoveImage(() => {
-                        setImages((prev) => prev.filter((_, imageIndex) => imageIndex !== index));
-                      })
-                    }
-                  >
-                    <Text style={localStyles.carouselRemoveText}>×</Text>
-                  </TouchableOpacity>
-                </View>
-              ))}
-              <View style={[localStyles.carouselPage, { width: imageContainerWidth }]}> 
-                <TouchableOpacity style={localStyles.carouselAddBtn} onPress={pickImageOption}>
-                  <Text style={ReceiptStyles.plus}>+</Text>
+      {/* Fixed image panel */}
+      <Animated.View
+        style={[localStyles.imageSection, { height: heroHeightAnim }]}
+        onLayout={(e) => setImageContainerWidth(e.nativeEvent.layout.width)}
+        {...(editableReceiptList.length > 1 ? detailSwipeResponder.panHandlers : {})}
+      >
+        {imageContainerWidth > 0 ? (
+          <ScrollView
+            ref={flatListRef}
+            horizontal
+            pagingEnabled
+            showsHorizontalScrollIndicator={false}
+            style={{ width: imageContainerWidth }}
+          >
+            {images.map((item, index) => (
+              <View key={String(index)} style={{ position: "relative" }}>
+                <TouchableOpacity
+                  style={[localStyles.carouselPage, { width: imageContainerWidth }]}
+                  activeOpacity={0.9}
+                  onPress={() => setFullScreenImageIndex(index)}
+                >
+                  <Image
+                    source={{ uri: item.uri }}
+                    style={[localStyles.carouselImage, { width: imageContainerWidth }]}
+                    resizeMode="contain"
+                  />
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={localStyles.carouselRemoveBtn}
+                  onPress={() =>
+                    confirmRemoveImage(() => {
+                      setImages((prev) => prev.filter((_, imageIndex) => imageIndex !== index));
+                    })
+                  }
+                >
+                  <Text style={localStyles.carouselRemoveText}>×</Text>
                 </TouchableOpacity>
               </View>
-            </ScrollView>
-          ) : null}
-        </Animated.View>
-      )}
+            ))}
+            <View style={[localStyles.carouselPage, { width: imageContainerWidth }]}>
+              <TouchableOpacity style={localStyles.carouselAddBtn} onPress={pickImageOption}>
+                <Text style={ReceiptStyles.plus}>+</Text>
+              </TouchableOpacity>
+            </View>
+          </ScrollView>
+        ) : null}
+      </Animated.View>
 
-      <FormScrollView
+      <KeyboardAwareScrollView
         ref={scrollRef}
         contentContainerStyle={{ flexGrow: 1, paddingBottom: 160 }}
+        enableOnAndroid={true}
+        enableAutomaticScroll={false}
         keyboardShouldPersistTaps="always"
-        {...(!DEBUG_USE_PLAIN_SCROLL_VIEW
-          ? {
-              enableOnAndroid: true,
-              enableAutomaticScroll: false,
-              extraScrollHeight: 0,
-            }
-          : {
-              nestedScrollEnabled: true,
-            })}
+        extraScrollHeight={0}
         style={{ marginTop: 8 }}
         onScrollBeginDrag={() => {
           isFormScrollActiveRef.current = true;
@@ -729,7 +703,6 @@ export default function ReceiptDetailsScreen({ route, navigation }) {
         }}
       >
         <View
-          pointerEvents={DEBUG_DISABLE_RECEIPT_LOWER_FIELDS ? "none" : "auto"}
           style={[
             ReceiptStyles.container,
             {
@@ -738,10 +711,9 @@ export default function ReceiptDetailsScreen({ route, navigation }) {
               paddingBottom: 12,
               paddingHorizontal: 12,
             },
-            DEBUG_DISABLE_RECEIPT_LOWER_FIELDS ? { opacity: 0.65 } : null,
           ]}
         >
-            <View style={ReceiptStyles.borderContainer}>
+          <View style={ReceiptStyles.borderContainer}>
             {/* Amount */}
             <View style={localStyles.fieldGroup}>
               <Text style={[ReceiptStyles.label, localStyles.labelAligned]}>
@@ -847,8 +819,7 @@ export default function ReceiptDetailsScreen({ route, navigation }) {
                     containerStyle={localStyles.fieldTopSpacingTight}
                     zIndex={3000}
                     zIndexInverse={1000}
-                    listMode="SCROLLVIEW"
-                    scrollViewProps={{ keyboardShouldPersistTaps: "always" }}
+                    listMode="MODAL"
                     onChangeValue={(val) => {
                       const next = val ?? "";
                       setVatRate(next);
@@ -888,26 +859,117 @@ export default function ReceiptDetailsScreen({ route, navigation }) {
               onCancel={hideDatePicker}
             />
 
-            <View style={[localStyles.fieldGroup, { zIndex: 1000 }]}>
+            <View
+              ref={categoryWrapperRef}
+              collapsable={false} // CRITICAL for Android measurement
+              style={[localStyles.fieldGroup, { zIndex: 1000 }]}
+            >
               {/* Category */}
               <Text
                 style={[ReceiptStyles.label, localStyles.labelAligned]}
+                onLayout={(event) => setCategoryY(event.nativeEvent.layout.y)}
               >
                 Category:
               </Text>
-              <TouchableOpacity
-                style={[ReceiptStyles.dateButton, localStyles.dropdownAligned]}
-                onPress={() => setCategoryModalVisible(true)}
-              >
-                <Text
-                  style={[
-                    ReceiptStyles.dateText,
-                    !selectedCategory ? { color: Colors.textSecondary } : null,
-                  ]}
-                >
-                  {selectedCategory || "Select a category..."}
-                </Text>
-              </TouchableOpacity>
+              <DropDownPicker
+                open={open}
+                value={selectedCategory}
+                items={items}
+                setOpen={setOpen}
+                setItems={setItems}
+                searchable={true}
+                disableLocalSearch={true} // We are taking the wheel
+                // 1. Make the placeholder look like a search instruction
+                placeholder="Search categories..."
+                searchPlaceholder="Type to filter..."
+                // 2. Add an icon to the right side (optional but looks great)
+                // You can use a library like FontAwesome or a simple emoji/Text
+                ArrowDownIconComponent={() => (
+                  <Text style={{ marginRight: 10 }}>🔍</Text>
+                )}
+                ArrowUpIconComponent={() => (
+                  <Text style={{ marginRight: 10 }}>🔍</Text>
+                )}
+                showArrowIcon={true}
+                // 3. Ensure the keyboard is ready immediately
+                searchTextInputProps={{
+                  autoFocus: true,
+                  clearButtonMode: "while-editing", // iOS only, adds a 'X' to clear
+                }}
+                onChangeSearchText={(text) => {
+                  // ... your existing filter logic ...
+                  const query = text.toLowerCase().trim();
+                  if (!query) {
+                    setItems(allCategoryItems);
+                    return;
+                  }
+                  const filtered = allCategoryItems.filter((item) => {
+                    const categoryData = categories_meta.find(
+                      (c) => c.name === item.value
+                    );
+                    return (
+                      item.label.toLowerCase().includes(query) ||
+                      categoryData?.meta?.some((kw) =>
+                        kw.toLowerCase().includes(query)
+                      )
+                    );
+                  });
+                  setItems(filtered);
+                }}
+                // Use FLATLIST to avoid nested ScrollView gesture contention with the parent form scroll
+                listMode="FLATLIST"
+                // 4. Force a Height to fix the scrolling
+                // This ensures the picker has a defined boundary so the phone knows when to scroll
+                dropDownContainerStyle={[
+                  ReceiptStyles.dropdownContainer,
+                  { position: "relative", top: 0, maxHeight: 250 },
+                ]}
+                setValue={(callback) => {
+                  // 1. Get the next value by calling the callback with the current state
+                  const next = callback(selectedCategory);
+
+                  // 2. Update your state variable
+                  setSelectedCategory(next);
+
+                  // 3. Trigger your VAT logic
+                  if (next) {
+                    const cat = categories_meta.find((c) => c.name === next);
+                    const r = cat?.vatRate;
+                    if (r !== undefined && r !== null && !Number.isNaN(r)) {
+                      const rStr = String(r);
+                      setVatRate(rStr);
+                      setVatRateItems((prev) => {
+                        const has = prev.some((it) => it.value === rStr);
+                        return has
+                          ? prev
+                          : [...prev, { label: `${r}%`, value: rStr }].sort(
+                              (a, b) => Number(a.value) - Number(b.value)
+                            );
+                      });
+                      if (!vatAmountEdited && amount) {
+                        setVatAmount(computeVat(amount, rStr));
+                      }
+                    }
+                  }
+                }}
+                onOpen={() => {
+                  setItems(allCategoryItems); // Reset to show everything when opened
+
+                  if (!categoryWrapperRef.current || !scrollRef.current) return;
+                  requestAnimationFrame(() => {
+                    categoryWrapperRef.current.measureLayout(
+                      findNodeHandle(scrollRef.current),
+                      (_, y) => {
+                        scrollRef.current?.scrollToPosition(0, y - 50, true);
+                      },
+                      () => {}
+                    );
+                  });
+                }}
+                style={[ReceiptStyles.dropdown, localStyles.dropdownAligned]}
+                zIndex={4000}
+                zIndexInverse={5000}
+              />
             </View>
 
             <View style={localStyles.fieldGroup}>
@@ -930,35 +992,19 @@ export default function ReceiptDetailsScreen({ route, navigation }) {
               />
             </View>
 
-            {DEBUG_DISABLE_RECEIPT_LOWER_FIELDS ? (
-              <View style={localStyles.fieldGroup}>
-                {Array.from({ length: DEBUG_DUMMY_SCROLL_BLOCKS }).map((_, index) => (
-                  <View
-                    key={`debug-fill-${index}`}
-                    style={[
-                      ReceiptStyles.input,
-                      {
-                        marginTop: 10,
-                        height: 42,
-                        justifyContent: "center",
-                        opacity: 0.8,
-                      },
-                    ]}
-                  >
-                    <Text style={{ color: Colors.textSecondary }}>
-                      Debug filler row {index + 1}
-                    </Text>
-                  </View>
-                ))}
-              </View>
-            ) : null}
-
-            </View>
           </View>
-      </FormScrollView>
+        </View>
+      </KeyboardAwareScrollView>
       </View>
       </TouchableWithoutFeedback>
       </KeyboardAvoidingView>
+
+      {open ? (
+        <Pressable
+          style={localStyles.dropdownDismissOverlay}
+          onPress={() => setOpen(false)}
+        />
+      ) : null}
 
       <View
         style={[
@@ -990,35 +1036,34 @@ export default function ReceiptDetailsScreen({ route, navigation }) {
         </Button>
       </View>
 
-      <CategorySelector
-        visible={categoryModalVisible}
-        onClose={() => setCategoryModalVisible(false)}
-        onSelect={(categoryName) => {
-          setSelectedCategory(categoryName);
-          setCategoryModalVisible(false);
-
-          const cat = categories_meta.find((c) => c.name === categoryName);
-          const r = cat?.vatRate;
-          if (r !== undefined && r !== null && !Number.isNaN(r)) {
-            const rStr = String(r);
-            if (rStr !== vatRate) {
-              setVatRate(rStr);
-            }
-            setVatRateItems((prev) => {
-              const has = prev.some((it) => it.value === rStr);
-              return has
-                ? prev
-                : [...prev, { label: `${r}%`, value: rStr }].sort(
-                    (a, b) => Number(a.value) - Number(b.value)
-                  );
-            });
-            if (!vatAmountEdited && amount) {
-              setVatAmount(computeVat(amount, rStr));
-            }
-          }
-        }}
-        selectedCategory={selectedCategory}
-      />
+      {debugOverlayVisible ? (
+        <View pointerEvents="box-none" style={localStyles.debugOverlayWrap}>
+          <View style={localStyles.debugOverlayCard}>
+            <View style={localStyles.debugOverlayHeader}>
+              <Text style={localStyles.debugOverlayTitle}>Gesture Debug</Text>
+              <TouchableOpacity
+                onPress={() => setDebugOverlayVisible(false)}
+                hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+              >
+                <Text style={localStyles.debugOverlayHide}>Hide</Text>
+              </TouchableOpacity>
+            </View>
+            <Text style={localStyles.debugOverlayText}>{`scroll: ${debugScrollState}`}</Text>
+            <Text style={localStyles.debugOverlayText}>{`pan: ${debugPanState}`}</Text>
+            <Text style={localStyles.debugOverlayText}>{`keyboard: ${debugKeyboardState}`}</Text>
+            <Text style={localStyles.debugOverlayText}>{`categoryOpen: ${open}`}</Text>
+            <Text style={localStyles.debugOverlayText}>{`vatRateOpen: ${vatRateOpen}`}</Text>
+            <Text style={localStyles.debugOverlayLast}>{debugLastEvent}</Text>
+          </View>
+        </View>
+      ) : (
+        <TouchableOpacity
+          style={localStyles.debugOverlayToggle}
+          onPress={() => setDebugOverlayVisible(true)}
+        >
+          <Text style={localStyles.debugOverlayToggleText}>DBG</Text>
+        </TouchableOpacity>
+      )}
 
       {/* OCR Preview + Accept Modal */}
       <Modal

@@ -60,10 +60,6 @@ const ANNOTATIONS = [
   { key: "vat",    label: "VAT",    color: "#E06B6B" },
 ];
 
-// Temporary isolation switch for scroll debugging.
-const DEBUG_DISABLE_LOWER_FIELDS = false;
-const DEBUG_DISABLE_KEYBOARD_DISMISS_WRAPPER = true;
-
 function navigateBackToIncome(navigation) {
   navigation.reset({
     index: 0,
@@ -955,12 +951,8 @@ export default function IncomeFormScreen({ navigation, route, mode }) {
         style={{ flex: 1 }}
         behavior={Platform.OS === "ios" ? "padding" : "height"}
       >
-      <TouchableWithoutFeedback
-        onPress={Keyboard.dismiss}
-        accessible={false}
-        disabled={DEBUG_DISABLE_KEYBOARD_DISMISS_WRAPPER}
-      >
-      <View style={{ flex: 1 }}>
+      <TouchableWithoutFeedback onPress={Keyboard.dismiss} accessible={false}>
+      <View style={{ flex: 1 }} {...detailSwipeResponder.panHandlers}>
       {/* Fixed image panel */}
       <Animated.View
         style={[styles.imageSection, { height: heroHeightAnim }]}
@@ -968,7 +960,6 @@ export default function IncomeFormScreen({ navigation, route, mode }) {
           setImageContainerWidth(e.nativeEvent.layout.width);
           setImageContainerHeight(e.nativeEvent.layout.height);
         }}
-        {...detailSwipeResponder.panHandlers}
       >
         {imageContainerWidth > 0 ? (
           <ScrollView
@@ -1051,49 +1042,29 @@ export default function IncomeFormScreen({ navigation, route, mode }) {
         keyboardShouldPersistTaps="handled"
         style={{ marginTop: 8 }}
       >
-        {DEBUG_DISABLE_LOWER_FIELDS ? (
-          <View
+        <View
+          style={[
+            ReceiptStyles.container,
+            {
+              justifyContent: "flex-start",
+              paddingTop: 8,
+              paddingBottom: 12,
+              paddingHorizontal: 12,
+            },
+          ]}
+        >
+          <Animated.View
             style={[
-              ReceiptStyles.container,
+              ReceiptStyles.borderContainer,
               {
-                justifyContent: "flex-start",
-                paddingTop: 8,
-                paddingBottom: 12,
+                transform: [{ translateX: draftSlideX }],
+                opacity: draftFade,
+                paddingVertical: 12,
                 paddingHorizontal: 12,
               },
             ]}
+            {...(isMultiDraftMode ? draftSwipeResponder.panHandlers : {})}
           >
-            <View style={[ReceiptStyles.borderContainer, { paddingVertical: 16, paddingHorizontal: 12 }]}> 
-              <Text style={ReceiptStyles.label}>Debug Mode</Text>
-              <Text style={{ color: Colors.textSecondary }}>
-                Lower form fields are temporarily disabled to isolate scrolling and gesture behavior.
-              </Text>
-            </View>
-          </View>
-        ) : (
-          <View
-            style={[
-              ReceiptStyles.container,
-              {
-                justifyContent: "flex-start",
-                paddingTop: 8,
-                paddingBottom: 12,
-                paddingHorizontal: 12,
-              },
-            ]}
-          >
-            <Animated.View
-              style={[
-                ReceiptStyles.borderContainer,
-                {
-                  transform: [{ translateX: draftSlideX }],
-                  opacity: draftFade,
-                  paddingVertical: 12,
-                  paddingHorizontal: 12,
-                },
-              ]}
-              {...(isMultiDraftMode ? draftSwipeResponder.panHandlers : {})}
-            >
             <View style={styles.moneyRow}>
               <Animated.View style={[styles.moneyColumn, {
                   backgroundColor: flashAmount.interpolate({ inputRange: [0, 1], outputRange: ["transparent", "rgba(253,224,71,0.45)"] }),
@@ -1250,9 +1221,8 @@ export default function IncomeFormScreen({ navigation, route, mode }) {
               />
             </View>
 
-            </Animated.View>
-          </View>
-        )}
+          </Animated.View>
+        </View>
       </KeyboardAwareScrollView>
       </View>
       </TouchableWithoutFeedback>

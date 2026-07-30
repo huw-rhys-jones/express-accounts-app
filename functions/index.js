@@ -7,11 +7,13 @@ const nodemailer = require("nodemailer");
 const pdfParse = require("pdf-parse");
 const archiver = require("archiver");
 const XLSX = require("xlsx");
-const {PassThrough} = require("stream");
+const fs = require("fs");
+const os = require("os");
+const path = require("path");
+const {randomUUID} = require("crypto");
 const {DocumentProcessorServiceClient} = require("@google-cloud/documentai").v1;
 const vision = require("@google-cloud/vision");
 const {extractBankStatementData} = require("./bankStatementExtractors");
-const {createExportEnvelope} = require("./exportEnvelope");
 
 if (!admin.apps.length) {
   admin.initializeApp();
@@ -119,6 +121,20 @@ function parsePortalAttachmentSource(sourceUrl) {
   return null;
 }
 
+function resolveExportStorageBucketName() {
+  const configuredBucket = String(
+    process.env.FIREBASE_STORAGE_BUCKET ||
+    process.env.GCLOUD_STORAGE_BUCKET ||
+    admin.app().options.storageBucket || ""
+  ).trim();
+
+  if (configuredBucket) {
+    return configuredBucket;
+  }
+
+  return "";
+}
+
 function buildBucketCandidates(bucketName) {
   const candidates = [];
   const push = (value) => {
@@ -138,11 +154,13 @@ function buildBucketCandidates(bucketName) {
     push(String(bucketName).replace(/\.appspot\.com$/i, ".firebasestorage.app"));
   }
 
-  const defaultBucket = admin.app().options.storageBucket;
+  const defaultBucket = resolveExportStorageBucketName();
   push(defaultBucket);
 
   return candidates;
 }
+
+exports.resolveExportStorageBucketName = resolveExportStorageBucketName;
 
 function inferMimeTypeFromPath(pathValue) {
   const lower = String(pathValue || "").toLowerCase();
@@ -154,6 +172,10 @@ function inferMimeTypeFromPath(pathValue) {
   if (lower.endsWith(".heif")) return "image/heif";
   if (lower.endsWith(".pdf")) return "application/pdf";
   return "application/octet-stream";
+}
+
+function buildFirebaseTokenDownloadUrl(bucketName, objectName, token) {
+  return `https://firebasestorage.googleapis.com/v0/b/${encodeURIComponent(bucketName)}/o/${encodeURIComponent(objectName)}?alt=media&token=${encodeURIComponent(token)}`;
 }
 
 async function processDocumentWithAi({base64Content, mimeType, processorId}) {
@@ -366,11 +388,29 @@ exports.fetchPortalAttachment = onRequest({region: OCR_FUNCTION_REGION, timeoutS
 exports.exportClientZip = onRequest(
   {
     region: OCR_FUNCTION_REGION,
-    timeoutSeconds: 540,
+    timeoutSeconds: 1800,
     memory: "1GiB",
   },
   (req, res) => {
     cors(req, res, async () => {
+      const debugId = `export-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+      const debugState = {
+        debugId,
+        stage: "init",
+        startedAt: new Date().toISOString(),
+        timingsMs: {},
+        request: {
+          method: req.method,
+          hasAuthHeader: Boolean(req.headers && req.headers.authorization),
+        },
+      };
+
+      const stageStartedAt = Date.now();
+      function setStage(stage) {
+        debugState.stage = stage;
+        debugState.timingsMs[stage] = Date.now() - stageStartedAt;
+      }
+
       if (req.method === "OPTIONS") {
         return res.status(204).send("");
       }
@@ -713,7 +753,9 @@ exports.exportClientZip = onRequest(
         throw new Error("Attachment source URL is missing");
       }
 
+      let tempZipPath = null;
       try {
+        setStage("verify-auth");
         const decodedToken = await verifyAuthenticatedUser(req);
         if (!isAccountantEmail(decodedToken.email)) {
           return res.status(403).json({error: "Only accountant users may export client ZIPs."});
@@ -724,10 +766,14 @@ exports.exportClientZip = onRequest(
         if (!targetUserId) {
           return res.status(400).json({error: "Missing target userId."});
         }
+        debugState.request.targetUserId = targetUserId;
 
         const startDate = payload.startDate ? String(payload.startDate) : null;
         const endDate = payload.endDate ? String(payload.endDate) : null;
+        debugState.request.startDate = startDate;
+        debugState.request.endDate = endDate;
 
+        setStage("query-firestore");
         const [receiptsSnapshot, incomeSnapshot, bankStatementsSnapshot] = await Promise.all([
           admin.firestore().collection("receipts").where("userId", "==", targetUserId).get(),
           admin.firestore().collection("income").where("userId", "==", targetUserId).get(),
@@ -801,9 +847,19 @@ exports.exportClientZip = onRequest(
           (statement) => statement.date || statement.statementEndDate || statement.statementStartDate || statement.loggedAt,
         );
 
+        debugState.counts = {
+          receiptsTotal: receipts.length,
+          incomeTotal: income.length,
+          statementsTotal: bankStatements.length,
+          receiptsFiltered: filteredReceipts.length,
+          incomeFiltered: filteredIncome.length,
+          statementsFiltered: filteredStatements.length,
+        };
+
         const receiptExportItems = buildExportItems(filteredReceipts, "E");
         const incomeExportItems = buildExportItems(filteredIncome, "I");
 
+        setStage("build-workbook");
         const workbook = XLSX.utils.book_new();
         XLSX.utils.book_append_sheet(workbook, XLSX.utils.aoa_to_sheet(buildReceiptWorkbookRows(receiptExportItems)), "Receipts");
         XLSX.utils.book_append_sheet(workbook, XLSX.utils.aoa_to_sheet(buildIncomeWorkbookRows(incomeExportItems)), "Income");
@@ -814,28 +870,33 @@ exports.exportClientZip = onRequest(
         const baseName = `${safeName}-${fileSuffix}`;
         const workbookFileName = `${baseName}.xlsx`;
         const zipFileName = `${baseName}.zip`;
+        debugState.fileNames = {workbookFileName, zipFileName};
 
         const workbookBuffer = XLSX.write(workbook, {bookType: "xlsx", type: "buffer"});
+        debugState.workbookBytes = workbookBuffer.length;
 
-        const output = new PassThrough();
-        const chunks = [];
-        output.on("data", (chunk) => chunks.push(chunk));
-
+        setStage("create-archive");
         const archive = archiver.create("zip", {
           zlib: {level: 9},
         });
 
-        const finalizePromise = new Promise((resolve, reject) => {
-          output.on("finish", () => resolve(Buffer.concat(chunks)));
-          output.on("error", reject);
-          archive.on("error", reject);
-        });
+        tempZipPath = path.join(
+          os.tmpdir(),
+          `client-export-${Date.now()}-${Math.random().toString(36).slice(2)}.zip`,
+        );
+        const fileOut = fs.createWriteStream(tempZipPath);
 
-        archive.pipe(output);
-        archive.append(workbookBuffer, {name: workbookFileName});
+        const archiveFinished = new Promise((resolve, reject) => {
+          archive.on("error", reject);
+          fileOut.on("error", reject);
+          fileOut.on("close", resolve);
+        });
+        archive.pipe(fileOut);
 
         const imageErrors = [];
+        archive.append(workbookBuffer, {name: workbookFileName});
 
+        setStage("append-receipt-images");
         for (const exportItem of receiptExportItems) {
           for (const attachment of exportItem.imageAttachments) {
             try {
@@ -848,6 +909,7 @@ exports.exportClientZip = onRequest(
           }
         }
 
+        setStage("append-income-images");
         for (const exportItem of incomeExportItems) {
           for (const attachment of exportItem.imageAttachments) {
             try {
@@ -864,31 +926,137 @@ exports.exportClientZip = onRequest(
           archive.append(imageErrors.join("\n"), {name: "image-download-errors.txt"});
         }
 
+        setStage("finalize-archive");
         await archive.finalize();
-        const zipBuffer = await finalizePromise;
-        const envelopePassword = process.env.EXPORT_ENVELOPE_PASSWORD;
-        if (!envelopePassword) {
-          throw new Error("EXPORT_ENVELOPE_PASSWORD is not configured.");
+        await archiveFinished;
+
+        const zipStats = await fs.promises.stat(tempZipPath);
+        debugState.zipBytes = zipStats.size;
+        debugState.imageErrors = {
+          count: imageErrors.length,
+          sample: imageErrors.slice(0, 10),
+        };
+
+        const objectName = `portal-exports/${sanitizeFileSegment(targetUserId, "user")}/${Date.now()}-${zipFileName}`;
+        const storageBucketName = resolveExportStorageBucketName();
+        const bucket = storageBucketName ? admin.storage().bucket(storageBucketName) : admin.storage().bucket();
+        debugState.storage = {
+          configuredBucket: storageBucketName || null,
+          bucketName: bucket.name,
+          objectName,
+        };
+
+        setStage("upload-zip");
+        const exportDownloadToken = randomUUID();
+        await bucket.upload(tempZipPath, {
+          destination: objectName,
+          metadata: {
+            contentType: "application/zip",
+            cacheControl: "private, max-age=900",
+            metadata: {
+              firebaseStorageDownloadTokens: exportDownloadToken,
+            },
+          },
+        });
+
+        setStage("sign-download-url");
+        let downloadUrl = "";
+        let downloadMethod = "signed-url";
+        let proxyDownload = null;
+        try {
+          [downloadUrl] = await bucket.file(objectName).getSignedUrl({
+            version: "v4",
+            action: "read",
+            expires: Date.now() + 15 * 60 * 1000,
+            responseDisposition: `attachment; filename="${zipFileName}"`,
+            responseType: "application/zip",
+          });
+        } catch (signError) {
+          const signDebug = {
+            stage: "sign-download-url",
+            code: signError && signError.code ? signError.code : null,
+            name: signError && signError.name ? signError.name : null,
+            message: signError && signError.message ? signError.message : String(signError),
+            bucketName: bucket.name,
+            objectName,
+            hint: "Grant Service Account Token Creator (iam.serviceAccounts.signBlob) to the Cloud Functions runtime service account.",
+          };
+          debugState.signing = signDebug;
+
+          // Fall back to authenticated proxy download so export still succeeds
+          // even when IAM lacks signBlob permission for signed URLs.
+          proxyDownload = {
+            bucket: bucket.name,
+            fullPath: objectName,
+            method: "portal-fetch-image",
+          };
+          downloadMethod = "token-url";
+          setStage("sign-download-url-fallback-token-url");
+          downloadUrl = buildFirebaseTokenDownloadUrl(bucket.name, objectName, exportDownloadToken);
         }
 
-        const encryptedBuffer = createExportEnvelope({
-          password: envelopePassword,
-          payload: zipBuffer,
-        });
+        setStage("success");
+        res.set("x-export-debug-id", debugId);
+        res.set("x-export-stage", debugState.stage);
 
-        res.set("Content-Type", "application/octet-stream");
-        res.set("Content-Disposition", `attachment; filename="${zipFileName}.enc"`);
-        res.set("X-Export-Receipts", String(filteredReceipts.length));
-        res.set("X-Export-Income", String(filteredIncome.length));
-        res.set("X-Export-Statements", String(filteredStatements.length));
-        res.set("X-Export-Image-Errors", String(imageErrors.length));
-        return res.status(200).send(encryptedBuffer);
+        return res.status(200).json({
+          fileName: zipFileName,
+          downloadUrl,
+          downloadMethod,
+          proxyDownload,
+          sizeBytes: zipStats.size,
+          receipts: filteredReceipts.length,
+          income: filteredIncome.length,
+          statements: filteredStatements.length,
+          imageErrors: imageErrors.length,
+          debugId,
+          debug: {
+            stage: debugState.stage,
+            timingsMs: debugState.timingsMs,
+            counts: debugState.counts,
+            storage: debugState.storage,
+            zipBytes: debugState.zipBytes,
+            workbookBytes: debugState.workbookBytes,
+            signing: debugState.signing || null,
+          },
+        });
       } catch (error) {
-        console.error("Client ZIP export failed", error);
+        const debugPayload = {
+          ...debugState,
+          stage: debugState.stage,
+          failedAt: new Date().toISOString(),
+          totalDurationMs: Date.now() - stageStartedAt,
+          error: {
+            name: error && error.name ? error.name : null,
+            code: error && error.code ? error.code : null,
+            statusCode: error && error.statusCode ? error.statusCode : null,
+            message: error && error.message ? error.message : String(error),
+            stackTop: error && error.stack ? String(error.stack).split("\n").slice(0, 8) : [],
+            debug: error && error.debug ? error.debug : null,
+          },
+        };
+
+        console.error("Client ZIP export failed", debugPayload);
+        if (res.headersSent) {
+          try {
+            res.end();
+          } catch (_) {
+            // ignore secondary response errors
+          }
+          return;
+        }
         const statusCode = error && error.statusCode ? error.statusCode : 500;
+        res.set("x-export-debug-id", debugId);
+        res.set("x-export-stage", debugState.stage || "failed");
         return res.status(statusCode).json({
           error: statusCode === 401 ? error.message : "Could not build export ZIP.",
+          debugId,
+          debug: debugPayload,
         });
+      } finally {
+        if (tempZipPath) {
+          fs.promises.unlink(tempZipPath).catch(() => {});
+        }
       }
     });
   },

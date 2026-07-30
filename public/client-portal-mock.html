@@ -1196,6 +1196,48 @@
       }, 1000);
     }
 
+    function triggerUrlDownload(url, fileName) {
+      const anchor = document.createElement("a");
+      anchor.href = url;
+      anchor.download = fileName;
+      anchor.rel = "noopener";
+      anchor.style.display = "none";
+      document.body.appendChild(anchor);
+      anchor.click();
+      setTimeout(() => anchor.remove(), 1000);
+    }
+
+    async function fetchExportZipViaProxy(proxyDownload, idToken) {
+      if (!proxyDownload || !proxyDownload.fullPath) {
+        throw new Error("Export proxy download path is missing.");
+      }
+
+      const response = await fetch("/portal-fetch-image", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: "Bearer " + idToken,
+        },
+        body: JSON.stringify({
+          bucket: proxyDownload.bucket || "",
+          fullPath: proxyDownload.fullPath,
+        }),
+      });
+
+      if (!response.ok) {
+        let proxyError = "Could not download ZIP from proxy.";
+        try {
+          const err = await response.json();
+          proxyError = err && err.error ? err.error : proxyError;
+        } catch {
+          // ignore parse errors
+        }
+        throw new Error(proxyError);
+      }
+
+      return response.blob();
+    }
+
     function getFinancialYearStartYear(date) {
       const day = startOfLocalDay(date || new Date());
       const aprilSixThisYear = new Date(day.getFullYear(), 3, 6);
@@ -2245,40 +2287,76 @@
       }
 
       const idToken = await currentUser.getIdToken();
-      const response = await fetch("/export-client-zip", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: "Bearer " + idToken,
-        },
-        body: JSON.stringify({
-          userId: user.id,
-          userName: user.name,
-          startDate,
-          endDate,
-          periodLabel: selectedPeriod ? selectedPeriod.label : "All time",
-        }),
-      });
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 900000);
+      let response;
+      try {
+        response = await fetch("/export-client-zip", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: "Bearer " + idToken,
+          },
+          body: JSON.stringify({
+            userId: user.id,
+            userName: user.name,
+            startDate,
+            endDate,
+            periodLabel: selectedPeriod ? selectedPeriod.label : "All time",
+          }),
+          signal: controller.signal,
+        });
+      } finally {
+        clearTimeout(timeoutId);
+      }
 
       if (!response.ok) {
-        let message = "Could not generate encrypted export ZIP.";
+        let message = "Could not generate export ZIP.";
+        let exportDebug = null;
         try {
           const err = await response.json();
           message = err && err.error ? err.error : message;
+          exportDebug = err && err.debug ? err.debug : null;
+          if (exportDebug && exportDebug.error && exportDebug.error.message) {
+            message += " " + exportDebug.error.message;
+          }
         } catch {
           // ignore parse errors
         }
-        throw new Error(message);
+        const error = new Error(message);
+        error.exportDebugId = response.headers.get("x-export-debug-id") || "";
+        error.exportStage = response.headers.get("x-export-stage") || "";
+        error.exportDebug = exportDebug;
+        throw error;
       }
 
-      const zipBlob = await response.blob();
-      const disposition = response.headers.get("content-disposition") || "";
-      const fileNameMatch = disposition.match(/filename="?([^";]+)"?/i);
-      const zipFileName = fileNameMatch && fileNameMatch[1] ? fileNameMatch[1] : fallbackZipName;
-      triggerBlobDownload(zipBlob, zipFileName);
+      const contentType = (response.headers.get("content-type") || "").toLowerCase();
+      let imageErrors = Number(response.headers.get("x-export-image-errors") || "0");
 
-      const imageErrors = Number(response.headers.get("x-export-image-errors") || "0");
-      statusLine.textContent = "Downloaded encrypted ZIP for " + user.name + ": " + filteredReceipts.length + " receipts, " + filteredIncome.length + " income record(s), and " + filteredStatements.length + " bank statement(s) (" + (selectedPeriod ? selectedPeriod.label : "All time") + ").";
+      if (contentType.includes("application/json")) {
+        const payload = await response.json();
+        if (!payload) {
+          throw new Error("Export response payload was empty.");
+        }
+        const zipFileName = payload.fileName || fallbackZipName;
+        if (payload.downloadUrl) {
+          triggerUrlDownload(payload.downloadUrl, zipFileName);
+        } else if (payload.proxyDownload) {
+          const proxyBlob = await fetchExportZipViaProxy(payload.proxyDownload, idToken);
+          triggerBlobDownload(proxyBlob, zipFileName);
+        } else {
+          throw new Error("Export response did not include a download URL or proxy fallback.");
+        }
+        imageErrors = Number(payload.imageErrors || 0);
+      } else {
+        const zipBlob = await response.blob();
+        const disposition = response.headers.get("content-disposition") || "";
+        const fileNameMatch = disposition.match(/filename="?([^";]+)"?/i);
+        const zipFileName = fileNameMatch && fileNameMatch[1] ? fileNameMatch[1] : fallbackZipName;
+        triggerBlobDownload(zipBlob, zipFileName);
+      }
+
+      statusLine.textContent = "Downloaded ZIP for " + user.name + ": " + filteredReceipts.length + " receipts, " + filteredIncome.length + " income record(s), and " + filteredStatements.length + " bank statement(s) (" + (selectedPeriod ? selectedPeriod.label : "All time") + ").";
       if (imageErrors > 0) {
         statusLine.textContent += " " + imageErrors + " image(s) could not be fetched and were listed in image-download-errors.txt.";
       }
@@ -2401,7 +2479,33 @@
         closeDateModal();
       } catch (error) {
         console.error("ZIP export failed", error);
-        statusLine.textContent = "Export failed: " + (error && error.message ? error.message : String(error));
+        const baseMessage = "Export failed: " + (error && error.message ? error.message : String(error));
+        const debugId = error && error.exportDebugId ? error.exportDebugId : "";
+        const stage = error && error.exportStage ? error.exportStage : "";
+        const detail = error && error.exportDebug && error.exportDebug.error
+          ? error.exportDebug.error
+          : null;
+
+        let detailText = "";
+        if (detail) {
+          const parts = [];
+          if (detail.name) parts.push("name=" + detail.name);
+          if (detail.code) parts.push("code=" + detail.code);
+          if (detail.statusCode) parts.push("status=" + detail.statusCode);
+          if (detail.message) parts.push("message=" + detail.message);
+          detailText = parts.length ? " | " + parts.join("; ") : "";
+        }
+
+        const debugText = [
+          debugId ? "debugId=" + debugId : "",
+          stage ? "stage=" + stage : "",
+        ].filter(Boolean).join(" ");
+
+        statusLine.textContent = baseMessage + (debugText ? " (" + debugText + ")" : "") + detailText;
+
+        if (error && error.exportDebug) {
+          console.error("ZIP export diagnostic payload", error.exportDebug);
+        }
       } finally {
         confirmDateBtn.disabled = false;
         confirmDateBtn.textContent = originalButtonText;
