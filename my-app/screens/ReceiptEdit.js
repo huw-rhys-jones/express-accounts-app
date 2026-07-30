@@ -50,6 +50,7 @@ import { triggerHaptic } from "../utils/haptics";
 const IMAGE_HEIGHT = Math.round(Dimensions.get("window").height * 0.45);
 const HERO_EXPANDED_HEIGHT = Math.round(Dimensions.get("window").height * 0.45);
 const HERO_COLLAPSED_HEIGHT = Math.round(Dimensions.get("window").height * 0.35);
+const DEBUG_DISABLE_KEYBOARD_DISMISS_WRAPPER = true;
 
 export default function ReceiptDetailsScreen({ route, navigation }) {
   const insets = useSafeAreaInsets();
@@ -107,7 +108,6 @@ export default function ReceiptDetailsScreen({ route, navigation }) {
   const [items, setItems] = useState(
     categories_meta.map((cat) => ({ label: cat.name, value: cat.name }))
   );
-  const [debugOverlayVisible, setDebugOverlayVisible] = useState(true);
   const [debugScrollState, setDebugScrollState] = useState("idle");
   const [debugPanState, setDebugPanState] = useState("idle");
   const [debugKeyboardState, setDebugKeyboardState] = useState("hidden");
@@ -623,7 +623,11 @@ export default function ReceiptDetailsScreen({ route, navigation }) {
         style={{ flex: 1 }}
         behavior={Platform.OS === "ios" ? "padding" : "height"}
       >
-      <TouchableWithoutFeedback onPress={Keyboard.dismiss} accessible={false}>
+      <TouchableWithoutFeedback
+        onPress={Keyboard.dismiss}
+        accessible={false}
+        disabled={DEBUG_DISABLE_KEYBOARD_DISMISS_WRAPPER}
+      >
       <View style={{ flex: 1 }}>
       {/* Fixed image panel */}
       <Animated.View
@@ -819,7 +823,8 @@ export default function ReceiptDetailsScreen({ route, navigation }) {
                     containerStyle={localStyles.fieldTopSpacingTight}
                     zIndex={3000}
                     zIndexInverse={1000}
-                    listMode="MODAL"
+                    listMode="SCROLLVIEW"
+                    scrollViewProps={{ keyboardShouldPersistTaps: "always" }}
                     onChangeValue={(val) => {
                       const next = val ?? "";
                       setVatRate(next);
@@ -1035,35 +1040,6 @@ export default function ReceiptDetailsScreen({ route, navigation }) {
           Save
         </Button>
       </View>
-
-      {debugOverlayVisible ? (
-        <View pointerEvents="box-none" style={localStyles.debugOverlayWrap}>
-          <View style={localStyles.debugOverlayCard}>
-            <View style={localStyles.debugOverlayHeader}>
-              <Text style={localStyles.debugOverlayTitle}>Gesture Debug</Text>
-              <TouchableOpacity
-                onPress={() => setDebugOverlayVisible(false)}
-                hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-              >
-                <Text style={localStyles.debugOverlayHide}>Hide</Text>
-              </TouchableOpacity>
-            </View>
-            <Text style={localStyles.debugOverlayText}>{`scroll: ${debugScrollState}`}</Text>
-            <Text style={localStyles.debugOverlayText}>{`pan: ${debugPanState}`}</Text>
-            <Text style={localStyles.debugOverlayText}>{`keyboard: ${debugKeyboardState}`}</Text>
-            <Text style={localStyles.debugOverlayText}>{`categoryOpen: ${open}`}</Text>
-            <Text style={localStyles.debugOverlayText}>{`vatRateOpen: ${vatRateOpen}`}</Text>
-            <Text style={localStyles.debugOverlayLast}>{debugLastEvent}</Text>
-          </View>
-        </View>
-      ) : (
-        <TouchableOpacity
-          style={localStyles.debugOverlayToggle}
-          onPress={() => setDebugOverlayVisible(true)}
-        >
-          <Text style={localStyles.debugOverlayToggleText}>DBG</Text>
-        </TouchableOpacity>
-      )}
 
       {/* OCR Preview + Accept Modal */}
       <Modal

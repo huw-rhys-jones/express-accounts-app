@@ -457,6 +457,17 @@
       margin-top: 4px;
     }
 
+    .period-summary {
+      margin-top: 2px;
+      border: 1px solid #d7e2ee;
+      border-radius: 12px;
+      background: #f7fafd;
+      color: #21476d;
+      font-size: 0.92rem;
+      line-height: 1.45;
+      padding: 10px 12px;
+    }
+
     @keyframes rise {
       from { opacity: 0; transform: translateY(10px); }
       to { opacity: 1; transform: translateY(0); }
@@ -674,6 +685,7 @@
       <div class="modal-body">
         <label for="periodSelect">Financial period</label>
         <select id="periodSelect"></select>
+        <div id="periodSummary" class="period-summary">Select a period to see record totals.</div>
 
         <div class="modal-actions">
           <button id="resetNotifyBtn" type="button" class="btn-success" style="display:none">Mark As Processed</button>
@@ -727,6 +739,7 @@
 
     const dateModal = document.getElementById("dateModal");
     const periodSelect = document.getElementById("periodSelect");
+    const periodSummary = document.getElementById("periodSummary");
     const cancelDateBtn = document.getElementById("cancelDateBtn");
     const confirmDateBtn = document.getElementById("confirmDateBtn");
     const resetNotifyBtn = document.getElementById("resetNotifyBtn");
@@ -1306,6 +1319,20 @@
       });
 
       periods.push({
+        key: "financial-year-current",
+        label: "Current financial year (" + getFinancialYearLabel(currentStartYear) + ")",
+        startDate: new Date(currentStartYear, 3, 6),
+        endDate: today,
+      });
+
+      periods.push({
+        key: "financial-year-previous",
+        label: "Previous financial year (" + getFinancialYearLabel(currentStartYear - 1) + ")",
+        startDate: new Date(currentStartYear - 1, 3, 6),
+        endDate: new Date(currentStartYear, 3, 5),
+      });
+
+      periods.push({
         key: "all-time",
         label: "All time",
         startDate: null,
@@ -1342,6 +1369,80 @@
         if (!dateValue) return false;
         return dateValue >= startDate && dateValue <= endDate;
       });
+    }
+
+    function pluralize(count, singular, plural) {
+      return count === 1 ? singular : (plural || singular + "s");
+    }
+
+    function countImageAttachments(entries) {
+      return (entries || []).reduce((total, entry) => {
+        const attachments = Array.isArray(entry && entry.attachments) ? entry.attachments : [];
+        const imageCount = attachments.filter((attachment) => attachment && attachment.url && isImageLikeAttachment(attachment)).length;
+        return total + imageCount;
+      }, 0);
+    }
+
+    function countBankStatementImages(entries) {
+      return (entries || []).reduce((total, entry) => {
+        const attachments = Array.isArray(entry && entry.attachments) ? entry.attachments : [];
+        if (attachments.length > 0) {
+          const imageCount = attachments.filter((attachment) => attachment && attachment.url && isImageLikeAttachment(attachment)).length;
+          return total + imageCount;
+        }
+        return total + (Number(entry && entry.attachmentsCount) || 0);
+      }, 0);
+    }
+
+    function buildPeriodSnapshot(user, selectedPeriod) {
+      const startDate = selectedPeriod && selectedPeriod.startDate ? toLocalYmd(selectedPeriod.startDate) : null;
+      const endDate = selectedPeriod && selectedPeriod.endDate ? toLocalYmd(selectedPeriod.endDate) : null;
+
+      const filteredReceipts = filterEntriesByPeriod(user && user.receipts, startDate, endDate, (receipt) => receipt.date);
+      const filteredIncome = filterEntriesByPeriod(user && user.income, startDate, endDate, (entry) => entry.date);
+      const filteredStatements = filterEntriesByPeriod(
+        user && user.bankStatements,
+        startDate,
+        endDate,
+        (statement) => statement.date || statement.statementEndDate || statement.statementStartDate || statement.loggedAt
+      );
+
+      return {
+        filteredReceipts,
+        filteredIncome,
+        filteredStatements,
+        receiptImages: countImageAttachments(filteredReceipts),
+        incomeImages: countImageAttachments(filteredIncome),
+        statementImages: countBankStatementImages(filteredStatements),
+      };
+    }
+
+    function formatSnapshotSummary(snapshot) {
+      const receiptCount = snapshot.filteredReceipts.length;
+      const incomeCount = snapshot.filteredIncome.length;
+      const statementCount = snapshot.filteredStatements.length;
+      return [
+        receiptCount + " " + pluralize(receiptCount, "receipt") + " (" + snapshot.receiptImages + " " + pluralize(snapshot.receiptImages, "image") + ")",
+        incomeCount + " " + pluralize(incomeCount, "income record") + " (" + snapshot.incomeImages + " " + pluralize(snapshot.incomeImages, "image") + ")",
+        statementCount + " " + pluralize(statementCount, "bank statement") + " (" + snapshot.statementImages + " " + pluralize(snapshot.statementImages, "image") + ")",
+      ].join(", ");
+    }
+
+    function renderPeriodSummary() {
+      if (!periodSummary) return;
+      if (!selectedUser) {
+        periodSummary.textContent = "Select a period to see record totals.";
+        return;
+      }
+
+      const selectedPeriod = getSelectedExportPeriod();
+      if (!selectedPeriod) {
+        periodSummary.textContent = "Select a period to see record totals.";
+        return;
+      }
+
+      const snapshot = buildPeriodSnapshot(selectedUser, selectedPeriod);
+      periodSummary.textContent = formatSnapshotSummary(snapshot);
     }
 
     function hasNewUploadsSince(user, loginDate) {
@@ -1468,6 +1569,7 @@
             netMovement: Number(data.netMovement) || 0,
             notes: data.notes || "",
             rawText: data.rawText || "",
+            attachments: normalizePortalAttachments(data.attachments),
             attachmentsCount: Array.isArray(data.attachments) ? data.attachments.length : 0,
             transactions: Array.isArray(data.transactions) ? data.transactions : [],
             vendorTotals: Array.isArray(data.vendorTotals) ? data.vendorTotals : [],
@@ -1916,6 +2018,7 @@
         .map((period) => "<option value='" + period.key + "'>" + period.label + "</option>")
         .join("");
       periodSelect.value = periods[0] ? periods[0].key : "";
+      renderPeriodSummary();
       resetNotifyBtn.style.display = "inline-block";
 
       document.getElementById("modalTitle").textContent = "Export data for " + user.name;
@@ -1926,6 +2029,9 @@
       dateModal.style.display = "none";
       selectedUser = null;
       resetNotifyBtn.style.display = "none";
+      if (periodSummary) {
+        periodSummary.textContent = "Select a period to see record totals.";
+      }
     }
 
     async function markNotifyAsProcessed() {
@@ -2266,14 +2372,10 @@
     async function downloadUserData(user, selectedPeriod) {
       const startDate = selectedPeriod && selectedPeriod.startDate ? toLocalYmd(selectedPeriod.startDate) : null;
       const endDate = selectedPeriod && selectedPeriod.endDate ? toLocalYmd(selectedPeriod.endDate) : null;
-      const filteredReceipts = filterEntriesByPeriod(user.receipts, startDate, endDate, (receipt) => receipt.date);
-      const filteredIncome = filterEntriesByPeriod(user.income, startDate, endDate, (entry) => entry.date);
-      const filteredStatements = filterEntriesByPeriod(
-        user.bankStatements,
-        startDate,
-        endDate,
-        (statement) => statement.date || statement.statementEndDate || statement.statementStartDate || statement.loggedAt
-      );
+      const snapshot = buildPeriodSnapshot(user, selectedPeriod);
+      const filteredReceipts = snapshot.filteredReceipts;
+      const filteredIncome = snapshot.filteredIncome;
+      const filteredStatements = snapshot.filteredStatements;
 
       const safeName = sanitizeFileSegment((user && user.name ? user.name : "client").toLowerCase(), "client");
       const fileSuffix = startDate && endDate
@@ -2356,7 +2458,7 @@
         triggerBlobDownload(zipBlob, zipFileName);
       }
 
-      statusLine.textContent = "Downloaded ZIP for " + user.name + ": " + filteredReceipts.length + " receipts, " + filteredIncome.length + " income record(s), and " + filteredStatements.length + " bank statement(s) (" + (selectedPeriod ? selectedPeriod.label : "All time") + ").";
+      statusLine.textContent = "Downloaded ZIP for " + user.name + ": " + formatSnapshotSummary(snapshot) + " (" + (selectedPeriod ? selectedPeriod.label : "All time") + ").";
       if (imageErrors > 0) {
         statusLine.textContent += " " + imageErrors + " image(s) could not be fetched and were listed in image-download-errors.txt.";
       }
@@ -2456,6 +2558,7 @@
     loadAllCodesBtn.addEventListener("click", loadAllCodes);
 
     cancelDateBtn.addEventListener("click", closeDateModal);
+    periodSelect.addEventListener("change", renderPeriodSummary);
     resetNotifyBtn.addEventListener("click", async () => {
       await markNotifyAsProcessed();
     });

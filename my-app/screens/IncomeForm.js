@@ -60,6 +60,8 @@ const ANNOTATIONS = [
   { key: "vat",    label: "VAT",    color: "#E06B6B" },
 ];
 
+const DEBUG_DISABLE_KEYBOARD_DISMISS_WRAPPER = true;
+
 function navigateBackToIncome(navigation) {
   navigation.reset({
     index: 0,
@@ -951,8 +953,12 @@ export default function IncomeFormScreen({ navigation, route, mode }) {
         style={{ flex: 1 }}
         behavior={Platform.OS === "ios" ? "padding" : "height"}
       >
-      <TouchableWithoutFeedback onPress={Keyboard.dismiss} accessible={false}>
-      <View style={{ flex: 1 }} {...detailSwipeResponder.panHandlers}>
+      <TouchableWithoutFeedback
+        onPress={Keyboard.dismiss}
+        accessible={false}
+        disabled={DEBUG_DISABLE_KEYBOARD_DISMISS_WRAPPER}
+      >
+      <View style={{ flex: 1 }}>
       {/* Fixed image panel */}
       <Animated.View
         style={[styles.imageSection, { height: heroHeightAnim }]}
@@ -960,6 +966,7 @@ export default function IncomeFormScreen({ navigation, route, mode }) {
           setImageContainerWidth(e.nativeEvent.layout.width);
           setImageContainerHeight(e.nativeEvent.layout.height);
         }}
+        {...detailSwipeResponder.panHandlers}
       >
         {imageContainerWidth > 0 ? (
           <ScrollView

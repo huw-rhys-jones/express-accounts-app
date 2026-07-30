@@ -69,6 +69,8 @@ function navigateBackToReceipts(navigation) {
   });
 }
 
+const DEBUG_DISABLE_KEYBOARD_DISMISS_WRAPPER = true;
+
 const ReceiptAdd = ({ navigation, route }) => {
   const insets = useSafeAreaInsets();
   const heroHeightAnim = useRef(new Animated.Value(HERO_EXPANDED_HEIGHT)).current;
@@ -148,7 +150,7 @@ const ReceiptAdd = ({ navigation, route }) => {
   const [fullScreenImageIndex, setFullScreenImageIndex] = useState(null);
   const [ocrFrames, setOcrFrames] = useState(null);
   const [detectProgress, setDetectProgress] = useState(0);
-  const [detectMode, setDetectMode] = useState("cloud");
+  const [detectMode, setDetectMode] = useState("auto");
 
   const getCanonicalCategoryName = (value) => {
     const normalized = String(value || "").trim().toLowerCase();
@@ -174,7 +176,6 @@ const ReceiptAdd = ({ navigation, route }) => {
   };
   const [vatRateOpen, setVatRateOpen] = useState(false);
   const [vatRateItems, setVatRateItems] = useState(deriveVatRateItems());
-  const [debugOverlayVisible, setDebugOverlayVisible] = useState(true);
   const [debugScrollState, setDebugScrollState] = useState("idle");
   const [debugPanState, setDebugPanState] = useState("idle");
   const [debugKeyboardState, setDebugKeyboardState] = useState("hidden");
@@ -473,9 +474,26 @@ const ReceiptAdd = ({ navigation, route }) => {
     async (initialImages, { preferLocal = false } = {}) => {
       const requestId = detectRequestIdRef.current + 1;
       detectRequestIdRef.current = requestId;
-      setDetectMode(preferLocal ? "local" : "cloud");
+      setDetectMode("auto");
       setIsDetecting(true);
       setDetectProgress(0);
+
+      if (preferLocal) {
+        setDetectMode("local");
+      } else {
+        try {
+          const user = auth.currentUser;
+          if (!user) {
+            setDetectMode("local");
+          } else {
+            const userSnap = await getDoc(doc(db, "users", user.uid));
+            const isVerified = userSnap.exists() && userSnap.data()?.verificationStatus === "verified";
+            setDetectMode(isVerified ? "cloud" : "local");
+          }
+        } catch {
+          setDetectMode("local");
+        }
+      }
 
       try {
         const groups = await detectReceiptGroupsFromAssets(
@@ -1311,7 +1329,11 @@ const ReceiptAdd = ({ navigation, route }) => {
         style={{ flex: 1 }}
         behavior={Platform.OS === "ios" ? "padding" : "height"}
       >
-      <TouchableWithoutFeedback onPress={Keyboard.dismiss} accessible={false}>
+      <TouchableWithoutFeedback
+        onPress={Keyboard.dismiss}
+        accessible={false}
+        disabled={DEBUG_DISABLE_KEYBOARD_DISMISS_WRAPPER}
+      >
       <View style={{ flex: 1 }}>
       {/* IMAGE SECTION — large fixed panel at top with inline annotation boxes */}
       <Animated.View
@@ -1630,7 +1652,8 @@ const ReceiptAdd = ({ navigation, route }) => {
                     zIndex={3000}
                     zIndexInverse={1000}
                     dropDownDirection="TOP"
-                    listMode="MODAL"
+                    listMode="SCROLLVIEW"
+                    scrollViewProps={{ keyboardShouldPersistTaps: "always" }}
                     onChangeValue={(val) => {
                       const next = val ?? "";
                       setVatRate(next);
@@ -1878,36 +1901,6 @@ const ReceiptAdd = ({ navigation, route }) => {
           </>
         )}
       </View>
-
-      {debugOverlayVisible ? (
-        <View pointerEvents="box-none" style={localStyles.debugOverlayWrap}>
-          <View style={localStyles.debugOverlayCard}>
-            <View style={localStyles.debugOverlayHeader}>
-              <Text style={localStyles.debugOverlayTitle}>Gesture Debug</Text>
-              <TouchableOpacity
-                onPress={() => setDebugOverlayVisible(false)}
-                hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-              >
-                <Text style={localStyles.debugOverlayHide}>Hide</Text>
-              </TouchableOpacity>
-            </View>
-            <Text style={localStyles.debugOverlayText}>{`scroll: ${debugScrollState}`}</Text>
-            <Text style={localStyles.debugOverlayText}>{`pan: ${debugPanState}`}</Text>
-            <Text style={localStyles.debugOverlayText}>{`keyboard: ${debugKeyboardState}`}</Text>
-            <Text style={localStyles.debugOverlayText}>{`categoryModal: ${categoryModalVisible}`}</Text>
-            <Text style={localStyles.debugOverlayText}>{`vatRateOpen: ${vatRateOpen}`}</Text>
-            <Text style={localStyles.debugOverlayText}>{`multiDraft: ${isMultiReceiptMode}`}</Text>
-            <Text style={localStyles.debugOverlayLast}>{debugLastEvent}</Text>
-          </View>
-        </View>
-      ) : (
-        <TouchableOpacity
-          style={localStyles.debugOverlayToggle}
-          onPress={() => setDebugOverlayVisible(true)}
-        >
-          <Text style={localStyles.debugOverlayToggleText}>DBG</Text>
-        </TouchableOpacity>
-      )}
 
       <Modal
         visible={showAllProcessedModal}
@@ -2329,12 +2322,18 @@ const ReceiptAdd = ({ navigation, route }) => {
           <View style={ReceiptStyles.uploadCard}>
             <ActivityIndicator size="large" color="#a60d49" />
             <Text style={{ marginTop: 12, fontWeight: "700", fontSize: 15 }}>
-              {detectMode === "local" ? "Processing receipts locally…" : "Processing receipts in the cloud…"}
+              {detectMode === "local"
+                ? "Processing receipts locally…"
+                : detectMode === "cloud"
+                ? "Processing receipts in the cloud…"
+                : "Processing receipts…"}
             </Text>
             <Text style={{ marginTop: 4, color: "#666", fontSize: 12, textAlign: "center" }}>
               {detectMode === "local"
                 ? "This may be faster, but results can be less accurate."
-                : "Please wait while we process your images in the cloud."}
+                : detectMode === "cloud"
+                ? "Please wait while we process your images in the cloud."
+                : "Selecting the best processing mode for your account."}
             </Text>
             <View style={{ alignSelf: "stretch", marginTop: 16 }}>
               <ProgressBar progress={detectProgress} color="#a60d49" style={{ borderRadius: 4 }} />
@@ -2352,7 +2351,7 @@ const ReceiptAdd = ({ navigation, route }) => {
                 Process locally
               </Button>
             </View>
-            {detectMode !== "local" ? (
+            {detectMode === "cloud" ? (
               <Text style={localStyles.detectingHint}>
                 Local processing can be quicker, but is usually less accurate.
               </Text>
@@ -2719,9 +2718,10 @@ const localStyles = StyleSheet.create({
   },
   sideTipBox: {
     backgroundColor: "#F0D1FF",
-    padding: 10,
+    paddingVertical: 10,
+    paddingHorizontal: 12,
     borderRadius: 12,
-    maxWidth: 160,
+    maxWidth: 260,
     elevation: 4,
     shadowColor: "#000",
     shadowOpacity: 0.1,
@@ -2730,8 +2730,9 @@ const localStyles = StyleSheet.create({
   },
   sideTipText: {
     color: "#4A148C",
-    fontSize: 11,
-    lineHeight: 15,
+    fontSize: 12,
+    lineHeight: 16,
+    textAlign: "center",
   },
   sideGotIt: {
     color: "#4A148C",
@@ -2741,10 +2742,14 @@ const localStyles = StyleSheet.create({
     textAlign: "right",
   },
   sideTipWrapper: {
+    position: "absolute",
+    left: 14,
+    right: 14,
+    bottom: 42,
     flexDirection: "column",
     alignItems: "center",
-    marginTop: 8,
     zIndex: 5000,
+    elevation: 5000,
   },
   sideTopTriangle: {
     width: 0,

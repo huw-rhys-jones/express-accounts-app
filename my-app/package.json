@@ -1,6 +1,6 @@
 {
   "name": "my-app",
-  "version": "1.5.86",
+  "version": "1.5.8",
   "main": "index.js",
   "scripts": {
     "start": "expo start",
