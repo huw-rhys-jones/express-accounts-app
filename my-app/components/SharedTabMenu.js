@@ -34,20 +34,28 @@ import { triggerHaptic } from "../utils/haptics";
 import { verifyClientCode } from "../utils/verificationCodes";
 import RegisterVehicleModal from "./RegisterVehicleModal";
 import YourVehiclesModal from "./YourVehiclesModal";
+import { useData } from "../contexts/DataContext";
 
 const appVersion = appPackage?.version || Constants.expoConfig?.version || "unknown";
 const internalBuildLabel = Constants.expoConfig?.extra?.internalBuildLabel || "";
 const versionLabel = internalBuildLabel ? `${appVersion} (${internalBuildLabel})` : appVersion;
 
 export default function SharedTabMenu({ navigation, closeMenu, displayName = "User", open = false }) {
+  const { userProfile, displayName: contextDisplayName } = useData();
   const [busy, setBusy] = useState(false);
   const [busyText, setBusyText] = useState("Please wait...");
 
-  const [currentDisplayName, setCurrentDisplayName] = useState(displayName || "User");
-  const [newName, setNewName] = useState(displayName || "User");
-  const [verifiedName, setVerifiedName] = useState("");
-  const [verificationStatus, setVerificationStatus] = useState("");
-  const [vehicles, setVehicles] = useState([]);
+  const [currentDisplayName, setCurrentDisplayName] = useState(
+    contextDisplayName || displayName || "User"
+  );
+  const [newName, setNewName] = useState(contextDisplayName || displayName || "User");
+  const [verifiedName, setVerifiedName] = useState(String(userProfile?.verifiedName || ""));
+  const [verificationStatus, setVerificationStatus] = useState(
+    String(userProfile?.verificationStatus || "")
+  );
+  const [vehicles, setVehicles] = useState(
+    Array.isArray(userProfile?.vehicles) ? userProfile.vehicles : []
+  );
 
   const [feedbackModalVisible, setFeedbackModalVisible] = useState(false);
   const [feedbackText, setFeedbackText] = useState("");
@@ -74,14 +82,20 @@ export default function SharedTabMenu({ navigation, closeMenu, displayName = "Us
   const loadMenuContext = useCallback(async () => {
     const user = auth.currentUser;
     if (!user) {
-      setCurrentDisplayName(displayName || "User");
-      setVerifiedName("");
-      setVerificationStatus("");
-      setVehicles([]);
+      setCurrentDisplayName(contextDisplayName || displayName || "User");
+      setVehicles(Array.isArray(userProfile?.vehicles) ? userProfile.vehicles : []);
       return;
     }
 
-    setCurrentDisplayName(user.displayName || displayName || "User");
+    setCurrentDisplayName(user.displayName || contextDisplayName || displayName || "User");
+
+    if (userProfile?.verifiedName || userProfile?.verificationStatus) {
+      setVerifiedName(String(userProfile?.verifiedName || ""));
+      setVerificationStatus(String(userProfile?.verificationStatus || ""));
+    }
+    if (Array.isArray(userProfile?.vehicles)) {
+      setVehicles(userProfile.vehicles);
+    }
 
     try {
       const userProfileRef = doc(db, "users", user.uid);
@@ -103,7 +117,15 @@ export default function SharedTabMenu({ navigation, closeMenu, displayName = "Us
     } catch (error) {
       console.error("Error loading vehicles:", error);
     }
-  }, [displayName]);
+  }, [contextDisplayName, displayName, userProfile]);
+
+  useEffect(() => {
+    setCurrentDisplayName(contextDisplayName || auth.currentUser?.displayName || displayName || "User");
+    setNewName((previous) => previous || contextDisplayName || displayName || "User");
+    setVerifiedName(String(userProfile?.verifiedName || ""));
+    setVerificationStatus(String(userProfile?.verificationStatus || ""));
+    setVehicles(Array.isArray(userProfile?.vehicles) ? userProfile.vehicles : []);
+  }, [contextDisplayName, displayName, userProfile]);
 
   useEffect(() => {
     loadMenuContext().catch(() => {});

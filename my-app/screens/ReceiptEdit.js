@@ -1570,7 +1570,7 @@ const localStyles = StyleSheet.create({
     flex: 1,
   },
   labelAligned: {
-    marginLeft: 10,
+    marginLeft: 0,
   },
   fieldRow: {
     marginHorizontal: 10,

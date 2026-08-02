@@ -292,10 +292,10 @@ export const ReceiptStyles = StyleSheet.create({
     justifyContent: "center",
   },
   borderContainer: {
-    borderWidth: 5,
+    // borderWidth: 5,
     borderColor: Colors.background,
     borderRadius: 35,
-    padding: 20,
+    padding: 5,
     width: "95%",
     backgroundColor: Colors.surface,
   },
@@ -328,7 +328,7 @@ export const ReceiptStyles = StyleSheet.create({
     padding: 10,
     flex: 1,
     fontSize: 16,
-    height: 50,
+    height: 44,
     margin: 0,
     color: Colors.textSecondary,
     backgroundColor: Colors.surface,
@@ -359,7 +359,7 @@ export const ReceiptStyles = StyleSheet.create({
     borderWidth: 1,
     borderColor: Colors.border,
     borderRadius: 5,
-    height: 50,             // Increased from 44 to 50 for a better touch target
+    height: 44,
     paddingHorizontal: 12,
     fontSize: 16,
     backgroundColor: Colors.surface,
@@ -369,7 +369,7 @@ export const ReceiptStyles = StyleSheet.create({
   vatRatePicker: {
     backgroundColor: Colors.surface,
     borderColor: Colors.border,
-    height: 50,             // MUST match vatInput height exactly
+    height: 44,
     justifyContent: 'center',
     paddingHorizontal: 8,
     // Do NOT put marginTop here
@@ -389,7 +389,7 @@ export const ReceiptStyles = StyleSheet.create({
     borderColor: Colors.border,
     borderRadius: 5,
     padding: 10,
-    height: 50,
+    height: 44,
     justifyContent: "center",
     marginHorizontal: 10,
   },
@@ -398,7 +398,7 @@ export const ReceiptStyles = StyleSheet.create({
   dropdown: {
     backgroundColor: Colors.surface,
     borderColor: Colors.border,
-    height: 50,
+    height: 44,
   },
   dropdownContainer: {
     backgroundColor: Colors.surface,

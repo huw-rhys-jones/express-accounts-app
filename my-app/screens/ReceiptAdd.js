@@ -1358,7 +1358,7 @@ const ReceiptAdd = ({ navigation, route }) => {
       style={[ReceiptStyles.safeArea, localStyles.safeAreaLight]}
       edges={["left", "right"]}
     >
-      <View style={[localStyles.header, { paddingTop: Math.max(insets.top + 6, 20) }]}> 
+      <View style={[localStyles.header, { paddingTop: Math.max(insets.top, 0) }]}> 
         <TouchableOpacity
           onPress={handleLeavePress}
           style={localStyles.headerBtn}
@@ -1507,7 +1507,7 @@ const ReceiptAdd = ({ navigation, route }) => {
             ReceiptStyles.container,
             {
               justifyContent: "flex-start",
-              paddingTop: 8,
+              paddingTop: 0,
               paddingBottom: 12,
               paddingHorizontal: 12,
             },
@@ -2513,8 +2513,13 @@ const ReceiptAdd = ({ navigation, route }) => {
 };
 
 const IMAGE_HEIGHT = Math.round(Dimensions.get("window").height * 0.55);
-const HERO_EXPANDED_HEIGHT = Math.round(Dimensions.get("window").height * 0.52);
-const HERO_COLLAPSED_HEIGHT = Math.round(Dimensions.get("window").height * 0.37);
+const HERO_SECTION_SCALE = 0.9;
+const HERO_EXPANDED_HEIGHT = Math.round(
+  Dimensions.get("window").height * 0.52 * HERO_SECTION_SCALE,
+);
+const HERO_COLLAPSED_HEIGHT = Math.round(
+  Dimensions.get("window").height * 0.37 * HERO_SECTION_SCALE,
+);
 
 const ANNOTATIONS = [
   { key: "amount", label: "Amount", color: "#2E9F46" },
@@ -2994,7 +2999,7 @@ const localStyles = StyleSheet.create({
     flexDirection: "row",
     justifyContent: "center",
     alignItems: "flex-end",
-    paddingVertical: 8,
+    paddingVertical: 2,
     paddingHorizontal: 12,
     gap: 14,
     backgroundColor: "#fff",
