@@ -2,6 +2,7 @@ import React, { useState, useEffect, useCallback, useMemo } from "react";
 import {
   Alert,
   Platform,
+  Pressable,
   View,
   Text,
   StyleSheet,
@@ -41,8 +42,15 @@ const BAR_CHART_HEIGHT = 220;
 const Y_AXIS_WIDTH = 46;
 
 export default function SummaryScreen({ navigation }) {
-  const { receipts, incomeItems, bankStatements, initialLoading } = useData();
-  const loading = initialLoading;
+  const {
+    receipts,
+    incomeItems,
+    bankStatements,
+    receiptsLoading,
+    incomeLoading,
+    bankStatementsLoading,
+  } = useData();
+  const loading = receiptsLoading || incomeLoading || bankStatementsLoading;
   const [refreshing, setRefreshing] = useState(false);
   const [activeFilterKey, setActiveFilterKey] = useState("current-quarter");
   const [filterOpen, setFilterOpen] = useState(false);
@@ -83,6 +91,13 @@ export default function SummaryScreen({ navigation }) {
         .catch(() => setActiveFilterKey("current-quarter"));
     });
     return unsubscribeFocus;
+  }, [navigation]);
+
+  useEffect(() => {
+    const unsubscribeBlur = navigation.addListener("blur", () => {
+      setFilterOpen(false);
+    });
+    return unsubscribeBlur;
   }, [navigation]);
 
   useEffect(() => {
@@ -217,6 +232,13 @@ export default function SummaryScreen({ navigation }) {
 
         <View style={{ width: 44 }} />
       </View>
+
+      {filterOpen ? (
+        <Pressable
+          style={styles.filterDismissOverlay}
+          onPress={() => setFilterOpen(false)}
+        />
+      ) : null}
 
       {loading ? (
         <View style={styles.center}>
@@ -537,6 +559,14 @@ const styles = StyleSheet.create({
     color: "#fff",
   },
   topBarTitle: { fontSize: 18, fontWeight: "700", color: "#fff" },
+  filterDismissOverlay: {
+    position: "absolute",
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    zIndex: 2000,
+  },
   content: {
   ...SharedStyles.content,
   paddingTop: 5,

@@ -2,6 +2,7 @@ import React, { useState, useEffect, useCallback, useMemo, useRef } from "react"
 import {
   View,
   Text,
+  Pressable,
   TouchableOpacity,
   StyleSheet,
   FlatList,
@@ -45,13 +46,22 @@ import {
 import {
   buildFinancialFilterOptions,
   filterReceiptsByDateRange,
+  getPeriodRecordCount,
+  formatPeriodLabelWithCount,
 } from "../utils/financialPeriods";
 import {
   getHapticsEnabled,
   setHapticsEnabled,
   triggerHaptic,
 } from "../utils/haptics";
-import { getReceiptFilterKey, setReceiptFilterKey, setAllFilterKeys, getVehicles } from "../utils/appSettings";
+import {
+  getReceiptFilterKey,
+  setReceiptFilterKey,
+  setAllFilterKeys,
+  getVehicles,
+  getHiddenPeriodTooltipDismissed,
+  setHiddenPeriodTooltipDismissed,
+} from "../utils/appSettings";
 import { verifyClientCode } from "../utils/verificationCodes";
 import AddReceiptSheet from "../components/AddReceiptSheet";
 import RegisterVehicleModal from "../components/RegisterVehicleModal";
@@ -64,7 +74,7 @@ const internalBuildLabel = Constants.expoConfig?.extra?.internalBuildLabel || ""
 const versionLabel = internalBuildLabel ? `${appVersion} (${internalBuildLabel})` : appVersion;
 
 const ExpensesScreen = ({ navigation, route }) => {
-  const { receipts, initialLoading: dataLoading } = useData();
+  const { receipts, receiptsLoading: dataLoading } = useData();
   const [displayName, setDisplayName] = useState("User");
   const [verifiedName, setVerifiedName] = useState("");
   const [verificationStatus, setVerificationStatus] = useState("");
@@ -96,6 +106,9 @@ const ExpensesScreen = ({ navigation, route }) => {
   const [filterOpen, setFilterOpen] = useState(false);
   const [activeFilterKey, setActiveFilterKey] = useState("current-quarter");
   const [filterItems, setFilterItems] = useState([]);
+  const [showHiddenRecordsTip, setShowHiddenRecordsTip] = useState(false);
+  const [hiddenPeriodTipDismissed, setHiddenPeriodTipDismissed] = useState(false);
+  const [hiddenPeriodTipTemporarilyDismissed, setHiddenPeriodTipTemporarilyDismissed] = useState(false);
   const [referralCodeModalVisible, setReferralCodeModalVisible] = useState(false);
   const [referralCode, setReferralCode] = useState("");
   const [nameChangeModalVisible, setNameChangeModalVisible] = useState(false);
@@ -234,6 +247,14 @@ const ExpensesScreen = ({ navigation, route }) => {
     [activeFilterKey, filterOptions]
   );
 
+  const filterCountsByKey = useMemo(() => {
+    const counts = {};
+    for (const option of filterOptions) {
+      counts[option.key] = getPeriodRecordCount(receipts, option);
+    }
+    return counts;
+  }, [filterOptions, receipts]);
+
   useEffect(() => {
     if (!activeFilter && filterOptions[0]) {
       setActiveFilterKey(filterOptions[0].key);
@@ -242,9 +263,21 @@ const ExpensesScreen = ({ navigation, route }) => {
 
   useEffect(() => {
     setFilterItems(
-      filterOptions.map((option) => ({ label: option.label, value: option.key }))
+      filterOptions.map((option) => {
+        const count = filterCountsByKey[option.key] ?? 0;
+        return {
+          label: formatPeriodLabelWithCount(option.label, count, "Expense", "Expenses"),
+          value: option.key,
+        };
+      })
     );
-  }, [filterOptions]);
+  }, [filterCountsByKey, filterOptions]);
+
+  useEffect(() => {
+    getHiddenPeriodTooltipDismissed()
+      .then(setHiddenPeriodTipDismissed)
+      .catch(() => setHiddenPeriodTipDismissed(false));
+  }, []);
 
   useEffect(() => {
     if (filterOptions.length === 0) {
@@ -261,6 +294,52 @@ const ExpensesScreen = ({ navigation, route }) => {
       setReceiptFilterKey(fallbackKey).catch(() => {});
     }
   }, [activeFilterKey, filterOptions]);
+
+  useEffect(() => {
+    if (
+      dataLoading ||
+      loading ||
+      filterOpen ||
+      hiddenPeriodTipDismissed ||
+      hiddenPeriodTipTemporarilyDismissed ||
+      filterOptions.length === 0
+    ) {
+      setShowHiddenRecordsTip(false);
+      return;
+    }
+
+    const activeCount = filterCountsByKey[activeFilterKey] ?? 0;
+    const hasRecordsInOtherPeriods = filterOptions.some(
+      (option) => option.key !== activeFilterKey && (filterCountsByKey[option.key] ?? 0) > 0
+    );
+    setShowHiddenRecordsTip(activeCount === 0 && hasRecordsInOtherPeriods);
+  }, [
+    activeFilterKey,
+    dataLoading,
+    filterCountsByKey,
+    filterOpen,
+    filterOptions,
+    hiddenPeriodTipDismissed,
+    hiddenPeriodTipTemporarilyDismissed,
+    loading,
+  ]);
+
+  const dismissHiddenRecordsTip = useCallback(async () => {
+    setShowHiddenRecordsTip(false);
+    setHiddenPeriodTipDismissed(true);
+    await setHiddenPeriodTooltipDismissed();
+  }, []);
+
+  const handleSetFilterOpen = useCallback((nextOpen) => {
+    setFilterOpen((previous) => {
+      const resolvedOpen = typeof nextOpen === "function" ? nextOpen(previous) : nextOpen;
+      if (resolvedOpen) {
+        setShowHiddenRecordsTip(false);
+        setHiddenPeriodTipTemporarilyDismissed(true);
+      }
+      return resolvedOpen;
+    });
+  }, []);
 
   const filteredReceipts = useMemo(() => {
     if (!activeFilter) return receipts;
@@ -379,6 +458,14 @@ const ExpensesScreen = ({ navigation, route }) => {
     });
 
     return unsubscribeFocus;
+  }, [navigation]);
+
+  useEffect(() => {
+    const unsubscribeBlur = navigation.addListener("blur", () => {
+      setFilterOpen(false);
+    });
+
+    return unsubscribeBlur;
   }, [navigation]);
 
   useEffect(() => {
@@ -623,6 +710,7 @@ const ExpensesScreen = ({ navigation, route }) => {
 
   const handleFilterSelection = useCallback(
     async (nextKey) => {
+      setHiddenPeriodTipTemporarilyDismissed(false);
       setActiveFilterKey(nextKey);
       await setAllFilterKeys(nextKey);
     },
@@ -896,14 +984,35 @@ const ExpensesScreen = ({ navigation, route }) => {
 
       </View>
 
+      {filterOpen ? (
+        <Pressable
+          style={styles.filterDismissOverlay}
+          onPress={() => setFilterOpen(false)}
+        />
+      ) : null}
+
       {/* Period filter bar — sits just above the bottom tab bar */}
+      {!isSelectionMode && !dataLoading && !loading && !filterOpen && showHiddenRecordsTip ? (
+        <View style={styles.hiddenPeriodTipWrapper} pointerEvents="box-none">
+          <View style={styles.hiddenPeriodTipBox}>
+            <Text style={styles.hiddenPeriodTipText}>
+              You may have records in other periods which are currently not displaying.
+            </Text>
+            <TouchableOpacity onPress={dismissHiddenRecordsTip}>
+              <Text style={styles.hiddenPeriodTipOk}>OK</Text>
+            </TouchableOpacity>
+          </View>
+          <View style={styles.hiddenPeriodTipTriangleDown} />
+        </View>
+      ) : null}
+
       {!isSelectionMode && !dataLoading && !loading && filterOptions.length > 0 ? (
         <View style={styles.filterBar}>
           <DropDownPicker
             open={filterOpen}
             value={activeFilterKey}
             items={filterItems}
-            setOpen={setFilterOpen}
+            setOpen={handleSetFilterOpen}
             setValue={(callback) => {
               const nextKey = callback(activeFilterKey);
               handleFilterSelection(nextKey).catch(() => {});
@@ -1379,6 +1488,14 @@ const styles = StyleSheet.create({
     paddingVertical: 6,
     zIndex: 1000,
   },
+  filterDismissOverlay: {
+    position: "absolute",
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    zIndex: 900,
+  },
   filterDropdown: {
     borderColor: Colors.border,
     borderRadius: 10,
@@ -1387,6 +1504,50 @@ const styles = StyleSheet.create({
   filterDropdownContainer: {
     borderColor: Colors.border,
     backgroundColor: Colors.card,
+  },
+  hiddenPeriodTipWrapper: {
+    position: "absolute",
+    left: 14,
+    right: 14,
+    bottom: 60,
+    alignItems: "center",
+    zIndex: 1400,
+  },
+  hiddenPeriodTipBox: {
+    backgroundColor: "#F0D1FF",
+    borderRadius: 12,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    width: "100%",
+    elevation: 5,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.3,
+    shadowRadius: 4,
+  },
+  hiddenPeriodTipText: {
+    color: "#4A148C",
+    fontSize: 14,
+    lineHeight: 20,
+  },
+  hiddenPeriodTipOk: {
+    marginTop: 8,
+    color: "#4A148C",
+    fontWeight: "700",
+    textAlign: "right",
+    textDecorationLine: "underline",
+  },
+  hiddenPeriodTipTriangleDown: {
+    width: 0,
+    height: 0,
+    backgroundColor: "transparent",
+    borderStyle: "solid",
+    borderLeftWidth: 10,
+    borderRightWidth: 10,
+    borderTopWidth: 15,
+    borderLeftColor: "transparent",
+    borderRightColor: "transparent",
+    borderTopColor: "#F0D1FF",
   },
   description: {
     fontSize: 16,

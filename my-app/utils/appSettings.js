@@ -54,6 +54,7 @@ export async function setSummaryFilterKey(filterKey) {
 }
 
 const ADD_SHEET_TOOLTIP_SEEN_KEY = "@settings:addSheetTooltipSeen";
+const HIDDEN_PERIOD_TOOLTIP_DISMISSED_KEY = "@settings:hiddenPeriodTooltipDismissed";
 
 export async function getAddSheetTooltipSeen() {
   try {
@@ -67,6 +68,23 @@ export async function getAddSheetTooltipSeen() {
 export async function setAddSheetTooltipSeen() {
   try {
     await AsyncStorage.setItem(ADD_SHEET_TOOLTIP_SEEN_KEY, "true");
+  } catch {
+    // ignore
+  }
+}
+
+export async function getHiddenPeriodTooltipDismissed() {
+  try {
+    const value = await AsyncStorage.getItem(HIDDEN_PERIOD_TOOLTIP_DISMISSED_KEY);
+    return value === "true";
+  } catch {
+    return false;
+  }
+}
+
+export async function setHiddenPeriodTooltipDismissed() {
+  try {
+    await AsyncStorage.setItem(HIDDEN_PERIOD_TOOLTIP_DISMISSED_KEY, "true");
   } catch {
     // ignore
   }
