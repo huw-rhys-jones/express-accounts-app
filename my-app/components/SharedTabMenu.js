@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
@@ -6,15 +6,15 @@ import {
   Linking,
   Modal,
   StyleSheet,
-  Switch,
   Text,
   TextInput,
   TouchableOpacity,
   View,
 } from "react-native";
-import { signOut } from "firebase/auth";
+import { deleteUser, signOut, updateProfile } from "firebase/auth";
 import {
   collection,
+  deleteDoc,
   doc,
   getDoc,
   getDocs,
@@ -22,36 +22,44 @@ import {
   serverTimestamp,
   setDoc,
   where,
+  writeBatch,
 } from "firebase/firestore";
+import { getStorage, ref as storageRef, listAll, deleteObject } from "firebase/storage";
 import Constants from "expo-constants";
-import DropDownPicker from "react-native-dropdown-picker";
 import appPackage from "../package.json";
 import { auth, db } from "../firebaseConfig";
-import { buildFinancialFilterOptions } from "../utils/financialPeriods";
-import { getReceiptFilterKey, setAllFilterKeys } from "../utils/appSettings";
+import { getVehicles } from "../utils/appSettings";
 import { Colors } from "../utils/sharedStyles";
-import { getHapticsEnabled, setHapticsEnabled, triggerHaptic } from "../utils/haptics";
+import { triggerHaptic } from "../utils/haptics";
 import { verifyClientCode } from "../utils/verificationCodes";
+import RegisterVehicleModal from "./RegisterVehicleModal";
+import YourVehiclesModal from "./YourVehiclesModal";
 
 const appVersion = appPackage?.version || Constants.expoConfig?.version || "unknown";
 const internalBuildLabel = Constants.expoConfig?.extra?.internalBuildLabel || "";
 const versionLabel = internalBuildLabel ? `${appVersion} (${internalBuildLabel})` : appVersion;
 
-export default function SharedTabMenu({ navigation, closeMenu, displayName = "User" }) {
+export default function SharedTabMenu({ navigation, closeMenu, displayName = "User", open = false }) {
   const [busy, setBusy] = useState(false);
-  const [busyText, setBusyText] = useState("Please wait…");
-  const [feedbackModalVisible, setFeedbackModalVisible] = useState(false);
-  const [feedbackText, setFeedbackText] = useState("");
-  const [settingsModalVisible, setSettingsModalVisible] = useState(false);
-  const [filterOpen, setFilterOpen] = useState(false);
-  const [activeFilterKey, setActiveFilterKey] = useState("current-quarter");
-  const [filterItems, setFilterItems] = useState([]);
-  const [referralCodeModalVisible, setReferralCodeModalVisible] = useState(false);
-  const [referralCode, setReferralCode] = useState("");
-  const [hapticsEnabled, setHapticsEnabledState] = useState(true);
+  const [busyText, setBusyText] = useState("Please wait...");
+
+  const [currentDisplayName, setCurrentDisplayName] = useState(displayName || "User");
+  const [newName, setNewName] = useState(displayName || "User");
   const [verifiedName, setVerifiedName] = useState("");
   const [verificationStatus, setVerificationStatus] = useState("");
-  const [receipts, setReceipts] = useState([]);
+  const [vehicles, setVehicles] = useState([]);
+
+  const [feedbackModalVisible, setFeedbackModalVisible] = useState(false);
+  const [feedbackText, setFeedbackText] = useState("");
+  const [referralCodeModalVisible, setReferralCodeModalVisible] = useState(false);
+  const [referralCode, setReferralCode] = useState("");
+  const [nameChangeModalVisible, setNameChangeModalVisible] = useState(false);
+  const [deleteModalVisible, setDeleteModalVisible] = useState(false);
+  const [confirmText, setConfirmText] = useState("");
+  const [registerVehicleOpen, setRegisterVehicleOpen] = useState(false);
+  const [yourVehiclesOpen, setYourVehiclesOpen] = useState(false);
+
+  const isVerifiedAccount = verificationStatus === "verified";
 
   const runWithLoading = useCallback(async (text, fn) => {
     setBusyText(text);
@@ -63,69 +71,56 @@ export default function SharedTabMenu({ navigation, closeMenu, displayName = "Us
     }
   }, []);
 
-  useEffect(() => {
-    getHapticsEnabled()
-      .then(setHapticsEnabledState)
-      .catch(() => setHapticsEnabledState(true));
-
-    getReceiptFilterKey()
-      .then(setActiveFilterKey)
-      .catch(() => setActiveFilterKey("current-quarter"));
-  }, []);
-
-  useEffect(() => {
-    const loadUserContext = async () => {
-      const user = auth.currentUser;
-      if (!user) return;
-
-      try {
-        const [userSnap, receiptSnap] = await Promise.all([
-          getDoc(doc(db, "users", user.uid)),
-          getDocs(query(collection(db, "receipts"), where("userId", "==", user.uid))),
-        ]);
-
-        const userData = userSnap.exists() ? userSnap.data() || {} : {};
-        setVerifiedName(String(userData.verifiedName || ""));
-        setVerificationStatus(String(userData.verificationStatus || ""));
-        setReceipts(receiptSnap.docs.map((entry) => ({ id: entry.id, ...entry.data() })));
-      } catch (error) {
-        console.error("Error loading shared menu data", error);
-      }
-    };
-
-    loadUserContext();
-  }, []);
-
-  const filterOptions = useMemo(
-    () => buildFinancialFilterOptions(receipts, new Date()),
-    [receipts]
-  );
-
-  useEffect(() => {
-    setFilterItems(filterOptions.map((option) => ({ label: option.label, value: option.key })));
-  }, [filterOptions]);
-
-  const handleOpenSettings = useCallback(() => {
-    closeMenu();
-    requestAnimationFrame(() => setSettingsModalVisible(true));
-  }, [closeMenu]);
-
-  const toggleHapticsSetting = useCallback(async () => {
-    const next = !hapticsEnabled;
-    setHapticsEnabledState(next);
-    await setHapticsEnabled(next);
-    if (next) {
-      triggerHaptic("selection").catch(() => {});
+  const loadMenuContext = useCallback(async () => {
+    const user = auth.currentUser;
+    if (!user) {
+      setCurrentDisplayName(displayName || "User");
+      setVerifiedName("");
+      setVerificationStatus("");
+      setVehicles([]);
+      return;
     }
-  }, [hapticsEnabled]);
 
-  const handleNotifyAccountant = useCallback(async () => {
+    setCurrentDisplayName(user.displayName || displayName || "User");
+
+    try {
+      const userProfileRef = doc(db, "users", user.uid);
+      const userProfileSnap = await getDoc(userProfileRef);
+      const userProfile = userProfileSnap.exists() ? userProfileSnap.data() || {} : {};
+      setVerifiedName(String(userProfile.verifiedName || ""));
+      setVerificationStatus(String(userProfile.verificationStatus || ""));
+
+      const profileUpdate = { email: user.email, updatedAt: serverTimestamp() };
+      if (user.displayName) profileUpdate.name = user.displayName;
+      setDoc(userProfileRef, profileUpdate, { merge: true }).catch(() => {});
+    } catch (error) {
+      console.error("Error loading shared menu profile:", error);
+    }
+
+    try {
+      const vehicleRows = await getVehicles();
+      setVehicles(vehicleRows);
+    } catch (error) {
+      console.error("Error loading vehicles:", error);
+    }
+  }, [displayName]);
+
+  useEffect(() => {
+    loadMenuContext().catch(() => {});
+  }, [loadMenuContext]);
+
+  useEffect(() => {
+    if (!open) return;
+    loadMenuContext().catch(() => {});
+  }, [open, loadMenuContext]);
+
+  const handleNotifyAccountant = async () => {
     const user = auth.currentUser;
     if (!user) return;
 
-    closeMenu();
     triggerHaptic("selection").catch(() => {});
-    await runWithLoading("Sending notify request…", async () => {
+
+    await runWithLoading("Sending notify request...", async () => {
       await setDoc(
         doc(db, "users", user.uid),
         {
@@ -139,58 +134,9 @@ export default function SharedTabMenu({ navigation, closeMenu, displayName = "Us
       );
     });
 
+    closeMenu();
     triggerHaptic("success").catch(() => {});
-    Alert.alert(
-      "Accountant Notified",
-      "Your accountant has been notified that your records are ready for processing."
-    );
-  }, [closeMenu, runWithLoading]);
-
-  const handleIdPlaceholder = useCallback(() => {
-    closeMenu();
-    Alert.alert(
-      "ID Upload Coming Soon",
-      "Planned flow: capture passport or driving licence images, then compare the extracted details against the signed-in account for manual review."
-    );
-  }, [closeMenu]);
-
-  const handleAddressPlaceholder = useCallback(() => {
-    closeMenu();
-    Alert.alert(
-      "Address Capture Coming Soon",
-      "This will become the place to add and confirm a billing or registered address, with proof-of-address support later."
-    );
-  }, [closeMenu]);
-
-  const handleSendFeedback = async () => {
-    if (!feedbackText.trim()) {
-      Alert.alert("Empty Message", "Please enter your feedback before sending.");
-      return;
-    }
-
-    const userEmail = auth.currentUser?.email || "Unknown User";
-    await runWithLoading("Sending feedback…", async () => {
-      const response = await fetch("https://express-accounts-73d38.web.app/submit-feedback", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          name: displayName,
-          email: userEmail,
-          message: feedbackText,
-        }),
-      });
-
-      if (!response.ok) {
-        throw new Error("Server error");
-      }
-    }).then(() => {
-      Alert.alert("Success", "Thank you! Your feedback has been sent.");
-      setFeedbackModalVisible(false);
-      setFeedbackText("");
-    }).catch((error) => {
-      console.error("Feedback Error:", error);
-      Alert.alert("Connection Error", "Could not reach the server. Please try again.");
-    });
+    Alert.alert("Accountant Notified", "Your accountant has been notified that your receipts are ready for processing.");
   };
 
   const handleSubmitReferralCode = async () => {
@@ -203,6 +149,7 @@ export default function SharedTabMenu({ navigation, closeMenu, displayName = "Us
     if (!user) return;
 
     triggerHaptic("selection").catch(() => {});
+
     try {
       const result = await verifyClientCode({
         db,
@@ -212,7 +159,10 @@ export default function SharedTabMenu({ navigation, closeMenu, displayName = "Us
       setVerifiedName(result.verifiedName);
       setVerificationStatus("verified");
       triggerHaptic("success").catch(() => {});
-      Alert.alert("Verified", `Code accepted. Your account is now verified as ${result.verifiedName}.`);
+      Alert.alert(
+        "Verified",
+        `Code accepted. Your account is now verified as ${result.verifiedName}.`
+      );
       setReferralCodeModalVisible(false);
       setReferralCode("");
     } catch (error) {
@@ -221,15 +171,146 @@ export default function SharedTabMenu({ navigation, closeMenu, displayName = "Us
     }
   };
 
-  const handleLogout = useCallback(async () => {
+  const handleSubmitNameChange = async () => {
+    if (!newName.trim()) {
+      Alert.alert("Invalid Name", "Please enter a name.");
+      return;
+    }
+
+    const user = auth.currentUser;
+    if (!user) return;
+
+    triggerHaptic("selection").catch(() => {});
+
+    try {
+      await updateProfile(user, { displayName: newName.trim() });
+      await setDoc(
+        doc(db, "users", user.uid),
+        { name: newName.trim() },
+        { merge: true }
+      );
+      setCurrentDisplayName(newName.trim());
+      triggerHaptic("success").catch(() => {});
+      Alert.alert("Success", "Name updated!");
+      setNameChangeModalVisible(false);
+    } catch (error) {
+      console.error("Error updating name:", error);
+      Alert.alert("Error", "Could not update name. Please try again.");
+    }
+  };
+
+  const handleSendFeedback = async () => {
+    if (!feedbackText.trim()) {
+      Alert.alert("Empty Message", "Please enter your feedback before sending.");
+      return;
+    }
+
+    const userEmail = auth.currentUser?.email || "Unknown User";
+
+    await runWithLoading("Sending feedback...", async () => {
+      const response = await fetch("https://express-accounts-73d38.web.app/submit-feedback", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          name: currentDisplayName,
+          email: userEmail,
+          message: feedbackText,
+        }),
+      });
+
+      if (!response.ok) {
+        throw new Error("Server error");
+      }
+    })
+      .then(() => {
+        Alert.alert("Success", "Thank you! Your feedback has been sent.");
+        setFeedbackModalVisible(false);
+        setFeedbackText("");
+      })
+      .catch((error) => {
+        console.error("Feedback Error:", error);
+        Alert.alert("Connection Error", "Could not reach the server. Please try again.");
+      });
+  };
+
+  const handleLogout = async () => {
+    triggerHaptic("selection").catch(() => {});
     closeMenu();
-    await runWithLoading("Signing out…", async () => {
+    await runWithLoading("Signing out...", async () => {
       await signOut(auth);
       navigation.replace("SignIn");
     });
-  }, [closeMenu, navigation, runWithLoading]);
+  };
+
+  const handleDeleteAccount = () => {
+    closeMenu();
+    setDeleteModalVisible(true);
+  };
+
+  const deleteUserStorage = async (userId) => {
+    const storage = getStorage();
+    const folderNames = ["receipts", "income", "bankStatements"];
+
+    for (const folderName of folderNames) {
+      const userFolderRef = storageRef(storage, `${folderName}/${userId}`);
+
+      try {
+        const listResult = await listAll(userFolderRef);
+        const deletePromises = listResult.items.map((item) => deleteObject(item));
+        await Promise.all(deletePromises);
+      } catch (error) {
+        console.log("Storage cleanup error (likely no files):", folderName, error);
+      }
+    }
+  };
+
+  const performDeletion = async () => {
+    const user = auth.currentUser;
+    if (!user) return;
+
+    setDeleteModalVisible(false);
+    setConfirmText("");
+
+    await runWithLoading("Permanently erasing data...", async () => {
+      try {
+        await deleteUserStorage(user.uid);
+
+        const batch = writeBatch(db);
+        const [receiptSnapshot, incomeSnapshot, bankSnapshot] = await Promise.all([
+          getDocs(query(collection(db, "receipts"), where("userId", "==", user.uid))),
+          getDocs(query(collection(db, "income"), where("userId", "==", user.uid))),
+          getDocs(query(collection(db, "bankStatements"), where("userId", "==", user.uid))),
+        ]);
+
+        receiptSnapshot.forEach((docRef) => batch.delete(docRef.ref));
+        incomeSnapshot.forEach((docRef) => batch.delete(docRef.ref));
+        bankSnapshot.forEach((docRef) => batch.delete(docRef.ref));
+        await batch.commit();
+
+        await deleteDoc(doc(db, "users", user.uid));
+        await deleteUser(user);
+
+        navigation.replace("SignIn");
+      } catch (error) {
+        console.error("Deletion Error:", error);
+
+        if (error.code === "auth/requires-recent-login") {
+          Alert.alert(
+            "Security Timeout",
+            "For your security, you must have logged in recently to delete your account. Please sign out and back in, then try again."
+          );
+        } else {
+          Alert.alert(
+            "Error",
+            "Something went wrong while deleting your data. Please try again."
+          );
+        }
+      }
+    });
+  };
 
   const handleOpenPrivacyPolicy = useCallback(async () => {
+    triggerHaptic("selection").catch(() => {});
     const url = "https://caistec.com/privacy-policy.html";
     const canOpen = await Linking.canOpenURL(url);
     if (!canOpen) {
@@ -243,7 +324,18 @@ export default function SharedTabMenu({ navigation, closeMenu, displayName = "Us
     <>
       <View style={{ flex: 1 }}>
         <View style={styles.userInfo}>
-          <Text style={styles.userEmail}>{displayName}</Text>
+          <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}>
+            <Text style={styles.userEmail}>{currentDisplayName}</Text>
+            <TouchableOpacity
+              onPress={() => {
+                setNewName(currentDisplayName);
+                setNameChangeModalVisible(true);
+              }}
+              style={{ paddingLeft: 8 }}
+            >
+              <Text style={{ fontSize: 14 }}>✏️</Text>
+            </TouchableOpacity>
+          </View>
           <Text style={styles.userEmail}>{auth.currentUser?.email}</Text>
           {verificationStatus === "verified" && verifiedName ? (
             <>
@@ -255,7 +347,7 @@ export default function SharedTabMenu({ navigation, closeMenu, displayName = "Us
 
         <Image
           source={require("../assets/images/logo.png")}
-          style={styles.logo}
+          style={styles.menuLogo}
           resizeMode="contain"
         />
 
@@ -266,7 +358,29 @@ export default function SharedTabMenu({ navigation, closeMenu, displayName = "Us
         </View>
 
         <View style={{ marginTop: 6 }}>
-          <TouchableOpacity disabled style={[styles.secondaryMenuButton, styles.disabledMenuButton]}>
+          <TouchableOpacity
+            onPress={() => {
+              closeMenu();
+              requestAnimationFrame(() => setRegisterVehicleOpen(true));
+            }}
+            style={styles.secondaryMenuButton}
+          >
+            <Text style={styles.secondaryMenuButtonText}>🚗  Register Vehicle</Text>
+          </TouchableOpacity>
+
+          {vehicles.length > 0 && (
+            <TouchableOpacity
+              onPress={() => {
+                closeMenu();
+                requestAnimationFrame(() => setYourVehiclesOpen(true));
+              }}
+              style={[styles.secondaryMenuButton, { marginTop: 10 }]}
+            >
+              <Text style={styles.secondaryMenuButtonText}>📋  Your Vehicles</Text>
+            </TouchableOpacity>
+          )}
+
+          <TouchableOpacity disabled style={[styles.secondaryMenuButton, styles.disabledMenuButton, { marginTop: 10 }]}> 
             <Text style={[styles.secondaryMenuButtonText, styles.disabledMenuButtonText]}>Add ID Image</Text>
           </TouchableOpacity>
 
@@ -280,28 +394,36 @@ export default function SharedTabMenu({ navigation, closeMenu, displayName = "Us
 
         <View style={styles.footerContainer}>
           <TouchableOpacity
+            disabled={isVerifiedAccount}
             onPress={() => {
-              closeMenu();
+              if (isVerifiedAccount) return;
               setReferralCode("");
               setReferralCodeModalVisible(true);
             }}
             style={[
               styles.referralBtn,
-              verificationStatus === "verified" ? styles.disabledActionButton : null,
+              isVerifiedAccount ? styles.disabledActionButton : null,
             ]}
           >
             <Text
               style={[
                 styles.filledBtnText,
-                verificationStatus === "verified" ? styles.disabledActionButtonText : null,
+                isVerifiedAccount ? styles.disabledActionButtonText : null,
               ]}
             >
               Enter Client Code
             </Text>
           </TouchableOpacity>
 
-          <TouchableOpacity onPress={handleLogout} style={[styles.redButton, { marginTop: 10 }]}>
+          <TouchableOpacity onPress={handleLogout} style={[styles.redButton, { marginTop: 10 }]}> 
             <Text style={styles.redButtonText}>Sign Out</Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            onPress={handleDeleteAccount}
+            style={[styles.redButton, { marginTop: 10 }]}
+          >
+            <Text style={styles.redButtonText}>Delete Account</Text>
           </TouchableOpacity>
 
           <TouchableOpacity
@@ -324,76 +446,11 @@ export default function SharedTabMenu({ navigation, closeMenu, displayName = "Us
         </View>
       </View>
 
-      <Modal
-        visible={settingsModalVisible}
-        transparent
-        animationType="slide"
-        onRequestClose={() => {
-          setSettingsModalVisible(false);
-          setFilterOpen(false);
-        }}
-      >
-        <View style={styles.modalOverlay}>
-          <View style={[styles.loadingCard, styles.settingsModalCard]}>
-            <Text style={styles.title}>Settings</Text>
-
-            <View style={styles.settingsRow}>
-              <Text style={styles.settingsLabel}>Haptic feedback</Text>
-              <Switch
-                value={hapticsEnabled}
-                onValueChange={toggleHapticsSetting}
-                trackColor={{ false: "#c8cad2", true: "#f0b5ca" }}
-                thumbColor={hapticsEnabled ? Colors.accent : "#f4f3f4"}
-              />
-            </View>
-
-            {filterItems.length > 0 ? (
-              <View style={styles.settingsFilterSection}>
-                <Text style={styles.settingsLabel}>Filter by quarter or year</Text>
-                <DropDownPicker
-                  open={filterOpen}
-                  value={activeFilterKey}
-                  items={filterItems}
-                  setOpen={setFilterOpen}
-                  setValue={(callback) => {
-                    const nextKey = callback(activeFilterKey);
-                    setActiveFilterKey(nextKey);
-                    setAllFilterKeys(nextKey).catch(() => {});
-                    return nextKey;
-                  }}
-                  setItems={setFilterItems}
-                  listMode="SCROLLVIEW"
-                  style={styles.filterDropdown}
-                  dropDownContainerStyle={styles.filterDropdownContainer}
-                  zIndex={3000}
-                  zIndexInverse={1000}
-                />
-              </View>
-            ) : null}
-
-            <TouchableOpacity
-              onPress={() => {
-                setSettingsModalVisible(false);
-                setFilterOpen(false);
-              }}
-              style={[styles.modalButton, { width: "100%" }]}
-            >
-              <Text style={styles.modalButtonText}>Done</Text>
-            </TouchableOpacity>
-          </View>
-        </View>
-      </Modal>
-
-      <Modal
-        visible={feedbackModalVisible}
-        transparent
-        animationType="slide"
-        onRequestClose={() => setFeedbackModalVisible(false)}
-      >
+      <Modal visible={feedbackModalVisible} transparent animationType="slide" onRequestClose={() => setFeedbackModalVisible(false)}>
         <View style={styles.modalOverlay}>
           <View style={styles.loadingCard}>
             <Text style={styles.title}>Send Feedback</Text>
-            <Text style={styles.modalText}>
+            <Text style={{ textAlign: "center", marginVertical: 10, color: Colors.textPrimary }}>
               Have a suggestion or found a bug? Let us know below.
             </Text>
 
@@ -406,19 +463,19 @@ export default function SharedTabMenu({ navigation, closeMenu, displayName = "Us
               onChangeText={setFeedbackText}
             />
 
-            <View style={styles.modalRow}>
+            <View style={{ flexDirection: "row", marginTop: 20, gap: 10, width: "100%" }}>
               <TouchableOpacity
                 onPress={() => {
                   setFeedbackModalVisible(false);
                   setFeedbackText("");
                 }}
-                style={[styles.modalButton, { backgroundColor: "#ccc", flex: 1 }]}
+                style={[styles.signOutBtn, { backgroundColor: "#ccc", flex: 1 }]}
               >
                 <Text style={{ color: "#000", textAlign: "center" }}>Cancel</Text>
               </TouchableOpacity>
 
-              <TouchableOpacity onPress={handleSendFeedback} style={[styles.modalButton, { flex: 1 }]}>
-                <Text style={styles.modalButtonText}>Send</Text>
+              <TouchableOpacity onPress={handleSendFeedback} style={[styles.signOutBtn, { flex: 1 }]}> 
+                <Text style={styles.signOutText}>Send</Text>
               </TouchableOpacity>
             </View>
           </View>
@@ -434,7 +491,7 @@ export default function SharedTabMenu({ navigation, closeMenu, displayName = "Us
         <View style={styles.modalOverlay}>
           <View style={styles.loadingCard}>
             <Text style={styles.title}>Enter Client Code</Text>
-            <Text style={styles.modalText}>
+            <Text style={{ textAlign: "center", marginVertical: 10, color: Colors.textPrimary }}>
               Enter your verification code to link your account to your accountant.
             </Text>
 
@@ -453,21 +510,118 @@ export default function SharedTabMenu({ navigation, closeMenu, displayName = "Us
               autoCapitalize="none"
             />
 
-            <View style={styles.modalRow}>
+            <View style={{ flexDirection: "row", marginTop: 20, gap: 10, width: "100%" }}>
               <TouchableOpacity
                 onPress={() => setReferralCodeModalVisible(false)}
-                style={[styles.modalButton, { backgroundColor: "#ccc", flex: 1 }]}
+                style={[styles.signOutBtn, { backgroundColor: "#ccc", flex: 1 }]}
               >
                 <Text style={{ color: "#000", textAlign: "center" }}>Cancel</Text>
               </TouchableOpacity>
 
-              <TouchableOpacity onPress={handleSubmitReferralCode} style={[styles.modalButton, { flex: 1 }]}>
-                <Text style={styles.modalButtonText}>Submit</Text>
+              <TouchableOpacity onPress={handleSubmitReferralCode} style={[styles.signOutBtn, { flex: 1 }]}> 
+                <Text style={styles.signOutText}>Submit</Text>
               </TouchableOpacity>
             </View>
           </View>
         </View>
       </Modal>
+
+      <Modal
+        visible={nameChangeModalVisible}
+        transparent
+        animationType="slide"
+        onRequestClose={() => setNameChangeModalVisible(false)}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={styles.loadingCard}>
+            <Text style={styles.title}>Change Your Name</Text>
+            <Text style={{ textAlign: "center", marginVertical: 10, color: Colors.textPrimary }}>
+              Enter your new name.
+            </Text>
+
+            <TextInput
+              style={[styles.input, { color: Colors.textPrimary }]}
+              placeholder="New name"
+              placeholderTextColor="#999"
+              value={newName}
+              onChangeText={setNewName}
+            />
+
+            <View style={{ flexDirection: "row", marginTop: 20, gap: 10, width: "100%" }}>
+              <TouchableOpacity
+                onPress={() => setNameChangeModalVisible(false)}
+                style={[styles.signOutBtn, { backgroundColor: "#ccc", flex: 1 }]}
+              >
+                <Text style={{ color: "#000", textAlign: "center" }}>Cancel</Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity onPress={handleSubmitNameChange} style={[styles.signOutBtn, { flex: 1 }]}> 
+                <Text style={styles.signOutText}>Accept</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
+
+      <Modal visible={deleteModalVisible} transparent animationType="fade" onRequestClose={() => setDeleteModalVisible(false)}>
+        <View style={styles.modalOverlay}>
+          <View style={styles.loadingCard}>
+            <Text style={[styles.title, { color: "#ff4444" }]}>Delete Account?</Text>
+            <Text style={{ textAlign: "center", marginVertical: 10, color: Colors.textPrimary }}>
+              This will permanently erase all receipts and images. Please type <Text style={{ fontWeight: "bold" }}>DELETE</Text> to confirm.
+            </Text>
+
+            <TextInput
+              style={[styles.input, { width: "100%", textAlign: "center", color: Colors.textPrimary }]}
+              placeholder="Type here"
+              placeholderTextColor="#999"
+              value={confirmText}
+              onChangeText={setConfirmText}
+              autoCapitalize="characters"
+            />
+
+            <View style={{ flexDirection: "row", marginTop: 20, gap: 10 }}>
+              <TouchableOpacity
+                onPress={() => {
+                  setDeleteModalVisible(false);
+                  setConfirmText("");
+                }}
+                style={[styles.signOutBtn, { backgroundColor: "#ccc", flex: 1 }]}
+              >
+                <Text style={{ color: "#000" }}>Cancel</Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                onPress={performDeletion}
+                disabled={confirmText !== "DELETE"}
+                style={[
+                  styles.signOutBtn,
+                  {
+                    backgroundColor: confirmText === "DELETE" ? "#ff4444" : "#ffcccc",
+                    flex: 1,
+                  },
+                ]}
+              >
+                <Text style={{ color: "white" }}>Delete All</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
+
+      <RegisterVehicleModal
+        visible={registerVehicleOpen}
+        onClose={() => setRegisterVehicleOpen(false)}
+        onSaved={(updated) => setVehicles(updated)}
+        vehicle={null}
+      />
+
+      <YourVehiclesModal
+        visible={yourVehiclesOpen}
+        onClose={() => setYourVehiclesOpen(false)}
+        vehicles={vehicles}
+        onChanged={(updated) => setVehicles(updated)}
+      />
 
       {busy ? (
         <View style={styles.loadingOverlay}>
@@ -486,12 +640,11 @@ const styles = StyleSheet.create({
     marginBottom: 20,
   },
   userEmail: {
-    color: Colors.textPrimary,
-    fontSize: 15,
+    color: "#7B7B7B",
+    fontSize: 14,
     marginBottom: 6,
-    fontWeight: "600",
   },
-  logo: {
+  menuLogo: {
     width: "100%",
     height: 60,
     marginTop: 8,
@@ -533,7 +686,7 @@ const styles = StyleSheet.create({
   },
   footerContainer: {
     marginTop: "auto",
-    paddingBottom: 24,
+    paddingBottom: 10,
   },
   referralBtn: {
     backgroundColor: "#27ae60",
@@ -543,10 +696,10 @@ const styles = StyleSheet.create({
     alignItems: "center",
   },
   disabledActionButton: {
-    backgroundColor: "#91c9a3",
+    backgroundColor: "#b9bcc8",
   },
   disabledActionButtonText: {
-    opacity: 0.75,
+    color: "#f5f6f8",
   },
   redButton: {
     backgroundColor: Colors.accent,
@@ -563,6 +716,7 @@ const styles = StyleSheet.create({
   signOutLink: {
     backgroundColor: "transparent",
     paddingVertical: 10,
+    marginBottom: 20,
   },
   linkBtnText: {
     color: Colors.textPrimary,
@@ -574,109 +728,76 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
-    marginTop: 10,
+    paddingTop: 20,
+    paddingBottom: 10,
   },
   versionText: {
-    color: Colors.textMuted,
+    color: "#B5B3C6",
     fontSize: 12,
+    fontWeight: "600",
   },
   modalOverlay: {
     flex: 1,
-    backgroundColor: "rgba(0,0,0,0.45)",
+    backgroundColor: "rgba(0, 0, 0, 0.5)",
     justifyContent: "center",
     alignItems: "center",
-    padding: 16,
+    padding: 20,
   },
   loadingCard: {
     backgroundColor: Colors.surface,
     paddingVertical: 20,
-    paddingHorizontal: 22,
+    paddingHorizontal: 26,
     borderRadius: 12,
     alignItems: "center",
-    justifyContent: "center",
+    minWidth: 200,
     width: "100%",
     maxWidth: 420,
+  },
+  title: {
+    fontSize: 19,
+    fontWeight: "bold",
+    color: Colors.textPrimary,
+  },
+  input: {
+    width: "100%",
+    borderWidth: 1,
+    borderColor: Colors.border,
+    backgroundColor: Colors.inputBg,
+    borderRadius: 10,
+    paddingHorizontal: 12,
+    paddingVertical: 12,
+    color: Colors.textPrimary,
+  },
+  signOutBtn: {
+    backgroundColor: Colors.accent,
+    paddingVertical: 12,
+    paddingHorizontal: 16,
+    borderRadius: 10,
+    marginTop: 20,
+  },
+  signOutText: {
+    color: "white",
+    fontWeight: "700",
+    textAlign: "center",
   },
   loadingOverlay: {
     ...StyleSheet.absoluteFillObject,
     backgroundColor: "rgba(0,0,0,0.35)",
     justifyContent: "center",
     alignItems: "center",
+    zIndex: 9999,
   },
   loadingText: {
-    marginTop: 12,
-    color: Colors.textPrimary,
+    marginTop: 10,
+    fontSize: 16,
     fontWeight: "600",
-  },
-  title: {
-    fontSize: 20,
-    fontWeight: "700",
     color: Colors.textPrimary,
-    textAlign: "center",
-  },
-  modalText: {
-    textAlign: "center",
-    marginVertical: 10,
-    color: Colors.textPrimary,
-  },
-  input: {
-    width: "100%",
-    backgroundColor: Colors.inputBg,
-    borderWidth: 1,
-    borderColor: Colors.border,
-    borderRadius: 10,
-    paddingHorizontal: 12,
-    paddingVertical: 10,
-  },
-  modalRow: {
-    flexDirection: "row",
-    marginTop: 20,
-    gap: 10,
-    width: "100%",
-  },
-  modalButton: {
-    backgroundColor: Colors.accent,
-    paddingVertical: 12,
-    paddingHorizontal: 16,
-    borderRadius: 10,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  modalButtonText: {
-    color: Colors.surface,
-    fontWeight: "700",
-    textAlign: "center",
-  },
-  settingsModalCard: {
-    zIndex: 2000,
-  },
-  settingsRow: {
-    width: "100%",
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    marginTop: 16,
-  },
-  settingsLabel: {
-    color: Colors.textPrimary,
-    fontWeight: "600",
-  },
-  settingsFilterSection: {
-    width: "100%",
-    marginTop: 18,
-    zIndex: 3000,
-  },
-  filterDropdown: {
-    marginTop: 8,
-    borderColor: Colors.border,
-  },
-  filterDropdownContainer: {
-    borderColor: Colors.border,
   },
   verificationWarningText: {
     color: Colors.accent,
-    fontSize: 12,
-    marginBottom: 10,
+    fontSize: 13,
+    lineHeight: 18,
     textAlign: "center",
+    marginBottom: 10,
   },
 });

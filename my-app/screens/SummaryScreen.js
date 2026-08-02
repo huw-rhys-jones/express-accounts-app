@@ -472,6 +472,7 @@ export default function SummaryScreen({ navigation }) {
           navigation={navigation}
           closeMenu={closeMenu}
           displayName={auth.currentUser?.displayName || "User"}
+          open={menuOpen}
         />
       </SideMenu>
     </SafeAreaView>

@@ -58,7 +58,7 @@ export default ({ config }) => ({
     versionCode: numericBuild,
     adaptiveIcon: {
       foregroundImage: "./assets/adaptive-icon.png",
-      backgroundColor: "#ffffff"
+      backgroundColor: "#83001D"
     },
     permissions: [
       "android.permission.CAMERA",

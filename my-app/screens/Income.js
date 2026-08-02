@@ -361,6 +361,7 @@ export default function IncomeScreen({ navigation }) {
           navigation={navigation}
           closeMenu={closeMenu}
           displayName={auth.currentUser?.displayName || "User"}
+          open={menuOpen}
         />
       </SideMenu>
 

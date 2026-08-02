@@ -252,6 +252,7 @@ export default function BankStatementList({ navigation }) {
           navigation={navigation}
           closeMenu={closeMenu}
           displayName={auth.currentUser?.displayName || "User"}
+          open={menuOpen}
         />
       </SideMenu>
 
