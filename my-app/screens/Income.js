@@ -16,24 +16,18 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import SideMenu from "../components/SideMenu";
 import SharedTabMenu from "../components/SharedTabMenu";
 import AddReceiptSheet from "../components/AddReceiptSheet";
-import { auth, db } from "../firebaseConfig";
+import { auth } from "../firebaseConfig";
 import { formatDate } from "../utils/format_style";
 import { Colors } from "../utils/sharedStyles";
 import { useData } from "../contexts/DataContext";
 import DropDownPicker from "react-native-dropdown-picker";
-import { doc, writeBatch } from "firebase/firestore";
 import {
   buildFinancialFilterOptions,
   filterReceiptsByDateRange,
   getPeriodRecordCount,
   formatPeriodLabelWithCount,
 } from "../utils/financialPeriods";
-import {
-  getIncomeFilterKey,
-  setAllFilterKeys,
-  getHiddenPeriodTooltipDismissed,
-  setHiddenPeriodTooltipDismissed,
-} from "../utils/appSettings";
+import { getIncomeFilterKey, setIncomeFilterKey, setAllFilterKeys } from "../utils/appSettings";
 
 export default function IncomeScreen({ navigation }) {
   const { incomeItems, incomeLoading } = useData();
@@ -41,16 +35,11 @@ export default function IncomeScreen({ navigation }) {
   const [refreshing, setRefreshing] = useState(false);
   const [sortKey, setSortKey] = useState("date");
   const [sortDir, setSortDir] = useState("desc");
-  const [isSelectionMode, setIsSelectionMode] = useState(false);
-  const [selectedIds, setSelectedIds] = useState(new Set());
   const [menuOpen, setMenuOpen] = useState(false);
   const [addSheetVisible, setAddSheetVisible] = useState(false);
   const [filterOpen, setFilterOpen] = useState(false);
   const [activeFilterKey, setActiveFilterKey] = useState("current-quarter");
   const [filterItems, setFilterItems] = useState([]);
-  const [showHiddenRecordsTip, setShowHiddenRecordsTip] = useState(false);
-  const [hiddenPeriodTipDismissed, setHiddenPeriodTipDismissed] = useState(false);
-  const [hiddenPeriodTipTemporarilyDismissed, setHiddenPeriodTipTemporarilyDismissed] = useState(false);
 
   const filterOptions = useMemo(
     () => buildFinancialFilterOptions(incomeItems, new Date()),
@@ -83,12 +72,6 @@ export default function IncomeScreen({ navigation }) {
   }, [filterCountsByKey, filterOptions]);
 
   useEffect(() => {
-    getHiddenPeriodTooltipDismissed()
-      .then(setHiddenPeriodTipDismissed)
-      .catch(() => setHiddenPeriodTipDismissed(false));
-  }, []);
-
-  useEffect(() => {
     getIncomeFilterKey()
       .then(setActiveFilterKey)
       .catch(() => setActiveFilterKey("current-quarter"));
@@ -110,52 +93,7 @@ export default function IncomeScreen({ navigation }) {
     return unsub;
   }, [navigation]);
 
-  useEffect(() => {
-    if (
-      loading ||
-      filterOpen ||
-      hiddenPeriodTipDismissed ||
-      hiddenPeriodTipTemporarilyDismissed ||
-      filterOptions.length === 0
-    ) {
-      setShowHiddenRecordsTip(false);
-      return;
-    }
-
-    const activeCount = filterCountsByKey[activeFilterKey] ?? 0;
-    const hasRecordsInOtherPeriods = filterOptions.some(
-      (option) => option.key !== activeFilterKey && (filterCountsByKey[option.key] ?? 0) > 0
-    );
-    setShowHiddenRecordsTip(activeCount === 0 && hasRecordsInOtherPeriods);
-  }, [
-    activeFilterKey,
-    filterCountsByKey,
-    filterOpen,
-    filterOptions,
-    hiddenPeriodTipDismissed,
-    hiddenPeriodTipTemporarilyDismissed,
-    loading,
-  ]);
-
-  const dismissHiddenRecordsTip = useCallback(async () => {
-    setShowHiddenRecordsTip(false);
-    setHiddenPeriodTipDismissed(true);
-    await setHiddenPeriodTooltipDismissed();
-  }, []);
-
-  const handleSetFilterOpen = useCallback((nextOpen) => {
-    setFilterOpen((previous) => {
-      const resolvedOpen = typeof nextOpen === "function" ? nextOpen(previous) : nextOpen;
-      if (resolvedOpen) {
-        setShowHiddenRecordsTip(false);
-        setHiddenPeriodTipTemporarilyDismissed(true);
-      }
-      return resolvedOpen;
-    });
-  }, []);
-
   const handleFilterSelection = useCallback(async (nextKey) => {
-    setHiddenPeriodTipTemporarilyDismissed(false);
     setActiveFilterKey(nextKey);
     await setAllFilterKeys(nextKey);
   }, []);
@@ -212,58 +150,6 @@ export default function IncomeScreen({ navigation }) {
 
   const closeMenu = () => setMenuOpen(false);
 
-  const clearSelectionMode = useCallback(() => {
-    setIsSelectionMode(false);
-    setSelectedIds(new Set());
-  }, []);
-
-  const toggleSelectedId = useCallback((id) => {
-    setSelectedIds((previous) => {
-      const next = new Set(previous);
-      if (next.has(id)) {
-        next.delete(id);
-      } else {
-        next.add(id);
-      }
-      if (next.size === 0) {
-        setIsSelectionMode(false);
-      }
-      return next;
-    });
-  }, []);
-
-  const beginSelectionWithId = useCallback((id) => {
-    setIsSelectionMode(true);
-    setSelectedIds(new Set([id]));
-  }, []);
-
-  const handleBatchDeleteIncome = useCallback(() => {
-    if (selectedIds.size === 0) {
-      return;
-    }
-
-    const idsToDelete = Array.from(selectedIds);
-    Alert.alert(
-      "Delete Receipts",
-      `Are you sure you want to delete ${idsToDelete.length} items?`,
-      [
-        { text: "Cancel", style: "cancel" },
-        {
-          text: "Delete",
-          style: "destructive",
-          onPress: async () => {
-            const batch = writeBatch(db);
-            idsToDelete.forEach((id) => {
-              batch.delete(doc(db, "income", id));
-            });
-            await batch.commit();
-            clearSelectionMode();
-          },
-        },
-      ],
-    );
-  }, [clearSelectionMode, selectedIds]);
-
   const renderHeader = () => (
     <View style={styles.headerRow}>
       <TouchableOpacity style={styles.headerCellDate} onPress={() => toggleSort("date")}>
@@ -281,9 +167,7 @@ export default function IncomeScreen({ navigation }) {
     </View>
   );
 
-  const renderItem = ({ item }) => {
-    const isSelected = selectedIds.has(item.id);
-    return (
+  const renderItem = ({ item }) => (
     <View style={styles.rowOuter}>
       <View
         style={[
@@ -292,31 +176,9 @@ export default function IncomeScreen({ navigation }) {
         ]}
       >
         <TouchableOpacity
-          style={[
-            styles.row,
-            { width: "100%", marginBottom: 0 },
-            isSelected && styles.selectedRow,
-          ]}
-          onPress={() => {
-            if (isSelectionMode) {
-              toggleSelectedId(item.id);
-              return;
-            }
-            const initialIndex = sortedIncome.findIndex((entry) => entry.id === item.id);
-            navigation.navigate("IncomeDetails", {
-              income: item,
-              incomeList: sortedIncome,
-              initialIndex: initialIndex >= 0 ? initialIndex : 0,
-            });
-          }}
-          onLongPress={() => beginSelectionWithId(item.id)}
-          delayLongPress={220}
+          style={[styles.row, { width: "100%", marginBottom: 0 }]}
+          onPress={() => navigation.navigate("IncomeDetails", { income: item })}
         >
-          {isSelectionMode ? (
-            <View style={[styles.selectionBadge, isSelected && styles.selectionBadgeActive]}>
-              <Text style={styles.selectionBadgeText}>{isSelected ? "✓" : ""}</Text>
-            </View>
-          ) : null}
           <Text style={styles.rowDate}>{formatDate(new Date(item.date))}</Text>
           <View style={styles.referenceWrap}>
             {item.label ? (
@@ -333,44 +195,23 @@ export default function IncomeScreen({ navigation }) {
       </View>
     </View>
   );
-  };
 
   return (
     <SafeAreaView style={[styles.container, { backgroundColor: '#1C1C4E' }]}>
       <StatusBar backgroundColor="#1C1C4E" barStyle="light-content" />
       <View style={[styles.topBar, { paddingTop: 5 }]}>
-        {isSelectionMode ? (
-          <>
-            <TouchableOpacity style={styles.topBarButton} onPress={clearSelectionMode}>
-              <Text style={styles.topBarButtonText}>✕</Text>
-            </TouchableOpacity>
+        <TouchableOpacity style={styles.topBarButton} onPress={() => setMenuOpen(true)}>
+          <Text style={styles.topBarButtonText}>≡</Text>
+        </TouchableOpacity>
 
-            <Text style={styles.topBarTitle}>{selectedIds.size} selected</Text>
+        <Text style={styles.topBarTitle}>Income</Text>
 
-            <TouchableOpacity
-              style={[styles.topBarButton, selectedIds.size === 0 && { opacity: 0.4 }]}
-              disabled={selectedIds.size === 0}
-              onPress={handleBatchDeleteIncome}
-            >
-              <Text style={styles.topBarButtonText}>🗑</Text>
-            </TouchableOpacity>
-          </>
-        ) : (
-          <>
-            <TouchableOpacity style={styles.topBarButton} onPress={() => setMenuOpen(true)}>
-              <Text style={styles.topBarButtonText}>≡</Text>
-            </TouchableOpacity>
-
-            <Text style={styles.topBarTitle}>Income</Text>
-
-            <View style={{ width: 44 }} />
-          </>
-        )}
+        <View style={{ width: 44 }} />
       </View>
 
       <View style={styles.content}>
 
-        {sortedIncome.length > 0 && !isSelectionMode ? (
+        {sortedIncome.length > 0 ? (
           <View style={{ marginTop: 12, marginBottom: 8 }}>{renderHeader()}</View>
         ) : null}
 
@@ -379,7 +220,6 @@ export default function IncomeScreen({ navigation }) {
           data={loading ? [] : sortedIncome}
           keyExtractor={(item) => item.id}
           renderItem={renderItem}
-          extraData={{ isSelectionMode, selectedIds: Array.from(selectedIds).join("|") }}
           ListEmptyComponent={
             !loading ? (
               <View style={styles.emptyState}>
@@ -408,27 +248,13 @@ export default function IncomeScreen({ navigation }) {
       ) : null}
 
       {/* Period filter bar — sits just above the bottom tab bar */}
-      {!isSelectionMode && !loading && !filterOpen && showHiddenRecordsTip ? (
-        <View style={styles.hiddenPeriodTipWrapper} pointerEvents="box-none">
-          <View style={styles.hiddenPeriodTipBox}>
-            <Text style={styles.hiddenPeriodTipText}>
-              You may have records in other periods which are currently not displaying.
-            </Text>
-            <TouchableOpacity onPress={dismissHiddenRecordsTip}>
-              <Text style={styles.hiddenPeriodTipOk}>OK</Text>
-            </TouchableOpacity>
-          </View>
-          <View style={styles.hiddenPeriodTipTriangleDown} />
-        </View>
-      ) : null}
-
-      {!isSelectionMode && !loading && filterOptions.length > 0 ? (
+      {!loading && filterOptions.length > 0 ? (
         <View style={styles.filterBar}>
           <DropDownPicker
             open={filterOpen}
             value={activeFilterKey}
             items={filterItems}
-            setOpen={handleSetFilterOpen}
+            setOpen={setFilterOpen}
             setValue={(callback) => {
               const nextKey = callback(activeFilterKey);
               handleFilterSelection(nextKey).catch(() => {});
@@ -445,7 +271,7 @@ export default function IncomeScreen({ navigation }) {
         </View>
       ) : null}
 
-      {!isSelectionMode && !addSheetVisible && (
+      {!addSheetVisible && (
         <TouchableOpacity
           style={styles.floatingButton}
           onPress={() => setAddSheetVisible(true)}
@@ -467,7 +293,6 @@ export default function IncomeScreen({ navigation }) {
           navigation={navigation}
           closeMenu={closeMenu}
           displayName={auth.currentUser?.displayName || "User"}
-          open={menuOpen}
         />
       </SideMenu>
 
@@ -542,14 +367,6 @@ const styles = StyleSheet.create({
     paddingVertical: 6,
     zIndex: 1000,
   },
-  filterDismissOverlay: {
-    position: "absolute",
-    top: 0,
-    left: 0,
-    right: 0,
-    bottom: 0,
-    zIndex: 900,
-  },
   filterDropdown: {
     borderColor: Colors.border,
     borderRadius: 10,
@@ -559,49 +376,13 @@ const styles = StyleSheet.create({
     borderColor: Colors.border,
     backgroundColor: Colors.card,
   },
-  hiddenPeriodTipWrapper: {
+  filterDismissOverlay: {
     position: "absolute",
-    left: 14,
-    right: 14,
-    bottom: 60,
-    alignItems: "center",
-    zIndex: 1400,
-  },
-  hiddenPeriodTipBox: {
-    backgroundColor: "#F0D1FF",
-    borderRadius: 12,
-    paddingHorizontal: 12,
-    paddingVertical: 10,
-    width: "100%",
-    elevation: 5,
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.3,
-    shadowRadius: 4,
-  },
-  hiddenPeriodTipText: {
-    color: "#4A148C",
-    fontSize: 14,
-    lineHeight: 20,
-  },
-  hiddenPeriodTipOk: {
-    marginTop: 8,
-    color: "#4A148C",
-    fontWeight: "700",
-    textAlign: "right",
-    textDecorationLine: "underline",
-  },
-  hiddenPeriodTipTriangleDown: {
-    width: 0,
-    height: 0,
-    backgroundColor: "transparent",
-    borderStyle: "solid",
-    borderLeftWidth: 10,
-    borderRightWidth: 10,
-    borderTopWidth: 15,
-    borderLeftColor: "transparent",
-    borderRightColor: "transparent",
-    borderTopColor: "#F0D1FF",
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    zIndex: 900,
   },
   headerCellDate: { width: 90, flexDirection: "row", gap: 6, alignItems: "center" },
   headerCellReference: { flex: 1, flexDirection: "row", gap: 6, alignItems: "center", paddingLeft: 16 },
@@ -639,34 +420,6 @@ const styles = StyleSheet.create({
     justifyContent: "space-between",
     alignItems: "flex-end",
     minHeight: 60,
-    position: "relative",
-  },
-  selectedRow: {
-    borderWidth: 2,
-    borderColor: Colors.accent,
-  },
-  selectionBadge: {
-    position: "absolute",
-    top: 8,
-    right: 8,
-    width: 22,
-    height: 22,
-    borderRadius: 11,
-    borderWidth: 1,
-    borderColor: "#999",
-    backgroundColor: "#fff",
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  selectionBadgeActive: {
-    borderColor: Colors.accent,
-    backgroundColor: Colors.accent,
-  },
-  selectionBadgeText: {
-    color: "#fff",
-    fontSize: 13,
-    fontWeight: "700",
-    lineHeight: 14,
   },
   rowDate: { fontSize: 14, color: Colors.textMuted, minWidth: 90 },
   referenceWrap: {

@@ -48,7 +48,6 @@ import {
   runOcrOnAssets,
   detectReceiptGroupsFromAssets,
 } from "../utils/ocrHelpers";
-import ImageViewer from "react-native-image-zoom-viewer";
 
 import { Colors, ReceiptStyles } from "../utils/sharedStyles";
 import {
@@ -70,6 +69,8 @@ function navigateBackToReceipts(navigation) {
 }
 
 const DEBUG_DISABLE_KEYBOARD_DISMISS_WRAPPER = true;
+const ANNOTATION_MIN_BOX_WIDTH = 64;
+const ANNOTATION_MIN_BOX_HEIGHT = 26;
 
 const ReceiptAdd = ({ navigation, route }) => {
   const insets = useSafeAreaInsets();
@@ -122,6 +123,7 @@ const ReceiptAdd = ({ navigation, route }) => {
   });
   const [successMode, setSuccessMode] = useState("single");
   const [imageContainerHeight, setImageContainerHeight] = useState(HERO_EXPANDED_HEIGHT);
+  const [fullScreenViewport, setFullScreenViewport] = useState({ width: 0, height: 0 });
 
   // isMultiReceiptMode is true when we have multiple detected receipt drafts
   const isMultiReceiptMode = receiptDrafts.length > 1;
@@ -151,6 +153,28 @@ const ReceiptAdd = ({ navigation, route }) => {
   const [ocrFrames, setOcrFrames] = useState(null);
   const [detectProgress, setDetectProgress] = useState(0);
   const [detectMode, setDetectMode] = useState("auto");
+
+  const buildImageAnnotations = ({ localImages = [], uploadedImageUrls = [], frameData = null }) => {
+    if (!frameData || !frameData.imageUri) {
+      return null;
+    }
+
+    const frameIndex = localImages.findIndex((img) => img?.uri === frameData.imageUri);
+    if (frameIndex < 0 || !uploadedImageUrls[frameIndex]) {
+      return null;
+    }
+
+    const imageUrl = uploadedImageUrls[frameIndex];
+    return {
+      [imageUrl]: {
+        imageW: frameData.imageW,
+        imageH: frameData.imageH,
+        amount: frameData.amount || null,
+        date: frameData.date || null,
+        vat: frameData.vat || null,
+      },
+    };
+  };
 
   const getCanonicalCategoryName = (value) => {
     const normalized = String(value || "").trim().toLowerCase();
@@ -967,6 +991,7 @@ const ReceiptAdd = ({ navigation, route }) => {
           vatRate: draft.vatRate,
           images: draft.images,
           recurrenceConfig: null,
+          ocrFrames: draft.ocrFrames,
         });
 
         savedRows.push({
@@ -1006,6 +1031,7 @@ const ReceiptAdd = ({ navigation, route }) => {
         vatRate,
         images,
         recurrenceConfig: getRecurrenceConfig(),
+        ocrFrames,
       });
 
       setIsUploading(false);
@@ -1050,6 +1076,7 @@ const ReceiptAdd = ({ navigation, route }) => {
     vatRate,
     images,
     recurrenceConfig,
+    ocrFrames: frameData,
   }) => {
     const user = auth.currentUser;
     const storage = getStorage();
@@ -1080,6 +1107,16 @@ const ReceiptAdd = ({ navigation, route }) => {
       userId: user.uid,
       createdAt: serverTimestamp(),
     };
+
+    const imageAnnotations = buildImageAnnotations({
+      localImages: images,
+      uploadedImageUrls: imageUrls,
+      frameData,
+    });
+
+    if (imageAnnotations) {
+      basePayload.imageAnnotations = imageAnnotations;
+    }
 
     const baseDoc = await addDoc(collection(db, "receipts"), basePayload);
 
@@ -1276,11 +1313,9 @@ const ReceiptAdd = ({ navigation, route }) => {
   const isCurrentRejected = currentReviewState === "rejected";
   const isCurrentAccepted = currentReviewState === "accepted";
 
-  const buildPercentOverlay = (frame) => {
+  const buildPercentOverlayForContainer = (frame, containerW, containerH) => {
     const naturalW = ocrFrames?.imageW;
     const naturalH = ocrFrames?.imageH;
-    const containerW = imageContainerWidth;
-    const containerH = imageContainerHeight || heroHeight;
     if (!frame || !naturalW || !naturalH || !containerW || !containerH) return null;
 
     const scale = Math.min(containerW / naturalW, containerH / naturalH);
@@ -1292,17 +1327,29 @@ const ReceiptAdd = ({ navigation, route }) => {
 
     const left = frame.left * scale + offsetX - PAD;
     const top = frame.top * scale + offsetY - PAD;
-    const width = frame.width * scale + PAD * 2;
-    const height = frame.height * scale + PAD * 2;
+    const rawWidth = frame.width * scale + PAD * 2;
+    const width = Math.max(rawWidth, ANNOTATION_MIN_BOX_WIDTH);
+    const height = Math.max(frame.height * scale + PAD * 2, ANNOTATION_MIN_BOX_HEIGHT);
+
+    const clampedLeft = Math.max(0, Math.min(left, containerW - width));
+    const clampedTop = Math.max(0, Math.min(top, containerH - height));
 
     const toPct = (value, total) => `${Math.max(0, (value / total) * 100).toFixed(4)}%`;
 
     return {
-      left: toPct(left, containerW),
-      top: toPct(top, containerH),
+      left: toPct(clampedLeft, containerW),
+      top: toPct(clampedTop, containerH),
       width: toPct(width, containerW),
       height: toPct(height, containerH),
     };
+  };
+
+  const buildPercentOverlay = (frame) => {
+    return buildPercentOverlayForContainer(
+      frame,
+      imageContainerWidth,
+      imageContainerHeight || heroHeight,
+    );
   };
 
   // ------- render -------
@@ -1311,7 +1358,7 @@ const ReceiptAdd = ({ navigation, route }) => {
       style={[ReceiptStyles.safeArea, localStyles.safeAreaLight]}
       edges={["left", "right"]}
     >
-      <View style={[localStyles.header, { paddingTop: Math.max(insets.top + 10, 24) }]}>
+      <View style={[localStyles.header, { paddingTop: Math.max(insets.top + 6, 20) }]}> 
         <TouchableOpacity
           onPress={handleLeavePress}
           style={localStyles.headerBtn}
@@ -1375,7 +1422,7 @@ const ReceiptAdd = ({ navigation, route }) => {
                           return (
                             <View key={key} style={[localStyles.annBox, { ...overlayBox, borderColor: color }]}> 
                               <View style={[localStyles.annChip, { backgroundColor: color }]}> 
-                                <Text style={localStyles.annChipText}>{label}</Text>
+                                <Text style={localStyles.annChipText} numberOfLines={1}>{label}</Text>
                               </View>
                             </View>
                           );
@@ -1799,6 +1846,7 @@ const ReceiptAdd = ({ navigation, route }) => {
                 key={String(index)}
                 style={localStyles.indicatorDotWrapper}
                 onPress={() => navigateToDraftIndex(index)}
+                hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
               >
                 <View
                   style={
@@ -1818,7 +1866,17 @@ const ReceiptAdd = ({ navigation, route }) => {
 
       {/* Submit & Save — shown after all receipts reviewed */}
       {isMultiReceiptMode && allReceiptsReviewed ? (
-        <View style={localStyles.submitButtonContainer}>
+        <View
+          style={[
+            localStyles.submitButtonContainer,
+            {
+              paddingBottom:
+                Platform.OS === "android"
+                  ? Math.max(insets.bottom, 24)
+                  : 10,
+            },
+          ]}
+        >
           <Button
             mode="contained"
             buttonColor={Colors.accent}
@@ -1837,7 +1895,7 @@ const ReceiptAdd = ({ navigation, route }) => {
           {
             paddingBottom:
               Platform.OS === "android"
-                ? Math.max(insets.bottom, 10)
+                ? Math.max(insets.bottom, 24)
                 : 10,
           },
           isMultiReceiptMode && { borderTopWidth: 0 },
@@ -2276,29 +2334,81 @@ const ReceiptAdd = ({ navigation, route }) => {
       <Modal
         visible={fullScreenImageIndex !== null}
         animationType="fade"
-        presentationStyle="fullScreen"
-        transparent={false}
+        presentationStyle="overFullScreen"
+        transparent
         onRequestClose={() => setFullScreenImageIndex(null)}
       >
         {fullScreenImageIndex !== null ? (
-          <>
-            <ImageViewer
-              imageUrls={images.map(img => ({ url: img.uri }))}
-              index={fullScreenImageIndex}
-              enableSwipeDown
-              onSwipeDown={() => setFullScreenImageIndex(null)}
-              onClick={() => setFullScreenImageIndex(null)}
-              backgroundColor="black"
-              renderIndicator={images.length > 1 ? undefined : () => null}
-              saveToLocalByLongPress={false}
-            />
+          <View
+            style={localStyles.fullScreenOverlayRoot}
+            onLayout={(event) => {
+              const { width, height } = event.nativeEvent.layout;
+              setFullScreenViewport({ width, height });
+            }}
+          >
+            <ScrollView
+              horizontal
+              pagingEnabled
+              showsHorizontalScrollIndicator={false}
+              contentOffset={{
+                x:
+                  fullScreenImageIndex *
+                  (fullScreenViewport.width || Dimensions.get("window").width),
+                y: 0,
+              }}
+              style={{ width: fullScreenViewport.width || Dimensions.get("window").width }}
+            >
+              {images.map((item, index) => {
+                const isAnnotated = ocrFrames?.imageUri === item.uri;
+                return (
+                  <View
+                    key={`fullscreen-${index}`}
+                    style={{
+                      width: fullScreenViewport.width || Dimensions.get("window").width,
+                      height: fullScreenViewport.height || Dimensions.get("window").height,
+                      justifyContent: "center",
+                      alignItems: "center",
+                    }}
+                  >
+                    <Image
+                      source={{ uri: item.uri }}
+                      style={{
+                        width: fullScreenViewport.width || Dimensions.get("window").width,
+                        height: fullScreenViewport.height || Dimensions.get("window").height,
+                      }}
+                      resizeMode="contain"
+                    />
+                    {isAnnotated ? (
+                      <View style={localStyles.annotationOverlay} pointerEvents="none">
+                        {ANNOTATIONS.filter(({ key }) => ocrFrames[key]).map(({ key, label, color }) => {
+                          const frame = ocrFrames[key];
+                          const overlayBox = buildPercentOverlayForContainer(
+                            frame,
+                            fullScreenViewport.width || Dimensions.get("window").width,
+                            fullScreenViewport.height || Dimensions.get("window").height,
+                          );
+                          if (!overlayBox) return null;
+                          return (
+                            <View key={`fullscreen-${key}`} style={[localStyles.annBox, { ...overlayBox, borderColor: color }]}> 
+                              <View style={[localStyles.annChip, { backgroundColor: color }]}> 
+                                <Text style={localStyles.annChipText} numberOfLines={1}>{label}</Text>
+                              </View>
+                            </View>
+                          );
+                        })}
+                      </View>
+                    ) : null}
+                  </View>
+                );
+              })}
+            </ScrollView>
             <TouchableOpacity
               style={ReceiptStyles.fullScreenCloseButton}
               onPress={() => setFullScreenImageIndex(null)}
             >
               <Text style={ReceiptStyles.fullScreenCloseText}>✕</Text>
             </TouchableOpacity>
-          </>
+          </View>
         ) : null}
       </Modal>
 
@@ -2422,7 +2532,7 @@ const localStyles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "space-between",
     paddingHorizontal: 16,
-    paddingBottom: 14,
+    paddingBottom: 10,
   },
   headerTitle: { color: "#fff", fontSize: 17, fontWeight: "700" },
   headerBtn: { width: 40, alignItems: "center" },
@@ -2458,6 +2568,8 @@ const localStyles = StyleSheet.create({
     borderWidth: 2,
     borderRadius: 4,
     overflow: "visible",
+    minWidth: ANNOTATION_MIN_BOX_WIDTH,
+    minHeight: ANNOTATION_MIN_BOX_HEIGHT,
   },
   annChip: {
     position: "absolute",
@@ -2466,6 +2578,7 @@ const localStyles = StyleSheet.create({
     paddingHorizontal: 5,
     paddingVertical: 1,
     borderRadius: 3,
+    minWidth: 52,
   },
   annotationOverlay: {
     ...StyleSheet.absoluteFillObject,
@@ -2474,6 +2587,7 @@ const localStyles = StyleSheet.create({
     color: "#fff",
     fontSize: 11,
     fontWeight: "700",
+    flexShrink: 0,
   },
   stickyButtonBar: {
     flexDirection: "row",
@@ -2887,11 +3001,13 @@ const localStyles = StyleSheet.create({
   },
   indicatorDotWrapper: {
     alignItems: "center",
+    paddingHorizontal: 2,
+    paddingVertical: 2,
   },
   indicatorDot: {
-    width: 14,
-    height: 14,
-    borderRadius: 7,
+    width: 16,
+    height: 16,
+    borderRadius: 8,
   },
   indicatorTriangle: {
     width: 0,
@@ -3055,6 +3171,10 @@ const localStyles = StyleSheet.create({
     color: "#fff",
     fontSize: 14,
     fontWeight: "600",
+  },
+  fullScreenOverlayRoot: {
+    flex: 1,
+    backgroundColor: "#000",
   },
 });
 

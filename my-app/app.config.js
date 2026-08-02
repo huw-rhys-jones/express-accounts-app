@@ -24,10 +24,6 @@ export default ({ config }) => ({
   userInterfaceStyle: "light",
   newArchEnabled: false, // Keeping this false as per your current setup
   backgroundColor: "#302C66",
-  androidNavigationBar: {
-    backgroundColor: "#ffffff",
-    barStyle: "dark-content",
-  },
 
   splash: {
     image: "./assets/splash-icon.png",
@@ -58,7 +54,7 @@ export default ({ config }) => ({
     versionCode: numericBuild,
     adaptiveIcon: {
       foregroundImage: "./assets/adaptive-icon.png",
-      backgroundColor: "#83001D"
+      backgroundColor: "#ffffff"
     },
     permissions: [
       "android.permission.CAMERA",
@@ -107,8 +103,8 @@ export default ({ config }) => ({
       "expo-build-properties",
       {
         android: {
-          compileSdkVersion: 36,
-          targetSdkVersion: 36,
+          compileSdkVersion: 35,
+          targetSdkVersion: 35,
           minSdkVersion: 24
         },
         ios: {

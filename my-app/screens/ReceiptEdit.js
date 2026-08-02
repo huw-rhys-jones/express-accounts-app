@@ -51,6 +51,13 @@ const IMAGE_HEIGHT = Math.round(Dimensions.get("window").height * 0.45);
 const HERO_EXPANDED_HEIGHT = Math.round(Dimensions.get("window").height * 0.45);
 const HERO_COLLAPSED_HEIGHT = Math.round(Dimensions.get("window").height * 0.35);
 const DEBUG_DISABLE_KEYBOARD_DISMISS_WRAPPER = true;
+const ANNOTATION_MIN_BOX_WIDTH = 64;
+const ANNOTATION_MIN_BOX_HEIGHT = 26;
+const ANNOTATIONS = [
+  { key: "amount", label: "Amount", color: "#2E9F46" },
+  { key: "date", label: "Date", color: "#1A73E8" },
+  { key: "vat", label: "VAT", color: "#E06B6B" },
+];
 
 export default function ReceiptDetailsScreen({ route, navigation }) {
   const insets = useSafeAreaInsets();
@@ -163,7 +170,9 @@ export default function ReceiptDetailsScreen({ route, navigation }) {
   // ===== Fullscreen viewer =====
   const [fullScreenImage, setFullScreenImage] = useState(null);
   const [imageContainerWidth, setImageContainerWidth] = useState(0);
+  const [imageContainerHeight, setImageContainerHeight] = useState(HERO_EXPANDED_HEIGHT);
   const [fullScreenImageIndex, setFullScreenImageIndex] = useState(null);
+  const [imageAnnotationsByUrl, setImageAnnotationsByUrl] = useState({});
 
   const allCategoryItems = categories_meta.map((cat) => ({
     label: cat.name,
@@ -263,6 +272,7 @@ export default function ReceiptDetailsScreen({ route, navigation }) {
     setSelectedCategory(currentReceipt?.category || "");
     setLabel(currentReceipt?.label || "");
     setImages((currentReceipt?.images || []).map((url) => ({ uri: url })));
+    setImageAnnotationsByUrl(currentReceipt?.imageAnnotations || {});
   }, [currentReceipt?.id]);
 
   // ===== helpers =====
@@ -504,10 +514,14 @@ export default function ReceiptDetailsScreen({ route, navigation }) {
       }
 
       const uploadedImageUrls = [];
+      const nextImageAnnotations = {};
 
       for (let img of images) {
         if (img.uri.startsWith("http")) {
           uploadedImageUrls.push(img.uri);
+          if (imageAnnotationsByUrl?.[img.uri]) {
+            nextImageAnnotations[img.uri] = imageAnnotationsByUrl[img.uri];
+          }
         } else {
           const storageRef = ref(
             storage,
@@ -523,6 +537,8 @@ export default function ReceiptDetailsScreen({ route, navigation }) {
         }
       }
 
+      const hasAnnotations = Object.keys(nextImageAnnotations).length > 0;
+
       await updateDoc(doc(db, "receipts", currentReceipt.id), {
         amount: parseFloat(amount),
         date: selectedDate.toISOString(),
@@ -531,6 +547,7 @@ export default function ReceiptDetailsScreen({ route, navigation }) {
         vatAmount: vatAmount ? parseFloat(vatAmount) : null,
         vatRate: vatRate ? parseFloat(vatRate) : null,
         images: uploadedImageUrls,
+        imageAnnotations: hasAnnotations ? nextImageAnnotations : null,
       });
 
       triggerHaptic("success").catch(() => {});
@@ -599,6 +616,38 @@ export default function ReceiptDetailsScreen({ route, navigation }) {
     !Number.isNaN(parseFloat(vatAmount)) &&
     !Number.isNaN(parseFloat(vatRate));
 
+  const buildPercentOverlay = (frame) => {
+    const naturalW = frame?.imageW;
+    const naturalH = frame?.imageH;
+    const containerW = imageContainerWidth;
+    const containerH = imageContainerHeight || HERO_EXPANDED_HEIGHT;
+    if (!frame || !naturalW || !naturalH || !containerW || !containerH) return null;
+
+    const scale = Math.min(containerW / naturalW, containerH / naturalH);
+    const renderedW = naturalW * scale;
+    const renderedH = naturalH * scale;
+    const offsetX = (containerW - renderedW) / 2;
+    const offsetY = (containerH - renderedH) / 2;
+    const PAD = 8;
+
+    const left = frame.left * scale + offsetX - PAD;
+    const top = frame.top * scale + offsetY - PAD;
+    const rawWidth = frame.width * scale + PAD * 2;
+    const width = Math.max(rawWidth, ANNOTATION_MIN_BOX_WIDTH);
+    const height = Math.max(frame.height * scale + PAD * 2, ANNOTATION_MIN_BOX_HEIGHT);
+
+    const clampedLeft = Math.max(0, Math.min(left, containerW - width));
+    const clampedTop = Math.max(0, Math.min(top, containerH - height));
+    const toPct = (value, total) => `${Math.max(0, (value / total) * 100).toFixed(4)}%`;
+
+    return {
+      left: toPct(clampedLeft, containerW),
+      top: toPct(clampedTop, containerH),
+      width: toPct(width, containerW),
+      height: toPct(height, containerH),
+    };
+  };
+
   return (
     <SafeAreaView
       style={[ReceiptStyles.safeArea, localStyles.safeAreaLight]}
@@ -632,7 +681,10 @@ export default function ReceiptDetailsScreen({ route, navigation }) {
       {/* Fixed image panel */}
       <Animated.View
         style={[localStyles.imageSection, { height: heroHeightAnim }]}
-        onLayout={(e) => setImageContainerWidth(e.nativeEvent.layout.width)}
+        onLayout={(e) => {
+          setImageContainerWidth(e.nativeEvent.layout.width);
+          setImageContainerHeight(e.nativeEvent.layout.height);
+        }}
         {...(editableReceiptList.length > 1 ? detailSwipeResponder.panHandlers : {})}
       >
         {imageContainerWidth > 0 ? (
@@ -655,6 +707,26 @@ export default function ReceiptDetailsScreen({ route, navigation }) {
                     style={[localStyles.carouselImage, { width: imageContainerWidth }]}
                     resizeMode="contain"
                   />
+                  {imageAnnotationsByUrl?.[item.uri] ? (
+                    <View style={localStyles.annotationOverlay} pointerEvents="none">
+                      {ANNOTATIONS.filter(({ key }) => imageAnnotationsByUrl[item.uri]?.[key]).map(({ key, label, color }) => {
+                        const frame = imageAnnotationsByUrl[item.uri][key];
+                        const overlayBox = buildPercentOverlay({
+                          ...frame,
+                          imageW: imageAnnotationsByUrl[item.uri].imageW,
+                          imageH: imageAnnotationsByUrl[item.uri].imageH,
+                        });
+                        if (!overlayBox) return null;
+                        return (
+                          <View key={`${item.uri}-${key}`} style={[localStyles.annBox, { ...overlayBox, borderColor: color }]}> 
+                            <View style={[localStyles.annChip, { backgroundColor: color }]}> 
+                              <Text style={localStyles.annChipText} numberOfLines={1}>{label}</Text>
+                            </View>
+                          </View>
+                        );
+                      })}
+                    </View>
+                  ) : null}
                 </TouchableOpacity>
                 <TouchableOpacity
                   style={localStyles.carouselRemoveBtn}
@@ -718,43 +790,61 @@ export default function ReceiptDetailsScreen({ route, navigation }) {
           ]}
         >
           <View style={ReceiptStyles.borderContainer}>
-            {/* Amount */}
-            <View style={localStyles.fieldGroup}>
-              <Text style={[ReceiptStyles.label, localStyles.labelAligned]}>
-                Amount:
-              </Text>
-              <View
-                style={[
-                  ReceiptStyles.inputRow,
-                  localStyles.fieldRow,
-                  localStyles.currencyField,
-                ]}
-              >
-                <View style={localStyles.currencyWrapper}>
-                  <Text style={localStyles.currencyInside}>£</Text>
-                </View>
-                <TextInput
+            <View style={localStyles.amountDateRow}>
+              <View style={localStyles.amountDateField}>
+                <Text style={[ReceiptStyles.label, localStyles.labelAligned]}>
+                  Amount:
+                </Text>
+                <View
                   style={[
-                    ReceiptStyles.input,
-                    localStyles.inputAligned,
-                    localStyles.inputWithCurrency,
+                    ReceiptStyles.inputRow,
+                    localStyles.currencyField,
                   ]}
-                  keyboardType="decimal-pad"
-                  value={amount}
-                  onChangeText={(v) => {
-                    setAmount(v);
-                    if (!vatAmountEdited && v && vatRate) {
-                      setVatAmount(computeVat(v, vatRate));
-                    }
-                  }}
-                  onFocus={() => {
-                    Animated.timing(heroHeightAnim, {
-                      toValue: HERO_COLLAPSED_HEIGHT,
-                      duration: 220,
-                      useNativeDriver: false,
-                    }).start();
-                  }}
-                />
+                >
+                  <View style={localStyles.currencyWrapper}>
+                    <Text style={localStyles.currencyInside}>£</Text>
+                  </View>
+                  <TextInput
+                    style={[
+                      ReceiptStyles.input,
+                      localStyles.inputAligned,
+                      localStyles.inputWithCurrency,
+                      { height: 42 },
+                    ]}
+                    keyboardType="decimal-pad"
+                    value={amount}
+                    onChangeText={(v) => {
+                      setAmount(v);
+                      if (!vatAmountEdited && v && vatRate) {
+                        setVatAmount(computeVat(v, vatRate));
+                      }
+                    }}
+                    onFocus={() => {
+                      Animated.timing(heroHeightAnim, {
+                        toValue: HERO_COLLAPSED_HEIGHT,
+                        duration: 220,
+                        useNativeDriver: false,
+                      }).start();
+                    }}
+                  />
+                </View>
+              </View>
+
+              <View
+                style={localStyles.amountDateField}
+                pointerEvents={vatRateOpen ? "none" : "auto"}
+              >
+                <Text style={[ReceiptStyles.label, localStyles.labelAligned]}>
+                  Date:
+                </Text>
+                <TouchableOpacity
+                  style={[ReceiptStyles.dateButton, { height: 42 }]}
+                  onPress={showDatePicker}
+                >
+                  <Text style={ReceiptStyles.dateText}>
+                    {formatDate(selectedDate)}
+                  </Text>
+                </TouchableOpacity>
               </View>
             </View>
 
@@ -838,23 +928,6 @@ export default function ReceiptDetailsScreen({ route, navigation }) {
               </View>
             </View>
 
-            {/* Date */}
-            <View
-              style={localStyles.fieldGroup}
-              pointerEvents={vatRateOpen ? "none" : "auto"}
-            >
-              <Text style={[ReceiptStyles.label, localStyles.labelAligned]}>
-                Date:
-              </Text>
-              <TouchableOpacity
-                style={ReceiptStyles.dateButton}
-                onPress={showDatePicker}
-              >
-                <Text style={ReceiptStyles.dateText}>
-                  {formatDate(selectedDate)}
-                </Text>
-              </TouchableOpacity>
-            </View>
             <DateTimePickerModal
               isVisible={isDatePickerVisible}
               mode="date"
@@ -1017,7 +1090,7 @@ export default function ReceiptDetailsScreen({ route, navigation }) {
           {
             paddingBottom:
               Platform.OS === "android"
-                ? Math.max(insets.bottom, 10)
+                ? Math.max(insets.bottom, 24)
                 : Math.max(insets.bottom, 16),
           },
         ]}
@@ -1285,29 +1358,67 @@ export default function ReceiptDetailsScreen({ route, navigation }) {
       <Modal
         visible={fullScreenImageIndex !== null}
         animationType="fade"
-        presentationStyle="fullScreen"
-        transparent={false}
+        presentationStyle="overFullScreen"
+        transparent
         onRequestClose={() => setFullScreenImageIndex(null)}
       >
         {fullScreenImageIndex !== null ? (
-          <>
-            <ImageViewer
-              imageUrls={images.map(img => ({ url: img.uri }))}
-              index={fullScreenImageIndex}
-              enableSwipeDown
-              onSwipeDown={() => setFullScreenImageIndex(null)}
-              onClick={() => setFullScreenImageIndex(null)}
-              backgroundColor="black"
-              renderIndicator={images.length > 1 ? undefined : () => null}
-              saveToLocalByLongPress={false}
-            />
+          <View style={localStyles.fullScreenOverlayRoot}>
+            <ScrollView
+              horizontal
+              pagingEnabled
+              showsHorizontalScrollIndicator={false}
+              contentOffset={{ x: fullScreenImageIndex * (imageContainerWidth || Dimensions.get("window").width), y: 0 }}
+              style={{ width: imageContainerWidth || Dimensions.get("window").width }}
+            >
+              {images.map((item, index) => (
+                <View
+                  key={`fullscreen-${index}`}
+                  style={{
+                    width: imageContainerWidth || Dimensions.get("window").width,
+                    height: "100%",
+                    justifyContent: "center",
+                    alignItems: "center",
+                  }}
+                >
+                  <Image
+                    source={{ uri: item.uri }}
+                    style={{
+                      width: imageContainerWidth || Dimensions.get("window").width,
+                      height: "100%",
+                    }}
+                    resizeMode="contain"
+                  />
+                  {imageAnnotationsByUrl?.[item.uri] ? (
+                    <View style={localStyles.annotationOverlay} pointerEvents="none">
+                      {ANNOTATIONS.filter(({ key }) => imageAnnotationsByUrl[item.uri]?.[key]).map(({ key, label, color }) => {
+                        const frame = imageAnnotationsByUrl[item.uri][key];
+                        const overlayBox = buildPercentOverlay({
+                          ...frame,
+                          imageW: imageAnnotationsByUrl[item.uri].imageW,
+                          imageH: imageAnnotationsByUrl[item.uri].imageH,
+                        });
+                        if (!overlayBox) return null;
+                        return (
+                          <View key={`fullscreen-${item.uri}-${key}`} style={[localStyles.annBox, { ...overlayBox, borderColor: color }]}> 
+                            <View style={[localStyles.annChip, { backgroundColor: color }]}> 
+                              <Text style={localStyles.annChipText} numberOfLines={1}>{label}</Text>
+                            </View>
+                          </View>
+                        );
+                      })}
+                    </View>
+                  ) : null}
+                </View>
+              ))}
+            </ScrollView>
             <TouchableOpacity
               style={ReceiptStyles.fullScreenCloseButton}
               onPress={() => setFullScreenImageIndex(null)}
             >
               <Text style={ReceiptStyles.fullScreenCloseText}>✕</Text>
             </TouchableOpacity>
-          </>
+          </View>
         ) : null}
       </Modal>
 
@@ -1373,6 +1484,32 @@ const localStyles = StyleSheet.create({
     borderBottomWidth: 1,
     borderBottomColor: "#333",
   },
+  annotationOverlay: {
+    ...StyleSheet.absoluteFillObject,
+  },
+  annBox: {
+    position: "absolute",
+    borderWidth: 2,
+    borderRadius: 4,
+    overflow: "visible",
+    minWidth: ANNOTATION_MIN_BOX_WIDTH,
+    minHeight: ANNOTATION_MIN_BOX_HEIGHT,
+  },
+  annChip: {
+    position: "absolute",
+    top: -18,
+    left: 0,
+    paddingHorizontal: 5,
+    paddingVertical: 1,
+    borderRadius: 3,
+    minWidth: 52,
+  },
+  annChipText: {
+    color: "#fff",
+    fontSize: 11,
+    fontWeight: "700",
+    flexShrink: 0,
+  },
   carouselPage: {
     height: "100%",
     justifyContent: "center",
@@ -1422,6 +1559,14 @@ const localStyles = StyleSheet.create({
     borderTopColor: "#e8e8e8",
   },
   bottomActionBtn: {
+    flex: 1,
+  },
+  amountDateRow: {
+    flexDirection: "row",
+    gap: 8,
+    marginBottom: 8,
+  },
+  amountDateField: {
     flex: 1,
   },
   labelAligned: {
@@ -1569,5 +1714,9 @@ const localStyles = StyleSheet.create({
     color: "#fff",
     fontSize: 11,
     fontWeight: "700",
+  },
+  fullScreenOverlayRoot: {
+    flex: 1,
+    backgroundColor: "#000",
   },
 });
