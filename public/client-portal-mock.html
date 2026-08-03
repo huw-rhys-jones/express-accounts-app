@@ -457,6 +457,17 @@
       margin-top: 4px;
     }
 
+    .period-summary {
+      margin-top: 2px;
+      border: 1px solid #d7e2ee;
+      border-radius: 12px;
+      background: #f7fafd;
+      color: #21476d;
+      font-size: 0.92rem;
+      line-height: 1.45;
+      padding: 10px 12px;
+    }
+
     @keyframes rise {
       from { opacity: 0; transform: translateY(10px); }
       to { opacity: 1; transform: translateY(0); }
@@ -560,6 +571,7 @@
       <div class="tabbar">
         <button id="activityTabBtn" type="button" class="tab-button active">Client Activity</button>
         <button id="managementTabBtn" type="button" class="tab-button">Client Management</button>
+        <button id="adminTabBtn" type="button" class="tab-button">Client Admin</button>
       </div>
 
       <div id="activityTabPanel" class="tab-panel active">
@@ -665,6 +677,42 @@
 
         </div>
       </div>
+
+      <div id="adminTabPanel" class="tab-panel">
+        <div class="management-panel">
+          <h3 style="margin:0 0 14px; font-family:'Space Grotesk',sans-serif; font-size:1.05rem; color:var(--ink)">Edit Client Details</h3>
+          <div class="stack">
+            <label for="adminClientSelect">Select client</label>
+            <select id="adminClientSelect">
+              <option value="">Choose a client...</option>
+            </select>
+            <p class="hint" style="margin-top:0">Edits here update the client profile in Firestore.</p>
+          </div>
+
+          <div class="split-layout" style="margin-top:10px">
+            <div class="stack">
+              <label for="adminNameInput">Name</label>
+              <input id="adminNameInput" type="text" placeholder="Client name" />
+            </div>
+            <div class="stack">
+              <label for="adminEmailInput">Email</label>
+              <input id="adminEmailInput" type="email" placeholder="client@example.com" />
+            </div>
+          </div>
+
+          <div class="stack" style="margin-top:10px">
+            <label for="adminCodeInput">Verification code</label>
+            <input id="adminCodeInput" type="text" placeholder="Optional, e.g. ABC123" style="text-transform:uppercase" />
+            <p class="hint" style="margin-top:0">If provided, the code is created/updated in VerificationCodes and linked to this user.</p>
+          </div>
+
+          <div class="actions" style="margin-top:14px">
+            <button id="adminSaveBtn" type="button" class="btn-primary">Save Client Changes</button>
+            <button id="adminClearBtn" type="button" class="btn-secondary">Clear</button>
+          </div>
+          <div id="adminStatus" class="statusline" style="margin-top:10px">Select a client to edit their details.</div>
+        </div>
+      </div>
     </section>
   </div>
 
@@ -674,6 +722,7 @@
       <div class="modal-body">
         <label for="periodSelect">Financial period</label>
         <select id="periodSelect"></select>
+        <div id="periodSummary" class="period-summary">Select a period to see record totals.</div>
 
         <div class="modal-actions">
           <button id="resetNotifyBtn" type="button" class="btn-success" style="display:none">Mark As Processed</button>
@@ -705,8 +754,10 @@
     const logOutBtn = document.getElementById("logOutBtn");
     const activityTabBtn = document.getElementById("activityTabBtn");
     const managementTabBtn = document.getElementById("managementTabBtn");
+    const adminTabBtn = document.getElementById("adminTabBtn");
     const activityTabPanel = document.getElementById("activityTabPanel");
     const managementTabPanel = document.getElementById("managementTabPanel");
+    const adminTabPanel = document.getElementById("adminTabPanel");
 
     const searchInput = document.getElementById("searchInput");
     const sortSelect = document.getElementById("sortSelect");
@@ -724,9 +775,17 @@
     const allCodesStatus = document.getElementById("allCodesStatus");
     const generatedCodesTableBody = document.querySelector("#generatedCodesTable tbody");
     const allCodesTableBody = document.querySelector("#allCodesTable tbody");
+    const adminClientSelect = document.getElementById("adminClientSelect");
+    const adminNameInput = document.getElementById("adminNameInput");
+    const adminEmailInput = document.getElementById("adminEmailInput");
+    const adminCodeInput = document.getElementById("adminCodeInput");
+    const adminSaveBtn = document.getElementById("adminSaveBtn");
+    const adminClearBtn = document.getElementById("adminClearBtn");
+    const adminStatus = document.getElementById("adminStatus");
 
     const dateModal = document.getElementById("dateModal");
     const periodSelect = document.getElementById("periodSelect");
+    const periodSummary = document.getElementById("periodSummary");
     const cancelDateBtn = document.getElementById("cancelDateBtn");
     const confirmDateBtn = document.getElementById("confirmDateBtn");
     const resetNotifyBtn = document.getElementById("resetNotifyBtn");
@@ -735,6 +794,7 @@
     let previousLoginDate = null;
     let liveUsers = [];
     let selectedUser = null;
+    let selectedAdminUserId = "";
     const activeStatusFilters = new Set();
     let currentTab = "activity";
 
@@ -1207,6 +1267,37 @@
       setTimeout(() => anchor.remove(), 1000);
     }
 
+    async function fetchExportZipViaProxy(proxyDownload, idToken) {
+      if (!proxyDownload || !proxyDownload.fullPath) {
+        throw new Error("Export proxy download path is missing.");
+      }
+
+      const response = await fetch("/portal-fetch-image", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: "Bearer " + idToken,
+        },
+        body: JSON.stringify({
+          bucket: proxyDownload.bucket || "",
+          fullPath: proxyDownload.fullPath,
+        }),
+      });
+
+      if (!response.ok) {
+        let proxyError = "Could not download ZIP from proxy.";
+        try {
+          const err = await response.json();
+          proxyError = err && err.error ? err.error : proxyError;
+        } catch {
+          // ignore parse errors
+        }
+        throw new Error(proxyError);
+      }
+
+      return response.blob();
+    }
+
     function getFinancialYearStartYear(date) {
       const day = startOfLocalDay(date || new Date());
       const aprilSixThisYear = new Date(day.getFullYear(), 3, 6);
@@ -1275,6 +1366,20 @@
       });
 
       periods.push({
+        key: "financial-year-current",
+        label: "Current financial year (" + getFinancialYearLabel(currentStartYear) + ")",
+        startDate: new Date(currentStartYear, 3, 6),
+        endDate: today,
+      });
+
+      periods.push({
+        key: "financial-year-previous",
+        label: "Previous financial year (" + getFinancialYearLabel(currentStartYear - 1) + ")",
+        startDate: new Date(currentStartYear - 1, 3, 6),
+        endDate: new Date(currentStartYear, 3, 5),
+      });
+
+      periods.push({
         key: "all-time",
         label: "All time",
         startDate: null,
@@ -1313,6 +1418,80 @@
       });
     }
 
+    function pluralize(count, singular, plural) {
+      return count === 1 ? singular : (plural || singular + "s");
+    }
+
+    function countImageAttachments(entries) {
+      return (entries || []).reduce((total, entry) => {
+        const attachments = Array.isArray(entry && entry.attachments) ? entry.attachments : [];
+        const imageCount = attachments.filter((attachment) => attachment && attachment.url && isImageLikeAttachment(attachment)).length;
+        return total + imageCount;
+      }, 0);
+    }
+
+    function countBankStatementImages(entries) {
+      return (entries || []).reduce((total, entry) => {
+        const attachments = Array.isArray(entry && entry.attachments) ? entry.attachments : [];
+        if (attachments.length > 0) {
+          const imageCount = attachments.filter((attachment) => attachment && attachment.url && isImageLikeAttachment(attachment)).length;
+          return total + imageCount;
+        }
+        return total + (Number(entry && entry.attachmentsCount) || 0);
+      }, 0);
+    }
+
+    function buildPeriodSnapshot(user, selectedPeriod) {
+      const startDate = selectedPeriod && selectedPeriod.startDate ? toLocalYmd(selectedPeriod.startDate) : null;
+      const endDate = selectedPeriod && selectedPeriod.endDate ? toLocalYmd(selectedPeriod.endDate) : null;
+
+      const filteredReceipts = filterEntriesByPeriod(user && user.receipts, startDate, endDate, (receipt) => receipt.date);
+      const filteredIncome = filterEntriesByPeriod(user && user.income, startDate, endDate, (entry) => entry.date);
+      const filteredStatements = filterEntriesByPeriod(
+        user && user.bankStatements,
+        startDate,
+        endDate,
+        (statement) => statement.date || statement.statementEndDate || statement.statementStartDate || statement.loggedAt
+      );
+
+      return {
+        filteredReceipts,
+        filteredIncome,
+        filteredStatements,
+        receiptImages: countImageAttachments(filteredReceipts),
+        incomeImages: countImageAttachments(filteredIncome),
+        statementImages: countBankStatementImages(filteredStatements),
+      };
+    }
+
+    function formatSnapshotSummary(snapshot) {
+      const receiptCount = snapshot.filteredReceipts.length;
+      const incomeCount = snapshot.filteredIncome.length;
+      const statementCount = snapshot.filteredStatements.length;
+      return [
+        receiptCount + " " + pluralize(receiptCount, "receipt") + " (" + snapshot.receiptImages + " " + pluralize(snapshot.receiptImages, "image") + ")",
+        incomeCount + " " + pluralize(incomeCount, "income record") + " (" + snapshot.incomeImages + " " + pluralize(snapshot.incomeImages, "image") + ")",
+        statementCount + " " + pluralize(statementCount, "bank statement") + " (" + snapshot.statementImages + " " + pluralize(snapshot.statementImages, "image") + ")",
+      ].join(", ");
+    }
+
+    function renderPeriodSummary() {
+      if (!periodSummary) return;
+      if (!selectedUser) {
+        periodSummary.textContent = "Select a period to see record totals.";
+        return;
+      }
+
+      const selectedPeriod = getSelectedExportPeriod();
+      if (!selectedPeriod) {
+        periodSummary.textContent = "Select a period to see record totals.";
+        return;
+      }
+
+      const snapshot = buildPeriodSnapshot(selectedUser, selectedPeriod);
+      periodSummary.textContent = formatSnapshotSummary(snapshot);
+    }
+
     function hasNewUploadsSince(user, loginDate) {
       if (!loginDate) {
         return (user.receipts || []).length > 0 || (user.income || []).length > 0 || (user.bankStatements || []).length > 0;
@@ -1342,11 +1521,184 @@
 
     function setActiveTab(tabName) {
       currentTab = tabName;
+      const showingActivity = tabName === "activity";
       const showingManagement = tabName === "management";
-      activityTabBtn.classList.toggle("active", !showingManagement);
+      const showingAdmin = tabName === "admin";
+
+      activityTabBtn.classList.toggle("active", showingActivity);
       managementTabBtn.classList.toggle("active", showingManagement);
-      activityTabPanel.classList.toggle("active", !showingManagement);
+      adminTabBtn.classList.toggle("active", showingAdmin);
+
+      activityTabPanel.classList.toggle("active", showingActivity);
       managementTabPanel.classList.toggle("active", showingManagement);
+      adminTabPanel.classList.toggle("active", showingAdmin);
+    }
+
+    function toInputValue(value) {
+      return String(value || "").trim();
+    }
+
+    function normalizeVerificationCode(value) {
+      return String(value || "")
+        .trim()
+        .toUpperCase()
+        .replace(/[^A-Z0-9_-]/g, "");
+    }
+
+    function getUserById(userId) {
+      return liveUsers.find((user) => user.id === userId) || null;
+    }
+
+    function clearAdminForm() {
+      selectedAdminUserId = "";
+      adminClientSelect.value = "";
+      adminNameInput.value = "";
+      adminEmailInput.value = "";
+      adminCodeInput.value = "";
+    }
+
+    function populateAdminClientSelect() {
+      const sortedUsers = [...(liveUsers || [])].sort((a, b) =>
+        String(a && a.name ? a.name : "").localeCompare(String(b && b.name ? b.name : ""), undefined, {sensitivity: "base"})
+      );
+
+      adminClientSelect.innerHTML = "<option value=''>Choose a client...</option>" +
+        sortedUsers.map((user) => {
+          const label = (user.name || "Unknown user") + (user.email ? " (" + user.email + ")" : "");
+          return "<option value='" + escHtml(user.id) + "'>" + escHtml(label) + "</option>";
+        }).join("");
+
+      if (selectedAdminUserId && getUserById(selectedAdminUserId)) {
+        adminClientSelect.value = selectedAdminUserId;
+      } else {
+        selectedAdminUserId = "";
+      }
+    }
+
+    function renderAdminClientForm(userId) {
+      const user = getUserById(userId);
+      if (!user) {
+        clearAdminForm();
+        adminStatus.textContent = "Select a client to edit their details.";
+        return;
+      }
+
+      selectedAdminUserId = user.id;
+      adminClientSelect.value = user.id;
+      adminNameInput.value = toInputValue(user.originalName || user.name);
+      adminEmailInput.value = toInputValue(user.email);
+      adminCodeInput.value = toInputValue(user.verificationCode);
+      adminStatus.textContent = "Editing " + user.name + ". Update fields and click Save Client Changes.";
+    }
+
+    async function saveAdminClientChanges() {
+      if (!currentAccountant) {
+        adminStatus.textContent = "You must be signed in.";
+        return;
+      }
+      if (!selectedAdminUserId) {
+        adminStatus.textContent = "Please select a client first.";
+        return;
+      }
+
+      const user = getUserById(selectedAdminUserId);
+      if (!user) {
+        adminStatus.textContent = "Selected client is no longer available. Refresh data.";
+        return;
+      }
+
+      const nextName = toInputValue(adminNameInput.value);
+      const nextEmailRaw = toInputValue(adminEmailInput.value);
+      const nextEmail = nextEmailRaw ? nextEmailRaw.toLowerCase() : "";
+      const nextCode = normalizeVerificationCode(adminCodeInput.value);
+
+      if (nextEmail && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(nextEmail)) {
+        adminStatus.textContent = "Please enter a valid email address.";
+        return;
+      }
+
+      adminSaveBtn.disabled = true;
+      adminStatus.textContent = "Saving client changes...";
+
+      try {
+        const nowTs = firebase.firestore.FieldValue.serverTimestamp();
+        const userRef = db.collection("users").doc(user.id);
+
+        await db.runTransaction(async (tx) => {
+          const userSnap = await tx.get(userRef);
+          if (!userSnap.exists) {
+            throw new Error("Selected user no longer exists.");
+          }
+
+          const userData = userSnap.data() || {};
+          const currentCode = normalizeVerificationCode(userData.verificationCode || "");
+
+          if (nextCode) {
+            const codeRef = db.collection("VerificationCodes").doc(nextCode);
+            const codeSnap = await tx.get(codeRef);
+            if (codeSnap.exists) {
+              const codeData = codeSnap.data() || {};
+              const usedBy = String(codeData.usedBy || "");
+              if (usedBy && usedBy !== user.id) {
+                throw new Error("Verification code " + nextCode + " is already linked to another user.");
+              }
+            }
+
+            tx.set(codeRef, {
+              code: nextCode,
+              accountantSubmittedName: nextName || userData.name || userData.displayName || "",
+              accountantSubmittedEmail: nextEmail || null,
+              createdByUid: currentAccountant.uid,
+              createdByEmail: currentAccountant.email || null,
+              usedBy: user.id,
+              usedAt: nowTs,
+              verificationStatus: "verified",
+              updatedAt: nowTs,
+            }, {merge: true});
+          }
+
+          if (currentCode && currentCode !== nextCode) {
+            const oldCodeRef = db.collection("VerificationCodes").doc(currentCode);
+            const oldCodeSnap = await tx.get(oldCodeRef);
+            if (oldCodeSnap.exists) {
+              const oldCodeData = oldCodeSnap.data() || {};
+              const oldUsedBy = String(oldCodeData.usedBy || "");
+              if (oldUsedBy === user.id) {
+                tx.set(oldCodeRef, {
+                  usedBy: null,
+                  usedAt: null,
+                  verificationStatus: "available",
+                  updatedAt: nowTs,
+                }, {merge: true});
+              }
+            }
+          }
+
+          tx.set(userRef, {
+            name: nextName || null,
+            email: nextEmail || null,
+            verificationCode: nextCode || firebase.firestore.FieldValue.delete(),
+            verificationStatus: nextCode ? "verified" : firebase.firestore.FieldValue.delete(),
+            verifiedName: nextCode && nextName ? nextName : firebase.firestore.FieldValue.delete(),
+            updatedAt: nowTs,
+          }, {merge: true});
+        });
+
+        await reloadAndRenderBoard();
+        renderAdminClientForm(user.id);
+        adminStatus.textContent = "Saved changes for " + (nextName || user.name) + ".";
+      } catch (error) {
+        console.error("saveAdminClientChanges error", error);
+        adminStatus.textContent = "Save failed: " + (error && error.message ? error.message : String(error));
+      } finally {
+        adminSaveBtn.disabled = false;
+      }
+    }
+
+    function refreshProcessedButtonState() {
+      if (!selectedUser) return;
+      const isProcessed = !!selectedUser.processedAt;
+      resetNotifyBtn.textContent = isProcessed ? "Unmark As Processed" : "Mark As Processed";
     }
 
     function updateStatusFilterButtonState() {
@@ -1437,6 +1789,7 @@
             netMovement: Number(data.netMovement) || 0,
             notes: data.notes || "",
             rawText: data.rawText || "",
+            attachments: normalizePortalAttachments(data.attachments),
             attachmentsCount: Array.isArray(data.attachments) ? data.attachments.length : 0,
             transactions: Array.isArray(data.transactions) ? data.transactions : [],
             vendorTotals: Array.isArray(data.vendorTotals) ? data.vendorTotals : [],
@@ -1467,6 +1820,7 @@
             verifiedName,
             isVerified,
             email: profile.email || null,
+            verificationCode: profile.verificationCode || null,
             notifyAccountant: profile.notifyAccountant || false,
             processedAt: toJsDate(profile.processedAt),
             receipts: receiptsByUser[uid] || [],
@@ -1557,6 +1911,7 @@
       clientBoard.innerHTML = '<p style="padding: 0 8px; color: #4f6780; grid-column: 1/-1;">Loading client data…</p>';
       liveUsers = await loadRealData();
       renderBoardFromCurrentData();
+      populateAdminClientSelect();
     }
 
     function renderGeneratedCodesTable(rows) {
@@ -1885,7 +2240,9 @@
         .map((period) => "<option value='" + period.key + "'>" + period.label + "</option>")
         .join("");
       periodSelect.value = periods[0] ? periods[0].key : "";
+      renderPeriodSummary();
       resetNotifyBtn.style.display = "inline-block";
+      refreshProcessedButtonState();
 
       document.getElementById("modalTitle").textContent = "Export data for " + user.name;
       dateModal.style.display = "flex";
@@ -1895,6 +2252,9 @@
       dateModal.style.display = "none";
       selectedUser = null;
       resetNotifyBtn.style.display = "none";
+      if (periodSummary) {
+        periodSummary.textContent = "Select a period to see record totals.";
+      }
     }
 
     async function markNotifyAsProcessed() {
@@ -1911,8 +2271,25 @@
 
       selectedUser.notifyAccountant = false;
       selectedUser.processedAt = new Date();
+      refreshProcessedButtonState();
       renderBoardFromCurrentData();
       statusLine.textContent = "Marked " + selectedUser.name + " as processed.";
+    }
+
+    async function unmarkNotifyAsProcessed() {
+      if (!selectedUser) return;
+      await db.collection("users").doc(selectedUser.id).set(
+        {
+          processedAt: firebase.firestore.FieldValue.delete(),
+          updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
+        },
+        { merge: true }
+      );
+
+      selectedUser.processedAt = null;
+      refreshProcessedButtonState();
+      renderBoardFromCurrentData();
+      statusLine.textContent = "Unmarked " + selectedUser.name + " as processed.";
     }
 
     statusFilterButtons.forEach((button) => {
@@ -2235,14 +2612,10 @@
     async function downloadUserData(user, selectedPeriod) {
       const startDate = selectedPeriod && selectedPeriod.startDate ? toLocalYmd(selectedPeriod.startDate) : null;
       const endDate = selectedPeriod && selectedPeriod.endDate ? toLocalYmd(selectedPeriod.endDate) : null;
-      const filteredReceipts = filterEntriesByPeriod(user.receipts, startDate, endDate, (receipt) => receipt.date);
-      const filteredIncome = filterEntriesByPeriod(user.income, startDate, endDate, (entry) => entry.date);
-      const filteredStatements = filterEntriesByPeriod(
-        user.bankStatements,
-        startDate,
-        endDate,
-        (statement) => statement.date || statement.statementEndDate || statement.statementStartDate || statement.loggedAt
-      );
+      const snapshot = buildPeriodSnapshot(user, selectedPeriod);
+      const filteredReceipts = snapshot.filteredReceipts;
+      const filteredIncome = snapshot.filteredIncome;
+      const filteredStatements = snapshot.filteredStatements;
 
       const safeName = sanitizeFileSegment((user && user.name ? user.name : "client").toLowerCase(), "client");
       const fileSuffix = startDate && endDate
@@ -2281,13 +2654,22 @@
 
       if (!response.ok) {
         let message = "Could not generate export ZIP.";
+        let exportDebug = null;
         try {
           const err = await response.json();
           message = err && err.error ? err.error : message;
+          exportDebug = err && err.debug ? err.debug : null;
+          if (exportDebug && exportDebug.error && exportDebug.error.message) {
+            message += " " + exportDebug.error.message;
+          }
         } catch {
           // ignore parse errors
         }
-        throw new Error(message);
+        const error = new Error(message);
+        error.exportDebugId = response.headers.get("x-export-debug-id") || "";
+        error.exportStage = response.headers.get("x-export-stage") || "";
+        error.exportDebug = exportDebug;
+        throw error;
       }
 
       const contentType = (response.headers.get("content-type") || "").toLowerCase();
@@ -2295,11 +2677,18 @@
 
       if (contentType.includes("application/json")) {
         const payload = await response.json();
-        if (!payload || !payload.downloadUrl) {
-          throw new Error("Export response did not include a download URL.");
+        if (!payload) {
+          throw new Error("Export response payload was empty.");
         }
         const zipFileName = payload.fileName || fallbackZipName;
-        triggerUrlDownload(payload.downloadUrl, zipFileName);
+        if (payload.downloadUrl) {
+          triggerUrlDownload(payload.downloadUrl, zipFileName);
+        } else if (payload.proxyDownload) {
+          const proxyBlob = await fetchExportZipViaProxy(payload.proxyDownload, idToken);
+          triggerBlobDownload(proxyBlob, zipFileName);
+        } else {
+          throw new Error("Export response did not include a download URL or proxy fallback.");
+        }
         imageErrors = Number(payload.imageErrors || 0);
       } else {
         const zipBlob = await response.blob();
@@ -2309,7 +2698,7 @@
         triggerBlobDownload(zipBlob, zipFileName);
       }
 
-      statusLine.textContent = "Downloaded ZIP for " + user.name + ": " + filteredReceipts.length + " receipts, " + filteredIncome.length + " income record(s), and " + filteredStatements.length + " bank statement(s) (" + (selectedPeriod ? selectedPeriod.label : "All time") + ").";
+      statusLine.textContent = "Downloaded ZIP for " + user.name + ": " + formatSnapshotSummary(snapshot) + " (" + (selectedPeriod ? selectedPeriod.label : "All time") + ").";
       if (imageErrors > 0) {
         statusLine.textContent += " " + imageErrors + " image(s) could not be fetched and were listed in image-download-errors.txt.";
       }
@@ -2386,6 +2775,8 @@
       updateStatusFilterButtonState();
       setActiveTab("activity");
       clearManagementInputs();
+      clearAdminForm();
+      adminStatus.textContent = "Select a client to edit their details.";
     }
 
     loginBtn.addEventListener("click", attemptLogin);
@@ -2403,14 +2794,27 @@
 
     activityTabBtn.addEventListener("click", () => setActiveTab("activity"));
     managementTabBtn.addEventListener("click", () => setActiveTab("management"));
+    adminTabBtn.addEventListener("click", () => setActiveTab("admin"));
     generateCodesBtn.addEventListener("click", generateVerificationCodes);
     sendAllEmailsBtn.addEventListener("click", () => sendAllEmails(sendAllEmailsBtn._rows || []));
     clearManagementBtn.addEventListener("click", clearManagementInputs);
     loadAllCodesBtn.addEventListener("click", loadAllCodes);
+    adminClientSelect.addEventListener("change", () => renderAdminClientForm(adminClientSelect.value));
+    adminSaveBtn.addEventListener("click", saveAdminClientChanges);
+    adminClearBtn.addEventListener("click", () => {
+      clearAdminForm();
+      adminStatus.textContent = "Select a client to edit their details.";
+    });
 
     cancelDateBtn.addEventListener("click", closeDateModal);
+    periodSelect.addEventListener("change", renderPeriodSummary);
     resetNotifyBtn.addEventListener("click", async () => {
-      await markNotifyAsProcessed();
+      if (!selectedUser) return;
+      if (selectedUser.processedAt) {
+        await unmarkNotifyAsProcessed();
+      } else {
+        await markNotifyAsProcessed();
+      }
     });
 
     confirmDateBtn.addEventListener("click", async () => {
@@ -2432,7 +2836,33 @@
         closeDateModal();
       } catch (error) {
         console.error("ZIP export failed", error);
-        statusLine.textContent = "Export failed: " + (error && error.message ? error.message : String(error));
+        const baseMessage = "Export failed: " + (error && error.message ? error.message : String(error));
+        const debugId = error && error.exportDebugId ? error.exportDebugId : "";
+        const stage = error && error.exportStage ? error.exportStage : "";
+        const detail = error && error.exportDebug && error.exportDebug.error
+          ? error.exportDebug.error
+          : null;
+
+        let detailText = "";
+        if (detail) {
+          const parts = [];
+          if (detail.name) parts.push("name=" + detail.name);
+          if (detail.code) parts.push("code=" + detail.code);
+          if (detail.statusCode) parts.push("status=" + detail.statusCode);
+          if (detail.message) parts.push("message=" + detail.message);
+          detailText = parts.length ? " | " + parts.join("; ") : "";
+        }
+
+        const debugText = [
+          debugId ? "debugId=" + debugId : "",
+          stage ? "stage=" + stage : "",
+        ].filter(Boolean).join(" ");
+
+        statusLine.textContent = baseMessage + (debugText ? " (" + debugText + ")" : "") + detailText;
+
+        if (error && error.exportDebug) {
+          console.error("ZIP export diagnostic payload", error.exportDebug);
+        }
       } finally {
         confirmDateBtn.disabled = false;
         confirmDateBtn.textContent = originalButtonText;

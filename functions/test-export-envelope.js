@@ -6,6 +6,7 @@ const {
   createExportEnvelopeTransform,
   readExportEnvelope,
 } = require("./exportEnvelope");
+const {resolveExportStorageBucketName} = require("./index");
 
 async function run() {
   const payload = Buffer.from("test-export-payload");
@@ -31,6 +32,10 @@ async function run() {
   const streamedEnvelope = Buffer.concat(outputChunks);
   const streamedRoundTrip = readExportEnvelope({ password: "test-password", buffer: streamedEnvelope });
   assert.deepStrictEqual(streamedRoundTrip, Buffer.from("streamed-export"));
+
+  process.env.FIREBASE_STORAGE_BUCKET = "test-export-bucket";
+  assert.strictEqual(resolveExportStorageBucketName(), "test-export-bucket");
+  delete process.env.FIREBASE_STORAGE_BUCKET;
 
   console.log("Export envelope round trip OK");
 }
