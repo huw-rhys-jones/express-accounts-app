@@ -426,12 +426,13 @@
     }
 
     .modal {
-      width: min(500px, 100%);
+      width: min(1040px, 96vw);
+      max-height: 92vh;
       background: #fff;
       border-radius: 18px;
       border: 1px solid var(--outline);
       box-shadow: var(--shadow);
-      overflow: hidden;
+      overflow: auto;
       animation: rise 0.26s ease-out;
     }
 
@@ -466,6 +467,85 @@
       font-size: 0.92rem;
       line-height: 1.45;
       padding: 10px 12px;
+      overflow: hidden;
+    }
+
+    .summary-headline {
+      font-weight: 700;
+      margin-bottom: 6px;
+    }
+
+    .receipt-summary-title {
+      margin-top: 10px;
+      font-weight: 700;
+    }
+
+    .receipt-summary-table {
+      width: 100%;
+      border-collapse: collapse;
+      table-layout: fixed;
+      font-size: 0.94rem;
+      background: #fff;
+      border: 1px solid #d7e2ee;
+      border-radius: 10px;
+    }
+
+    .receipt-summary-table-wrap {
+      margin-top: 8px;
+      max-height: 46vh;
+      overflow: auto;
+      border-radius: 10px;
+    }
+
+    .receipt-summary-table thead th {
+      position: sticky;
+      top: 0;
+      z-index: 1;
+      text-align: left;
+      padding: 8px 10px;
+      background: #edf3fb;
+      border-bottom: 1px solid #d7e2ee;
+      color: #17324d;
+      white-space: nowrap;
+      font-weight: 700;
+    }
+
+    .receipt-summary-table tbody td {
+      padding: 7px 10px;
+      border-bottom: 1px solid #e5edf6;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .receipt-summary-table tbody tr:nth-child(even) {
+      background: #f9fbff;
+    }
+
+    .receipt-summary-table tbody tr:last-child td {
+      border-bottom: none;
+    }
+
+    .receipt-summary-table .col-amount,
+    .receipt-summary-table .col-vat,
+    .receipt-summary-table .col-rate,
+    .receipt-summary-table .col-date {
+      width: 16%;
+    }
+
+    .receipt-summary-table .col-amount,
+    .receipt-summary-table .col-vat,
+    .receipt-summary-table .col-rate {
+      text-align: right;
+      font-variant-numeric: tabular-nums;
+    }
+
+    .receipt-summary-table .col-date {
+      font-variant-numeric: tabular-nums;
+    }
+
+    .receipt-summary-table .col-category {
+      width: 36%;
     }
 
     @keyframes rise {
@@ -498,6 +578,24 @@
       .statusline { margin-bottom: 16px; }
       .login-head,
       .login-body { padding-left: 20px; padding-right: 20px; }
+      .modal {
+        width: 96vw;
+        max-height: 95vh;
+      }
+      .receipt-summary-table {
+        table-layout: auto;
+        font-size: 0.88rem;
+      }
+      .receipt-summary-table-wrap {
+        max-height: 42vh;
+      }
+      .receipt-summary-table .col-amount,
+      .receipt-summary-table .col-vat,
+      .receipt-summary-table .col-rate,
+      .receipt-summary-table .col-date,
+      .receipt-summary-table .col-category {
+        width: auto;
+      }
     }
     @keyframes spin { to { transform: rotate(360deg); } }
   </style>
@@ -595,10 +693,8 @@
         </select>
         <input id="minReceiptsInput" type="number" min="0" step="1" placeholder="Min receipts" />
         <select id="recentUploadFilter">
-          <option value="0">Any upload date</option>
-          <option value="7">Uploaded last 7 days</option>
-          <option value="30">Uploaded last 30 days</option>
-          <option value="90">Uploaded last 90 days</option>
+          <option value="current-financial-year">Current Financial Year</option>
+          <option value="all-time">All Time</option>
         </select>
         <select id="verificationScopeSelect">
           <option value="verified-only">Verified clients only</option>
@@ -797,6 +893,7 @@
     let selectedAdminUserId = "";
     const activeStatusFilters = new Set();
     let currentTab = "activity";
+    let receiptCountLoadRun = 0;
 
     // Inactivity timeout: sign out after 30 minutes of no mouse/keyboard activity
     const INACTIVITY_TIMEOUT_MS = 30 * 60 * 1000;
@@ -1345,48 +1442,57 @@
     function buildExportPeriodOptions(referenceDate) {
       const today = startOfLocalDay(referenceDate || new Date());
       const currentStartYear = getFinancialYearStartYear(today);
-      const quarters = [
-        ...getFinancialQuarterPeriods(currentStartYear - 1),
-        ...getFinancialQuarterPeriods(currentStartYear),
-      ]
-        .filter((quarter) => startOfLocalDay(quarter.startDate) <= today)
-        .sort((a, b) => b.startDate.getTime() - a.startDate.getTime())
-        .slice(0, 4);
 
-      const periods = quarters.map((quarter, index) => {
-        const labelPrefix = index === 0
-          ? "Current period"
-          : (index === 1 ? "Last period" : index + " periods ago");
-        return {
-          key: quarter.key,
-          label: labelPrefix + " (" + quarter.label + ")",
+      const periods = [
+        {
+          key: "all-time",
+          label: "All Time",
+          startDate: null,
+          endDate: null,
+        },
+        {
+          key: "current-financial-year",
+          label: "Current Financial Year " + getFinancialYearLabel(currentStartYear),
+          startDate: new Date(currentStartYear, 3, 6),
+          endDate: new Date(currentStartYear + 1, 3, 5),
+        },
+        ...getFinancialQuarterPeriods(currentStartYear).map((quarter) => ({
+          key: "quarter-" + quarter.key,
+          label: quarter.label,
           startDate: quarter.startDate,
-          endDate: index === 0 && today < quarter.endDate ? today : quarter.endDate,
-        };
-      });
-
-      periods.push({
-        key: "financial-year-current",
-        label: "Current financial year (" + getFinancialYearLabel(currentStartYear) + ")",
-        startDate: new Date(currentStartYear, 3, 6),
-        endDate: today,
-      });
-
-      periods.push({
-        key: "financial-year-previous",
-        label: "Previous financial year (" + getFinancialYearLabel(currentStartYear - 1) + ")",
-        startDate: new Date(currentStartYear - 1, 3, 6),
-        endDate: new Date(currentStartYear, 3, 5),
-      });
-
-      periods.push({
-        key: "all-time",
-        label: "All time",
-        startDate: null,
-        endDate: null,
-      });
+          endDate: quarter.endDate,
+        })),
+      ];
 
       return periods;
+    }
+
+    function getBoardPeriodOptions() {
+      return buildExportPeriodOptions(new Date());
+    }
+
+    function refreshBoardPeriodFilterOptions() {
+      const previousValue = recentUploadFilter.value;
+      const boardPeriods = getBoardPeriodOptions();
+      recentUploadFilter.innerHTML = boardPeriods
+        .map((period) => "<option value='" + period.key + "'>" + period.label + "</option>")
+        .join("");
+
+      if (boardPeriods.find((period) => period.key === previousValue)) {
+        recentUploadFilter.value = previousValue;
+        return;
+      }
+
+      recentUploadFilter.value = boardPeriods.find((period) => period.key === "current-financial-year")
+        ? "current-financial-year"
+        : (boardPeriods[0] ? boardPeriods[0].key : "all-time");
+    }
+
+    function getSelectedBoardPeriod() {
+      const options = getBoardPeriodOptions();
+      return options.find((option) => option.key === recentUploadFilter.value) ||
+        options.find((option) => option.key === "current-financial-year") ||
+        options[0] || null;
     }
 
     function getSelectedExportPeriod() {
@@ -1441,6 +1547,75 @@
       }, 0);
     }
 
+    function mapReceiptDoc(snap) {
+      const data = snap.data() || {};
+      const createdDate = data.createdAt ? data.createdAt.toDate() : null;
+      return {
+        id: snap.id,
+        amount: Number(data.amount) || 0,
+        vatRate: data.vatRate != null ? Number(data.vatRate) : 0,
+        vatAmount: data.vatAmount != null ? Number(data.vatAmount) : null,
+        date: data.date ? String(data.date).split("T")[0] : "",
+        category: data.category || "Uncategorized",
+        attachments: mergeAttachmentSources(data.attachments, data.images),
+        loggedAt: createdDate ? createdDate.toISOString() : (data.date || ""),
+      };
+    }
+
+    async function loadReceiptsForUser(userId) {
+      const receiptsSnapshot = await db.collection("receipts").where("userId", "==", userId).get();
+      const receipts = [];
+      receiptsSnapshot.forEach((snap) => {
+        receipts.push(mapReceiptDoc(snap));
+      });
+      return receipts;
+    }
+
+    async function loadReceiptCountForUser(userId) {
+      const query = db.collection("receipts").where("userId", "==", userId);
+
+      if (typeof query.count === "function") {
+        const countSnapshot = await query.count().get();
+        const countData = countSnapshot && typeof countSnapshot.data === "function"
+          ? countSnapshot.data()
+          : (countSnapshot && countSnapshot.data ? countSnapshot.data : null);
+        if (countData && Number.isFinite(Number(countData.count))) {
+          return Number(countData.count);
+        }
+      }
+
+      return null;
+    }
+
+    async function loadReceiptCountsForUsers(users) {
+      const runId = ++receiptCountLoadRun;
+      await Promise.all((users || []).map(async (user) => {
+        if (!user || !user.id) return;
+        try {
+          user.receiptCount = await loadReceiptCountForUser(user.id);
+        } catch (error) {
+          user.receiptCount = null;
+        }
+      }));
+
+      if (runId !== receiptCountLoadRun) return;
+      renderBoardFromCurrentData();
+    }
+
+    async function ensureUserReceiptsLoaded(user) {
+      if (!user || !user.id) return;
+      if (user.receiptsLoaded || user.receiptsLoading) return;
+      user.receiptsLoading = true;
+      try {
+        user.receipts = await loadReceiptsForUser(user.id);
+        user.receiptCount = user.receipts.length;
+        user.receiptsLoaded = true;
+      } finally {
+        user.receiptsLoading = false;
+      }
+      renderBoardFromCurrentData();
+    }
+
     function buildPeriodSnapshot(user, selectedPeriod) {
       const startDate = selectedPeriod && selectedPeriod.startDate ? toLocalYmd(selectedPeriod.startDate) : null;
       const endDate = selectedPeriod && selectedPeriod.endDate ? toLocalYmd(selectedPeriod.endDate) : null;
@@ -1475,6 +1650,62 @@
       ].join(", ");
     }
 
+    function computeReceiptVatAmount(receipt) {
+      if (Number.isFinite(Number(receipt && receipt.vatAmount))) {
+        return Number(receipt.vatAmount);
+      }
+      const amount = Number(receipt && receipt.amount) || 0;
+      const vatRate = Number(receipt && receipt.vatRate) || 0;
+      return vatRate > 0 ? (amount * vatRate) / (100 + vatRate) : 0;
+    }
+
+    function getKnownReceiptCount(user) {
+      if (!user) return null;
+      if (user.receiptsLoaded) return (user.receipts || []).length;
+      if (user.receiptCount == null) return null;
+      const n = Number(user.receiptCount);
+      return Number.isFinite(n) ? n : null;
+    }
+
+    function buildReceiptSummaryHtml(receipts) {
+      if (!Array.isArray(receipts) || receipts.length === 0) {
+        return "<div style='margin-top:8px; color:#4f6780;'>No receipts in this period.</div>";
+      }
+
+      const sortedReceipts = [...receipts].sort((a, b) =>
+        String(a && a.date ? a.date : "").localeCompare(String(b && b.date ? b.date : ""))
+      );
+
+      const rows = sortedReceipts.map((receipt) => {
+          const amount = toMoney(Number(receipt && receipt.amount) || 0);
+          const vatAmount = toMoney(computeReceiptVatAmount(receipt));
+          const vatRate = Number(receipt && receipt.vatRate) || 0;
+          const dateValue = escHtml(toDateOnlyString(receipt && receipt.date));
+          const category = escHtml((receipt && receipt.category) || "Uncategorized");
+          return "<tr>" +
+            "<td class='col-amount'>" + amount + "</td>" +
+            "<td class='col-vat'>" + vatAmount + "</td>" +
+            "<td class='col-rate'>" + vatRate + "%</td>" +
+            "<td class='col-date'>" + dateValue + "</td>" +
+            "<td class='col-category'>" + category + "</td>" +
+            "</tr>";
+        }).join("");
+
+      return "<div class='receipt-summary-title'>Receipts</div>" +
+        "<div class='receipt-summary-table-wrap'>" +
+        "<table class='receipt-summary-table'>" +
+        "<thead><tr>" +
+        "<th class='col-amount'>Amount</th>" +
+        "<th class='col-vat'>VAT Amount</th>" +
+        "<th class='col-rate'>VAT %</th>" +
+        "<th class='col-date'>Date</th>" +
+        "<th class='col-category'>Category</th>" +
+        "</tr></thead>" +
+        "<tbody>" + rows + "</tbody>" +
+        "</table>" +
+        "</div>";
+    }
+
     function renderPeriodSummary() {
       if (!periodSummary) return;
       if (!selectedUser) {
@@ -1489,12 +1720,17 @@
       }
 
       const snapshot = buildPeriodSnapshot(selectedUser, selectedPeriod);
-      periodSummary.textContent = formatSnapshotSummary(snapshot);
+      periodSummary.innerHTML =
+        "<div class='summary-headline'>" + escHtml(selectedPeriod.label) + "</div>" +
+        "<div>" + escHtml(formatSnapshotSummary(snapshot)) + "</div>" +
+        buildReceiptSummaryHtml(snapshot.filteredReceipts);
     }
 
     function hasNewUploadsSince(user, loginDate) {
       if (!loginDate) {
-        return (user.receipts || []).length > 0 || (user.income || []).length > 0 || (user.bankStatements || []).length > 0;
+        const receiptCount = getKnownReceiptCount(user);
+        const hasReceipts = receiptCount != null ? receiptCount > 0 : false;
+        return hasReceipts || (user.income || []).length > 0 || (user.bankStatements || []).length > 0;
       }
       return userLatestUploadMs(user) > loginDate.getTime();
     }
@@ -1729,17 +1965,7 @@
           if (!uid) return;
           if (!receiptsByUser[uid]) receiptsByUser[uid] = [];
 
-          const createdDate = data.createdAt ? data.createdAt.toDate() : null;
-          receiptsByUser[uid].push({
-            id: snap.id,
-            amount: Number(data.amount) || 0,
-            vatRate: data.vatRate != null ? Number(data.vatRate) : 0,
-            vatAmount: data.vatAmount != null ? Number(data.vatAmount) : null,
-            date: data.date ? String(data.date).split("T")[0] : "",
-            category: data.category || "Uncategorized",
-            attachments: mergeAttachmentSources(data.attachments, data.images),
-            loggedAt: createdDate ? createdDate.toISOString() : (data.date || ""),
-          });
+          receiptsByUser[uid].push(mapReceiptDoc(snap));
         });
 
         const incomeByUser = {};
@@ -1824,6 +2050,9 @@
             notifyAccountant: profile.notifyAccountant || false,
             processedAt: toJsDate(profile.processedAt),
             receipts: receiptsByUser[uid] || [],
+            receiptCount: (receiptsByUser[uid] || []).length,
+            receiptsLoaded: true,
+            receiptsLoading: false,
             income: incomeByUser[uid] || [],
             bankStatements: bankStatementsByUser[uid] || [],
           };
@@ -1838,27 +2067,28 @@
     function applyFiltersAndSort(users) {
       const text = (searchInput.value || "").trim().toLowerCase();
       const minReceipts = Number(minReceiptsInput.value || 0);
-      const recentDays = Number(recentUploadFilter.value || 0);
+      const selectedBoardPeriod = getSelectedBoardPeriod();
       const verificationScope = verificationScopeSelect.value || "verified-only";
-      const nowMs = Date.now();
 
       let filtered = users.filter((user) => {
         const status = getClientStatus(user, previousLoginDate);
         const nameMatch = user.name.toLowerCase().includes(text);
         const emailMatch = (user.email || "").toLowerCase().includes(text);
-        const receiptsCount = user.receipts.length;
+        const receiptsCount = getKnownReceiptCount(user);
 
         if (text && !nameMatch && !emailMatch) return false;
         if (verificationScope === "verified-only" && !user.isVerified) return false;
         if (verificationScope === "general-only" && user.isVerified) return false;
-        if (Number.isFinite(minReceipts) && receiptsCount < minReceipts) return false;
+        if (Number.isFinite(minReceipts) && minReceipts > 0 && receiptsCount != null && receiptsCount < minReceipts) return false;
         if (activeStatusFilters.size > 0 && !activeStatusFilters.has(status.key)) return false;
 
-        if (recentDays > 0) {
+        if (selectedBoardPeriod && selectedBoardPeriod.startDate && selectedBoardPeriod.endDate) {
           const latestMs = userLatestUploadMs(user);
           if (!latestMs) return false;
-          const maxAgeMs = recentDays * 24 * 60 * 60 * 1000;
-          if (nowMs - latestMs > maxAgeMs) return false;
+          const latestDate = toLocalYmd(new Date(latestMs));
+          const startDate = toLocalYmd(selectedBoardPeriod.startDate);
+          const endDate = toLocalYmd(selectedBoardPeriod.endDate);
+          if (latestDate < startDate || latestDate > endDate) return false;
         }
 
         return true;
@@ -1870,8 +2100,8 @@
         if (mode === "name-desc") return b.name.localeCompare(a.name, undefined, { sensitivity: "base" });
         if (mode === "recent-desc") return userLatestUploadMs(b) - userLatestUploadMs(a);
         if (mode === "recent-asc") return userLatestUploadMs(a) - userLatestUploadMs(b);
-        if (mode === "receipts-desc") return b.receipts.length - a.receipts.length;
-        if (mode === "receipts-asc") return a.receipts.length - b.receipts.length;
+        if (mode === "receipts-desc") return (b.receiptsLoaded ? b.receipts.length : -1) - (a.receiptsLoaded ? a.receipts.length : -1);
+        if (mode === "receipts-asc") return (a.receiptsLoaded ? a.receipts.length : Number.MAX_SAFE_INTEGER) - (b.receiptsLoaded ? b.receipts.length : Number.MAX_SAFE_INTEGER);
         return 0;
       });
 
@@ -1900,7 +2130,8 @@
           "<div class='card-title-row'><strong>" + user.name + "</strong>" + verifiedBadge + "</div>" +
           (user.email ? "<small style='opacity:0.8'>" + user.email + "</small>" : "") +
           "<small>" + status.label + "</small>" +
-          "<small>Receipts: " + user.receipts.length + " • Income: " + (user.income || []).length + " • Statements: " + (user.bankStatements || []).length + "</small>";
+          "<small>Receipts: " + (getKnownReceiptCount(user) != null ? getKnownReceiptCount(user) : 0) +
+          " • Income: " + (user.income || []).length + " • Statements: " + (user.bankStatements || []).length + "</small>";
 
         button.addEventListener("click", () => openDateModal(user));
         clientBoard.appendChild(button);
@@ -1910,6 +2141,7 @@
     async function reloadAndRenderBoard() {
       clientBoard.innerHTML = '<p style="padding: 0 8px; color: #4f6780; grid-column: 1/-1;">Loading client data…</p>';
       liveUsers = await loadRealData();
+      refreshBoardPeriodFilterOptions();
       renderBoardFromCurrentData();
       populateAdminClientSelect();
     }
@@ -2233,19 +2465,35 @@
       }
     }
 
-    function openDateModal(user) {
+    async function openDateModal(user) {
       selectedUser = user;
       const periods = buildExportPeriodOptions(new Date());
       periodSelect.innerHTML = periods
         .map((period) => "<option value='" + period.key + "'>" + period.label + "</option>")
         .join("");
-      periodSelect.value = periods[0] ? periods[0].key : "";
-      renderPeriodSummary();
+      periodSelect.value = periods.find((period) => period.key === "current-financial-year")
+        ? "current-financial-year"
+        : (periods[0] ? periods[0].key : "");
+      periodSummary.textContent = "Loading receipts for " + user.name + "...";
+      confirmDateBtn.disabled = true;
       resetNotifyBtn.style.display = "inline-block";
       refreshProcessedButtonState();
 
       document.getElementById("modalTitle").textContent = "Export data for " + user.name;
       dateModal.style.display = "flex";
+
+      try {
+        await ensureUserReceiptsLoaded(user);
+        if (!selectedUser || selectedUser.id !== user.id) return;
+        renderPeriodSummary();
+      } catch (error) {
+        if (!selectedUser || selectedUser.id !== user.id) return;
+        periodSummary.textContent = "Could not load receipts: " + (error && error.message ? error.message : String(error));
+      } finally {
+        if (selectedUser && selectedUser.id === user.id) {
+          confirmDateBtn.disabled = false;
+        }
+      }
     }
 
     function closeDateModal() {
@@ -2610,6 +2858,7 @@
     }
 
     async function downloadUserData(user, selectedPeriod) {
+      await ensureUserReceiptsLoaded(user);
       const startDate = selectedPeriod && selectedPeriod.startDate ? toLocalYmd(selectedPeriod.startDate) : null;
       const endDate = selectedPeriod && selectedPeriod.endDate ? toLocalYmd(selectedPeriod.endDate) : null;
       const snapshot = buildPeriodSnapshot(user, selectedPeriod);
@@ -2681,11 +2930,29 @@
           throw new Error("Export response payload was empty.");
         }
         const zipFileName = payload.fileName || fallbackZipName;
-        if (payload.downloadUrl) {
-          triggerUrlDownload(payload.downloadUrl, zipFileName);
-        } else if (payload.proxyDownload) {
-          const proxyBlob = await fetchExportZipViaProxy(payload.proxyDownload, idToken);
-          triggerBlobDownload(proxyBlob, zipFileName);
+        if (payload.proxyDownload) {
+          try {
+            const proxyBlob = await fetchExportZipViaProxy(payload.proxyDownload, idToken);
+            triggerBlobDownload(proxyBlob, zipFileName);
+          } catch (proxyError) {
+            if (payload.downloadUrl) {
+              try {
+                const directBlob = await fetchAttachmentBlobWithRetry(payload.downloadUrl, "");
+                triggerBlobDownload(directBlob, zipFileName);
+              } catch (directBlobError) {
+                triggerUrlDownload(payload.downloadUrl, zipFileName);
+              }
+            } else {
+              throw proxyError;
+            }
+          }
+        } else if (payload.downloadUrl) {
+          try {
+            const directBlob = await fetchAttachmentBlobWithRetry(payload.downloadUrl, "");
+            triggerBlobDownload(directBlob, zipFileName);
+          } catch (directBlobError) {
+            triggerUrlDownload(payload.downloadUrl, zipFileName);
+          }
         } else {
           throw new Error("Export response did not include a download URL or proxy fallback.");
         }
@@ -2753,6 +3020,8 @@
       loginInfo.textContent = previousLoginDate
         ? "Signed in as " + user.email + " | Previous login: " + previousLoginDate.toLocaleString()
         : "Signed in as " + user.email + " | First portal login";
+
+      refreshBoardPeriodFilterOptions();
 
       startInactivityTimer();
       setActiveTab(currentTab);

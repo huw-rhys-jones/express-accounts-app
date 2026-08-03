@@ -962,7 +962,13 @@ exports.exportClientZip = onRequest(
         setStage("sign-download-url");
         let downloadUrl = "";
         let downloadMethod = "signed-url";
-        let proxyDownload = null;
+        // Always include an authenticated proxy fallback so portal downloads
+        // keep working even if signed URL generation/access is flaky.
+        let proxyDownload = {
+          bucket: bucket.name,
+          fullPath: objectName,
+          method: "portal-fetch-image",
+        };
         try {
           [downloadUrl] = await bucket.file(objectName).getSignedUrl({
             version: "v4",
@@ -985,11 +991,6 @@ exports.exportClientZip = onRequest(
 
           // Fall back to authenticated proxy download so export still succeeds
           // even when IAM lacks signBlob permission for signed URLs.
-          proxyDownload = {
-            bucket: bucket.name,
-            fullPath: objectName,
-            method: "portal-fetch-image",
-          };
           downloadMethod = "token-url";
           setStage("sign-download-url-fallback-token-url");
           downloadUrl = buildFirebaseTokenDownloadUrl(bucket.name, objectName, exportDownloadToken);
