@@ -92,8 +92,8 @@ android {
         applicationId 'com.caistec.expressaccounts'
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
-        versionCode (findProperty('android.versionCode') as Integer) ?: 1
-        versionName (findProperty('android.versionName') ?: '1.2.0')
+        versionCode 10506
+        versionName "1.5.6"
 
         buildConfigField "String", "REACT_NATIVE_RELEASE_LEVEL", "\"${findProperty('reactNativeReleaseLevel') ?: 'stable'}\""
     }

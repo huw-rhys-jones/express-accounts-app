@@ -3,6 +3,7 @@ import {
   ActivityIndicator,
   Alert,
   FlatList,
+  Pressable,
   Platform,
   RefreshControl,
   StatusBar,
@@ -23,12 +24,14 @@ import DropDownPicker from "react-native-dropdown-picker";
 import {
   buildFinancialFilterOptions,
   filterReceiptsByDateRange,
+  getPeriodRecordCount,
+  formatPeriodLabelWithCount,
 } from "../utils/financialPeriods";
 import { getIncomeFilterKey, setIncomeFilterKey, setAllFilterKeys } from "../utils/appSettings";
 
 export default function IncomeScreen({ navigation }) {
-  const { incomeItems, initialLoading } = useData();
-  const loading = initialLoading;
+  const { incomeItems, incomeLoading } = useData();
+  const loading = incomeLoading;
   const [refreshing, setRefreshing] = useState(false);
   const [sortKey, setSortKey] = useState("date");
   const [sortDir, setSortDir] = useState("desc");
@@ -48,9 +51,25 @@ export default function IncomeScreen({ navigation }) {
     [activeFilterKey, filterOptions]
   );
 
+  const filterCountsByKey = useMemo(() => {
+    const counts = {};
+    for (const option of filterOptions) {
+      counts[option.key] = getPeriodRecordCount(incomeItems, option);
+    }
+    return counts;
+  }, [filterOptions, incomeItems]);
+
   useEffect(() => {
-    setFilterItems(filterOptions.map((o) => ({ label: o.label, value: o.key })));
-  }, [filterOptions]);
+    setFilterItems(
+      filterOptions.map((o) => {
+        const count = filterCountsByKey[o.key] ?? 0;
+        return {
+          label: formatPeriodLabelWithCount(o.label, count, "Income", "Incomes"),
+          value: o.key,
+        };
+      })
+    );
+  }, [filterCountsByKey, filterOptions]);
 
   useEffect(() => {
     getIncomeFilterKey()
@@ -63,6 +82,13 @@ export default function IncomeScreen({ navigation }) {
       getIncomeFilterKey()
         .then(setActiveFilterKey)
         .catch(() => setActiveFilterKey("current-quarter"));
+    });
+    return unsub;
+  }, [navigation]);
+
+  useEffect(() => {
+    const unsub = navigation.addListener("blur", () => {
+      setFilterOpen(false);
     });
     return unsub;
   }, [navigation]);
@@ -214,6 +240,13 @@ export default function IncomeScreen({ navigation }) {
         />
       </View>
 
+      {filterOpen ? (
+        <Pressable
+          style={styles.filterDismissOverlay}
+          onPress={() => setFilterOpen(false)}
+        />
+      ) : null}
+
       {/* Period filter bar — sits just above the bottom tab bar */}
       {!loading && filterOptions.length > 0 ? (
         <View style={styles.filterBar}>
@@ -342,6 +375,14 @@ const styles = StyleSheet.create({
   filterDropdownContainer: {
     borderColor: Colors.border,
     backgroundColor: Colors.card,
+  },
+  filterDismissOverlay: {
+    position: "absolute",
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    zIndex: 900,
   },
   headerCellDate: { width: 90, flexDirection: "row", gap: 6, alignItems: "center" },
   headerCellReference: { flex: 1, flexDirection: "row", gap: 6, alignItems: "center", paddingLeft: 16 },

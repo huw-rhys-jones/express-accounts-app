@@ -35,6 +35,20 @@
           "functionId": "extractReceiptImages",
           "region": "europe-west2"
         }
+      },
+      {
+        "source": "/portal-fetch-image",
+        "function": {
+          "functionId": "fetchPortalAttachment",
+          "region": "europe-west2"
+        }
+      },
+      {
+        "source": "/export-client-zip",
+        "function": {
+          "functionId": "exportClientZip",
+          "region": "europe-west2"
+        }
       }
     ]
   },

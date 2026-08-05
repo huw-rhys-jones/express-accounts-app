@@ -1,16 +1,15 @@
 {
   "name": "my-app",
-  "version": "1.4.0",
+  "version": "1.5.8",
   "main": "index.js",
   "scripts": {
     "start": "expo start",
     "android": "expo run:android",
     "ios": "expo run:ios",
     "web": "expo start --web",
-    "postinstall": "patch-package",
-    "test": "jest",
-    "test:watch": "jest --watch",
-    "test:coverage": "jest --coverage"
+    "sync:native-builds": "node scripts/sync-native-builds.cjs",
+    "eas-build-pre-install": "node scripts/sync-native-builds.cjs",
+    "postinstall": "patch-package"
   },
   "dependencies": {
     "@react-native-async-storage/async-storage": "2.2.0",

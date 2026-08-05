@@ -15,7 +15,7 @@ import {
   View,
 } from "react-native";
 import ImageViewer from "react-native-image-zoom-viewer";
-import { SafeAreaView } from "react-native-safe-area-context";
+import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import { KeyboardAwareScrollView } from "react-native-keyboard-aware-scroll-view";
 import { Button, Checkbox } from "react-native-paper";
 import DateTimePickerModal from "react-native-modal-datetime-picker";
@@ -67,6 +67,7 @@ function parseMoneyInput(value) {
 }
 
 export default function BankStatementForm({ navigation, route, mode }) {
+  const insets = useSafeAreaInsets();
   const statement = route?.params?.statement;
   const initialStatementType = route?.params?.initialStatementType || statement?.statementType || "bank";
   const [accountName, setAccountName] = useState(statement?.accountName || "");
@@ -849,7 +850,30 @@ export default function BankStatementForm({ navigation, route, mode }) {
   };
 
   return (
-    <SafeAreaView style={ReceiptStyles.safeArea}>
+    <SafeAreaView
+      style={ReceiptStyles.safeArea}
+      edges={["left", "right", "bottom"]}
+    >
+      <View style={[styles.header, { paddingTop: Math.max(insets.top + 10, 24) }]}>
+        <TouchableOpacity
+          onPress={() => navigateBackToBankStatements(navigation)}
+          style={styles.headerBtn}
+          activeOpacity={0.8}
+        >
+          <Text style={styles.headerBtnText}>‹</Text>
+        </TouchableOpacity>
+        <Text style={styles.headerTitle}>
+          {mode === "edit"
+            ? isCreditStatement
+              ? "Edit Credit Statement"
+              : "Edit Bank Statement"
+            : isCreditStatement
+              ? "Add Credit Statement"
+              : "Add Bank Statement"}
+        </Text>
+        <View style={styles.headerBtn} />
+      </View>
+
       <KeyboardAwareScrollView
         contentContainerStyle={styles.scrollContent}
         enableOnAndroid
@@ -992,20 +1016,6 @@ export default function BankStatementForm({ navigation, route, mode }) {
               </View>
             ) : null}
 
-            <View style={styles.actionRow}>
-              <Button mode="outlined" onPress={() => navigateBackToBankStatements(navigation)}>
-                Cancel
-              </Button>
-              <Button
-                mode="contained"
-                buttonColor={Colors.accent}
-                onPress={saveStatement}
-                disabled={isSaving || !isBankStatementFormValid}
-              >
-                Save
-              </Button>
-            </View>
-
             {!isCreditStatement ? (
               <View style={[styles.fieldGroup, styles.notesSection]}>
                 <Text style={ReceiptStyles.label}>Notes:</Text>
@@ -1020,19 +1030,64 @@ export default function BankStatementForm({ navigation, route, mode }) {
               </View>
             ) : null}
 
-            {mode === "edit" ? (
-              <Button
-                mode="outlined"
-                textColor={Colors.accent}
-                onPress={deleteStatement}
-                style={styles.deleteButton}
-              >
-                Delete Statement
-              </Button>
-            ) : null}
           </View>
         </View>
       </KeyboardAwareScrollView>
+
+      <View
+        style={[
+          styles.bottomBar,
+          { paddingBottom: Math.max(insets.bottom, Platform.OS === "android" ? 24 : 16) },
+        ]}
+      >
+        {mode === "edit" ? (
+          <>
+            <Button
+              mode="contained"
+              buttonColor="#cc2222"
+              onPress={deleteStatement}
+              style={styles.bottomActionBtn}
+              contentStyle={styles.bottomActionContent}
+              disabled={isSaving}
+            >
+              Delete
+            </Button>
+            <Button
+              mode="contained"
+              buttonColor={Colors.accent}
+              onPress={saveStatement}
+              style={styles.bottomActionBtn}
+              contentStyle={styles.bottomActionContent}
+              disabled={isSaving || !isBankStatementFormValid}
+            >
+              Save
+            </Button>
+          </>
+        ) : (
+          <>
+            <Button
+              mode="contained"
+              buttonColor={Colors.accent}
+              onPress={() => navigateBackToBankStatements(navigation)}
+              style={styles.bottomActionBtn}
+              contentStyle={styles.bottomActionContent}
+              disabled={isSaving}
+            >
+              Cancel
+            </Button>
+            <Button
+              mode="contained"
+              buttonColor={Colors.accent}
+              onPress={saveStatement}
+              style={styles.bottomActionBtn}
+              contentStyle={styles.bottomActionContent}
+              disabled={isSaving || !isBankStatementFormValid}
+            >
+              Save
+            </Button>
+          </>
+        )}
+      </View>
 
       <DateTimePickerModal
         isVisible={Boolean(datePickerTarget)}
@@ -1382,7 +1437,18 @@ const stylesConst = {
 };
 
 const styles = StyleSheet.create({
-  scrollContent: { flexGrow: 1, paddingBottom: 120 },
+  header: {
+    backgroundColor: "#1C1C4E",
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    paddingHorizontal: 16,
+    paddingBottom: 14,
+  },
+  headerTitle: { color: "#fff", fontSize: 17, fontWeight: "700" },
+  headerBtn: { width: 40, alignItems: "center" },
+  headerBtnText: { color: "#fff", fontWeight: "600", fontSize: 22 },
+  scrollContent: { flexGrow: 1, paddingBottom: 180 },
   fieldGroup: { marginBottom: 18 },
   attachmentSection: { marginTop: 16 },
   notesSection: { marginTop: 10 },
@@ -1558,12 +1624,22 @@ const styles = StyleSheet.create({
     fontWeight: "700",
     textAlign: "center",
   },
-  actionRow: {
+  bottomBar: {
     flexDirection: "row",
-    justifyContent: "space-between",
-    marginTop: 6,
+    gap: 12,
+    paddingHorizontal: 16,
+    paddingTop: 10,
+    backgroundColor: "#fff",
+    borderTopWidth: 1,
+    borderTopColor: "#e8e8e8",
   },
-  deleteButton: { marginTop: 16 },
+  bottomActionBtn: {
+    flex: 1,
+    borderRadius: 25,
+  },
+  bottomActionContent: {
+    height: 48,
+  },
   loadingOverlay: {
     ...StyleSheet.absoluteFillObject,
     backgroundColor: "rgba(0,0,0,0.35)",

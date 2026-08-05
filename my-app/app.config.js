@@ -9,6 +9,7 @@ const [major = 0, minor = 0, patch = 0] = String(appVersion)
   .map((part) => Number.parseInt(part, 10) || 0);
 
 const numericBuild = major * 10000 + minor * 100 + patch;
+const iosBuildNumber = process.env.IOS_BUILD_NUMBER || String(numericBuild);
 
 export default ({ config }) => ({
   ...config,
@@ -31,6 +32,7 @@ export default ({ config }) => ({
   },
 
   ios: {
+    buildNumber: iosBuildNumber,
     supportsTablet: false,
     bundleIdentifier: "com.caistec.expressaccounts",
     googleServicesFile: "./GoogleService-Info.plist",

@@ -1,4 +1,7 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
+import { auth } from "../firebaseConfig";
+import { db } from "../firebaseConfig";
+import { doc, getDoc, serverTimestamp, setDoc } from "firebase/firestore";
 
 const RECEIPT_FILTER_KEY = "@settings:receiptFilterKey";
 const INCOME_FILTER_KEY = "@settings:incomeFilterKey";
@@ -51,6 +54,7 @@ export async function setSummaryFilterKey(filterKey) {
 }
 
 const ADD_SHEET_TOOLTIP_SEEN_KEY = "@settings:addSheetTooltipSeen";
+const HIDDEN_PERIOD_TOOLTIP_DISMISSED_KEY = "@settings:hiddenPeriodTooltipDismissed";
 
 export async function getAddSheetTooltipSeen() {
   try {
@@ -69,31 +73,112 @@ export async function setAddSheetTooltipSeen() {
   }
 }
 
-// ── Vehicles ──────────────────────────────────────────────────────────────────
-
-const VEHICLES_KEY = "@settings:vehicles";
-const LAST_USED_VEHICLE_ID_KEY = "@settings:lastUsedVehicleId";
-
-export async function getVehicles() {
+export async function getHiddenPeriodTooltipDismissed() {
   try {
-    const raw = await AsyncStorage.getItem(VEHICLES_KEY);
-    return raw ? JSON.parse(raw) : [];
+    const value = await AsyncStorage.getItem(HIDDEN_PERIOD_TOOLTIP_DISMISSED_KEY);
+    return value === "true";
   } catch {
-    return [];
+    return false;
   }
 }
 
-export async function setVehicles(vehicles) {
+export async function setHiddenPeriodTooltipDismissed() {
   try {
-    await AsyncStorage.setItem(VEHICLES_KEY, JSON.stringify(vehicles));
+    await AsyncStorage.setItem(HIDDEN_PERIOD_TOOLTIP_DISMISSED_KEY, "true");
   } catch {
     // ignore
   }
 }
 
+// ── Vehicles ──────────────────────────────────────────────────────────────────
+// Keys are scoped per user so each account has its own vehicle list on the device.
+function vehiclesKey() {
+  const uid = auth.currentUser?.uid;
+  return uid ? `@settings:vehicles:${uid}` : "@settings:vehicles";
+}
+
+function lastUsedVehicleKey() {
+  const uid = auth.currentUser?.uid;
+  return uid ? `@settings:lastUsedVehicleId:${uid}` : "@settings:lastUsedVehicleId";
+}
+
+export async function getVehicles() {
+  const readLocalVehicles = async () => {
+    try {
+      const raw = await AsyncStorage.getItem(vehiclesKey());
+      const parsed = raw ? JSON.parse(raw) : [];
+      return Array.isArray(parsed) ? parsed : [];
+    } catch {
+      return [];
+    }
+  };
+
+  const localVehicles = await readLocalVehicles();
+  const uid = auth.currentUser?.uid;
+  if (!uid) {
+    return localVehicles;
+  }
+
+  try {
+    const userRef = doc(db, "users", uid);
+    const userSnap = await getDoc(userRef);
+    const cloudVehicles = userSnap.exists() && Array.isArray(userSnap.data()?.vehicles)
+      ? userSnap.data().vehicles
+      : [];
+
+    if (cloudVehicles.length > 0) {
+      await AsyncStorage.setItem(vehiclesKey(), JSON.stringify(cloudVehicles));
+      return cloudVehicles;
+    }
+
+    if (localVehicles.length > 0) {
+      // Migrate legacy device-local vehicles for this user to Firestore.
+      await setDoc(
+        userRef,
+        {
+          vehicles: localVehicles,
+          updatedAt: serverTimestamp(),
+        },
+        { merge: true }
+      );
+      return localVehicles;
+    }
+
+    return [];
+  } catch {
+    return localVehicles;
+  }
+}
+
+export async function setVehicles(vehicles) {
+  const safeVehicles = Array.isArray(vehicles) ? vehicles : [];
+
+  try {
+    await AsyncStorage.setItem(vehiclesKey(), JSON.stringify(safeVehicles));
+  } catch {
+    // ignore
+  }
+
+  const uid = auth.currentUser?.uid;
+  if (!uid) return;
+
+  try {
+    await setDoc(
+      doc(db, "users", uid),
+      {
+        vehicles: safeVehicles,
+        updatedAt: serverTimestamp(),
+      },
+      { merge: true }
+    );
+  } catch {
+    // ignore network errors; local cache remains available
+  }
+}
+
 export async function getLastUsedVehicleId() {
   try {
-    return await AsyncStorage.getItem(LAST_USED_VEHICLE_ID_KEY);
+    return await AsyncStorage.getItem(lastUsedVehicleKey());
   } catch {
     return null;
   }
@@ -101,7 +186,7 @@ export async function getLastUsedVehicleId() {
 
 export async function setLastUsedVehicleId(id) {
   try {
-    await AsyncStorage.setItem(LAST_USED_VEHICLE_ID_KEY, id);
+    await AsyncStorage.setItem(lastUsedVehicleKey(), id);
   } catch {
     // ignore
   }

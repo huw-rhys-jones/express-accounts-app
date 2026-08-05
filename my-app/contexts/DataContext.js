@@ -11,8 +11,11 @@ export function DataProvider({ children }) {
   const [bankStatements, setBankStatements] = useState([]);
   const [userProfile, setUserProfile] = useState({});
   const [initialLoading, setInitialLoading] = useState(true);
+  const [receiptsLoading, setReceiptsLoading] = useState(true);
+  const [incomeLoading, setIncomeLoading] = useState(true);
+  const [bankStatementsLoading, setBankStatementsLoading] = useState(true);
 
-  const loadedRef = useRef({ receipts: false, income: false });
+  const loadedRef = useRef({ receipts: false, income: false, bankStatements: false });
   const activeUidRef = useRef(null);
 
   useEffect(() => {
@@ -39,6 +42,9 @@ export function DataProvider({ children }) {
         setReceipts([]);
         setIncomeItems([]);
         setBankStatements([]);
+        setReceiptsLoading(false);
+        setIncomeLoading(false);
+        setBankStatementsLoading(false);
         setInitialLoading(false);
         return;
       }
@@ -46,17 +52,23 @@ export function DataProvider({ children }) {
       const isUnverifiedPasswordUser =
         user.providerData?.some((p) => p.providerId === 'password') && !user.emailVerified;
       if (isUnverifiedPasswordUser) {
+        setReceiptsLoading(false);
+        setIncomeLoading(false);
+        setBankStatementsLoading(false);
         setInitialLoading(false);
         return;
       }
 
       // Reset loaded flags for new user session
-      loadedRef.current = { receipts: false, income: false };
+      loadedRef.current = { receipts: false, income: false, bankStatements: false };
+      setReceiptsLoading(true);
+      setIncomeLoading(true);
+      setBankStatementsLoading(true);
       setInitialLoading(true);
 
       const checkAllLoaded = () => {
         const l = loadedRef.current;
-        if (l.receipts && l.income) {
+        if (l.receipts && l.income && l.bankStatements) {
           setInitialLoading(false);
         }
       };
@@ -81,11 +93,13 @@ export function DataProvider({ children }) {
         query(collection(db, 'receipts'), where('userId', '==', user.uid)),
         (snap) => {
           setReceipts(snap.docs.map((d) => ({ id: d.id, ...d.data() })));
+          setReceiptsLoading(false);
           loadedRef.current.receipts = true;
           checkAllLoaded();
         },
         (err) => {
           console.warn('Error listening to receipts', err);
+          setReceiptsLoading(false);
           loadedRef.current.receipts = true;
           checkAllLoaded();
         }
@@ -95,11 +109,13 @@ export function DataProvider({ children }) {
         query(collection(db, 'income'), where('userId', '==', user.uid)),
         (snap) => {
           setIncomeItems(snap.docs.map((d) => ({ id: d.id, ...d.data() })));
+          setIncomeLoading(false);
           loadedRef.current.income = true;
           checkAllLoaded();
         },
         (err) => {
           console.warn('Error listening to income', err);
+          setIncomeLoading(false);
           loadedRef.current.income = true;
           checkAllLoaded();
         }
@@ -109,11 +125,13 @@ export function DataProvider({ children }) {
         query(collection(db, 'bankStatements'), where('userId', '==', user.uid)),
         (snap) => {
           setBankStatements(snap.docs.map((d) => ({ id: d.id, ...d.data() })));
+          setBankStatementsLoading(false);
           loadedRef.current.bankStatements = true;
           checkAllLoaded();
         },
         (err) => {
           console.warn('Error listening to bank statements', err);
+          setBankStatementsLoading(false);
           loadedRef.current.bankStatements = true;
           checkAllLoaded();
         }
@@ -131,7 +149,7 @@ export function DataProvider({ children }) {
   const displayName = auth.currentUser?.displayName || userProfile.name || 'User';
 
   return (
-    <DataContext.Provider value={{ receipts, incomeItems, bankStatements, userProfile, displayName, initialLoading }}>
+    <DataContext.Provider value={{ receipts, incomeItems, bankStatements, userProfile, displayName, initialLoading, receiptsLoading, incomeLoading, bankStatementsLoading }}>
       {children}
     </DataContext.Provider>
   );

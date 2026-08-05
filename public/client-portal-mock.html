@@ -426,12 +426,13 @@
     }
 
     .modal {
-      width: min(500px, 100%);
+      width: min(1040px, 96vw);
+      max-height: 92vh;
       background: #fff;
       border-radius: 18px;
       border: 1px solid var(--outline);
       box-shadow: var(--shadow);
-      overflow: hidden;
+      overflow: auto;
       animation: rise 0.26s ease-out;
     }
 
@@ -455,6 +456,96 @@
       justify-content: flex-end;
       gap: 8px;
       margin-top: 4px;
+    }
+
+    .period-summary {
+      margin-top: 2px;
+      border: 1px solid #d7e2ee;
+      border-radius: 12px;
+      background: #f7fafd;
+      color: #21476d;
+      font-size: 0.92rem;
+      line-height: 1.45;
+      padding: 10px 12px;
+      overflow: hidden;
+    }
+
+    .summary-headline {
+      font-weight: 700;
+      margin-bottom: 6px;
+    }
+
+    .receipt-summary-title {
+      margin-top: 10px;
+      font-weight: 700;
+    }
+
+    .receipt-summary-table {
+      width: 100%;
+      border-collapse: collapse;
+      table-layout: fixed;
+      font-size: 0.94rem;
+      background: #fff;
+      border: 1px solid #d7e2ee;
+      border-radius: 10px;
+    }
+
+    .receipt-summary-table-wrap {
+      margin-top: 8px;
+      max-height: 46vh;
+      overflow: auto;
+      border-radius: 10px;
+    }
+
+    .receipt-summary-table thead th {
+      position: sticky;
+      top: 0;
+      z-index: 1;
+      text-align: left;
+      padding: 8px 10px;
+      background: #edf3fb;
+      border-bottom: 1px solid #d7e2ee;
+      color: #17324d;
+      white-space: nowrap;
+      font-weight: 700;
+    }
+
+    .receipt-summary-table tbody td {
+      padding: 7px 10px;
+      border-bottom: 1px solid #e5edf6;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .receipt-summary-table tbody tr:nth-child(even) {
+      background: #f9fbff;
+    }
+
+    .receipt-summary-table tbody tr:last-child td {
+      border-bottom: none;
+    }
+
+    .receipt-summary-table .col-amount,
+    .receipt-summary-table .col-vat,
+    .receipt-summary-table .col-rate,
+    .receipt-summary-table .col-date {
+      width: 16%;
+    }
+
+    .receipt-summary-table .col-amount,
+    .receipt-summary-table .col-vat,
+    .receipt-summary-table .col-rate {
+      text-align: right;
+      font-variant-numeric: tabular-nums;
+    }
+
+    .receipt-summary-table .col-date {
+      font-variant-numeric: tabular-nums;
+    }
+
+    .receipt-summary-table .col-category {
+      width: 36%;
     }
 
     @keyframes rise {
@@ -487,19 +578,40 @@
       .statusline { margin-bottom: 16px; }
       .login-head,
       .login-body { padding-left: 20px; padding-right: 20px; }
+      .modal {
+        width: 96vw;
+        max-height: 95vh;
+      }
+      .receipt-summary-table {
+        table-layout: auto;
+        font-size: 0.88rem;
+      }
+      .receipt-summary-table-wrap {
+        max-height: 42vh;
+      }
+      .receipt-summary-table .col-amount,
+      .receipt-summary-table .col-vat,
+      .receipt-summary-table .col-rate,
+      .receipt-summary-table .col-date,
+      .receipt-summary-table .col-category {
+        width: auto;
+      }
     }
     @keyframes spin { to { transform: rotate(360deg); } }
   </style>
   <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-app-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-auth-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-storage-compat.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js"></script>
   <script src="/__/firebase/init.js"></script>
   <script src="/utils/taxQuarter.js"></script>
   <script src="/utils/clientVerification.js"></script>
   <script>
     const auth = firebase.auth();
     const db = firebase.firestore();
+    const storage = firebase.storage();
     // Session-only persistence: signing out automatically when the tab/browser closes
     auth.setPersistence(firebase.auth.Auth.Persistence.SESSION);
   </script>
@@ -557,6 +669,7 @@
       <div class="tabbar">
         <button id="activityTabBtn" type="button" class="tab-button active">Client Activity</button>
         <button id="managementTabBtn" type="button" class="tab-button">Client Management</button>
+        <button id="adminTabBtn" type="button" class="tab-button">Client Admin</button>
       </div>
 
       <div id="activityTabPanel" class="tab-panel active">
@@ -580,10 +693,8 @@
         </select>
         <input id="minReceiptsInput" type="number" min="0" step="1" placeholder="Min receipts" />
         <select id="recentUploadFilter">
-          <option value="0">Any upload date</option>
-          <option value="7">Uploaded last 7 days</option>
-          <option value="30">Uploaded last 30 days</option>
-          <option value="90">Uploaded last 90 days</option>
+          <option value="current-financial-year">Current Financial Year</option>
+          <option value="all-time">All Time</option>
         </select>
         <select id="verificationScopeSelect">
           <option value="verified-only">Verified clients only</option>
@@ -662,6 +773,42 @@
 
         </div>
       </div>
+
+      <div id="adminTabPanel" class="tab-panel">
+        <div class="management-panel">
+          <h3 style="margin:0 0 14px; font-family:'Space Grotesk',sans-serif; font-size:1.05rem; color:var(--ink)">Edit Client Details</h3>
+          <div class="stack">
+            <label for="adminClientSelect">Select client</label>
+            <select id="adminClientSelect">
+              <option value="">Choose a client...</option>
+            </select>
+            <p class="hint" style="margin-top:0">Edits here update the client profile in Firestore.</p>
+          </div>
+
+          <div class="split-layout" style="margin-top:10px">
+            <div class="stack">
+              <label for="adminNameInput">Name</label>
+              <input id="adminNameInput" type="text" placeholder="Client name" />
+            </div>
+            <div class="stack">
+              <label for="adminEmailInput">Email</label>
+              <input id="adminEmailInput" type="email" placeholder="client@example.com" />
+            </div>
+          </div>
+
+          <div class="stack" style="margin-top:10px">
+            <label for="adminCodeInput">Verification code</label>
+            <input id="adminCodeInput" type="text" placeholder="Optional, e.g. ABC123" style="text-transform:uppercase" />
+            <p class="hint" style="margin-top:0">If provided, the code is created/updated in VerificationCodes and linked to this user.</p>
+          </div>
+
+          <div class="actions" style="margin-top:14px">
+            <button id="adminSaveBtn" type="button" class="btn-primary">Save Client Changes</button>
+            <button id="adminClearBtn" type="button" class="btn-secondary">Clear</button>
+          </div>
+          <div id="adminStatus" class="statusline" style="margin-top:10px">Select a client to edit their details.</div>
+        </div>
+      </div>
     </section>
   </div>
 
@@ -671,11 +818,12 @@
       <div class="modal-body">
         <label for="periodSelect">Financial period</label>
         <select id="periodSelect"></select>
+        <div id="periodSummary" class="period-summary">Select a period to see record totals.</div>
 
         <div class="modal-actions">
           <button id="resetNotifyBtn" type="button" class="btn-success" style="display:none">Mark As Processed</button>
           <button id="cancelDateBtn" type="button" class="btn-secondary">Cancel</button>
-          <button id="confirmDateBtn" type="button" class="btn-primary">Download Excel</button>
+          <button id="confirmDateBtn" type="button" class="btn-primary">Download ZIP</button>
         </div>
       </div>
     </div>
@@ -702,8 +850,10 @@
     const logOutBtn = document.getElementById("logOutBtn");
     const activityTabBtn = document.getElementById("activityTabBtn");
     const managementTabBtn = document.getElementById("managementTabBtn");
+    const adminTabBtn = document.getElementById("adminTabBtn");
     const activityTabPanel = document.getElementById("activityTabPanel");
     const managementTabPanel = document.getElementById("managementTabPanel");
+    const adminTabPanel = document.getElementById("adminTabPanel");
 
     const searchInput = document.getElementById("searchInput");
     const sortSelect = document.getElementById("sortSelect");
@@ -721,9 +871,17 @@
     const allCodesStatus = document.getElementById("allCodesStatus");
     const generatedCodesTableBody = document.querySelector("#generatedCodesTable tbody");
     const allCodesTableBody = document.querySelector("#allCodesTable tbody");
+    const adminClientSelect = document.getElementById("adminClientSelect");
+    const adminNameInput = document.getElementById("adminNameInput");
+    const adminEmailInput = document.getElementById("adminEmailInput");
+    const adminCodeInput = document.getElementById("adminCodeInput");
+    const adminSaveBtn = document.getElementById("adminSaveBtn");
+    const adminClearBtn = document.getElementById("adminClearBtn");
+    const adminStatus = document.getElementById("adminStatus");
 
     const dateModal = document.getElementById("dateModal");
     const periodSelect = document.getElementById("periodSelect");
+    const periodSummary = document.getElementById("periodSummary");
     const cancelDateBtn = document.getElementById("cancelDateBtn");
     const confirmDateBtn = document.getElementById("confirmDateBtn");
     const resetNotifyBtn = document.getElementById("resetNotifyBtn");
@@ -732,8 +890,10 @@
     let previousLoginDate = null;
     let liveUsers = [];
     let selectedUser = null;
+    let selectedAdminUserId = "";
     const activeStatusFilters = new Set();
     let currentTab = "activity";
+    let receiptCountLoadRun = 0;
 
     // Inactivity timeout: sign out after 30 minutes of no mouse/keyboard activity
     const INACTIVITY_TIMEOUT_MS = 30 * 60 * 1000;
@@ -883,6 +1043,358 @@
       ].join("-");
     }
 
+    function sanitizeFileSegment(value, fallback) {
+      const cleaned = String(value || "")
+        .trim()
+        .replace(/[^a-zA-Z0-9._-]+/g, "-")
+        .replace(/-+/g, "-")
+        .replace(/(^-|-$)/g, "");
+      return cleaned || fallback;
+    }
+
+    function inferAttachmentExtension(attachment) {
+      const attachmentName = String(attachment && attachment.name ? attachment.name : "").trim();
+      if (attachmentName.includes(".")) {
+        const ext = attachmentName.split(".").pop().toLowerCase().replace(/[^a-z0-9]/g, "");
+        if (ext) return "." + ext;
+      }
+
+      const mimeType = String(attachment && attachment.mimeType ? attachment.mimeType : "").toLowerCase();
+      if (mimeType === "image/jpeg") return ".jpg";
+      if (mimeType === "image/png") return ".png";
+      if (mimeType === "image/webp") return ".webp";
+      if (mimeType === "image/heic") return ".heic";
+      if (mimeType === "image/heif") return ".heif";
+      if (mimeType === "image/gif") return ".gif";
+
+      const sourceUrl = String(attachment && attachment.url ? attachment.url : "");
+      const urlWithoutQuery = sourceUrl.split("?")[0];
+      if (urlWithoutQuery.includes(".")) {
+        const urlExt = urlWithoutQuery.split(".").pop().toLowerCase().replace(/[^a-z0-9]/g, "");
+        if (urlExt) return "." + urlExt;
+      }
+
+      return ".jpg";
+    }
+
+    function appendTokenIfPresent(url, token) {
+      const cleanToken = String(token || "").trim();
+      if (!cleanToken) return url;
+      if (/([?&])token=/.test(url)) return url;
+      return url + (url.includes("?") ? "&" : "?") + "token=" + encodeURIComponent(cleanToken);
+    }
+
+    function parseGsUrl(url) {
+      const match = String(url || "").match(/^gs:\/\/([^/]+)\/(.+)$/i);
+      if (!match) return null;
+      return { bucket: match[1], objectPath: match[2] };
+    }
+
+    function parseStorageGoogleapisUrl(url) {
+      const value = String(url || "");
+      const match = value.match(/^https:\/\/storage\.googleapis\.com\/([^/]+)\/(.+)$/i);
+      if (!match) return null;
+      return { bucket: match[1], objectPath: decodeURIComponent(match[2]) };
+    }
+
+    function parseFirebaseStorageMediaUrl(url) {
+      const value = String(url || "");
+      const match = value.match(/^https:\/\/firebasestorage\.googleapis\.com\/v0\/b\/([^/]+)\/o\/([^?]+)(\?.*)?$/i);
+      if (!match) return null;
+      return {
+        bucket: match[1],
+        objectPath: decodeURIComponent(match[2]),
+      };
+    }
+
+    function buildFirebaseMediaUrl(bucket, objectPath, token) {
+      if (!bucket || !objectPath) return "";
+      let url = "https://firebasestorage.googleapis.com/v0/b/" + bucket + "/o/" + encodeURIComponent(objectPath) + "?alt=media";
+      url = appendTokenIfPresent(url, token);
+      return url;
+    }
+
+    function buildAttachmentFetchCandidates(attachment) {
+      const candidates = [];
+      const pushCandidate = (candidate) => {
+        const value = String(candidate || "").trim();
+        if (!value) return;
+        if (!candidates.includes(value)) {
+          candidates.push(value);
+        }
+      };
+
+      const token = attachment.downloadToken || attachment.token || attachment.firebaseStorageDownloadToken || "";
+      const rawUrl = String(attachment && attachment.url ? attachment.url : "").trim();
+      pushCandidate(rawUrl);
+
+      const gsInfo = parseGsUrl(rawUrl || attachment.gsUrl || "");
+      if (gsInfo) {
+        pushCandidate(buildFirebaseMediaUrl(gsInfo.bucket, gsInfo.objectPath, token));
+        if (gsInfo.bucket.endsWith(".firebasestorage.app")) {
+          pushCandidate(buildFirebaseMediaUrl(gsInfo.bucket.replace(/\.firebasestorage\.app$/i, ".appspot.com"), gsInfo.objectPath, token));
+        }
+      }
+
+      const storageApiInfo = parseStorageGoogleapisUrl(rawUrl);
+      if (storageApiInfo) {
+        pushCandidate(buildFirebaseMediaUrl(storageApiInfo.bucket, storageApiInfo.objectPath, token));
+        if (storageApiInfo.bucket.endsWith(".firebasestorage.app")) {
+          pushCandidate(buildFirebaseMediaUrl(storageApiInfo.bucket.replace(/\.firebasestorage\.app$/i, ".appspot.com"), storageApiInfo.objectPath, token));
+        }
+      }
+
+      const firebaseMediaInfo = parseFirebaseStorageMediaUrl(rawUrl);
+      if (firebaseMediaInfo) {
+        pushCandidate(buildFirebaseMediaUrl(firebaseMediaInfo.bucket, firebaseMediaInfo.objectPath, token));
+        if (firebaseMediaInfo.bucket.endsWith(".firebasestorage.app")) {
+          pushCandidate(buildFirebaseMediaUrl(firebaseMediaInfo.bucket.replace(/\.firebasestorage\.app$/i, ".appspot.com"), firebaseMediaInfo.objectPath, token));
+        }
+      }
+
+      if (!rawUrl && attachment.bucket && attachment.fullPath) {
+        pushCandidate(buildFirebaseMediaUrl(attachment.bucket, attachment.fullPath, token));
+        if (String(attachment.bucket).endsWith(".firebasestorage.app")) {
+          pushCandidate(buildFirebaseMediaUrl(String(attachment.bucket).replace(/\.firebasestorage\.app$/i, ".appspot.com"), attachment.fullPath, token));
+        }
+      }
+
+      return candidates;
+    }
+
+    function removeTokenParam(url) {
+      const value = String(url || "");
+      return value
+        .replace(/([?&])token=[^&]*/i, "$1")
+        .replace(/[?&]$/, "");
+    }
+
+    async function fetchAttachmentBlobWithRetry(url, idToken) {
+      const candidates = [url, removeTokenParam(url)].filter(Boolean);
+
+      const headerSets = [
+        {},
+      ];
+
+      if (idToken) {
+        headerSets.push({ Authorization: "Firebase " + idToken });
+        headerSets.push({ Authorization: "Bearer " + idToken });
+      }
+
+      let lastError = "No fetch attempts made";
+
+      for (const candidateUrl of candidates) {
+        for (const headers of headerSets) {
+          try {
+            const response = await fetch(candidateUrl, {
+              mode: "cors",
+              headers,
+            });
+            if (!response.ok) {
+              throw new Error("HTTP " + response.status);
+            }
+            const blob = await response.blob();
+            if (!blob || blob.size === 0) {
+              throw new Error("Empty file response");
+            }
+            return blob;
+          } catch (error) {
+            lastError = error && error.message ? error.message : String(error);
+          }
+        }
+      }
+
+      throw new Error(lastError);
+    }
+
+    async function fetchAttachmentBlobViaProxy(attachment, idToken) {
+      const payload = JSON.stringify({
+        sourceUrl: attachment.url || "",
+        gsUrl: attachment.gsUrl || "",
+        bucket: attachment.bucket || "",
+        fullPath: attachment.fullPath || "",
+      });
+
+      const endpoints = [
+        "/portal-fetch-image",
+        "https://europe-west2-express-accounts-73d38.cloudfunctions.net/fetchPortalAttachment",
+      ];
+
+      let lastError = "proxy request failed";
+
+      for (const endpoint of endpoints) {
+        try {
+          const response = await fetch(endpoint, {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              ...(idToken ? { Authorization: "Bearer " + idToken } : {}),
+            },
+            body: payload,
+          });
+
+          if (!response.ok) {
+            throw new Error("proxy HTTP " + response.status + " via " + endpoint);
+          }
+
+          const blob = await response.blob();
+          if (!blob || blob.size === 0) {
+            throw new Error("proxy empty file response via " + endpoint);
+          }
+
+          return blob;
+        } catch (error) {
+          lastError = error && error.message ? error.message : String(error);
+        }
+      }
+
+      throw new Error(lastError);
+    }
+
+    function normalizePortalAttachments(attachments) {
+      return (Array.isArray(attachments) ? attachments : [])
+        .map((attachment, index) => {
+          if (!attachment) return null;
+          if (typeof attachment === "string") {
+            return {
+              id: "attachment-" + index,
+              name: "attachment-" + (index + 1),
+              mimeType: "",
+              kind: "image",
+              url: attachment,
+            };
+          }
+
+          const normalizedUrl =
+            attachment.url ||
+            attachment.downloadURL ||
+            attachment.uri ||
+            attachment.localUri ||
+            attachment.sourceUri ||
+            "";
+
+          return {
+            id: attachment.id || normalizedUrl || "attachment-" + index,
+            name: attachment.name || attachment.fileName || ("attachment-" + (index + 1)),
+            mimeType: attachment.mimeType || attachment.type || "",
+            kind: attachment.kind || "",
+            url: normalizedUrl,
+            gsUrl: attachment.gsUrl || attachment.gsURI || attachment.storageUri || attachment.uri || "",
+            bucket: attachment.bucket || "",
+            fullPath: attachment.fullPath || attachment.path || attachment.storagePath || "",
+            downloadToken: attachment.downloadToken || attachment.token || attachment.firebaseStorageDownloadToken || "",
+          };
+        })
+        .filter(Boolean);
+    }
+
+    function mergeAttachmentSources(primaryAttachments, imageUrls) {
+      const merged = [
+        ...normalizePortalAttachments(primaryAttachments),
+        ...normalizePortalAttachments(imageUrls),
+      ];
+
+      const seen = new Set();
+      return merged.filter((item) => {
+        const key = String(item && item.url ? item.url : item && item.id ? item.id : "").trim();
+        if (!key) return false;
+        if (seen.has(key)) return false;
+        seen.add(key);
+        return true;
+      });
+    }
+
+    function isImageLikeAttachment(attachment) {
+      const mimeType = String(attachment && attachment.mimeType ? attachment.mimeType : "").toLowerCase();
+      const kind = String(attachment && attachment.kind ? attachment.kind : "").toLowerCase();
+      if (mimeType.startsWith("image/")) return true;
+      if (kind === "image") return true;
+      const ext = inferAttachmentExtension(attachment);
+      return [".jpg", ".jpeg", ".png", ".webp", ".heic", ".heif", ".gif"].includes(ext);
+    }
+
+    function buildExportItems(entries, prefix) {
+      const sortedEntries = [...(entries || [])].sort((a, b) => {
+        const dateA = String(a && (a.date || a.loggedAt || "") || "");
+        const dateB = String(b && (b.date || b.loggedAt || "") || "");
+        const dateCompare = dateA.localeCompare(dateB);
+        if (dateCompare !== 0) return dateCompare;
+        return String(a && a.id ? a.id : "").localeCompare(String(b && b.id ? b.id : ""));
+      });
+
+      return sortedEntries.map((entry, index) => {
+        const exportId = prefix + String(index + 1).padStart(4, "0");
+        const imageAttachments = normalizePortalAttachments(entry && entry.attachments)
+          .filter((attachment) => attachment.url && isImageLikeAttachment(attachment))
+          .map((attachment, imageIndex) => ({
+            ...attachment,
+            exportAttachmentId: exportId + "-" + (imageIndex + 1),
+          }));
+
+        return {
+          entry,
+          exportId,
+          imageAttachments,
+        };
+      });
+    }
+
+    function triggerBlobDownload(blob, fileName) {
+      const objectUrl = URL.createObjectURL(blob);
+      const anchor = document.createElement("a");
+      anchor.href = objectUrl;
+      anchor.download = fileName;
+      anchor.style.display = "none";
+      document.body.appendChild(anchor);
+      anchor.click();
+      setTimeout(() => {
+        URL.revokeObjectURL(objectUrl);
+        anchor.remove();
+      }, 1000);
+    }
+
+    function triggerUrlDownload(url, fileName) {
+      const anchor = document.createElement("a");
+      anchor.href = url;
+      anchor.download = fileName;
+      anchor.rel = "noopener";
+      anchor.style.display = "none";
+      document.body.appendChild(anchor);
+      anchor.click();
+      setTimeout(() => anchor.remove(), 1000);
+    }
+
+    async function fetchExportZipViaProxy(proxyDownload, idToken) {
+      if (!proxyDownload || !proxyDownload.fullPath) {
+        throw new Error("Export proxy download path is missing.");
+      }
+
+      const response = await fetch("/portal-fetch-image", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: "Bearer " + idToken,
+        },
+        body: JSON.stringify({
+          bucket: proxyDownload.bucket || "",
+          fullPath: proxyDownload.fullPath,
+        }),
+      });
+
+      if (!response.ok) {
+        let proxyError = "Could not download ZIP from proxy.";
+        try {
+          const err = await response.json();
+          proxyError = err && err.error ? err.error : proxyError;
+        } catch {
+          // ignore parse errors
+        }
+        throw new Error(proxyError);
+      }
+
+      return response.blob();
+    }
+
     function getFinancialYearStartYear(date) {
       const day = startOfLocalDay(date || new Date());
       const aprilSixThisYear = new Date(day.getFullYear(), 3, 6);
@@ -930,34 +1442,57 @@
     function buildExportPeriodOptions(referenceDate) {
       const today = startOfLocalDay(referenceDate || new Date());
       const currentStartYear = getFinancialYearStartYear(today);
-      const quarters = [
-        ...getFinancialQuarterPeriods(currentStartYear - 1),
-        ...getFinancialQuarterPeriods(currentStartYear),
-      ]
-        .filter((quarter) => startOfLocalDay(quarter.startDate) <= today)
-        .sort((a, b) => b.startDate.getTime() - a.startDate.getTime())
-        .slice(0, 4);
 
-      const periods = quarters.map((quarter, index) => {
-        const labelPrefix = index === 0
-          ? "Current period"
-          : (index === 1 ? "Last period" : index + " periods ago");
-        return {
-          key: quarter.key,
-          label: labelPrefix + " (" + quarter.label + ")",
+      const periods = [
+        {
+          key: "all-time",
+          label: "All Time",
+          startDate: null,
+          endDate: null,
+        },
+        {
+          key: "current-financial-year",
+          label: "Current Financial Year " + getFinancialYearLabel(currentStartYear),
+          startDate: new Date(currentStartYear, 3, 6),
+          endDate: new Date(currentStartYear + 1, 3, 5),
+        },
+        ...getFinancialQuarterPeriods(currentStartYear).map((quarter) => ({
+          key: "quarter-" + quarter.key,
+          label: quarter.label,
           startDate: quarter.startDate,
-          endDate: index === 0 && today < quarter.endDate ? today : quarter.endDate,
-        };
-      });
-
-      periods.push({
-        key: "all-time",
-        label: "All time",
-        startDate: null,
-        endDate: null,
-      });
+          endDate: quarter.endDate,
+        })),
+      ];
 
       return periods;
+    }
+
+    function getBoardPeriodOptions() {
+      return buildExportPeriodOptions(new Date());
+    }
+
+    function refreshBoardPeriodFilterOptions() {
+      const previousValue = recentUploadFilter.value;
+      const boardPeriods = getBoardPeriodOptions();
+      recentUploadFilter.innerHTML = boardPeriods
+        .map((period) => "<option value='" + period.key + "'>" + period.label + "</option>")
+        .join("");
+
+      if (boardPeriods.find((period) => period.key === previousValue)) {
+        recentUploadFilter.value = previousValue;
+        return;
+      }
+
+      recentUploadFilter.value = boardPeriods.find((period) => period.key === "current-financial-year")
+        ? "current-financial-year"
+        : (boardPeriods[0] ? boardPeriods[0].key : "all-time");
+    }
+
+    function getSelectedBoardPeriod() {
+      const options = getBoardPeriodOptions();
+      return options.find((option) => option.key === recentUploadFilter.value) ||
+        options.find((option) => option.key === "current-financial-year") ||
+        options[0] || null;
     }
 
     function getSelectedExportPeriod() {
@@ -989,9 +1524,213 @@
       });
     }
 
+    function pluralize(count, singular, plural) {
+      return count === 1 ? singular : (plural || singular + "s");
+    }
+
+    function countImageAttachments(entries) {
+      return (entries || []).reduce((total, entry) => {
+        const attachments = Array.isArray(entry && entry.attachments) ? entry.attachments : [];
+        const imageCount = attachments.filter((attachment) => attachment && attachment.url && isImageLikeAttachment(attachment)).length;
+        return total + imageCount;
+      }, 0);
+    }
+
+    function countBankStatementImages(entries) {
+      return (entries || []).reduce((total, entry) => {
+        const attachments = Array.isArray(entry && entry.attachments) ? entry.attachments : [];
+        if (attachments.length > 0) {
+          const imageCount = attachments.filter((attachment) => attachment && attachment.url && isImageLikeAttachment(attachment)).length;
+          return total + imageCount;
+        }
+        return total + (Number(entry && entry.attachmentsCount) || 0);
+      }, 0);
+    }
+
+    function mapReceiptDoc(snap) {
+      const data = snap.data() || {};
+      const createdDate = data.createdAt ? data.createdAt.toDate() : null;
+      return {
+        id: snap.id,
+        amount: Number(data.amount) || 0,
+        vatRate: data.vatRate != null ? Number(data.vatRate) : 0,
+        vatAmount: data.vatAmount != null ? Number(data.vatAmount) : null,
+        date: data.date ? String(data.date).split("T")[0] : "",
+        category: data.category || "Uncategorized",
+        attachments: mergeAttachmentSources(data.attachments, data.images),
+        loggedAt: createdDate ? createdDate.toISOString() : (data.date || ""),
+      };
+    }
+
+    async function loadReceiptsForUser(userId) {
+      const receiptsSnapshot = await db.collection("receipts").where("userId", "==", userId).get();
+      const receipts = [];
+      receiptsSnapshot.forEach((snap) => {
+        receipts.push(mapReceiptDoc(snap));
+      });
+      return receipts;
+    }
+
+    async function loadReceiptCountForUser(userId) {
+      const query = db.collection("receipts").where("userId", "==", userId);
+
+      if (typeof query.count === "function") {
+        const countSnapshot = await query.count().get();
+        const countData = countSnapshot && typeof countSnapshot.data === "function"
+          ? countSnapshot.data()
+          : (countSnapshot && countSnapshot.data ? countSnapshot.data : null);
+        if (countData && Number.isFinite(Number(countData.count))) {
+          return Number(countData.count);
+        }
+      }
+
+      return null;
+    }
+
+    async function loadReceiptCountsForUsers(users) {
+      const runId = ++receiptCountLoadRun;
+      await Promise.all((users || []).map(async (user) => {
+        if (!user || !user.id) return;
+        try {
+          user.receiptCount = await loadReceiptCountForUser(user.id);
+        } catch (error) {
+          user.receiptCount = null;
+        }
+      }));
+
+      if (runId !== receiptCountLoadRun) return;
+      renderBoardFromCurrentData();
+    }
+
+    async function ensureUserReceiptsLoaded(user) {
+      if (!user || !user.id) return;
+      if (user.receiptsLoaded || user.receiptsLoading) return;
+      user.receiptsLoading = true;
+      try {
+        user.receipts = await loadReceiptsForUser(user.id);
+        user.receiptCount = user.receipts.length;
+        user.receiptsLoaded = true;
+      } finally {
+        user.receiptsLoading = false;
+      }
+      renderBoardFromCurrentData();
+    }
+
+    function buildPeriodSnapshot(user, selectedPeriod) {
+      const startDate = selectedPeriod && selectedPeriod.startDate ? toLocalYmd(selectedPeriod.startDate) : null;
+      const endDate = selectedPeriod && selectedPeriod.endDate ? toLocalYmd(selectedPeriod.endDate) : null;
+
+      const filteredReceipts = filterEntriesByPeriod(user && user.receipts, startDate, endDate, (receipt) => receipt.date);
+      const filteredIncome = filterEntriesByPeriod(user && user.income, startDate, endDate, (entry) => entry.date);
+      const filteredStatements = filterEntriesByPeriod(
+        user && user.bankStatements,
+        startDate,
+        endDate,
+        (statement) => statement.date || statement.statementEndDate || statement.statementStartDate || statement.loggedAt
+      );
+
+      return {
+        filteredReceipts,
+        filteredIncome,
+        filteredStatements,
+        receiptImages: countImageAttachments(filteredReceipts),
+        incomeImages: countImageAttachments(filteredIncome),
+        statementImages: countBankStatementImages(filteredStatements),
+      };
+    }
+
+    function formatSnapshotSummary(snapshot) {
+      const receiptCount = snapshot.filteredReceipts.length;
+      const incomeCount = snapshot.filteredIncome.length;
+      const statementCount = snapshot.filteredStatements.length;
+      return [
+        receiptCount + " " + pluralize(receiptCount, "receipt") + " (" + snapshot.receiptImages + " " + pluralize(snapshot.receiptImages, "image") + ")",
+        incomeCount + " " + pluralize(incomeCount, "income record") + " (" + snapshot.incomeImages + " " + pluralize(snapshot.incomeImages, "image") + ")",
+        statementCount + " " + pluralize(statementCount, "bank statement") + " (" + snapshot.statementImages + " " + pluralize(snapshot.statementImages, "image") + ")",
+      ].join(", ");
+    }
+
+    function computeReceiptVatAmount(receipt) {
+      if (Number.isFinite(Number(receipt && receipt.vatAmount))) {
+        return Number(receipt.vatAmount);
+      }
+      const amount = Number(receipt && receipt.amount) || 0;
+      const vatRate = Number(receipt && receipt.vatRate) || 0;
+      return vatRate > 0 ? (amount * vatRate) / (100 + vatRate) : 0;
+    }
+
+    function getKnownReceiptCount(user) {
+      if (!user) return null;
+      if (user.receiptsLoaded) return (user.receipts || []).length;
+      if (user.receiptCount == null) return null;
+      const n = Number(user.receiptCount);
+      return Number.isFinite(n) ? n : null;
+    }
+
+    function buildReceiptSummaryHtml(receipts) {
+      if (!Array.isArray(receipts) || receipts.length === 0) {
+        return "<div style='margin-top:8px; color:#4f6780;'>No receipts in this period.</div>";
+      }
+
+      const sortedReceipts = [...receipts].sort((a, b) =>
+        String(a && a.date ? a.date : "").localeCompare(String(b && b.date ? b.date : ""))
+      );
+
+      const rows = sortedReceipts.map((receipt) => {
+          const amount = toMoney(Number(receipt && receipt.amount) || 0);
+          const vatAmount = toMoney(computeReceiptVatAmount(receipt));
+          const vatRate = Number(receipt && receipt.vatRate) || 0;
+          const dateValue = escHtml(toDateOnlyString(receipt && receipt.date));
+          const category = escHtml((receipt && receipt.category) || "Uncategorized");
+          return "<tr>" +
+            "<td class='col-amount'>" + amount + "</td>" +
+            "<td class='col-vat'>" + vatAmount + "</td>" +
+            "<td class='col-rate'>" + vatRate + "%</td>" +
+            "<td class='col-date'>" + dateValue + "</td>" +
+            "<td class='col-category'>" + category + "</td>" +
+            "</tr>";
+        }).join("");
+
+      return "<div class='receipt-summary-title'>Receipts</div>" +
+        "<div class='receipt-summary-table-wrap'>" +
+        "<table class='receipt-summary-table'>" +
+        "<thead><tr>" +
+        "<th class='col-amount'>Amount</th>" +
+        "<th class='col-vat'>VAT Amount</th>" +
+        "<th class='col-rate'>VAT %</th>" +
+        "<th class='col-date'>Date</th>" +
+        "<th class='col-category'>Category</th>" +
+        "</tr></thead>" +
+        "<tbody>" + rows + "</tbody>" +
+        "</table>" +
+        "</div>";
+    }
+
+    function renderPeriodSummary() {
+      if (!periodSummary) return;
+      if (!selectedUser) {
+        periodSummary.textContent = "Select a period to see record totals.";
+        return;
+      }
+
+      const selectedPeriod = getSelectedExportPeriod();
+      if (!selectedPeriod) {
+        periodSummary.textContent = "Select a period to see record totals.";
+        return;
+      }
+
+      const snapshot = buildPeriodSnapshot(selectedUser, selectedPeriod);
+      periodSummary.innerHTML =
+        "<div class='summary-headline'>" + escHtml(selectedPeriod.label) + "</div>" +
+        "<div>" + escHtml(formatSnapshotSummary(snapshot)) + "</div>" +
+        buildReceiptSummaryHtml(snapshot.filteredReceipts);
+    }
+
     function hasNewUploadsSince(user, loginDate) {
       if (!loginDate) {
-        return (user.receipts || []).length > 0 || (user.income || []).length > 0 || (user.bankStatements || []).length > 0;
+        const receiptCount = getKnownReceiptCount(user);
+        const hasReceipts = receiptCount != null ? receiptCount > 0 : false;
+        return hasReceipts || (user.income || []).length > 0 || (user.bankStatements || []).length > 0;
       }
       return userLatestUploadMs(user) > loginDate.getTime();
     }
@@ -1018,11 +1757,184 @@
 
     function setActiveTab(tabName) {
       currentTab = tabName;
+      const showingActivity = tabName === "activity";
       const showingManagement = tabName === "management";
-      activityTabBtn.classList.toggle("active", !showingManagement);
+      const showingAdmin = tabName === "admin";
+
+      activityTabBtn.classList.toggle("active", showingActivity);
       managementTabBtn.classList.toggle("active", showingManagement);
-      activityTabPanel.classList.toggle("active", !showingManagement);
+      adminTabBtn.classList.toggle("active", showingAdmin);
+
+      activityTabPanel.classList.toggle("active", showingActivity);
       managementTabPanel.classList.toggle("active", showingManagement);
+      adminTabPanel.classList.toggle("active", showingAdmin);
+    }
+
+    function toInputValue(value) {
+      return String(value || "").trim();
+    }
+
+    function normalizeVerificationCode(value) {
+      return String(value || "")
+        .trim()
+        .toUpperCase()
+        .replace(/[^A-Z0-9_-]/g, "");
+    }
+
+    function getUserById(userId) {
+      return liveUsers.find((user) => user.id === userId) || null;
+    }
+
+    function clearAdminForm() {
+      selectedAdminUserId = "";
+      adminClientSelect.value = "";
+      adminNameInput.value = "";
+      adminEmailInput.value = "";
+      adminCodeInput.value = "";
+    }
+
+    function populateAdminClientSelect() {
+      const sortedUsers = [...(liveUsers || [])].sort((a, b) =>
+        String(a && a.name ? a.name : "").localeCompare(String(b && b.name ? b.name : ""), undefined, {sensitivity: "base"})
+      );
+
+      adminClientSelect.innerHTML = "<option value=''>Choose a client...</option>" +
+        sortedUsers.map((user) => {
+          const label = (user.name || "Unknown user") + (user.email ? " (" + user.email + ")" : "");
+          return "<option value='" + escHtml(user.id) + "'>" + escHtml(label) + "</option>";
+        }).join("");
+
+      if (selectedAdminUserId && getUserById(selectedAdminUserId)) {
+        adminClientSelect.value = selectedAdminUserId;
+      } else {
+        selectedAdminUserId = "";
+      }
+    }
+
+    function renderAdminClientForm(userId) {
+      const user = getUserById(userId);
+      if (!user) {
+        clearAdminForm();
+        adminStatus.textContent = "Select a client to edit their details.";
+        return;
+      }
+
+      selectedAdminUserId = user.id;
+      adminClientSelect.value = user.id;
+      adminNameInput.value = toInputValue(user.originalName || user.name);
+      adminEmailInput.value = toInputValue(user.email);
+      adminCodeInput.value = toInputValue(user.verificationCode);
+      adminStatus.textContent = "Editing " + user.name + ". Update fields and click Save Client Changes.";
+    }
+
+    async function saveAdminClientChanges() {
+      if (!currentAccountant) {
+        adminStatus.textContent = "You must be signed in.";
+        return;
+      }
+      if (!selectedAdminUserId) {
+        adminStatus.textContent = "Please select a client first.";
+        return;
+      }
+
+      const user = getUserById(selectedAdminUserId);
+      if (!user) {
+        adminStatus.textContent = "Selected client is no longer available. Refresh data.";
+        return;
+      }
+
+      const nextName = toInputValue(adminNameInput.value);
+      const nextEmailRaw = toInputValue(adminEmailInput.value);
+      const nextEmail = nextEmailRaw ? nextEmailRaw.toLowerCase() : "";
+      const nextCode = normalizeVerificationCode(adminCodeInput.value);
+
+      if (nextEmail && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(nextEmail)) {
+        adminStatus.textContent = "Please enter a valid email address.";
+        return;
+      }
+
+      adminSaveBtn.disabled = true;
+      adminStatus.textContent = "Saving client changes...";
+
+      try {
+        const nowTs = firebase.firestore.FieldValue.serverTimestamp();
+        const userRef = db.collection("users").doc(user.id);
+
+        await db.runTransaction(async (tx) => {
+          const userSnap = await tx.get(userRef);
+          if (!userSnap.exists) {
+            throw new Error("Selected user no longer exists.");
+          }
+
+          const userData = userSnap.data() || {};
+          const currentCode = normalizeVerificationCode(userData.verificationCode || "");
+
+          if (nextCode) {
+            const codeRef = db.collection("VerificationCodes").doc(nextCode);
+            const codeSnap = await tx.get(codeRef);
+            if (codeSnap.exists) {
+              const codeData = codeSnap.data() || {};
+              const usedBy = String(codeData.usedBy || "");
+              if (usedBy && usedBy !== user.id) {
+                throw new Error("Verification code " + nextCode + " is already linked to another user.");
+              }
+            }
+
+            tx.set(codeRef, {
+              code: nextCode,
+              accountantSubmittedName: nextName || userData.name || userData.displayName || "",
+              accountantSubmittedEmail: nextEmail || null,
+              createdByUid: currentAccountant.uid,
+              createdByEmail: currentAccountant.email || null,
+              usedBy: user.id,
+              usedAt: nowTs,
+              verificationStatus: "verified",
+              updatedAt: nowTs,
+            }, {merge: true});
+          }
+
+          if (currentCode && currentCode !== nextCode) {
+            const oldCodeRef = db.collection("VerificationCodes").doc(currentCode);
+            const oldCodeSnap = await tx.get(oldCodeRef);
+            if (oldCodeSnap.exists) {
+              const oldCodeData = oldCodeSnap.data() || {};
+              const oldUsedBy = String(oldCodeData.usedBy || "");
+              if (oldUsedBy === user.id) {
+                tx.set(oldCodeRef, {
+                  usedBy: null,
+                  usedAt: null,
+                  verificationStatus: "available",
+                  updatedAt: nowTs,
+                }, {merge: true});
+              }
+            }
+          }
+
+          tx.set(userRef, {
+            name: nextName || null,
+            email: nextEmail || null,
+            verificationCode: nextCode || firebase.firestore.FieldValue.delete(),
+            verificationStatus: nextCode ? "verified" : firebase.firestore.FieldValue.delete(),
+            verifiedName: nextCode && nextName ? nextName : firebase.firestore.FieldValue.delete(),
+            updatedAt: nowTs,
+          }, {merge: true});
+        });
+
+        await reloadAndRenderBoard();
+        renderAdminClientForm(user.id);
+        adminStatus.textContent = "Saved changes for " + (nextName || user.name) + ".";
+      } catch (error) {
+        console.error("saveAdminClientChanges error", error);
+        adminStatus.textContent = "Save failed: " + (error && error.message ? error.message : String(error));
+      } finally {
+        adminSaveBtn.disabled = false;
+      }
+    }
+
+    function refreshProcessedButtonState() {
+      if (!selectedUser) return;
+      const isProcessed = !!selectedUser.processedAt;
+      resetNotifyBtn.textContent = isProcessed ? "Unmark As Processed" : "Mark As Processed";
     }
 
     function updateStatusFilterButtonState() {
@@ -1053,16 +1965,7 @@
           if (!uid) return;
           if (!receiptsByUser[uid]) receiptsByUser[uid] = [];
 
-          const createdDate = data.createdAt ? data.createdAt.toDate() : null;
-          receiptsByUser[uid].push({
-            id: snap.id,
-            amount: Number(data.amount) || 0,
-            vatRate: data.vatRate != null ? Number(data.vatRate) : 0,
-            vatAmount: data.vatAmount != null ? Number(data.vatAmount) : null,
-            date: data.date ? String(data.date).split("T")[0] : "",
-            category: data.category || "Uncategorized",
-            loggedAt: createdDate ? createdDate.toISOString() : (data.date || ""),
-          });
+          receiptsByUser[uid].push(mapReceiptDoc(snap));
         });
 
         const incomeByUser = {};
@@ -1082,6 +1985,7 @@
             reference: data.reference || "",
             label: data.label || "",
             notes: data.notes || "",
+            attachments: normalizePortalAttachments(data.attachments),
             attachmentsCount: Array.isArray(data.attachments) ? data.attachments.length : 0,
             loggedAt: createdDate ? createdDate.toISOString() : (data.date || ""),
           });
@@ -1111,6 +2015,7 @@
             netMovement: Number(data.netMovement) || 0,
             notes: data.notes || "",
             rawText: data.rawText || "",
+            attachments: normalizePortalAttachments(data.attachments),
             attachmentsCount: Array.isArray(data.attachments) ? data.attachments.length : 0,
             transactions: Array.isArray(data.transactions) ? data.transactions : [],
             vendorTotals: Array.isArray(data.vendorTotals) ? data.vendorTotals : [],
@@ -1141,9 +2046,13 @@
             verifiedName,
             isVerified,
             email: profile.email || null,
+            verificationCode: profile.verificationCode || null,
             notifyAccountant: profile.notifyAccountant || false,
             processedAt: toJsDate(profile.processedAt),
             receipts: receiptsByUser[uid] || [],
+            receiptCount: (receiptsByUser[uid] || []).length,
+            receiptsLoaded: true,
+            receiptsLoading: false,
             income: incomeByUser[uid] || [],
             bankStatements: bankStatementsByUser[uid] || [],
           };
@@ -1158,27 +2067,28 @@
     function applyFiltersAndSort(users) {
       const text = (searchInput.value || "").trim().toLowerCase();
       const minReceipts = Number(minReceiptsInput.value || 0);
-      const recentDays = Number(recentUploadFilter.value || 0);
+      const selectedBoardPeriod = getSelectedBoardPeriod();
       const verificationScope = verificationScopeSelect.value || "verified-only";
-      const nowMs = Date.now();
 
       let filtered = users.filter((user) => {
         const status = getClientStatus(user, previousLoginDate);
         const nameMatch = user.name.toLowerCase().includes(text);
         const emailMatch = (user.email || "").toLowerCase().includes(text);
-        const receiptsCount = user.receipts.length;
+        const receiptsCount = getKnownReceiptCount(user);
 
         if (text && !nameMatch && !emailMatch) return false;
         if (verificationScope === "verified-only" && !user.isVerified) return false;
         if (verificationScope === "general-only" && user.isVerified) return false;
-        if (Number.isFinite(minReceipts) && receiptsCount < minReceipts) return false;
+        if (Number.isFinite(minReceipts) && minReceipts > 0 && receiptsCount != null && receiptsCount < minReceipts) return false;
         if (activeStatusFilters.size > 0 && !activeStatusFilters.has(status.key)) return false;
 
-        if (recentDays > 0) {
+        if (selectedBoardPeriod && selectedBoardPeriod.startDate && selectedBoardPeriod.endDate) {
           const latestMs = userLatestUploadMs(user);
           if (!latestMs) return false;
-          const maxAgeMs = recentDays * 24 * 60 * 60 * 1000;
-          if (nowMs - latestMs > maxAgeMs) return false;
+          const latestDate = toLocalYmd(new Date(latestMs));
+          const startDate = toLocalYmd(selectedBoardPeriod.startDate);
+          const endDate = toLocalYmd(selectedBoardPeriod.endDate);
+          if (latestDate < startDate || latestDate > endDate) return false;
         }
 
         return true;
@@ -1190,8 +2100,8 @@
         if (mode === "name-desc") return b.name.localeCompare(a.name, undefined, { sensitivity: "base" });
         if (mode === "recent-desc") return userLatestUploadMs(b) - userLatestUploadMs(a);
         if (mode === "recent-asc") return userLatestUploadMs(a) - userLatestUploadMs(b);
-        if (mode === "receipts-desc") return b.receipts.length - a.receipts.length;
-        if (mode === "receipts-asc") return a.receipts.length - b.receipts.length;
+        if (mode === "receipts-desc") return (b.receiptsLoaded ? b.receipts.length : -1) - (a.receiptsLoaded ? a.receipts.length : -1);
+        if (mode === "receipts-asc") return (a.receiptsLoaded ? a.receipts.length : Number.MAX_SAFE_INTEGER) - (b.receiptsLoaded ? b.receipts.length : Number.MAX_SAFE_INTEGER);
         return 0;
       });
 
@@ -1220,7 +2130,8 @@
           "<div class='card-title-row'><strong>" + user.name + "</strong>" + verifiedBadge + "</div>" +
           (user.email ? "<small style='opacity:0.8'>" + user.email + "</small>" : "") +
           "<small>" + status.label + "</small>" +
-          "<small>Receipts: " + user.receipts.length + " • Income: " + (user.income || []).length + " • Statements: " + (user.bankStatements || []).length + "</small>";
+          "<small>Receipts: " + (getKnownReceiptCount(user) != null ? getKnownReceiptCount(user) : 0) +
+          " • Income: " + (user.income || []).length + " • Statements: " + (user.bankStatements || []).length + "</small>";
 
         button.addEventListener("click", () => openDateModal(user));
         clientBoard.appendChild(button);
@@ -1230,7 +2141,9 @@
     async function reloadAndRenderBoard() {
       clientBoard.innerHTML = '<p style="padding: 0 8px; color: #4f6780; grid-column: 1/-1;">Loading client data…</p>';
       liveUsers = await loadRealData();
+      refreshBoardPeriodFilterOptions();
       renderBoardFromCurrentData();
+      populateAdminClientSelect();
     }
 
     function renderGeneratedCodesTable(rows) {
@@ -1499,31 +2412,97 @@
     async function deleteCode(codeId) {
       if (!confirm("Delete code " + codeId + "? This cannot be undone.")) return;
       try {
-        await db.collection("VerificationCodes").doc(codeId).delete();
-        allCodesStatus.textContent = "Deleted code " + codeId + ".";
+        const codeRef = db.collection("VerificationCodes").doc(codeId);
+        const codeSnap = await codeRef.get();
+
+        if (!codeSnap.exists) {
+          allCodesStatus.textContent = "Code " + codeId + " no longer exists.";
+          await loadAllCodes();
+          return;
+        }
+
+        const codeData = codeSnap.data() || {};
+        const usedBy = codeData.usedBy || null;
+
+        await codeRef.delete();
+
+        let revokedUser = false;
+        if (usedBy) {
+          const userRef = db.collection("users").doc(usedBy);
+          await db.runTransaction(async (tx) => {
+            const userSnap = await tx.get(userRef);
+            if (!userSnap.exists) return;
+
+            const userData = userSnap.data() || {};
+            const linkedCode = String(userData.verificationCode || "");
+            if (linkedCode !== String(codeId)) {
+              return;
+            }
+
+            revokedUser = true;
+            tx.set(
+              userRef,
+              {
+                verificationStatus: firebase.firestore.FieldValue.delete(),
+                verifiedName: firebase.firestore.FieldValue.delete(),
+                verificationCode: firebase.firestore.FieldValue.delete(),
+                hideAds: false,
+                verificationRevokedAt: firebase.firestore.FieldValue.serverTimestamp(),
+                verificationRevokedReason: "code_deleted_by_accountant",
+                updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
+              },
+              { merge: true }
+            );
+          });
+        }
+
+        allCodesStatus.textContent = revokedUser
+          ? "Deleted code " + codeId + " and removed linked user verification."
+          : "Deleted code " + codeId + ".";
         await loadAllCodes();
       } catch (err) {
         allCodesStatus.textContent = "Delete failed: " + err.message;
       }
     }
 
-    function openDateModal(user) {
+    async function openDateModal(user) {
       selectedUser = user;
       const periods = buildExportPeriodOptions(new Date());
       periodSelect.innerHTML = periods
         .map((period) => "<option value='" + period.key + "'>" + period.label + "</option>")
         .join("");
-      periodSelect.value = periods[0] ? periods[0].key : "";
+      periodSelect.value = periods.find((period) => period.key === "current-financial-year")
+        ? "current-financial-year"
+        : (periods[0] ? periods[0].key : "");
+      periodSummary.textContent = "Loading receipts for " + user.name + "...";
+      confirmDateBtn.disabled = true;
       resetNotifyBtn.style.display = "inline-block";
+      refreshProcessedButtonState();
 
       document.getElementById("modalTitle").textContent = "Export data for " + user.name;
       dateModal.style.display = "flex";
+
+      try {
+        await ensureUserReceiptsLoaded(user);
+        if (!selectedUser || selectedUser.id !== user.id) return;
+        renderPeriodSummary();
+      } catch (error) {
+        if (!selectedUser || selectedUser.id !== user.id) return;
+        periodSummary.textContent = "Could not load receipts: " + (error && error.message ? error.message : String(error));
+      } finally {
+        if (selectedUser && selectedUser.id === user.id) {
+          confirmDateBtn.disabled = false;
+        }
+      }
     }
 
     function closeDateModal() {
       dateModal.style.display = "none";
       selectedUser = null;
       resetNotifyBtn.style.display = "none";
+      if (periodSummary) {
+        periodSummary.textContent = "Select a period to see record totals.";
+      }
     }
 
     async function markNotifyAsProcessed() {
@@ -1540,8 +2519,25 @@
 
       selectedUser.notifyAccountant = false;
       selectedUser.processedAt = new Date();
+      refreshProcessedButtonState();
       renderBoardFromCurrentData();
       statusLine.textContent = "Marked " + selectedUser.name + " as processed.";
+    }
+
+    async function unmarkNotifyAsProcessed() {
+      if (!selectedUser) return;
+      await db.collection("users").doc(selectedUser.id).set(
+        {
+          processedAt: firebase.firestore.FieldValue.delete(),
+          updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
+        },
+        { merge: true }
+      );
+
+      selectedUser.processedAt = null;
+      refreshProcessedButtonState();
+      renderBoardFromCurrentData();
+      statusLine.textContent = "Unmarked " + selectedUser.name + " as processed.";
     }
 
     statusFilterButtons.forEach((button) => {
@@ -1577,23 +2573,29 @@
       );
     }
 
-    function buildReceiptWorkbookRows(filteredReceipts) {
-      const rows = filteredReceipts.map((receipt) => {
+    function buildReceiptWorkbookRows(receiptExportItems) {
+      const rows = receiptExportItems.map((exportItem) => {
+        const receipt = exportItem.entry;
         const vatAmount = Number.isFinite(Number(receipt.vatAmount))
           ? Number(receipt.vatAmount)
           : ((Number(receipt.amount) || 0) * (Number(receipt.vatRate) || 0)) /
             (100 + (Number(receipt.vatRate) || 0) || 1);
         return [
+          exportItem.exportId,
           toMoney(receipt.amount),
           toMoney(vatAmount),
           receipt.vatRate + "%",
           receipt.date,
           receipt.category,
+          exportItem.imageAttachments.map((attachment) => attachment.exportAttachmentId).join(", "),
+          String(exportItem.imageAttachments.length),
           toDateTimeString(receipt.loggedAt)
         ];
       });
 
-      const totals = calculateReceiptTotalsByCategory(filteredReceipts);
+      const receiptEntries = receiptExportItems.map((item) => item.entry);
+
+      const totals = calculateReceiptTotalsByCategory(receiptEntries);
 
       const categorySummaryRows = Object.entries(totals.byCategoryPence)
         .sort(([a], [b]) => a.localeCompare(b, undefined, { sensitivity: "base" }))
@@ -1602,7 +2604,7 @@
           toMoney(fromPence(amountPence)),
         ]);
 
-      const header = ["Amount", "VAT Amount", "VAT Rate", "Date", "Category", "Logged At"];
+      const header = ["Item ID", "Amount", "VAT Amount", "VAT Rate", "Date", "Category", "Image IDs", "Image Count", "Logged At"];
       const aoa = [
         header,
         ...rows,
@@ -1615,7 +2617,7 @@
         ...categorySummaryRows,
       ];
       if (rows.length === 0) {
-        aoa.splice(1, 0, ["No receipts found for this period.", "", "", "", "", ""]);
+        aoa.splice(1, 0, ["No receipts found for this period.", "", "", "", "", "", "", "", ""]);
       }
       return aoa;
     }
@@ -1633,25 +2635,32 @@
       );
     }
 
-    function buildIncomeWorkbookRows(filteredIncome) {
-      const rows = filteredIncome.map((entry) => [
-        toMoney(entry.amount),
-        toMoney(entry.vatAmount),
-        entry.vatRate + "%",
-        entry.date,
-        entry.reference || "",
-        entry.label || "",
-        entry.notes || "",
-        toDateTimeString(entry.loggedAt),
-      ]);
+    function buildIncomeWorkbookRows(incomeExportItems) {
+      const rows = incomeExportItems.map((exportItem) => {
+        const entry = exportItem.entry;
+        return [
+          exportItem.exportId,
+          toMoney(entry.amount),
+          toMoney(entry.vatAmount),
+          entry.vatRate + "%",
+          entry.date,
+          entry.reference || "",
+          entry.label || "",
+          entry.notes || "",
+          exportItem.imageAttachments.map((attachment) => attachment.exportAttachmentId).join(", "),
+          String(exportItem.imageAttachments.length),
+          toDateTimeString(entry.loggedAt),
+        ];
+      });
 
-      const totals = calculateIncomeTotals(filteredIncome);
+      const incomeEntries = incomeExportItems.map((item) => item.entry);
+      const totals = calculateIncomeTotals(incomeEntries);
       const labelSummaryRows = Object.entries(totals.byLabelPence)
         .sort(([a], [b]) => a.localeCompare(b, undefined, { sensitivity: "base" }))
         .map(([label, amountPence]) => [label, toMoney(fromPence(amountPence))]);
 
       const aoa = [
-        ["Amount", "VAT Amount", "VAT Rate", "Date", "Reference", "Label", "Notes", "Logged At"],
+        ["Item ID", "Amount", "VAT Amount", "VAT Rate", "Date", "Reference", "Label", "Notes", "Image IDs", "Image Count", "Logged At"],
         ...rows,
         [],
         ["Summary", ""],
@@ -1663,10 +2672,55 @@
       ];
 
       if (rows.length === 0) {
-        aoa.splice(1, 0, ["No income records found for this period.", "", "", "", "", "", "", ""]);
+        aoa.splice(1, 0, ["No income records found for this period.", "", "", "", "", "", "", "", "", "", ""]);
       }
 
       return aoa;
+    }
+
+    async function addImageAttachmentsToZip(zipFolder, exportItems, sourceLabel, errors) {
+      const idToken = auth.currentUser ? await auth.currentUser.getIdToken() : "";
+
+      for (const exportItem of exportItems) {
+        for (const attachment of exportItem.imageAttachments) {
+          const candidates = buildAttachmentFetchCandidates(attachment);
+          let added = false;
+          let lastError = "No download URL candidates";
+
+          for (const candidateUrl of candidates) {
+            try {
+              const blob = await fetchAttachmentBlobWithRetry(candidateUrl, idToken);
+
+              const extension = inferAttachmentExtension(attachment);
+              const fileName = sanitizeFileSegment(attachment.exportAttachmentId, "attachment") + extension;
+              zipFolder.file(fileName, blob);
+              added = true;
+              break;
+            } catch (error) {
+              lastError = error && error.message ? error.message : String(error);
+            }
+          }
+
+          if (!added) {
+            try {
+              const blob = await fetchAttachmentBlobViaProxy(attachment, idToken);
+              const extension = inferAttachmentExtension(attachment);
+              const fileName = sanitizeFileSegment(attachment.exportAttachmentId, "attachment") + extension;
+              zipFolder.file(fileName, blob);
+              added = true;
+            } catch (proxyError) {
+              lastError = proxyError && proxyError.message ? proxyError.message : String(proxyError);
+            }
+          }
+
+          if (!added) {
+            const sourceHint = attachment.url || attachment.gsUrl || attachment.fullPath || "(missing source URL)";
+            errors.push(
+              sourceLabel + " " + attachment.exportAttachmentId + " failed: " + lastError + " | source=" + sourceHint
+            );
+          }
+        }
+      }
     }
 
     function buildBankStatementWorkbookRows(filteredStatements) {
@@ -1803,31 +2857,118 @@
       return aoa;
     }
 
-    function downloadUserData(user, selectedPeriod) {
+    async function downloadUserData(user, selectedPeriod) {
+      await ensureUserReceiptsLoaded(user);
       const startDate = selectedPeriod && selectedPeriod.startDate ? toLocalYmd(selectedPeriod.startDate) : null;
       const endDate = selectedPeriod && selectedPeriod.endDate ? toLocalYmd(selectedPeriod.endDate) : null;
-      const filteredReceipts = filterEntriesByPeriod(user.receipts, startDate, endDate, (receipt) => receipt.date);
-      const filteredIncome = filterEntriesByPeriod(user.income, startDate, endDate, (entry) => entry.date);
-      const filteredStatements = filterEntriesByPeriod(
-        user.bankStatements,
-        startDate,
-        endDate,
-        (statement) => statement.date || statement.statementEndDate || statement.statementStartDate || statement.loggedAt
-      );
+      const snapshot = buildPeriodSnapshot(user, selectedPeriod);
+      const filteredReceipts = snapshot.filteredReceipts;
+      const filteredIncome = snapshot.filteredIncome;
+      const filteredStatements = snapshot.filteredStatements;
 
-      const workbook = XLSX.utils.book_new();
-      XLSX.utils.book_append_sheet(workbook, XLSX.utils.aoa_to_sheet(buildReceiptWorkbookRows(filteredReceipts)), "Receipts");
-      XLSX.utils.book_append_sheet(workbook, XLSX.utils.aoa_to_sheet(buildIncomeWorkbookRows(filteredIncome)), "Income");
-      XLSX.utils.book_append_sheet(workbook, XLSX.utils.aoa_to_sheet(buildBankStatementWorkbookRows(filteredStatements)), "Bank Statements");
-
-      const safeName = user.name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/(^-|-$)/g, "");
+      const safeName = sanitizeFileSegment((user && user.name ? user.name : "client").toLowerCase(), "client");
       const fileSuffix = startDate && endDate
         ? startDate + "-to-" + endDate
         : "all-time";
-      const fileName = safeName + "-" + fileSuffix + ".xlsx";
-      XLSX.writeFile(workbook, fileName);
+      const fallbackZipName = safeName + "-" + fileSuffix + ".zip";
 
-      statusLine.textContent = "Downloaded " + user.name + " data: " + filteredReceipts.length + " receipts, " + filteredIncome.length + " income record(s), and " + filteredStatements.length + " bank statement(s) (" + (selectedPeriod ? selectedPeriod.label : "All time") + ").";
+      const currentUser = auth.currentUser;
+      if (!currentUser) {
+        throw new Error("Please sign in again before exporting.");
+      }
+
+      const idToken = await currentUser.getIdToken();
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 900000);
+      let response;
+      try {
+        response = await fetch("/export-client-zip", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: "Bearer " + idToken,
+          },
+          body: JSON.stringify({
+            userId: user.id,
+            userName: user.name,
+            startDate,
+            endDate,
+            periodLabel: selectedPeriod ? selectedPeriod.label : "All time",
+          }),
+          signal: controller.signal,
+        });
+      } finally {
+        clearTimeout(timeoutId);
+      }
+
+      if (!response.ok) {
+        let message = "Could not generate export ZIP.";
+        let exportDebug = null;
+        try {
+          const err = await response.json();
+          message = err && err.error ? err.error : message;
+          exportDebug = err && err.debug ? err.debug : null;
+          if (exportDebug && exportDebug.error && exportDebug.error.message) {
+            message += " " + exportDebug.error.message;
+          }
+        } catch {
+          // ignore parse errors
+        }
+        const error = new Error(message);
+        error.exportDebugId = response.headers.get("x-export-debug-id") || "";
+        error.exportStage = response.headers.get("x-export-stage") || "";
+        error.exportDebug = exportDebug;
+        throw error;
+      }
+
+      const contentType = (response.headers.get("content-type") || "").toLowerCase();
+      let imageErrors = Number(response.headers.get("x-export-image-errors") || "0");
+
+      if (contentType.includes("application/json")) {
+        const payload = await response.json();
+        if (!payload) {
+          throw new Error("Export response payload was empty.");
+        }
+        const zipFileName = payload.fileName || fallbackZipName;
+        if (payload.proxyDownload) {
+          try {
+            const proxyBlob = await fetchExportZipViaProxy(payload.proxyDownload, idToken);
+            triggerBlobDownload(proxyBlob, zipFileName);
+          } catch (proxyError) {
+            if (payload.downloadUrl) {
+              try {
+                const directBlob = await fetchAttachmentBlobWithRetry(payload.downloadUrl, "");
+                triggerBlobDownload(directBlob, zipFileName);
+              } catch (directBlobError) {
+                triggerUrlDownload(payload.downloadUrl, zipFileName);
+              }
+            } else {
+              throw proxyError;
+            }
+          }
+        } else if (payload.downloadUrl) {
+          try {
+            const directBlob = await fetchAttachmentBlobWithRetry(payload.downloadUrl, "");
+            triggerBlobDownload(directBlob, zipFileName);
+          } catch (directBlobError) {
+            triggerUrlDownload(payload.downloadUrl, zipFileName);
+          }
+        } else {
+          throw new Error("Export response did not include a download URL or proxy fallback.");
+        }
+        imageErrors = Number(payload.imageErrors || 0);
+      } else {
+        const zipBlob = await response.blob();
+        const disposition = response.headers.get("content-disposition") || "";
+        const fileNameMatch = disposition.match(/filename="?([^";]+)"?/i);
+        const zipFileName = fileNameMatch && fileNameMatch[1] ? fileNameMatch[1] : fallbackZipName;
+        triggerBlobDownload(zipBlob, zipFileName);
+      }
+
+      statusLine.textContent = "Downloaded ZIP for " + user.name + ": " + formatSnapshotSummary(snapshot) + " (" + (selectedPeriod ? selectedPeriod.label : "All time") + ").";
+      if (imageErrors > 0) {
+        statusLine.textContent += " " + imageErrors + " image(s) could not be fetched and were listed in image-download-errors.txt.";
+      }
     }
 
     async function attemptLogin() {
@@ -1880,6 +3021,8 @@
         ? "Signed in as " + user.email + " | Previous login: " + previousLoginDate.toLocaleString()
         : "Signed in as " + user.email + " | First portal login";
 
+      refreshBoardPeriodFilterOptions();
+
       startInactivityTimer();
       setActiveTab(currentTab);
       await reloadAndRenderBoard();
@@ -1901,6 +3044,8 @@
       updateStatusFilterButtonState();
       setActiveTab("activity");
       clearManagementInputs();
+      clearAdminForm();
+      adminStatus.textContent = "Select a client to edit their details.";
     }
 
     loginBtn.addEventListener("click", attemptLogin);
@@ -1918,25 +3063,79 @@
 
     activityTabBtn.addEventListener("click", () => setActiveTab("activity"));
     managementTabBtn.addEventListener("click", () => setActiveTab("management"));
+    adminTabBtn.addEventListener("click", () => setActiveTab("admin"));
     generateCodesBtn.addEventListener("click", generateVerificationCodes);
     sendAllEmailsBtn.addEventListener("click", () => sendAllEmails(sendAllEmailsBtn._rows || []));
     clearManagementBtn.addEventListener("click", clearManagementInputs);
     loadAllCodesBtn.addEventListener("click", loadAllCodes);
-
-    cancelDateBtn.addEventListener("click", closeDateModal);
-    resetNotifyBtn.addEventListener("click", async () => {
-      await markNotifyAsProcessed();
+    adminClientSelect.addEventListener("change", () => renderAdminClientForm(adminClientSelect.value));
+    adminSaveBtn.addEventListener("click", saveAdminClientChanges);
+    adminClearBtn.addEventListener("click", () => {
+      clearAdminForm();
+      adminStatus.textContent = "Select a client to edit their details.";
     });
 
-    confirmDateBtn.addEventListener("click", () => {
+    cancelDateBtn.addEventListener("click", closeDateModal);
+    periodSelect.addEventListener("change", renderPeriodSummary);
+    resetNotifyBtn.addEventListener("click", async () => {
+      if (!selectedUser) return;
+      if (selectedUser.processedAt) {
+        await unmarkNotifyAsProcessed();
+      } else {
+        await markNotifyAsProcessed();
+      }
+    });
+
+    confirmDateBtn.addEventListener("click", async () => {
       if (!selectedUser) return;
       const selectedPeriod = getSelectedExportPeriod();
       if (!selectedPeriod) {
         statusLine.textContent = "Please choose an export period before downloading.";
         return;
       }
-      downloadUserData(selectedUser, selectedPeriod);
-      closeDateModal();
+
+      const targetUser = selectedUser;
+      const originalButtonText = confirmDateBtn.textContent;
+      confirmDateBtn.disabled = true;
+      confirmDateBtn.textContent = "Preparing ZIP...";
+      statusLine.textContent = "Preparing ZIP export for " + targetUser.name + "...";
+
+      try {
+        await downloadUserData(targetUser, selectedPeriod);
+        closeDateModal();
+      } catch (error) {
+        console.error("ZIP export failed", error);
+        const baseMessage = "Export failed: " + (error && error.message ? error.message : String(error));
+        const debugId = error && error.exportDebugId ? error.exportDebugId : "";
+        const stage = error && error.exportStage ? error.exportStage : "";
+        const detail = error && error.exportDebug && error.exportDebug.error
+          ? error.exportDebug.error
+          : null;
+
+        let detailText = "";
+        if (detail) {
+          const parts = [];
+          if (detail.name) parts.push("name=" + detail.name);
+          if (detail.code) parts.push("code=" + detail.code);
+          if (detail.statusCode) parts.push("status=" + detail.statusCode);
+          if (detail.message) parts.push("message=" + detail.message);
+          detailText = parts.length ? " | " + parts.join("; ") : "";
+        }
+
+        const debugText = [
+          debugId ? "debugId=" + debugId : "",
+          stage ? "stage=" + stage : "",
+        ].filter(Boolean).join(" ");
+
+        statusLine.textContent = baseMessage + (debugText ? " (" + debugText + ")" : "") + detailText;
+
+        if (error && error.exportDebug) {
+          console.error("ZIP export diagnostic payload", error.exportDebug);
+        }
+      } finally {
+        confirmDateBtn.disabled = false;
+        confirmDateBtn.textContent = originalButtonText;
+      }
     });
 
     logOutBtn.addEventListener("click", async () => {

@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useMemo, useState } from "react";
 import {
   ActivityIndicator,
   FlatList,
+  Pressable,
   Platform,
   RefreshControl,
   StatusBar,
@@ -22,13 +23,20 @@ import DropDownPicker from "react-native-dropdown-picker";
 import {
   buildFinancialFilterOptions,
   filterReceiptsByDateRange,
+  getPeriodRecordCount,
+  formatPeriodLabelWithCount,
 } from "../utils/financialPeriods";
-import { getBankFilterKey, setBankFilterKey, setAllFilterKeys } from "../utils/appSettings";
+import {
+  getBankFilterKey,
+  setAllFilterKeys,
+  getHiddenPeriodTooltipDismissed,
+  setHiddenPeriodTooltipDismissed,
+} from "../utils/appSettings";
 
 export default function BankStatementList({ navigation }) {
-  const { bankStatements, initialLoading } = useData();
+  const { bankStatements, bankStatementsLoading } = useData();
   const statements = bankStatements;
-  const loading = initialLoading;
+  const loading = bankStatementsLoading;
   const [refreshing, setRefreshing] = useState(false);
   const [sortKey, setSortKey] = useState("date");
   const [sortDir, setSortDir] = useState("desc");
@@ -37,6 +45,9 @@ export default function BankStatementList({ navigation }) {
   const [filterOpen, setFilterOpen] = useState(false);
   const [activeFilterKey, setActiveFilterKey] = useState("current-quarter");
   const [filterItems, setFilterItems] = useState([]);
+  const [showHiddenRecordsTip, setShowHiddenRecordsTip] = useState(false);
+  const [hiddenPeriodTipDismissed, setHiddenPeriodTipDismissed] = useState(false);
+  const [hiddenPeriodTipTemporarilyDismissed, setHiddenPeriodTipTemporarilyDismissed] = useState(false);
 
   const filterOptions = useMemo(
     () => buildFinancialFilterOptions(statements, new Date()),
@@ -48,9 +59,36 @@ export default function BankStatementList({ navigation }) {
     [activeFilterKey, filterOptions]
   );
 
+  const filterCountsByKey = useMemo(() => {
+    const counts = {};
+    for (const option of filterOptions) {
+      counts[option.key] = getPeriodRecordCount(statements, option);
+    }
+    return counts;
+  }, [filterOptions, statements]);
+
   useEffect(() => {
-    setFilterItems(filterOptions.map((o) => ({ label: o.label, value: o.key })));
-  }, [filterOptions]);
+    setFilterItems(
+      filterOptions.map((o) => {
+        const count = filterCountsByKey[o.key] ?? 0;
+        return {
+          label: formatPeriodLabelWithCount(
+            o.label,
+            count,
+            "Bank Statement",
+            "Bank Statements"
+          ),
+          value: o.key,
+        };
+      })
+    );
+  }, [filterCountsByKey, filterOptions]);
+
+  useEffect(() => {
+    getHiddenPeriodTooltipDismissed()
+      .then(setHiddenPeriodTipDismissed)
+      .catch(() => setHiddenPeriodTipDismissed(false));
+  }, []);
 
   useEffect(() => {
     getBankFilterKey()
@@ -67,7 +105,59 @@ export default function BankStatementList({ navigation }) {
     return unsub;
   }, [navigation]);
 
+  useEffect(() => {
+    const unsub = navigation.addListener("blur", () => {
+      setFilterOpen(false);
+    });
+    return unsub;
+  }, [navigation]);
+
+  useEffect(() => {
+    if (
+      loading ||
+      filterOpen ||
+      hiddenPeriodTipDismissed ||
+      hiddenPeriodTipTemporarilyDismissed ||
+      filterOptions.length === 0
+    ) {
+      setShowHiddenRecordsTip(false);
+      return;
+    }
+
+    const activeCount = filterCountsByKey[activeFilterKey] ?? 0;
+    const hasRecordsInOtherPeriods = filterOptions.some(
+      (option) => option.key !== activeFilterKey && (filterCountsByKey[option.key] ?? 0) > 0
+    );
+    setShowHiddenRecordsTip(activeCount === 0 && hasRecordsInOtherPeriods);
+  }, [
+    activeFilterKey,
+    filterCountsByKey,
+    filterOpen,
+    filterOptions,
+    hiddenPeriodTipDismissed,
+    hiddenPeriodTipTemporarilyDismissed,
+    loading,
+  ]);
+
+  const dismissHiddenRecordsTip = useCallback(async () => {
+    setShowHiddenRecordsTip(false);
+    setHiddenPeriodTipDismissed(true);
+    await setHiddenPeriodTooltipDismissed();
+  }, []);
+
+  const handleSetFilterOpen = useCallback((nextOpen) => {
+    setFilterOpen((previous) => {
+      const resolvedOpen = typeof nextOpen === "function" ? nextOpen(previous) : nextOpen;
+      if (resolvedOpen) {
+        setShowHiddenRecordsTip(false);
+        setHiddenPeriodTipTemporarilyDismissed(true);
+      }
+      return resolvedOpen;
+    });
+  }, []);
+
   const handleFilterSelection = useCallback(async (nextKey) => {
+    setHiddenPeriodTipTemporarilyDismissed(false);
     setActiveFilterKey(nextKey);
     await setAllFilterKeys(nextKey);
   }, []);
@@ -210,14 +300,35 @@ export default function BankStatementList({ navigation }) {
         />
       </View>
 
+      {filterOpen ? (
+        <Pressable
+          style={styles.filterDismissOverlay}
+          onPress={() => setFilterOpen(false)}
+        />
+      ) : null}
+
       {/* Period filter bar — sits just above the bottom tab bar */}
+      {!loading && !filterOpen && showHiddenRecordsTip ? (
+        <View style={styles.hiddenPeriodTipWrapper} pointerEvents="box-none">
+          <View style={styles.hiddenPeriodTipBox}>
+            <Text style={styles.hiddenPeriodTipText}>
+              You may have records in other periods which are currently not displaying.
+            </Text>
+            <TouchableOpacity onPress={dismissHiddenRecordsTip}>
+              <Text style={styles.hiddenPeriodTipOk}>OK</Text>
+            </TouchableOpacity>
+          </View>
+          <View style={styles.hiddenPeriodTipTriangleDown} />
+        </View>
+      ) : null}
+
       {!loading && filterOptions.length > 0 ? (
         <View style={styles.filterBar}>
           <DropDownPicker
             open={filterOpen}
             value={activeFilterKey}
             items={filterItems}
-            setOpen={setFilterOpen}
+            setOpen={handleSetFilterOpen}
             setValue={(callback) => {
               const nextKey = callback(activeFilterKey);
               handleFilterSelection(nextKey).catch(() => {});
@@ -252,6 +363,7 @@ export default function BankStatementList({ navigation }) {
           navigation={navigation}
           closeMenu={closeMenu}
           displayName={auth.currentUser?.displayName || "User"}
+          open={menuOpen}
         />
       </SideMenu>
 
@@ -326,6 +438,14 @@ const styles = StyleSheet.create({
     paddingVertical: 6,
     zIndex: 1000,
   },
+  filterDismissOverlay: {
+    position: "absolute",
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    zIndex: 900,
+  },
   filterDropdown: {
     borderColor: Colors.border,
     borderRadius: 10,
@@ -334,6 +454,50 @@ const styles = StyleSheet.create({
   filterDropdownContainer: {
     borderColor: Colors.border,
     backgroundColor: Colors.card,
+  },
+  hiddenPeriodTipWrapper: {
+    position: "absolute",
+    left: 14,
+    right: 14,
+    bottom: 60,
+    alignItems: "center",
+    zIndex: 1400,
+  },
+  hiddenPeriodTipBox: {
+    backgroundColor: "#F0D1FF",
+    borderRadius: 12,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    width: "100%",
+    elevation: 5,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.3,
+    shadowRadius: 4,
+  },
+  hiddenPeriodTipText: {
+    color: "#4A148C",
+    fontSize: 14,
+    lineHeight: 20,
+  },
+  hiddenPeriodTipOk: {
+    marginTop: 8,
+    color: "#4A148C",
+    fontWeight: "700",
+    textAlign: "right",
+    textDecorationLine: "underline",
+  },
+  hiddenPeriodTipTriangleDown: {
+    width: 0,
+    height: 0,
+    backgroundColor: "transparent",
+    borderStyle: "solid",
+    borderLeftWidth: 10,
+    borderRightWidth: 10,
+    borderTopWidth: 15,
+    borderLeftColor: "transparent",
+    borderRightColor: "transparent",
+    borderTopColor: "#F0D1FF",
   },
   headerDate: { width: 90, flexDirection: "row", gap: 6, alignItems: "center" },
   headerAccount: { flex: 1, flexDirection: "row", gap: 6, alignItems: "center" },

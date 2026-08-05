@@ -2,6 +2,7 @@ import React, { useState, useEffect, useCallback, useMemo } from "react";
 import {
   Alert,
   Platform,
+  Pressable,
   View,
   Text,
   StyleSheet,
@@ -41,8 +42,15 @@ const BAR_CHART_HEIGHT = 220;
 const Y_AXIS_WIDTH = 46;
 
 export default function SummaryScreen({ navigation }) {
-  const { receipts, incomeItems, bankStatements, initialLoading } = useData();
-  const loading = initialLoading;
+  const {
+    receipts,
+    incomeItems,
+    bankStatements,
+    receiptsLoading,
+    incomeLoading,
+    bankStatementsLoading,
+  } = useData();
+  const loading = receiptsLoading || incomeLoading || bankStatementsLoading;
   const [refreshing, setRefreshing] = useState(false);
   const [activeFilterKey, setActiveFilterKey] = useState("current-quarter");
   const [filterOpen, setFilterOpen] = useState(false);
@@ -83,6 +91,13 @@ export default function SummaryScreen({ navigation }) {
         .catch(() => setActiveFilterKey("current-quarter"));
     });
     return unsubscribeFocus;
+  }, [navigation]);
+
+  useEffect(() => {
+    const unsubscribeBlur = navigation.addListener("blur", () => {
+      setFilterOpen(false);
+    });
+    return unsubscribeBlur;
   }, [navigation]);
 
   useEffect(() => {
@@ -185,6 +200,11 @@ export default function SummaryScreen({ navigation }) {
     setTimeout(() => setRefreshing(false), 600);
   }, []);
 
+  const handleFilterSelection = useCallback(async (nextKey) => {
+    setActiveFilterKey(nextKey);
+    await setAllFilterKeys(nextKey);
+  }, []);
+
   const closeMenu = () => setMenuOpen(false);
 
   // ===== Data for charts =====
@@ -206,7 +226,10 @@ export default function SummaryScreen({ navigation }) {
   const { yTicks } = getYAxisTicks(monthlyTotals, 5);
 
   return (
-    <SafeAreaView style={[styles.container, { backgroundColor: '#1C1C4E' }]}>
+    <SafeAreaView
+      style={[styles.container, { backgroundColor: '#1C1C4E' }]}
+      edges={["top", "left", "right"]}
+    >
       <StatusBar backgroundColor="#1C1C4E" barStyle="light-content" />
       <View style={[styles.topBar, { paddingTop: 5 }]}> 
         <TouchableOpacity style={styles.topBarButton} onPress={() => setMenuOpen(true)}>
@@ -218,6 +241,13 @@ export default function SummaryScreen({ navigation }) {
         <View style={{ width: 44 }} />
       </View>
 
+      {filterOpen ? (
+        <Pressable
+          style={styles.filterDismissOverlay}
+          onPress={() => setFilterOpen(false)}
+        />
+      ) : null}
+
       {loading ? (
         <View style={styles.center}>
           <ActivityIndicator size="large" color="#a60d49" />
@@ -225,6 +255,7 @@ export default function SummaryScreen({ navigation }) {
         </View>
       ) : (
         <ScrollView
+          style={styles.scrollView}
           contentContainerStyle={styles.content}
           refreshControl={
             <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
@@ -232,26 +263,6 @@ export default function SummaryScreen({ navigation }) {
         >
           {/* Summary totals card */}
           <View style={[styles.card, { zIndex: 10, overflow: "visible" }]}>
-
-            <DropDownPicker
-              open={filterOpen}
-              value={activeFilterKey}
-              items={filterItems}
-              setOpen={setFilterOpen}
-              setValue={(callback) => {
-                const nextKey = typeof callback === "function" ? callback(activeFilterKey) : callback;
-                setActiveFilterKey(nextKey);
-                setAllFilterKeys(nextKey).catch(() => {});
-              }}
-              setItems={setFilterItems}
-              listMode="SCROLLVIEW"
-              style={styles.filterDropdown}
-              dropDownContainerStyle={styles.filterDropdownContainer}
-              textStyle={styles.filterDropdownText}
-              zIndex={3000}
-              zIndexInverse={1000}
-            />
-
             <Text style={styles.subtitle}>
               Total Spent: £{totals.overall.toFixed(2)}{" "}
               <Text style={styles.subtitleVat}>(£{totals.totalVat.toFixed(2)} VAT)</Text>
@@ -467,11 +478,36 @@ export default function SummaryScreen({ navigation }) {
         </ScrollView>
       )}
 
+      {!loading && filterOptions.length > 0 ? (
+        <View style={styles.filterBar}>
+          <DropDownPicker
+            open={filterOpen}
+            value={activeFilterKey}
+            items={filterItems}
+            setOpen={setFilterOpen}
+            setValue={(callback) => {
+              const nextKey = callback(activeFilterKey);
+              handleFilterSelection(nextKey).catch(() => {});
+              return nextKey;
+            }}
+            setItems={setFilterItems}
+            listMode="SCROLLVIEW"
+            dropDownDirection="TOP"
+            style={styles.filterDropdown}
+            dropDownContainerStyle={styles.filterDropdownContainer}
+            textStyle={styles.filterDropdownText}
+            zIndex={3000}
+            zIndexInverse={1000}
+          />
+        </View>
+      ) : null}
+
       <SideMenu open={menuOpen} onClose={closeMenu}>
         <SharedTabMenu
           navigation={navigation}
           closeMenu={closeMenu}
           displayName={auth.currentUser?.displayName || "User"}
+          open={menuOpen}
         />
       </SideMenu>
     </SafeAreaView>
@@ -536,12 +572,29 @@ const styles = StyleSheet.create({
     color: "#fff",
   },
   topBarTitle: { fontSize: 18, fontWeight: "700", color: "#fff" },
+  filterDismissOverlay: {
+    position: "absolute",
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    zIndex: 900,
+  },
+  scrollView: {
+    flex: 1,
+  },
   content: {
-  ...SharedStyles.content,
-  paddingTop: 5,
-  paddingBottom: 40, 
-},
-  card: { ...SharedStyles.card, marginTop: 20, backgroundColor: Colors.surface },
+    ...SharedStyles.content,
+    flexGrow: 1,
+    paddingTop: 5,
+    paddingBottom: 76,
+  },
+  card: {
+    ...SharedStyles.card,
+    marginTop: 10,
+    paddingTop: 11,
+    backgroundColor: Colors.surface,
+  },
   title: SharedStyles.title,
   subtitle: SharedStyles.subtitle,
   activeFilterText: {
@@ -555,18 +608,26 @@ const styles = StyleSheet.create({
   subtitleIncome: { fontSize: 15, color: "#2e7d32", marginTop: 6 },
   subtitleNet: { fontSize: 15, color: Colors.textPrimary, marginTop: 6 },
   filterDropdown: {
-    backgroundColor: Colors.surface,
+    backgroundColor: Colors.card,
     borderColor: Colors.border,
-    marginTop: 10,
-    marginBottom: 4,
-    minHeight: 38,
+    borderRadius: 10,
   },
   filterDropdownContainer: {
-    backgroundColor: Colors.surface,
+    backgroundColor: Colors.card,
     borderColor: Colors.border,
   },
   filterDropdownText: {
     fontSize: 13,
+  },
+  filterBar: {
+    position: "absolute",
+    bottom: 0,
+    left: 0,
+    right: 0,
+    backgroundColor: "#1C1C4E",
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    zIndex: 1000,
   },
   chartCard: { ...SharedStyles.chartCard, overflow: "visible" },
   statementSection: {

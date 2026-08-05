@@ -85,6 +85,13 @@ export function buildFinancialFilterOptions(receipts = [], now = new Date()) {
   const orderedYears = Array.from(years).sort((a, b) => b - a);
   const options = [];
 
+  options.push({
+    key: "all-time",
+    label: "All Time",
+    startDate: null,
+    endDate: null,
+  });
+
   const currentQuarter = getCurrentFinancialQuarter(now);
   options.push({
     key: "current-quarter",
@@ -128,4 +135,24 @@ export function filterReceiptsByDateRange(receipts = [], startDate, endDate) {
     const t = startOfDayLocal(d).getTime();
     return t >= start && t <= end;
   });
+}
+
+export function getPeriodRecordCount(records = [], option) {
+  if (!option?.startDate || !option?.endDate) {
+    return records.length;
+  }
+  return filterReceiptsByDateRange(records, option.startDate, option.endDate).length;
+}
+
+export function formatPeriodLabelWithCount(
+  baseLabel,
+  count,
+  singularNoun,
+  pluralNoun = `${singularNoun}s`
+) {
+  if (count === 0) {
+    return `${baseLabel} - No ${singularNoun}`;
+  }
+  const noun = count === 1 ? singularNoun : pluralNoun;
+  return `${baseLabel} - ${count} ${noun}`;
 }

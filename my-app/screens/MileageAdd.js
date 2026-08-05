@@ -11,9 +11,6 @@ import {
   TouchableOpacity,
   View,
 } from "react-native";
-import MapView, { Polyline, Marker } from "react-native-maps";
-import { GooglePlacesAutocomplete } from "react-native-google-places-autocomplete";
-import * as Location from "expo-location";
 import DropDownPicker from "react-native-dropdown-picker";
 import Constants from "expo-constants";
 import {
@@ -29,14 +26,17 @@ import {
   getLastUsedVehicleId,
   setLastUsedVehicleId,
 } from "../utils/appSettings";
+import { useData } from "../contexts/DataContext";
 import DateTimePickerModal from "react-native-modal-datetime-picker";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 const GOOGLE_MAPS_KEY =
   Constants.expoConfig?.extra?.GOOGLE_MAPS_API_KEY || "";
 
-const INPUT_TABS = ["Address", "GPS", "Manual"];
-
 export default function MileageAdd({ navigation }) {
+  const insets = useSafeAreaInsets();
+  const { userProfile } = useData();
+  const isVerified = userProfile?.verificationStatus === "verified";
   // ── Vehicle picker ─────────────────────────────────────────────────────────
   const [vehicles, setVehiclesState] = useState([]);
   const [vehicleOpen, setVehicleOpen] = useState(false);
@@ -50,7 +50,6 @@ export default function MileageAdd({ navigation }) {
   const hideDatePicker = () => setDatePickerVisible(false);
   const handleConfirmDate = (d) => { setSelectedDate(d); hideDatePicker(); };
 
-  // Derive the YYYY-MM-DD string saved to Firestore
   const dateKey = (() => {
     const d = selectedDate;
     const yyyy = d.getFullYear();
@@ -59,29 +58,20 @@ export default function MileageAdd({ navigation }) {
     return `${yyyy}-${mm}-${dd}`;
   })();
 
-  // ── Purpose ────────────────────────────────────────────────────────────────
+  // ── Form fields ────────────────────────────────────────────────────────────
   const [purpose, setPurpose] = useState("");
-
-  // ── Input method tab ───────────────────────────────────────────────────────
-  const [activeTab, setActiveTab] = useState("Address");
-
-  // ── Address method ─────────────────────────────────────────────────────────
   const [startAddress, setStartAddress] = useState("");
   const [endAddress, setEndAddress] = useState("");
-  const [routeCoords, setRouteCoords] = useState(null); // [{lat, lng}]
-  const [routeMiles, setRouteMiles] = useState(null);
-  const [mapRegion, setMapRegion] = useState(null);
+  const [distance, setDistance] = useState("");
+  const [isReturnTrip, setIsReturnTrip] = useState(false);
+  const [lastCalculatedOneWayMiles, setLastCalculatedOneWayMiles] = useState(null);
   const [loadingRoute, setLoadingRoute] = useState(false);
 
-  // ── GPS method ─────────────────────────────────────────────────────────────
-  const [gpsLocation, setGpsLocation] = useState(null);
-  const [gpsAddress, setGpsAddress] = useState("");
-  const [loadingGps, setLoadingGps] = useState(false);
-
-  // ── Manual method ──────────────────────────────────────────────────────────
-  const [manualMiles, setManualMiles] = useState("");
-  const [manualStart, setManualStart] = useState("");
-  const [manualEnd, setManualEnd] = useState("");
+  // Autocomplete suggestion lists
+  const [startSuggestions, setStartSuggestions] = useState([]);
+  const [endSuggestions, setEndSuggestions] = useState([]);
+  const startDebounce = useRef(null);
+  const endDebounce = useRef(null);
 
   // ── Saving ─────────────────────────────────────────────────────────────────
   const [saving, setSaving] = useState(false);
@@ -91,13 +81,9 @@ export default function MileageAdd({ navigation }) {
   // ─────────────────────────────────────────────────────────────────────────
   const selectedVehicle = vehicles.find((v) => v.id === vehicleId) || null;
   const ratePerMile = selectedVehicle?.ratePerMile ?? 55;
-
-  const effectiveMiles = (() => {
-    if (activeTab === "Manual") return parseFloat(manualMiles) || 0;
-    return routeMiles || 0;
-  })();
-
+  const effectiveMiles = parseFloat(distance) || 0;
   const amountGBP = ((effectiveMiles * ratePerMile) / 100).toFixed(2);
+  const canSave = !!vehicleId && effectiveMiles > 0;
 
   // ─────────────────────────────────────────────────────────────────────────
   // Load vehicles on mount
@@ -112,7 +98,6 @@ export default function MileageAdd({ navigation }) {
           value: v.id,
         }))
       );
-
       const lastId = await getLastUsedVehicleId();
       if (lastId && saved.find((v) => v.id === lastId)) {
         setVehicleId(lastId);
@@ -123,83 +108,97 @@ export default function MileageAdd({ navigation }) {
   }, []);
 
   // ─────────────────────────────────────────────────────────────────────────
-  // Address → directions
+  // Auto-calculate route when both addresses are selected via Places
   // ─────────────────────────────────────────────────────────────────────────
-  const fetchDirections = async () => {
-    if (!startAddress || !endAddress) {
-      Alert.alert("Missing address", "Please enter both a start and end address.");
-      return;
-    }
+  const calculateRoute = async (start, end) => {
+    if (!start || !end) return;
     setLoadingRoute(true);
-    setRouteCoords(null);
-    setRouteMiles(null);
     try {
-      const origin = encodeURIComponent(startAddress);
-      const destination = encodeURIComponent(endAddress);
+      const origin = encodeURIComponent(start);
+      const destination = encodeURIComponent(end);
       const url = `https://maps.googleapis.com/maps/api/directions/json?origin=${origin}&destination=${destination}&key=${GOOGLE_MAPS_KEY}`;
       const res = await fetch(url);
       const data = await res.json();
-
-      if (data.status !== "OK" || !data.routes?.length) {
-        Alert.alert("Route not found", "Could not find a route between those addresses.");
-        return;
+      if (data.status === "OK" && data.routes?.length) {
+        const metres = data.routes[0].legs[0].distance.value;
+        const oneWayMiles = metres / 1609.344;
+        setLastCalculatedOneWayMiles(oneWayMiles);
+        setDistance((oneWayMiles * (isReturnTrip ? 2 : 1)).toFixed(2));
       }
-
-      const leg = data.routes[0].legs[0];
-      const metres = leg.distance.value;
-      const miles = metres / 1609.344;
-      setRouteMiles(parseFloat(miles.toFixed(2)));
-
-      // Decode polyline
-      const encoded = data.routes[0].overview_polyline.points;
-      const decoded = decodePolyline(encoded);
-      setRouteCoords(decoded);
-
-      // Centre the map
-      const lats = decoded.map((p) => p.latitude);
-      const lngs = decoded.map((p) => p.longitude);
-      setMapRegion({
-        latitude: (Math.min(...lats) + Math.max(...lats)) / 2,
-        longitude: (Math.min(...lngs) + Math.max(...lngs)) / 2,
-        latitudeDelta: (Math.max(...lats) - Math.min(...lats)) * 1.4 + 0.05,
-        longitudeDelta: (Math.max(...lngs) - Math.min(...lngs)) * 1.4 + 0.05,
-      });
     } catch (err) {
       console.error("Directions error", err);
-      Alert.alert("Error", "Could not fetch directions. Please check your connection.");
     } finally {
       setLoadingRoute(false);
     }
   };
 
   // ─────────────────────────────────────────────────────────────────────────
-  // GPS
+  // Places autocomplete (new API)
   // ─────────────────────────────────────────────────────────────────────────
-  const captureGps = async () => {
-    setLoadingGps(true);
+  const fetchSuggestions = async (input) => {
+    if (!isVerified || !input || input.length < 2) return [];
     try {
-      const { status } = await Location.requestForegroundPermissionsAsync();
-      if (status !== "granted") {
-        Alert.alert("Permission denied", "Location access is needed to capture your GPS position.");
-        return;
-      }
-      const loc = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
-      setGpsLocation(loc.coords);
-
-      // Reverse geocode
-      const [place] = await Location.reverseGeocodeAsync({
-        latitude: loc.coords.latitude,
-        longitude: loc.coords.longitude,
+      const res = await fetch("https://places.googleapis.com/v1/places:autocomplete", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "X-Goog-Api-Key": GOOGLE_MAPS_KEY,
+        },
+        body: JSON.stringify({
+          input,
+          includedRegionCodes: ["gb"],
+        }),
       });
-
-      const parts = [place?.street, place?.city, place?.region, place?.postalCode].filter(Boolean);
-      setGpsAddress(parts.join(", "));
-    } catch (err) {
-      console.error("GPS error", err);
-      Alert.alert("Error", "Could not get your location.");
-    } finally {
-      setLoadingGps(false);
+      const data = await res.json();
+      return (data.suggestions || []).map((s) => s.placePrediction?.text?.text).filter(Boolean);
+    } catch {
+      return [];
     }
+  };
+
+  const handleStartChange = (text) => {
+    setStartAddress(text);
+    setStartSuggestions([]);
+    clearTimeout(startDebounce.current);
+    startDebounce.current = setTimeout(async () => {
+      setStartSuggestions(await fetchSuggestions(text));
+    }, 300);
+  };
+
+  const handleEndChange = (text) => {
+    setEndAddress(text);
+    setEndSuggestions([]);
+    clearTimeout(endDebounce.current);
+    endDebounce.current = setTimeout(async () => {
+      setEndSuggestions(await fetchSuggestions(text));
+    }, 300);
+  };
+
+  const handleStartSelect = (addr) => {
+    setStartAddress(addr);
+    setStartSuggestions([]);
+    if (endAddress) calculateRoute(addr, endAddress);
+  };
+
+  const handleEndSelect = (addr) => {
+    setEndAddress(addr);
+    setEndSuggestions([]);
+    if (startAddress) calculateRoute(startAddress, addr);
+  };
+
+  const handleToggleReturnTrip = () => {
+    setIsReturnTrip((prev) => {
+      const next = !prev;
+      if (lastCalculatedOneWayMiles !== null) {
+        setDistance((lastCalculatedOneWayMiles * (next ? 2 : 1)).toFixed(2));
+      }
+      return next;
+    });
+  };
+
+  const handleDistanceChange = (text) => {
+    setDistance(text);
+    setLastCalculatedOneWayMiles(null);
   };
 
   // ─────────────────────────────────────────────────────────────────────────
@@ -207,38 +206,13 @@ export default function MileageAdd({ navigation }) {
   // ─────────────────────────────────────────────────────────────────────────
   const handleSave = async () => {
     const user = auth.currentUser;
-    if (!user) {
-      Alert.alert("Error", "Not signed in.");
-      return;
-    }
-    if (!vehicleId) {
-      Alert.alert("Vehicle required", "Please select a vehicle.");
-      return;
-    }
-    if (effectiveMiles <= 0) {
-      Alert.alert("Distance required", "Please enter or calculate the trip distance.");
-      return;
-    }
+    if (!user) { Alert.alert("Error", "Not signed in."); return; }
+    if (!vehicleId) { Alert.alert("Vehicle required", "Please select a vehicle."); return; }
+    if (effectiveMiles <= 0) { Alert.alert("Distance required", "Please enter the trip distance."); return; }
 
     setSaving(true);
     try {
-      let tripStartAddress = "";
-      let tripEndAddress = "";
-      let method = activeTab;
-
-      if (activeTab === "Address") {
-        tripStartAddress = startAddress;
-        tripEndAddress = endAddress;
-      } else if (activeTab === "GPS") {
-        tripStartAddress = gpsAddress;
-        tripEndAddress = "";
-      } else {
-        tripStartAddress = manualStart;
-        tripEndAddress = manualEnd;
-      }
-
       await setLastUsedVehicleId(vehicleId);
-
       await addDoc(collection(db, "receipts"), {
         userId: user.uid,
         type: "mileage",
@@ -246,10 +220,14 @@ export default function MileageAdd({ navigation }) {
         amount: parseFloat(amountGBP),
         category: "Travel",
         mileageDetails: {
-          startAddress: tripStartAddress,
-          endAddress: tripEndAddress,
+          startAddress,
+          endAddress,
           distance: effectiveMiles,
-          method,
+          oneWayDistance:
+            lastCalculatedOneWayMiles !== null
+              ? parseFloat(lastCalculatedOneWayMiles.toFixed(2))
+              : null,
+          returnTrip: isReturnTrip,
           vehicleId,
           vehicleReg: selectedVehicle?.registrationNumber || "",
           ratePerMile,
@@ -257,7 +235,6 @@ export default function MileageAdd({ navigation }) {
         },
         createdAt: serverTimestamp(),
       });
-
       navigation.goBack();
     } catch (err) {
       console.error("Save mileage error", err);
@@ -268,153 +245,17 @@ export default function MileageAdd({ navigation }) {
   };
 
   // ─────────────────────────────────────────────────────────────────────────
-  // Render helpers
-  // ─────────────────────────────────────────────────────────────────────────
-  const renderAddressTab = () => (
-    <View>
-      <Text style={styles.fieldLabel}>Start Address</Text>
-      <GooglePlacesAutocomplete
-        placeholder="e.g. 10 Downing Street, London"
-        onPress={(data) => setStartAddress(data.description)}
-        query={{ key: GOOGLE_MAPS_KEY, language: "en", components: "country:gb" }}
-        styles={{ textInput: styles.placesInput, container: { marginBottom: 8 }, listView: { zIndex: 99 } }}
-        fetchDetails={false}
-        enablePoweredByContainer={false}
-        keepResultsAfterBlur
-        textInputProps={{ onChangeText: (t) => setStartAddress(t) }}
-      />
-
-      <Text style={styles.fieldLabel}>End Address</Text>
-      <GooglePlacesAutocomplete
-        placeholder="e.g. 1 Victoria St, London"
-        onPress={(data) => setEndAddress(data.description)}
-        query={{ key: GOOGLE_MAPS_KEY, language: "en", components: "country:gb" }}
-        styles={{ textInput: styles.placesInput, container: { marginBottom: 8 }, listView: { zIndex: 99 } }}
-        fetchDetails={false}
-        enablePoweredByContainer={false}
-        keepResultsAfterBlur
-        textInputProps={{ onChangeText: (t) => setEndAddress(t) }}
-      />
-
-      <TouchableOpacity
-        style={[styles.actionBtn, (!startAddress || !endAddress) && styles.actionBtnDisabled]}
-        onPress={fetchDirections}
-        disabled={!startAddress || !endAddress || loadingRoute}
-      >
-        {loadingRoute ? (
-          <ActivityIndicator color="#fff" size="small" />
-        ) : (
-          <Text style={styles.actionBtnText}>Calculate Route</Text>
-        )}
-      </TouchableOpacity>
-
-      {routeCoords && mapRegion && (
-        <MapView style={styles.map} region={mapRegion}>
-          <Polyline coordinates={routeCoords} strokeColor={Colors.accent} strokeWidth={3} />
-          <Marker coordinate={routeCoords[0]} pinColor="green" />
-          <Marker coordinate={routeCoords[routeCoords.length - 1]} pinColor="red" />
-        </MapView>
-      )}
-    </View>
-  );
-
-  const renderGpsTab = () => (
-    <View>
-      <Text style={styles.fieldLabel}>Current Location</Text>
-      <TextInput
-        style={styles.input}
-        value={gpsAddress}
-        onChangeText={setGpsAddress}
-        placeholder="Tap button to capture GPS location"
-        placeholderTextColor="#999"
-        editable
-      />
-      <TouchableOpacity style={styles.actionBtn} onPress={captureGps} disabled={loadingGps}>
-        {loadingGps ? (
-          <ActivityIndicator color="#fff" size="small" />
-        ) : (
-          <Text style={styles.actionBtnText}>📍  Capture GPS Location</Text>
-        )}
-      </TouchableOpacity>
-
-      {gpsLocation && (
-        <MapView
-          style={styles.map}
-          region={{
-            latitude: gpsLocation.latitude,
-            longitude: gpsLocation.longitude,
-            latitudeDelta: 0.01,
-            longitudeDelta: 0.01,
-          }}
-        >
-          <Marker coordinate={{ latitude: gpsLocation.latitude, longitude: gpsLocation.longitude }} />
-        </MapView>
-      )}
-
-      <Text style={styles.fieldLabel}>Distance (miles)</Text>
-      <TextInput
-        style={styles.input}
-        value={manualMiles}
-        onChangeText={setManualMiles}
-        placeholder="Enter distance manually"
-        placeholderTextColor="#999"
-        keyboardType="decimal-pad"
-      />
-    </View>
-  );
-
-  const renderManualTab = () => (
-    <View>
-      <Text style={styles.fieldLabel}>Start Location (optional)</Text>
-      <TextInput
-        style={styles.input}
-        value={manualStart}
-        onChangeText={setManualStart}
-        placeholder="e.g. Home"
-        placeholderTextColor="#999"
-      />
-      <Text style={styles.fieldLabel}>End Location (optional)</Text>
-      <TextInput
-        style={styles.input}
-        value={manualEnd}
-        onChangeText={setManualEnd}
-        placeholder="e.g. Client office"
-        placeholderTextColor="#999"
-      />
-      <Text style={styles.fieldLabel}>Distance (miles) *</Text>
-      <TextInput
-        style={styles.input}
-        value={manualMiles}
-        onChangeText={setManualMiles}
-        placeholder="0.0"
-        placeholderTextColor="#999"
-        keyboardType="decimal-pad"
-      />
-    </View>
-  );
-
-  // ─────────────────────────────────────────────────────────────────────────
   // JSX
   // ─────────────────────────────────────────────────────────────────────────
   return (
     <View style={styles.container}>
       {/* Header */}
-      <View style={styles.header}>
+      <View style={[styles.header, { paddingTop: Math.max(insets.top + 10, 24) }]}>
         <TouchableOpacity onPress={() => navigation.goBack()} style={styles.headerBtn}>
-          <Text style={styles.headerBtnText}>‹ Back</Text>
+          <Text style={styles.headerBtnText}>‹</Text>
         </TouchableOpacity>
         <Text style={styles.headerTitle}>Record Mileage</Text>
-        <TouchableOpacity
-          onPress={handleSave}
-          style={[styles.headerBtn, styles.headerSaveBtn]}
-          disabled={saving}
-        >
-          {saving ? (
-            <ActivityIndicator color="#fff" size="small" />
-          ) : (
-            <Text style={styles.headerBtnText}>Save</Text>
-          )}
-        </TouchableOpacity>
+        <View style={styles.headerBtn} />
       </View>
 
       <KeyboardAvoidingView
@@ -427,11 +268,9 @@ export default function MileageAdd({ navigation }) {
           nestedScrollEnabled
         >
           {/* Vehicle */}
-          <Text style={styles.fieldLabel}>Vehicle *</Text>
+          <Text style={styles.fieldLabel}>Vehicle <Text style={styles.required}>*</Text></Text>
           {vehicles.length === 0 ? (
-            <Text style={styles.noVehicleHint}>
-              No vehicles registered. Add one via the side menu.
-            </Text>
+            <Text style={styles.noVehicleHint}>No vehicles registered. Add one via the side menu.</Text>
           ) : (
             <DropDownPicker
               open={vehicleOpen}
@@ -448,7 +287,9 @@ export default function MileageAdd({ navigation }) {
           )}
 
           {/* Date */}
-          <Text style={[styles.fieldLabel, { marginTop: vehicleOpen ? 180 : 16 }]}>Date *</Text>
+          <Text style={[styles.fieldLabel, { marginTop: vehicleOpen ? 180 : 16 }]}>
+            Date <Text style={styles.required}>*</Text>
+          </Text>
           <TouchableOpacity style={styles.input} onPress={showDatePicker}>
             <Text style={{ color: Colors.textPrimary, fontSize: 15, paddingVertical: 2 }}>
               {formatDate(selectedDate)}
@@ -464,7 +305,7 @@ export default function MileageAdd({ navigation }) {
           />
 
           {/* Purpose */}
-          <Text style={styles.fieldLabel}>Purpose</Text>
+          <Text style={styles.fieldLabel}>Purpose <Text style={styles.optional}>(optional)</Text></Text>
           <TextInput
             style={styles.input}
             value={purpose}
@@ -473,25 +314,68 @@ export default function MileageAdd({ navigation }) {
             placeholderTextColor="#999"
           />
 
-          {/* Input method tabs */}
-          <Text style={styles.fieldLabel}>Trip Distance</Text>
-          <View style={styles.tabRow}>
-            {INPUT_TABS.map((tab) => (
-              <TouchableOpacity
-                key={tab}
-                style={[styles.tab, activeTab === tab && styles.tabActive]}
-                onPress={() => setActiveTab(tab)}
-              >
-                <Text style={[styles.tabText, activeTab === tab && styles.tabTextActive]}>
-                  {tab}
-                </Text>
-              </TouchableOpacity>
-            ))}
+          {/* Start Location */}
+          <Text style={styles.fieldLabel}>Start Location <Text style={styles.optional}>(optional)</Text></Text>
+          <View style={styles.autocompleteWrap}>
+            <TextInput
+              style={styles.input}
+              value={startAddress}
+              onChangeText={handleStartChange}
+              placeholder="e.g. Home"
+              placeholderTextColor="#999"
+            />
+            {startSuggestions.length > 0 && (
+              <View style={styles.suggestionList}>
+                {startSuggestions.map((item, i) => (
+                  <TouchableOpacity key={`start-${i}`} style={styles.suggestionRow} onPress={() => handleStartSelect(item)}>
+                    <Text style={styles.suggestionText}>{item}</Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
+            )}
           </View>
 
-          {activeTab === "Address" && renderAddressTab()}
-          {activeTab === "GPS" && renderGpsTab()}
-          {activeTab === "Manual" && renderManualTab()}
+          {/* End Location */}
+          <Text style={styles.fieldLabel}>End Location <Text style={styles.optional}>(optional)</Text></Text>
+          <View style={styles.autocompleteWrap}>
+            <TextInput
+              style={styles.input}
+              value={endAddress}
+              onChangeText={handleEndChange}
+              placeholder="e.g. Client office"
+              placeholderTextColor="#999"
+            />
+            {endSuggestions.length > 0 && (
+              <View style={styles.suggestionList}>
+                {endSuggestions.map((item, i) => (
+                  <TouchableOpacity key={`end-${i}`} style={styles.suggestionRow} onPress={() => handleEndSelect(item)}>
+                    <Text style={styles.suggestionText}>{item}</Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
+            )}
+          </View>
+
+          <TouchableOpacity style={styles.returnTripRow} onPress={handleToggleReturnTrip} activeOpacity={0.8}>
+            <View style={[styles.checkbox, isReturnTrip && styles.checkboxChecked]}>
+              {isReturnTrip ? <Text style={styles.checkboxTick}>✓</Text> : null}
+            </View>
+            <Text style={styles.returnTripLabel}>Return trip (double distance)</Text>
+          </TouchableOpacity>
+
+          {/* Distance */}
+          <Text style={styles.fieldLabel}>
+            Distance (miles) <Text style={styles.required}>*</Text>
+            {loadingRoute && <ActivityIndicator size="small" color={Colors.accent} style={{ marginLeft: 6 }} />}
+          </Text>
+          <TextInput
+            style={styles.input}
+            value={distance}
+            onChangeText={handleDistanceChange}
+            placeholder="0.0"
+            placeholderTextColor="#999"
+            keyboardType="decimal-pad"
+          />
 
           {/* Summary */}
           <View style={styles.summaryBox}>
@@ -503,99 +387,64 @@ export default function MileageAdd({ navigation }) {
             </View>
             <View style={styles.summaryRow}>
               <Text style={styles.summaryLabel}>Rate</Text>
-              <Text style={styles.summaryValue}>{ratePerMile}p / mile</Text>
+              <Text style={styles.summaryValue}>{ratePerMile}p/mile</Text>
             </View>
             <View style={[styles.summaryRow, styles.summaryRowLast]}>
               <Text style={styles.summaryLabelBold}>Amount</Text>
-              <Text style={styles.summaryValueBold}>
-                £{effectiveMiles > 0 ? amountGBP : "0.00"}
-              </Text>
+              <Text style={styles.summaryValueBold}>£{effectiveMiles > 0 ? amountGBP : "0.00"}</Text>
             </View>
           </View>
         </ScrollView>
+
+        {/* Bottom action bar */}
+        <View
+          style={[
+            styles.bottomBar,
+            {
+              paddingBottom:
+                Platform.OS === "android"
+                  ? Math.max(insets.bottom, 10)
+                  : Math.max(insets.bottom, 16),
+            },
+          ]}
+        >
+          <TouchableOpacity style={styles.cancelBtn} onPress={() => navigation.goBack()}>
+            <Text style={styles.cancelBtnText}>Cancel</Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={[styles.saveBtn, !canSave && styles.saveBtnDisabled]}
+            onPress={handleSave}
+            disabled={!canSave || saving}
+          >
+            {saving ? (
+              <ActivityIndicator color="#fff" size="small" />
+            ) : (
+              <Text style={styles.saveBtnText}>Save</Text>
+            )}
+          </TouchableOpacity>
+        </View>
       </KeyboardAvoidingView>
     </View>
   );
 }
 
-// ─────────────────────────────────────────────────────────────────────────
-// Polyline decoder (Google encoded polyline algorithm)
-// ─────────────────────────────────────────────────────────────────────────
-function decodePolyline(encoded) {
-  let index = 0;
-  const len = encoded.length;
-  const result = [];
-  let lat = 0;
-  let lng = 0;
-
-  while (index < len) {
-    let shift = 0;
-    let result2 = 0;
-    let b;
-    do {
-      b = encoded.charCodeAt(index++) - 63;
-      result2 |= (b & 0x1f) << shift;
-      shift += 5;
-    } while (b >= 0x20);
-    const dlat = result2 & 1 ? ~(result2 >> 1) : result2 >> 1;
-    lat += dlat;
-
-    shift = 0;
-    result2 = 0;
-    do {
-      b = encoded.charCodeAt(index++) - 63;
-      result2 |= (b & 0x1f) << shift;
-      shift += 5;
-    } while (b >= 0x20);
-    const dlng = result2 & 1 ? ~(result2 >> 1) : result2 >> 1;
-    lng += dlng;
-
-    result.push({ latitude: lat / 1e5, longitude: lng / 1e5 });
-  }
-  return result;
-}
-
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: Colors.background },
+  container: { flex: 1, backgroundColor: "#f4f4f8" },
   header: {
     backgroundColor: "#1C1C4E",
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
     paddingHorizontal: 16,
-    paddingTop: Platform.OS === "ios" ? 56 : 16,
     paddingBottom: 14,
   },
-  headerTitle: {
-    color: "#fff",
-    fontSize: 17,
-    fontWeight: "700",
-  },
-  headerBtn: {
-    paddingVertical: 6,
-    paddingHorizontal: 12,
-    borderRadius: 8,
-  },
-  headerSaveBtn: {
-    backgroundColor: Colors.accent,
-  },
-  headerBtnText: {
-    color: "#fff",
-    fontWeight: "600",
-    fontSize: 15,
-  },
-  scrollContent: {
-    padding: 16,
-    paddingBottom: 60,
-    backgroundColor: "#f4f4f8",
-  },
-  fieldLabel: {
-    fontSize: 13,
-    fontWeight: "600",
-    color: "#333",
-    marginBottom: 4,
-    marginTop: 12,
-  },
+  headerTitle: { color: "#fff", fontSize: 17, fontWeight: "700" },
+  headerBtn: { width: 40, alignItems: "center" },
+  headerBtnText: { color: "#fff", fontWeight: "600", fontSize: 22 },
+  scrollContent: { padding: 16, paddingBottom: 20 },
+  fieldLabel: { fontSize: 13, fontWeight: "600", color: "#333", marginBottom: 4, marginTop: 12 },
+  required: { color: Colors.accent },
+  optional: { fontWeight: "400", color: "#888" },
   input: {
     borderWidth: 1,
     borderColor: Colors.border,
@@ -606,80 +455,33 @@ const styles = StyleSheet.create({
     color: Colors.textPrimary,
     backgroundColor: "#fff",
   },
-  placesInput: {
-    borderWidth: 1,
-    borderColor: Colors.border,
-    borderRadius: 10,
-    paddingHorizontal: 14,
-    fontSize: 15,
-    color: Colors.textPrimary,
-    backgroundColor: "#fff",
-    height: 44,
-  },
-  dropdown: {
-    borderColor: Colors.border,
-    borderRadius: 10,
-    backgroundColor: "#fff",
-  },
-  dropdownContainer: {
-    borderColor: Colors.border,
-    backgroundColor: "#fff",
-  },
-  noVehicleHint: {
-    fontSize: 14,
-    color: "#888",
-    marginTop: 4,
-    marginBottom: 4,
-  },
-  tabRow: {
+  dropdown: { borderColor: Colors.border, borderRadius: 10, backgroundColor: "#fff" },
+  dropdownContainer: { borderColor: Colors.border, backgroundColor: "#fff" },
+  noVehicleHint: { fontSize: 14, color: "#888", marginTop: 4, marginBottom: 4 },
+  returnTripRow: {
+    marginTop: 14,
+    marginBottom: 2,
     flexDirection: "row",
-    marginTop: 4,
-    marginBottom: 12,
-    borderRadius: 10,
-    overflow: "hidden",
+    alignItems: "center",
+    alignSelf: "flex-start",
+  },
+  checkbox: {
+    width: 20,
+    height: 20,
     borderWidth: 1,
     borderColor: Colors.border,
-    backgroundColor: "#e8e8ee",
-  },
-  tab: {
-    flex: 1,
-    paddingVertical: 10,
+    borderRadius: 5,
+    marginRight: 10,
     alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "#fff",
   },
-  tabActive: {
+  checkboxChecked: {
     backgroundColor: Colors.accent,
+    borderColor: Colors.accent,
   },
-  tabText: {
-    fontSize: 13,
-    fontWeight: "600",
-    color: "#555",
-  },
-  tabTextActive: {
-    color: "#fff",
-  },
-  actionBtn: {
-    backgroundColor: Colors.accent,
-    paddingVertical: 12,
-    borderRadius: 10,
-    alignItems: "center",
-    marginTop: 8,
-    marginBottom: 8,
-  },
-  actionBtnDisabled: {
-    opacity: 0.45,
-  },
-  actionBtnText: {
-    color: "#fff",
-    fontWeight: "700",
-    fontSize: 15,
-  },
-  map: {
-    width: "100%",
-    height: 200,
-    borderRadius: 12,
-    marginTop: 10,
-    marginBottom: 4,
-  },
+  checkboxTick: { color: "#fff", fontSize: 13, fontWeight: "800" },
+  returnTripLabel: { fontSize: 14, color: Colors.textPrimary, fontWeight: "500" },
   summaryBox: {
     backgroundColor: "#fff",
     borderRadius: 14,
@@ -695,27 +497,53 @@ const styles = StyleSheet.create({
     borderBottomWidth: 1,
     borderBottomColor: "#f0f0f0",
   },
-  summaryRowLast: {
-    borderBottomWidth: 0,
-    paddingTop: 10,
+  summaryRowLast: { borderBottomWidth: 0, paddingTop: 10 },
+  summaryLabel: { fontSize: 14, color: "#555" },
+  summaryValue: { fontSize: 14, color: Colors.textPrimary, fontWeight: "500" },
+  summaryLabelBold: { fontSize: 16, color: Colors.textPrimary, fontWeight: "700" },
+  summaryValueBold: { fontSize: 18, color: Colors.accent, fontWeight: "800" },
+  bottomBar: {
+    flexDirection: "row",
+    padding: 16,
+    paddingBottom: 16,
+    gap: 12,
+    backgroundColor: "#fff",
+    borderTopWidth: 1,
+    borderTopColor: "#e0e0e8",
   },
-  summaryLabel: {
-    fontSize: 14,
-    color: "#555",
+  cancelBtn: {
+    flex: 1,
+    backgroundColor: Colors.accent,
+    paddingVertical: 14,
+    borderRadius: 30,
+    alignItems: "center",
   },
-  summaryValue: {
-    fontSize: 14,
-    color: Colors.textPrimary,
-    fontWeight: "500",
+  cancelBtnText: { color: "#fff", fontWeight: "700", fontSize: 16 },
+  saveBtn: {
+    flex: 1,
+    backgroundColor: Colors.accent,
+    paddingVertical: 14,
+    borderRadius: 30,
+    alignItems: "center",
   },
-  summaryLabelBold: {
-    fontSize: 16,
-    color: Colors.textPrimary,
-    fontWeight: "700",
+  saveBtnDisabled: { backgroundColor: "#b0b0c0" },
+  saveBtnText: { color: "#fff", fontWeight: "700", fontSize: 16 },
+  autocompleteWrap: { position: "relative" },
+  suggestionList: {
+    marginTop: 6,
+    backgroundColor: "#fff",
+    borderWidth: 1,
+    borderColor: Colors.border,
+    borderRadius: 10,
+    zIndex: 100,
+    elevation: 4,
+    overflow: "hidden",
   },
-  summaryValueBold: {
-    fontSize: 18,
-    color: Colors.accent,
-    fontWeight: "800",
+  suggestionRow: {
+    paddingHorizontal: 14,
+    paddingVertical: 11,
+    borderBottomWidth: 1,
+    borderBottomColor: "#f0f0f0",
   },
+  suggestionText: { fontSize: 14, color: Colors.textPrimary },
 });
