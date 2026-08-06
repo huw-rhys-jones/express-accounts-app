@@ -386,6 +386,16 @@ const ExpensesScreen = ({ navigation, route }) => {
   }, []);
 
   useEffect(() => {
+    if (!route?.params?.refreshReceiptFilterAt) {
+      return;
+    }
+
+    getReceiptFilterKey()
+      .then(setActiveFilterKey)
+      .catch(() => setActiveFilterKey("current-quarter"));
+  }, [route?.params?.refreshReceiptFilterAt]);
+
+  useEffect(() => {
     const unsubscribeFocus = navigation.addListener("focus", () => {
       getReceiptFilterKey()
         .then(setActiveFilterKey)

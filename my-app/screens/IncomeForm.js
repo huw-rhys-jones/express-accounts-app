@@ -39,7 +39,11 @@ import {
 import { auth, db } from "../firebaseConfig";
 import { Colors, ReceiptStyles } from "../utils/sharedStyles";
 import { formatDate } from "../utils/format_style";
-import { getCurrentYearAprilSix } from "../utils/financialPeriods";
+import {
+  getCurrentFinancialQuarter,
+  getCurrentYearAprilSix,
+  startOfDayLocal,
+} from "../utils/financialPeriods";
 import { useReceiptOcr, runOcrOnAssets, detectReceiptGroupsFromAssets } from "../utils/ocrHelpers";
 import {
   createImageAttachment,
@@ -51,6 +55,7 @@ import {
 } from "../utils/documentAttachments";
 import { triggerHaptic } from "../utils/haptics";
 import { categories_meta } from "../constants/arrays";
+import { getIncomeFilterKey, setIncomeFilterKey } from "../utils/appSettings";
 
 const IMAGE_HEIGHT = Math.round(Dimensions.get("window").height * 0.45);
 
@@ -757,6 +762,24 @@ export default function IncomeFormScreen({ navigation, route, mode }) {
 
     setIsSaving(true);
     try {
+      const maybeSwitchIncomeFilterToAllTime = async (savedDate) => {
+        try {
+          const activeKey = await getIncomeFilterKey();
+          if (activeKey !== "current-quarter") return;
+
+          const quarter = getCurrentFinancialQuarter(new Date());
+          const start = startOfDayLocal(quarter.startDate).getTime();
+          const end = startOfDayLocal(quarter.endDate).getTime();
+          const t = startOfDayLocal(savedDate).getTime();
+
+          if (t < start || t > end) {
+            await setIncomeFilterKey("all-time");
+          }
+        } catch {
+          // Non-blocking filter adjustment
+        }
+      };
+
       const currentRemoteUrls = new Set(
         attachments.filter((item) => item.url && !item.localUri).map((item) => item.url)
       );
@@ -794,6 +817,8 @@ export default function IncomeFormScreen({ navigation, route, mode }) {
           createdAt: serverTimestamp(),
         });
       }
+
+      await maybeSwitchIncomeFilterToAllTime(selectedDate);
 
       triggerHaptic("success").catch(() => {});
       navigateBackToIncome(navigation);

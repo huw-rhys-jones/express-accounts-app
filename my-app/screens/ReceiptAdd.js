@@ -52,17 +52,23 @@ import {
 import { Colors, ReceiptStyles } from "../utils/sharedStyles";
 import {
   getCurrentYearAprilSix,
+  getCurrentFinancialQuarter,
   startOfDayLocal,
 } from "../utils/financialPeriods";
 import { triggerHaptic } from "../utils/haptics";
+import {
+  getReceiptFilterKey,
+  setReceiptFilterKey,
+} from "../utils/appSettings";
+import { useData } from "../contexts/DataContext";
 
-function navigateBackToReceipts(navigation) {
+function navigateBackToReceipts(navigation, params = {}) {
   navigation.reset({
     index: 0,
     routes: [
       {
         name: "MainTabs",
-        state: { routes: [{ name: "Receipts" }] },
+        state: { routes: [{ name: "Receipts", params }] },
       },
     ],
   });
@@ -74,6 +80,7 @@ const ANNOTATION_MIN_BOX_HEIGHT = 26;
 
 const ReceiptAdd = ({ navigation, route }) => {
   const insets = useSafeAreaInsets();
+  const { refreshReceipts } = useData();
   const heroHeightAnim = useRef(new Animated.Value(HERO_EXPANDED_HEIGHT)).current;
   const [heroHeight, setHeroHeight] = useState(HERO_EXPANDED_HEIGHT);
   const [amount, setAmount] = useState("");
@@ -579,7 +586,7 @@ const ReceiptAdd = ({ navigation, route }) => {
     detectRequestIdRef.current += 1;
     setIsDetecting(false);
     setDetectProgress(0);
-    navigateBackToReceipts(navigation);
+    navigateBackToReceipts(navigation, { refreshReceiptFilterAt: Date.now() });
   };
 
   const processDetectionLocally = () => {
@@ -764,6 +771,43 @@ const ReceiptAdd = ({ navigation, route }) => {
     const net = gross / (1 + rate / 100);
     const vat = gross - net;
     return vat.toFixed(2);
+  };
+
+  const isSavedDateOutsideCurrentQuarter = (savedDates = []) => {
+    const quarter = getCurrentFinancialQuarter(new Date());
+    const start = startOfDayLocal(quarter.startDate).getTime();
+    const end = startOfDayLocal(quarter.endDate).getTime();
+
+    return (savedDates || []).some((value) => {
+      const d = value instanceof Date ? value : new Date(value);
+      if (Number.isNaN(d.getTime())) return false;
+      const t = startOfDayLocal(d).getTime();
+      return t < start || t > end;
+    });
+  };
+
+  const maybeSwitchReceiptFilterToAllTime = async (savedDates) => {
+    try {
+      const activeKey = await getReceiptFilterKey();
+      if (activeKey !== "current-quarter") return false;
+
+      const shouldSwitch = isSavedDateOutsideCurrentQuarter(savedDates);
+      if (shouldSwitch) {
+        await setReceiptFilterKey("all-time");
+      }
+      return shouldSwitch;
+    } catch {
+      // Non-blocking filter adjustment
+      return false;
+    }
+  };
+
+  const maybeRefreshReceiptsAfterSave = async () => {
+    try {
+      await refreshReceipts();
+    } catch {
+      // Non-blocking refresh adjustment
+    }
   };
 
   const toMoneyKey = (value) => {
@@ -1007,6 +1051,11 @@ const ReceiptAdd = ({ navigation, route }) => {
         skippedCount: receiptReviewStates.filter((state) => state === "rejected")
           .length,
       });
+      const acceptedDates = syncedDrafts
+        .filter((_, i) => receiptReviewStates[i] === "accepted")
+        .map((draft) => draft.selectedDate);
+      await maybeSwitchReceiptFilterToAllTime(acceptedDates);
+      await maybeRefreshReceiptsAfterSave();
       setShowBatchSummaryModal(true);
       setIsUploading(false);
       triggerHaptic("success").catch(() => {});
@@ -1033,6 +1082,9 @@ const ReceiptAdd = ({ navigation, route }) => {
         recurrenceConfig: getRecurrenceConfig(),
         ocrFrames,
       });
+
+      await maybeSwitchReceiptFilterToAllTime([selectedDate]);
+      await maybeRefreshReceiptsAfterSave();
 
       setIsUploading(false);
 
@@ -1119,6 +1171,13 @@ const ReceiptAdd = ({ navigation, route }) => {
     }
 
     const baseDoc = await addDoc(collection(db, "receipts"), basePayload);
+    console.log("Receipt saved", {
+      id: baseDoc.id,
+      userId: user.uid,
+      date: basePayload.date,
+      category: basePayload.category,
+      imageCount: imageUrls.length,
+    });
 
     if (recurrenceConfig) {
       const recurringDates = buildRecurringDates(date, recurrenceConfig);
@@ -2085,7 +2144,11 @@ const ReceiptAdd = ({ navigation, route }) => {
                     routes: [
                       {
                         name: "MainTabs",
-                        state: { routes: [{ name: "Receipts" }] },
+                        state: {
+                          routes: [
+                            { name: "Receipts", params: { refreshReceiptFilterAt: Date.now() } },
+                          ],
+                        },
                       },
                     ],
                   });
@@ -2133,7 +2196,11 @@ const ReceiptAdd = ({ navigation, route }) => {
                     routes: [
                       {
                         name: "MainTabs",
-                        state: { routes: [{ name: "Receipts" }] },
+                        state: {
+                          routes: [
+                            { name: "Receipts", params: { refreshReceiptFilterAt: Date.now() } },
+                          ],
+                        },
                       },
                     ],
                   });
@@ -2202,7 +2269,11 @@ const ReceiptAdd = ({ navigation, route }) => {
                     routes: [
                       {
                         name: "MainTabs",
-                        state: { routes: [{ name: "Receipts" }] },
+                        state: {
+                          routes: [
+                            { name: "Receipts", params: { refreshReceiptFilterAt: Date.now() } },
+                          ],
+                        },
                       },
                     ],
                   });
