@@ -1687,7 +1687,7 @@ const ReceiptAdd = ({ navigation, route }) => {
               >
                 {/* VAT Amount Column */}
                 <View style={ReceiptStyles.vatColLeft}>
-                  <Text style={[ReceiptStyles.label, { fontSize: 13 }]}>VAT Amount:</Text>
+                  <Text style={[ReceiptStyles.label, localStyles.labelAligned, { fontSize: 13 }]}>VAT Amount:</Text>
                   <View
                     style={[
                       ReceiptStyles.inputRow,
@@ -1735,7 +1735,7 @@ const ReceiptAdd = ({ navigation, route }) => {
 
                 {/* Rate Column */}
                 <View style={ReceiptStyles.vatColRight}>
-                  <Text style={[ReceiptStyles.label, { fontSize: 13 }]}>Rate (%):</Text>
+                  <Text style={[ReceiptStyles.label, localStyles.labelAligned, { fontSize: 13 }]}>Rate (%):</Text>
                   <DropDownPicker
                     open={vatRateOpen}
                     value={vatRate}
@@ -1825,7 +1825,7 @@ const ReceiptAdd = ({ navigation, route }) => {
               </TouchableOpacity>
             </Animated.View>
 
-            <View style={localStyles.fieldGroup}>
+            <View style={[localStyles.fieldGroup, localStyles.fieldTopSpacing]}>
               <Text style={[ReceiptStyles.label, localStyles.labelAligned]}>
                 Label (optional):
               </Text>

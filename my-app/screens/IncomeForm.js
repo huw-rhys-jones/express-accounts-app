@@ -56,6 +56,7 @@ import {
 import { triggerHaptic } from "../utils/haptics";
 import { categories_meta } from "../constants/arrays";
 import { getIncomeFilterKey, setIncomeFilterKey } from "../utils/appSettings";
+import { useData } from "../contexts/DataContext";
 
 const IMAGE_HEIGHT = Math.round(Dimensions.get("window").height * 0.45);
 
@@ -81,6 +82,7 @@ function navigateBackToIncome(navigation) {
 
 export default function IncomeFormScreen({ navigation, route, mode }) {
   const insets = useSafeAreaInsets();
+  const { refreshIncome } = useData();
   const heroHeightAnim = useRef(new Animated.Value(HERO_EXPANDED_HEIGHT)).current;
   const [heroHeight, setHeroHeight] = useState(HERO_EXPANDED_HEIGHT);
   const income = route?.params?.income;
@@ -383,6 +385,8 @@ export default function IncomeFormScreen({ navigation, route, mode }) {
           reference: draft.reference,
         });
       }
+
+      await refreshIncome();
 
       setBatchSaveSummary({
         saved: savedRows,
@@ -744,11 +748,6 @@ export default function IncomeFormScreen({ navigation, route, mode }) {
       return;
     }
 
-    if (!reference.trim()) {
-      Alert.alert("Invalid Input", "Please enter a reference number.");
-      return;
-    }
-
     if (!vatAmount || Number(vatAmount) < 0 || !vatRate || Number(vatRate) < 0) {
       Alert.alert("Invalid Input", "Please enter valid VAT amount and VAT rate.");
       return;
@@ -819,6 +818,7 @@ export default function IncomeFormScreen({ navigation, route, mode }) {
       }
 
       await maybeSwitchIncomeFilterToAllTime(selectedDate);
+      await refreshIncome();
 
       triggerHaptic("success").catch(() => {});
       navigateBackToIncome(navigation);
@@ -918,7 +918,6 @@ export default function IncomeFormScreen({ navigation, route, mode }) {
 
   const isIncomeFormValid =
     Number(amount) > 0 &&
-    reference.trim().length > 0 &&
     vatAmount.trim().length > 0 &&
     vatRate.trim().length > 0 &&
     !Number.isNaN(Number(vatAmount)) &&
@@ -1143,11 +1142,11 @@ export default function IncomeFormScreen({ navigation, route, mode }) {
                 backgroundColor: flashReference.interpolate({ inputRange: [0, 1], outputRange: ["transparent", "rgba(253,224,71,0.45)"] }),
                 borderRadius: 6,
               }]}>
-              <Text style={ReceiptStyles.label}>Reference:</Text>
+              <Text style={ReceiptStyles.label}>Reference (optional):</Text>
               <TextInput
                 value={reference}
                 onChangeText={setReference}
-                placeholder="Invoice number or source"
+                placeholder="Optional invoice number or source"
                 placeholderTextColor={stylesConst.placeholder}
                 onFocus={() => {
                   Animated.timing(heroHeightAnim, {

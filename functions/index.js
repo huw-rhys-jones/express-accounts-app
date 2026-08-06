@@ -90,6 +90,154 @@ function isAccountantEmail(email) {
   return ACCOUNTANT_EMAILS.has(String(email || "").toLowerCase());
 }
 
+function normalizeEmail(value) {
+  return String(value || "").trim().toLowerCase();
+}
+
+async function findVerificationCodeByEmail(emailLower, userId) {
+  const codesRef = admin.firestore().collection("VerificationCodes");
+
+  const pickCandidate = (docs) => {
+    const normalizedUserId = String(userId || "");
+    const exactUserMatch = docs
+      .map((docSnap) => ({id: docSnap.id, data: docSnap.data() || {}}))
+      .find((entry) => String(entry.data.usedBy || "") === normalizedUserId);
+    if (exactUserMatch) return exactUserMatch;
+
+    const usable = docs
+      .map((docSnap) => ({id: docSnap.id, data: docSnap.data() || {}}))
+      .filter((entry) => {
+        const usedBy = String(entry.data.usedBy || "");
+        return !usedBy;
+      });
+
+    if (usable.length) {
+      return usable[0];
+    }
+
+    // Last resort: allow reassignment from an existing linked user when
+    // the email matches and no unclaimed code exists.
+    const any = docs.map((docSnap) => ({id: docSnap.id, data: docSnap.data() || {}}));
+    return any[0] || null;
+  };
+
+  const lowerSnap = await codesRef
+    .where("accountantSubmittedEmailLower", "==", emailLower)
+    .limit(25)
+    .get();
+  const lowerMatch = pickCandidate(lowerSnap.docs);
+  if (lowerMatch) return lowerMatch;
+
+  const exactSnap = await codesRef
+    .where("accountantSubmittedEmail", "==", emailLower)
+    .limit(25)
+    .get();
+  const exactMatch = pickCandidate(exactSnap.docs);
+  if (exactMatch) return exactMatch;
+
+  // Legacy fallback: older code docs may not have lowercase email field.
+  // Scan a bounded recent set and compare case-insensitively.
+  let fallbackDocs = [];
+  try {
+    const recentSnap = await codesRef
+      .orderBy("createdAt", "desc")
+      .limit(500)
+      .get();
+    fallbackDocs = recentSnap.docs;
+  } catch (_) {
+    const coarseSnap = await codesRef.limit(500).get();
+    fallbackDocs = coarseSnap.docs;
+  }
+
+  const fallbackMatch = pickCandidate(
+    fallbackDocs.filter((docSnap) =>
+      normalizeEmail((docSnap.data() || {}).accountantSubmittedEmail) === emailLower
+    )
+  );
+
+  if (!fallbackMatch) return null;
+  return {id: fallbackMatch.id, data: fallbackMatch.data() || {}};
+}
+
+async function applyVerificationCodeByEmail({userId, emailLower, markEmailVerified}) {
+  const normalizedUserId = String(userId || "").trim();
+  if (!normalizedUserId) {
+    return {matched: false, reason: "missing-user-id"};
+  }
+
+  const normalizedEmail = normalizeEmail(emailLower);
+  if (!normalizedEmail) {
+    return {matched: false, reason: "missing-email"};
+  }
+
+  const matchedCode = await findVerificationCodeByEmail(normalizedEmail, normalizedUserId);
+  if (!matchedCode) {
+    return {matched: false, reason: "no-code-for-email"};
+  }
+
+  const userRef = admin.firestore().collection("users").doc(normalizedUserId);
+  const codeRef = admin.firestore().collection("VerificationCodes").doc(matchedCode.id);
+  const nowTs = admin.firestore.FieldValue.serverTimestamp();
+
+  await admin.firestore().runTransaction(async (tx) => {
+    const [userSnap, codeSnap] = await Promise.all([tx.get(userRef), tx.get(codeRef)]);
+    const userData = userSnap.exists ? (userSnap.data() || {}) : {};
+    const codeData = codeSnap.exists ? (codeSnap.data() || {}) : {};
+
+    const usedBy = String(codeData.usedBy || "");
+    const reassignedFromUserId = usedBy && usedBy !== normalizedUserId ? usedBy : "";
+
+    if (reassignedFromUserId) {
+      const oldUserRef = admin.firestore().collection("users").doc(reassignedFromUserId);
+      const oldUserSnap = await tx.get(oldUserRef);
+      if (oldUserSnap.exists) {
+        const oldUserData = oldUserSnap.data() || {};
+        const oldCode = String(oldUserData.verificationCode || "");
+        if (oldCode === matchedCode.id) {
+          tx.set(oldUserRef, {
+            verificationStatus: admin.firestore.FieldValue.delete(),
+            verifiedName: admin.firestore.FieldValue.delete(),
+            verificationCode: admin.firestore.FieldValue.delete(),
+            hideAds: false,
+            updatedAt: nowTs,
+          }, {merge: true});
+        }
+      }
+    }
+
+    const verifiedName =
+      String(codeData.accountantSubmittedName || "").trim() ||
+      String(userData.name || userData.displayName || "").trim() ||
+      "Verified client";
+
+    tx.set(userRef, {
+      verificationStatus: "verified",
+      verifiedName,
+      verificationCode: matchedCode.id,
+      hideAds: true,
+      emailVerified: markEmailVerified ? true : Boolean(userData.emailVerified),
+      updatedAt: nowTs,
+    }, {merge: true});
+
+    tx.set(codeRef, {
+      usedBy: normalizedUserId,
+      usedAt: nowTs,
+      verificationStatus: "verified",
+      accountantSubmittedEmailLower: normalizedEmail,
+      updatedAt: nowTs,
+    }, {merge: true});
+  });
+
+  if (markEmailVerified) {
+    await admin.auth().updateUser(normalizedUserId, {emailVerified: true});
+  }
+
+  return {
+    matched: true,
+    code: matchedCode.id,
+  };
+}
+
 function parsePortalAttachmentSource(sourceUrl) {
   const url = String(sourceUrl || "").trim();
   if (!url) return null;
@@ -1202,6 +1350,155 @@ exports.extractReceiptImages = onRequest({region: OCR_FUNCTION_REGION, memory: "
           statusCode === 401 || statusCode === 400 || statusCode === 503
             ? message
             : "Receipt image scan failed. Please try again with another image.",
+      });
+    }
+  });
+});
+
+exports.autoAssignVerificationByEmail = onRequest({region: OCR_FUNCTION_REGION, timeoutSeconds: 120}, (req, res) => {
+  cors(req, res, async () => {
+    if (req.method === "OPTIONS") {
+      return res.status(204).send("");
+    }
+
+    if (req.method !== "POST") {
+      return res.status(405).json({error: "Method Not Allowed"});
+    }
+
+    try {
+      const decodedToken = await verifyAuthenticatedUser(req);
+      const userId = decodedToken.uid;
+      if (!userId) {
+        return res.status(401).json({error: "Missing user ID in token."});
+      }
+
+      const authUser = await admin.auth().getUser(userId);
+      const emailLower = normalizeEmail(authUser.email || decodedToken.email || "");
+
+      if (!emailLower) {
+        return res.status(400).json({error: "No email address was found for this account."});
+      }
+
+      const result = await applyVerificationCodeByEmail({
+        userId,
+        emailLower,
+        markEmailVerified: true,
+      });
+
+      return res.status(200).json({
+        matched: Boolean(result.matched),
+        code: result.code || null,
+        reason: result.reason || null,
+        emailVerified: true,
+      });
+    } catch (error) {
+      console.error("autoAssignVerificationByEmail failed", error);
+      const statusCode = error && error.statusCode ? error.statusCode : 500;
+      return res.status(statusCode).json({
+        error: statusCode === 401 ? error.message : "Could not auto-assign verification by email.",
+      });
+    }
+  });
+});
+
+exports.portalVerifyUserEmail = onRequest({region: OCR_FUNCTION_REGION, timeoutSeconds: 120}, (req, res) => {
+  cors(req, res, async () => {
+    if (req.method === "OPTIONS") {
+      return res.status(204).send("");
+    }
+
+    if (req.method !== "POST") {
+      return res.status(405).json({error: "Method Not Allowed"});
+    }
+
+    try {
+      const decodedToken = await verifyAuthenticatedUser(req);
+      if (!isAccountantEmail(decodedToken.email)) {
+        return res.status(403).json({error: "Only accountant users may verify client emails."});
+      }
+
+      const body = req.body || {};
+      const requestedUserId = String(body.userId || "").trim();
+      const requestedEmail = normalizeEmail(body.email || "");
+
+      if (!requestedUserId && !requestedEmail) {
+        return res.status(400).json({error: "Missing target userId or email."});
+      }
+
+      let authUser = null;
+      if (requestedEmail) {
+        try {
+          authUser = await admin.auth().getUserByEmail(requestedEmail);
+        } catch (_) {
+          authUser = null;
+        }
+      }
+
+      if (!authUser && requestedUserId) {
+        authUser = await admin.auth().getUser(requestedUserId);
+      }
+
+      if (!authUser) {
+        return res.status(404).json({error: "Could not find an Auth user for this client."});
+      }
+
+      const targetUserId = authUser.uid;
+      const targetEmail = normalizeEmail(authUser.email || requestedEmail);
+
+      await admin.auth().updateUser(targetUserId, {emailVerified: true});
+
+      const nowTs = admin.firestore.FieldValue.serverTimestamp();
+      const usersCollection = admin.firestore().collection("users");
+
+      if (targetEmail) {
+        const emailMatches = await usersCollection.where("email", "==", targetEmail).limit(200).get();
+        const batch = admin.firestore().batch();
+        emailMatches.forEach((docSnap) => {
+          batch.set(docSnap.ref, {
+            emailVerified: true,
+            updatedAt: nowTs,
+          }, {merge: true});
+        });
+
+        // Ensure canonical auth user doc is updated even if absent in the email query.
+        batch.set(usersCollection.doc(targetUserId), {
+          email: targetEmail,
+          emailVerified: true,
+          updatedAt: nowTs,
+        }, {merge: true});
+        await batch.commit();
+      } else {
+        await usersCollection.doc(targetUserId).set({
+          emailVerified: true,
+          updatedAt: nowTs,
+        }, {merge: true});
+      }
+
+      let autoAssigned = null;
+      if (targetEmail) {
+        try {
+          autoAssigned = await applyVerificationCodeByEmail({
+            userId: targetUserId,
+            emailLower: targetEmail,
+            markEmailVerified: true,
+          });
+        } catch (assignError) {
+          console.warn("portalVerifyUserEmail auto-assign skipped", assignError);
+        }
+      }
+
+      return res.status(200).json({
+        ok: true,
+        userId: targetUserId,
+        email: targetEmail || null,
+        codeAssigned: Boolean(autoAssigned && autoAssigned.matched),
+        code: autoAssigned && autoAssigned.code ? autoAssigned.code : null,
+      });
+    } catch (error) {
+      console.error("portalVerifyUserEmail failed", error);
+      const statusCode = error && error.statusCode ? error.statusCode : 500;
+      return res.status(statusCode).json({
+        error: statusCode === 401 ? error.message : "Could not verify email for this user.",
       });
     }
   });

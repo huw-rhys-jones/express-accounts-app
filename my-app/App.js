@@ -36,6 +36,7 @@ SplashScreen.preventAutoHideAsync().catch(() => {});
 const Stack = createStackNavigator();
 const Tab = createMaterialTopTabNavigator();
 const DEBUG_DISABLE_TAB_SWIPE = false;
+const AUTO_ASSIGN_VERIFICATION_URL = "https://express-accounts-73d38.web.app/auto-assign-verification-by-email";
 
 // Create a custom theme based on the Light Theme
 const theme = {
@@ -58,7 +59,7 @@ function isPasswordProviderUser(user) {
   return Boolean(user?.providerData?.some((provider) => provider?.providerId === "password"));
 }
 
-function VerifyEmailGate({ onRefreshAuth, onLogout, email }) {
+function VerifyEmailGate({ onRefreshAuth, onLogout, email, onTryAutoAssign }) {
   const [busy, setBusy] = useState(false);
 
   const resendVerification = async () => {
@@ -81,6 +82,15 @@ function VerifyEmailGate({ onRefreshAuth, onLogout, email }) {
     if (!user) return;
     try {
       setBusy(true);
+
+      if (typeof onTryAutoAssign === "function") {
+        const matched = await onTryAutoAssign();
+        if (matched) {
+          onRefreshAuth();
+          return;
+        }
+      }
+
       await reload(user);
       if (!user.emailVerified) {
         Alert.alert("Not Verified Yet", "We still see this email as unverified. Please check your inbox and try again.");
@@ -118,7 +128,7 @@ function VerifyEmailGate({ onRefreshAuth, onLogout, email }) {
           </Text>
         ) : null}
         <Text style={styles.verifyText}>
-          Please verify your email address to enable the app.
+          If you can't find the email, please check your spam folder.
         </Text>
 
         <TouchableOpacity
@@ -256,9 +266,65 @@ export default function App() {
   const [checkingAuth, setCheckingAuth] = useState(true);
   const [authRefreshTick, setAuthRefreshTick] = useState(0);
   const [pendingChallenge, setPendingChallenge] = useState(null);
+  const [userProfile, setUserProfile] = useState(null);
   const [welcomeVisible, setWelcomeVisible] = useState(false);
   const welcomeOpacity = useRef(new Animated.Value(1)).current;
   const navigationRef = useRef(null);
+  const autoAssignAttemptRef = useRef("");
+
+  const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+  const tryAutoAssignVerificationForUser = async (authUser, maxAttempts = 3) => {
+    if (!authUser) return false;
+
+    let lastError = null;
+    for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+      try {
+        const idToken = await authUser.getIdToken(attempt > 1);
+        const response = await fetch(AUTO_ASSIGN_VERIFICATION_URL, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: "Bearer " + idToken,
+          },
+          body: JSON.stringify({}),
+        });
+
+        const payload = await response.json().catch(() => ({}));
+        if (!response.ok) {
+          throw new Error(payload && payload.error ? payload.error : "Auto-assign request failed.");
+        }
+
+        if (payload && payload.matched) {
+          await reload(authUser);
+          await authUser.getIdToken(true);
+          await setDoc(
+            doc(db, "users", authUser.uid),
+            {
+              emailVerified: true,
+              updatedAt: serverTimestamp(),
+            },
+            { merge: true }
+          );
+          return true;
+        }
+
+        // No match found is a valid response; no further retries needed.
+        return false;
+      } catch (error) {
+        lastError = error;
+        if (attempt < maxAttempts) {
+          await wait(300 * attempt);
+          continue;
+        }
+      }
+    }
+
+    if (lastError) {
+      console.warn("Auto-assign verification fallback failed", lastError);
+    }
+    return false;
+  };
 
   const handleChallengeResponse = async (challengeId, status) => {
     try {
@@ -282,13 +348,15 @@ export default function App() {
           {
             ...(nextUser.displayName ? { name: nextUser.displayName } : {}),
             ...(nextUser.email ? { email: nextUser.email } : {}),
-            emailVerified: Boolean(nextUser.emailVerified),
+            ...(nextUser.emailVerified ? { emailVerified: true } : {}),
             updatedAt: serverTimestamp(),
           },
           { merge: true }
         ).catch((error) => {
           console.warn("Could not sync email verification state", error);
         });
+      } else {
+        setUserProfile(null);
       }
 
       setCheckingAuth(false);
@@ -342,13 +410,70 @@ export default function App() {
     return unsubscribe;
   }, [user]);
 
+  // Keep a live copy of user profile flags from Firestore.
+  useEffect(() => {
+    const activeUser = auth.currentUser || user;
+    if (!activeUser) {
+      setUserProfile(null);
+      return;
+    }
+
+    const unsubscribe = onSnapshot(
+      doc(db, "users", activeUser.uid),
+      (snap) => {
+        setUserProfile(snap.exists() ? (snap.data() || null) : null);
+      },
+      (error) => {
+        console.warn("Could not listen for user profile", error);
+      }
+    );
+
+    return unsubscribe;
+  }, [user]);
+
+  // Fallback auto-verification on sign-in: if a matching verification code exists
+  // for this email, link it automatically and mark email as verified.
+  useEffect(() => {
+    const activeUser = auth.currentUser || user;
+    if (!activeUser) return;
+    if (!isPasswordProviderUser(activeUser)) return;
+
+    const profileEmailVerified = Boolean(userProfile && userProfile.emailVerified);
+    const profileClientVerified = String((userProfile && userProfile.verificationStatus) || "").toLowerCase() === "verified";
+    if (activeUser.emailVerified || profileEmailVerified || profileClientVerified) return;
+
+    const attemptKey = `${activeUser.uid}:${activeUser.email || ""}`;
+    if (autoAssignAttemptRef.current === attemptKey) return;
+    autoAssignAttemptRef.current = attemptKey;
+
+    let cancelled = false;
+
+    const run = async () => {
+      const matched = await tryAutoAssignVerificationForUser(activeUser, 3);
+      if (!cancelled && matched) {
+        setAuthRefreshTick((current) => current + 1);
+      }
+    };
+
+    run();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [user, userProfile]);
+
   if (checkingAuth) return null;
 
   const activeUser = auth.currentUser || user;
+  const firestoreEmailVerified = Boolean(userProfile && userProfile.emailVerified);
+  const firestoreVerifiedClient =
+    String((userProfile && userProfile.verificationStatus) || "").toLowerCase() === "verified";
   const requiresEmailVerification =
     Boolean(activeUser) &&
     isPasswordProviderUser(activeUser) &&
-    !activeUser.emailVerified;
+    !activeUser.emailVerified &&
+    !firestoreEmailVerified &&
+    !firestoreVerifiedClient;
 
   return (
     /* Wrap everything in PaperProvider to fix the text color issue */
@@ -366,6 +491,10 @@ export default function App() {
               requiresEmailVerification ? (
                 <VerifyEmailGate
                   onRefreshAuth={() => setAuthRefreshTick((current) => current + 1)}
+                  onTryAutoAssign={async () => {
+                    const userToCheck = auth.currentUser || user;
+                    return tryAutoAssignVerificationForUser(userToCheck, 3);
+                  }}
                   onLogout={async () => {
                     try {
                       await signOut(auth);

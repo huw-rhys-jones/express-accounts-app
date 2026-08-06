@@ -779,6 +779,7 @@
           <h3 style="margin:0 0 14px; font-family:'Space Grotesk',sans-serif; font-size:1.05rem; color:var(--ink)">Edit Client Details</h3>
           <div class="stack">
             <label for="adminClientSelect">Select client</label>
+            <input id="adminClientSearch" type="text" placeholder="Search clients..." />
             <select id="adminClientSelect">
               <option value="">Choose a client...</option>
             </select>
@@ -797,13 +798,17 @@
           </div>
 
           <div class="stack" style="margin-top:10px">
-            <label for="adminCodeInput">Verification code</label>
+            <label for="adminCodeInput" style="display:flex; align-items:center; justify-content:space-between; gap:10px;">
+              <span>Verification code</span>
+              <button id="adminGenerateCodeBtn" type="button" class="btn-secondary" style="padding:6px 12px; font-size:0.86rem;">Generate</button>
+            </label>
             <input id="adminCodeInput" type="text" placeholder="Optional, e.g. ABC123" style="text-transform:uppercase" />
             <p class="hint" style="margin-top:0">If provided, the code is created/updated in VerificationCodes and linked to this user.</p>
           </div>
 
           <div class="actions" style="margin-top:14px">
             <button id="adminSaveBtn" type="button" class="btn-primary">Save Client Changes</button>
+            <button id="adminVerifyEmailBtn" type="button" class="btn-secondary">Confirm Email Verified</button>
             <button id="adminClearBtn" type="button" class="btn-secondary">Clear</button>
           </div>
           <div id="adminStatus" class="statusline" style="margin-top:10px">Select a client to edit their details.</div>
@@ -871,11 +876,14 @@
     const allCodesStatus = document.getElementById("allCodesStatus");
     const generatedCodesTableBody = document.querySelector("#generatedCodesTable tbody");
     const allCodesTableBody = document.querySelector("#allCodesTable tbody");
+    const adminClientSearch = document.getElementById("adminClientSearch");
     const adminClientSelect = document.getElementById("adminClientSelect");
     const adminNameInput = document.getElementById("adminNameInput");
     const adminEmailInput = document.getElementById("adminEmailInput");
     const adminCodeInput = document.getElementById("adminCodeInput");
+    const adminGenerateCodeBtn = document.getElementById("adminGenerateCodeBtn");
     const adminSaveBtn = document.getElementById("adminSaveBtn");
+    const adminVerifyEmailBtn = document.getElementById("adminVerifyEmailBtn");
     const adminClearBtn = document.getElementById("adminClearBtn");
     const adminStatus = document.getElementById("adminStatus");
 
@@ -891,6 +899,7 @@
     let liveUsers = [];
     let selectedUser = null;
     let selectedAdminUserId = "";
+    let adminClientOptions = [];
     const activeStatusFilters = new Set();
     let currentTab = "activity";
     let receiptCountLoadRun = 0;
@@ -1774,6 +1783,10 @@
       return String(value || "").trim();
     }
 
+    function normalizeEmail(value) {
+      return String(value || "").trim().toLowerCase();
+    }
+
     function normalizeVerificationCode(value) {
       return String(value || "")
         .trim()
@@ -1787,10 +1800,29 @@
 
     function clearAdminForm() {
       selectedAdminUserId = "";
+      adminClientSearch.value = "";
       adminClientSelect.value = "";
       adminNameInput.value = "";
       adminEmailInput.value = "";
       adminCodeInput.value = "";
+    }
+
+    function renderAdminClientOptions(searchText) {
+      const queryText = String(searchText || "").trim().toLowerCase();
+      const filtered = !queryText
+        ? adminClientOptions
+        : adminClientOptions.filter((option) => {
+          return option.searchValue.includes(queryText);
+        });
+
+      adminClientSelect.innerHTML = "<option value=''>Choose a client...</option>" +
+        filtered.map((option) => {
+          return "<option value='" + escHtml(option.id) + "'>" + escHtml(option.label) + "</option>";
+        }).join("");
+
+      if (selectedAdminUserId && filtered.some((option) => option.id === selectedAdminUserId)) {
+        adminClientSelect.value = selectedAdminUserId;
+      }
     }
 
     function populateAdminClientSelect() {
@@ -1798,15 +1830,18 @@
         String(a && a.name ? a.name : "").localeCompare(String(b && b.name ? b.name : ""), undefined, {sensitivity: "base"})
       );
 
-      adminClientSelect.innerHTML = "<option value=''>Choose a client...</option>" +
-        sortedUsers.map((user) => {
-          const label = (user.name || "Unknown user") + (user.email ? " (" + user.email + ")" : "");
-          return "<option value='" + escHtml(user.id) + "'>" + escHtml(label) + "</option>";
-        }).join("");
+      adminClientOptions = sortedUsers.map((user) => {
+        const label = (user.name || "Unknown user") + (user.email ? " (" + user.email + ")" : "");
+        return {
+          id: user.id,
+          label,
+          searchValue: ((user.name || "") + " " + (user.email || "") + " " + user.id).toLowerCase(),
+        };
+      });
 
-      if (selectedAdminUserId && getUserById(selectedAdminUserId)) {
-        adminClientSelect.value = selectedAdminUserId;
-      } else {
+      renderAdminClientOptions(adminClientSearch.value);
+
+      if (!selectedAdminUserId || !getUserById(selectedAdminUserId)) {
         selectedAdminUserId = "";
       }
     }
@@ -1825,6 +1860,53 @@
       adminEmailInput.value = toInputValue(user.email);
       adminCodeInput.value = toInputValue(user.verificationCode);
       adminStatus.textContent = "Editing " + user.name + ". Update fields and click Save Client Changes.";
+    }
+
+    async function generateAdminVerificationCode() {
+      if (!currentAccountant) {
+        alert("You must be signed in to generate a verification code.");
+        return;
+      }
+
+      const nextName = toInputValue(adminNameInput.value);
+      const nextEmail = normalizeEmail(adminEmailInput.value);
+      const isValidEmail = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(nextEmail);
+
+      if (!nextName) {
+        alert("Please enter the client name before generating a verification code.");
+        return;
+      }
+      if (!nextEmail || !isValidEmail) {
+        alert("Please enter a valid email address before generating a verification code.");
+        return;
+      }
+
+      adminGenerateCodeBtn.disabled = true;
+      adminStatus.textContent = "Generating verification code...";
+
+      try {
+        const code = await generateUniqueClientCode();
+        await db.collection("VerificationCodes").doc(code).set({
+          code,
+          accountantSubmittedName: nextName,
+          accountantSubmittedEmail: nextEmail,
+          accountantSubmittedEmailLower: nextEmail,
+          createdAt: firebase.firestore.FieldValue.serverTimestamp(),
+          createdByUid: currentAccountant.uid,
+          createdByEmail: currentAccountant.email || null,
+          usedBy: null,
+          usedAt: null,
+          verificationStatus: "available",
+        }, { merge: true });
+
+        adminCodeInput.value = code;
+        adminStatus.textContent = "Generated verification code " + code + ". Click Save Client Changes to link it to this user.";
+      } catch (error) {
+        console.error("generateAdminVerificationCode error", error);
+        adminStatus.textContent = "Could not generate verification code: " + (error && error.message ? error.message : String(error));
+      } finally {
+        adminGenerateCodeBtn.disabled = false;
+      }
     }
 
     async function saveAdminClientChanges() {
@@ -1884,6 +1966,7 @@
               code: nextCode,
               accountantSubmittedName: nextName || userData.name || userData.displayName || "",
               accountantSubmittedEmail: nextEmail || null,
+              accountantSubmittedEmailLower: nextEmail || null,
               createdByUid: currentAccountant.uid,
               createdByEmail: currentAccountant.email || null,
               usedBy: user.id,
@@ -1928,6 +2011,59 @@
         adminStatus.textContent = "Save failed: " + (error && error.message ? error.message : String(error));
       } finally {
         adminSaveBtn.disabled = false;
+      }
+    }
+
+    async function verifySelectedUserEmailFromPortal() {
+      if (!currentAccountant) {
+        adminStatus.textContent = "You must be signed in.";
+        return;
+      }
+      if (!selectedAdminUserId) {
+        adminStatus.textContent = "Please select a client first.";
+        return;
+      }
+
+      adminVerifyEmailBtn.disabled = true;
+      adminStatus.textContent = "Confirming email verification...";
+
+      try {
+        const currentUser = auth.currentUser;
+        if (!currentUser) {
+          throw new Error("You are signed out. Please sign in again.");
+        }
+
+        const selectedUser = getUserById(selectedAdminUserId);
+        const selectedEmail = normalizeEmail(adminEmailInput.value || (selectedUser && selectedUser.email) || "");
+
+        const idToken = await currentUser.getIdToken();
+        const response = await fetch("/portal-verify-user-email", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: "Bearer " + idToken,
+          },
+          body: JSON.stringify({
+            userId: selectedAdminUserId,
+            email: selectedEmail || null,
+          }),
+        });
+
+        const payload = await response.json().catch(() => ({}));
+        if (!response.ok) {
+          throw new Error(payload && payload.error ? payload.error : "Could not verify email for this user.");
+        }
+
+        await reloadAndRenderBoard();
+        renderAdminClientForm(selectedAdminUserId);
+        adminStatus.textContent = payload && payload.codeAssigned
+          ? ("Email verified and code " + payload.code + " assigned to Auth user.")
+          : "Email marked as verified for selected client.";
+      } catch (error) {
+        console.error("verifySelectedUserEmailFromPortal error", error);
+        adminStatus.textContent = "Email verification failed: " + (error && error.message ? error.message : String(error));
+      } finally {
+        adminVerifyEmailBtn.disabled = false;
       }
     }
 
@@ -2321,11 +2457,13 @@
 
         const rows = [];
         for (const client of clients) {
+          const normalizedClientEmail = normalizeEmail(client.email || "");
           const code = await generateUniqueClientCode();
           await db.collection("VerificationCodes").doc(code).set({
             code,
             accountantSubmittedName: client.name,
-            accountantSubmittedEmail: client.email || null,
+            accountantSubmittedEmail: normalizedClientEmail || null,
+            accountantSubmittedEmailLower: normalizedClientEmail || null,
             createdAt: firebase.firestore.FieldValue.serverTimestamp(),
             createdByUid: currentAccountant.uid,
             createdByEmail: currentAccountant.email || null,
@@ -2333,7 +2471,62 @@
             usedAt: null,
             verificationStatus: "available",
           }, { merge: true });
-          rows.push({ name: client.name, email: client.email || "", code, status: "Created" });
+
+          let rowStatus = "Created";
+          if (normalizedClientEmail) {
+            const userSnap = await db.collection("users")
+              .where("email", "==", normalizedClientEmail)
+              .limit(1)
+              .get();
+
+            if (!userSnap.empty) {
+              const linkedUser = userSnap.docs[0];
+              const userRef = db.collection("users").doc(linkedUser.id);
+              const codeRef = db.collection("VerificationCodes").doc(code);
+              const nowTs = firebase.firestore.FieldValue.serverTimestamp();
+
+              await db.runTransaction(async (tx) => {
+                const userDoc = await tx.get(userRef);
+                const userData = userDoc.exists ? (userDoc.data() || {}) : {};
+                const currentCode = normalizeVerificationCode(userData.verificationCode || "");
+
+                tx.set(userRef, {
+                  verificationStatus: "verified",
+                  verifiedName: client.name || userData.name || userData.displayName || "Verified client",
+                  verificationCode: code,
+                  hideAds: true,
+                  updatedAt: nowTs,
+                }, { merge: true });
+
+                tx.set(codeRef, {
+                  usedBy: linkedUser.id,
+                  usedAt: nowTs,
+                  verificationStatus: "verified",
+                  updatedAt: nowTs,
+                }, { merge: true });
+
+                if (currentCode && currentCode !== code) {
+                  const oldCodeRef = db.collection("VerificationCodes").doc(currentCode);
+                  const oldCodeSnap = await tx.get(oldCodeRef);
+                  if (oldCodeSnap.exists) {
+                    const oldCodeData = oldCodeSnap.data() || {};
+                    if (String(oldCodeData.usedBy || "") === linkedUser.id) {
+                      tx.set(oldCodeRef, {
+                        usedBy: null,
+                        usedAt: null,
+                        verificationStatus: "available",
+                        updatedAt: nowTs,
+                      }, { merge: true });
+                    }
+                  }
+                }
+              });
+
+              rowStatus = "Assigned to existing user";
+            }
+          }
+
+          rows.push({ name: client.name, email: normalizedClientEmail || "", code, status: rowStatus });
         }
 
         renderGeneratedCodesTable(rows);
@@ -3068,8 +3261,13 @@
     sendAllEmailsBtn.addEventListener("click", () => sendAllEmails(sendAllEmailsBtn._rows || []));
     clearManagementBtn.addEventListener("click", clearManagementInputs);
     loadAllCodesBtn.addEventListener("click", loadAllCodes);
+    adminClientSearch.addEventListener("input", () => {
+      renderAdminClientOptions(adminClientSearch.value);
+    });
     adminClientSelect.addEventListener("change", () => renderAdminClientForm(adminClientSelect.value));
+    adminGenerateCodeBtn.addEventListener("click", generateAdminVerificationCode);
     adminSaveBtn.addEventListener("click", saveAdminClientChanges);
+    adminVerifyEmailBtn.addEventListener("click", verifySelectedUserEmailFromPortal);
     adminClearBtn.addEventListener("click", () => {
       clearAdminForm();
       adminStatus.textContent = "Select a client to edit their details.";

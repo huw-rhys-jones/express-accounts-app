@@ -31,6 +31,7 @@ import DropDownPicker from "react-native-dropdown-picker";
 import * as ImagePicker from "react-native-image-picker";
 import { db, auth } from "../firebaseConfig";
 import { doc, updateDoc, deleteDoc, getDoc, setDoc } from "firebase/firestore";
+import CategorySelector from "../components/CategorySelector";
 import {
   getStorage,
   ref,
@@ -102,6 +103,7 @@ export default function ReceiptDetailsScreen({ route, navigation }) {
     receipt?.category || ""
   );
   const [label, setLabel] = useState(receipt?.label || "");
+  const [categoryModalVisible, setCategoryModalVisible] = useState(false);
   const [images, setImages] = useState(
     (receipt?.images || []).map((url) => ({ uri: url }))
   );
@@ -111,10 +113,6 @@ export default function ReceiptDetailsScreen({ route, navigation }) {
     [currentReceipt?.id],
   );
 
-  const [open, setOpen] = useState(false);
-  const [items, setItems] = useState(
-    categories_meta.map((cat) => ({ label: cat.name, value: cat.name }))
-  );
   const [debugScrollState, setDebugScrollState] = useState("idle");
   const [debugPanState, setDebugPanState] = useState("idle");
   const [debugKeyboardState, setDebugKeyboardState] = useState("hidden");
@@ -174,11 +172,6 @@ export default function ReceiptDetailsScreen({ route, navigation }) {
   const [fullScreenImageIndex, setFullScreenImageIndex] = useState(null);
   const [imageAnnotationsByUrl, setImageAnnotationsByUrl] = useState({});
 
-  const allCategoryItems = categories_meta.map((cat) => ({
-    label: cat.name,
-    value: cat.name,
-  }));
-
   // ===== VAT rate options from categories_meta =====
   const deriveVatRateItems = () => {
     const unique = Array.from(
@@ -222,7 +215,7 @@ export default function ReceiptDetailsScreen({ route, navigation }) {
         onMoveShouldSetPanResponder: (_, gestureState) => {
           if (editableReceiptList.length <= 1) return false;
           if (isFormScrollActiveRef.current) return false;
-          if (open || vatRateOpen) return false;
+          if (categoryModalVisible || vatRateOpen) return false;
           const { dx, dy } = gestureState;
           const shouldSet = Math.abs(dx) > 30 && Math.abs(dx) > Math.abs(dy) * 1.8;
           if (shouldSet) {
@@ -239,7 +232,7 @@ export default function ReceiptDetailsScreen({ route, navigation }) {
           if (Math.abs(dx) < 72 || Math.abs(dx) < Math.abs(dy) * 1.2) return;
 
           Keyboard.dismiss();
-          setOpen(false);
+          setCategoryModalVisible(false);
           setVatRateOpen(false);
 
           if (dx < 0) {
@@ -249,7 +242,7 @@ export default function ReceiptDetailsScreen({ route, navigation }) {
           }
         },
       }),
-    [editableReceiptList.length, open, vatRateOpen],
+    [editableReceiptList.length, categoryModalVisible, vatRateOpen],
   );
 
   useEffect(() => {
@@ -385,7 +378,7 @@ export default function ReceiptDetailsScreen({ route, navigation }) {
   // ✅ Safe navigate back
   const safeNavigateToExpenses = () => {
     Keyboard.dismiss();
-    setOpen(false);
+    setCategoryModalVisible(false);
     setDatePickerVisibility(false);
     requestAnimationFrame(() => {
       InteractionManager.runAfterInteractions(() => {
@@ -615,6 +608,7 @@ export default function ReceiptDetailsScreen({ route, navigation }) {
     !Number.isNaN(parseFloat(amount)) &&
     !Number.isNaN(parseFloat(vatAmount)) &&
     !Number.isNaN(parseFloat(vatRate));
+  const isCategoryValid = Boolean(selectedCategory);
 
   const buildPercentOverlay = (frame) => {
     const naturalW = frame?.imageW;
@@ -783,13 +777,23 @@ export default function ReceiptDetailsScreen({ route, navigation }) {
             ReceiptStyles.container,
             {
               justifyContent: "flex-start",
-              paddingTop: 8,
+              paddingTop: 0,
               paddingBottom: 12,
               paddingHorizontal: 12,
             },
           ]}
         >
-          <View style={ReceiptStyles.borderContainer}>
+          <View
+            style={[
+              ReceiptStyles.borderContainer,
+              {
+                paddingVertical: 12,
+                paddingHorizontal: 12,
+                borderRadius: 16,
+                borderWidth: 3,
+              },
+            ]}
+          >
             <View style={localStyles.amountDateRow}>
               <View style={localStyles.amountDateField}>
                 <Text style={[ReceiptStyles.label, localStyles.labelAligned]}>
@@ -838,7 +842,7 @@ export default function ReceiptDetailsScreen({ route, navigation }) {
                   Date:
                 </Text>
                 <TouchableOpacity
-                  style={[ReceiptStyles.dateButton, { height: 42 }]}
+                  style={[ReceiptStyles.dateButton, { height: 42, marginHorizontal: 0 }]}
                   onPress={showDatePicker}
                 >
                   <Text style={ReceiptStyles.dateText}>
@@ -859,7 +863,7 @@ export default function ReceiptDetailsScreen({ route, navigation }) {
               >
                 {/* VAT Amount Column */}
                 <View style={ReceiptStyles.vatColLeft}>
-                  <Text style={ReceiptStyles.label}>VAT Amount:</Text>
+                  <Text style={[ReceiptStyles.label, localStyles.labelAligned, { fontSize: 13 }]}>VAT Amount:</Text>
                   <View
                     style={[ReceiptStyles.inputRow, localStyles.currencyField]}
                   >
@@ -870,6 +874,7 @@ export default function ReceiptDetailsScreen({ route, navigation }) {
                       style={[
                         ReceiptStyles.vatInput,
                         localStyles.vatInputWithCurrency,
+                        { height: 42 },
                       ]}
                       keyboardType="decimal-pad"
                       placeholder="0.00"
@@ -899,7 +904,7 @@ export default function ReceiptDetailsScreen({ route, navigation }) {
 
                 {/* Rate Column */}
                 <View style={ReceiptStyles.vatColRight}>
-                  <Text style={ReceiptStyles.label}>Rate (%):</Text>
+                  <Text style={[ReceiptStyles.label, localStyles.labelAligned, { fontSize: 13 }]}>Rate (%):</Text>
                   <DropDownPicker
                     open={vatRateOpen}
                     value={vatRate}
@@ -908,11 +913,20 @@ export default function ReceiptDetailsScreen({ route, navigation }) {
                     setValue={(set) => setVatRate(set(vatRate))}
                     setItems={setVatRateItems}
                     placeholder="Select"
-                    style={ReceiptStyles.vatRatePicker}
+                    style={{
+                      backgroundColor: Colors.surface,
+                      borderColor: "#2E9F46",
+                      borderWidth: 1,
+                      borderRadius: 5,
+                      height: 42,
+                      minHeight: 42,
+                      paddingHorizontal: 8,
+                    }}
                     dropDownContainerStyle={ReceiptStyles.vatRateDropdown}
-                    containerStyle={localStyles.fieldTopSpacingTight}
+                    containerStyle={{ marginTop: 0, height: 42 }}
                     zIndex={3000}
                     zIndexInverse={1000}
+                    dropDownDirection="TOP"
                     listMode="SCROLLVIEW"
                     scrollViewProps={{ keyboardShouldPersistTaps: "always" }}
                     onChangeValue={(val) => {
@@ -949,113 +963,33 @@ export default function ReceiptDetailsScreen({ route, navigation }) {
               >
                 Category:
               </Text>
-              <DropDownPicker
-                open={open}
-                value={selectedCategory}
-                items={items}
-                setOpen={setOpen}
-                setItems={setItems}
-                searchable={true}
-                disableLocalSearch={true} // We are taking the wheel
-                // 1. Make the placeholder look like a search instruction
-                placeholder="Search categories..."
-                searchPlaceholder="Type to filter..."
-                // 2. Add an icon to the right side (optional but looks great)
-                // You can use a library like FontAwesome or a simple emoji/Text
-                ArrowDownIconComponent={() => (
-                  <Text style={{ marginRight: 10 }}>🔍</Text>
-                )}
-                ArrowUpIconComponent={() => (
-                  <Text style={{ marginRight: 10 }}>🔍</Text>
-                )}
-                showArrowIcon={true}
-                // 3. Ensure the keyboard is ready immediately
-                searchTextInputProps={{
-                  autoFocus: true,
-                  clearButtonMode: "while-editing", // iOS only, adds a 'X' to clear
-                }}
-                onChangeSearchText={(text) => {
-                  // ... your existing filter logic ...
-                  const query = text.toLowerCase().trim();
-                  if (!query) {
-                    setItems(allCategoryItems);
-                    return;
-                  }
-                  const filtered = allCategoryItems.filter((item) => {
-                    const categoryData = categories_meta.find(
-                      (c) => c.name === item.value
-                    );
-                    return (
-                      item.label.toLowerCase().includes(query) ||
-                      categoryData?.meta?.some((kw) =>
-                        kw.toLowerCase().includes(query)
-                      )
-                    );
-                  });
-                  setItems(filtered);
-                }}
-                // Use FLATLIST to avoid nested ScrollView gesture contention with the parent form scroll
-                listMode="FLATLIST"
-                // 4. Force a Height to fix the scrolling
-                // This ensures the picker has a defined boundary so the phone knows when to scroll
-                dropDownContainerStyle={[
-                  ReceiptStyles.dropdownContainer,
-                  { position: "relative", top: 0, maxHeight: 250 },
+              <TouchableOpacity
+                style={[
+                  ReceiptStyles.dateButton,
+                  { height: 42, marginHorizontal: 0 },
+                  isCategoryValid
+                    ? localStyles.validFieldInput
+                    : localStyles.invalidFieldInput,
                 ]}
-                setValue={(callback) => {
-                  // 1. Get the next value by calling the callback with the current state
-                  const next = callback(selectedCategory);
-
-                  // 2. Update your state variable
-                  setSelectedCategory(next);
-
-                  // 3. Trigger your VAT logic
-                  if (next) {
-                    const cat = categories_meta.find((c) => c.name === next);
-                    const r = cat?.vatRate;
-                    if (r !== undefined && r !== null && !Number.isNaN(r)) {
-                      const rStr = String(r);
-                      setVatRate(rStr);
-                      setVatRateItems((prev) => {
-                        const has = prev.some((it) => it.value === rStr);
-                        return has
-                          ? prev
-                          : [...prev, { label: `${r}%`, value: rStr }].sort(
-                              (a, b) => Number(a.value) - Number(b.value)
-                            );
-                      });
-                      if (!vatAmountEdited && amount) {
-                        setVatAmount(computeVat(amount, rStr));
-                      }
-                    }
-                  }
-                }}
-                onOpen={() => {
-                  setItems(allCategoryItems); // Reset to show everything when opened
-
-                  if (!categoryWrapperRef.current || !scrollRef.current) return;
-                  requestAnimationFrame(() => {
-                    categoryWrapperRef.current.measureLayout(
-                      findNodeHandle(scrollRef.current),
-                      (_, y) => {
-                        scrollRef.current?.scrollToPosition(0, y - 50, true);
-                      },
-                      () => {}
-                    );
-                  });
-                }}
-                style={[ReceiptStyles.dropdown, localStyles.dropdownAligned]}
-                zIndex={4000}
-                zIndexInverse={5000}
-              />
+                onPress={() => setCategoryModalVisible(true)}
+              >
+                <Text
+                  style={[
+                    ReceiptStyles.dateText,
+                    !selectedCategory && { color: Colors.textSecondary },
+                  ]}
+                >
+                  {selectedCategory || "Select a category..."}
+                </Text>
+              </TouchableOpacity>
             </View>
 
-            <View style={localStyles.fieldGroup}>
+            <View style={[localStyles.fieldGroup, localStyles.fieldTopSpacing]}>
               <Text style={[ReceiptStyles.label, localStyles.labelAligned]}>
                 Label (optional):
               </Text>
               <TextInput
-                style={[ReceiptStyles.input, localStyles.labelInputAligned]}
+                style={[ReceiptStyles.input, localStyles.labelInputAligned, { height: 42 }]}
                 value={label}
                 onChangeText={setLabel}
                 placeholder="An optional label"
@@ -1077,12 +1011,35 @@ export default function ReceiptDetailsScreen({ route, navigation }) {
       </TouchableWithoutFeedback>
       </KeyboardAvoidingView>
 
-      {open ? (
-        <Pressable
-          style={localStyles.dropdownDismissOverlay}
-          onPress={() => setOpen(false)}
-        />
-      ) : null}
+      <CategorySelector
+        visible={categoryModalVisible}
+        onClose={() => setCategoryModalVisible(false)}
+        onSelect={(categoryName) => {
+          setSelectedCategory(categoryName);
+          setCategoryModalVisible(false);
+
+          const cat = categories_meta.find((c) => c.name === categoryName);
+          const r = cat?.vatRate;
+          if (r !== undefined && r !== null && !Number.isNaN(r)) {
+            const rStr = String(r);
+            if (rStr !== vatRate) {
+              setVatRate(rStr);
+            }
+            setVatRateItems((prev) => {
+              const has = prev.some((it) => it.value === rStr);
+              return has
+                ? prev
+                : [...prev, { label: `${r}%`, value: rStr }].sort(
+                    (a, b) => Number(a.value) - Number(b.value),
+                  );
+            });
+            if (!vatAmountEdited && amount) {
+              setVatAmount(computeVat(amount, rStr));
+            }
+          }
+        }}
+        selectedCategory={selectedCategory}
+      />
 
       <View
         style={[
@@ -1541,11 +1498,15 @@ const localStyles = StyleSheet.create({
     lineHeight: 20,
     fontWeight: "bold",
   },
-  dropdownDismissOverlay: {
-    ...StyleSheet.absoluteFillObject,
-    zIndex: 3000,
-    elevation: 3000,
-    backgroundColor: "transparent",
+  validFieldInput: {
+    backgroundColor: "#fff",
+    borderColor: "#2E9F46",
+    borderWidth: 1,
+  },
+  invalidFieldInput: {
+    backgroundColor: "#fff",
+    borderColor: "#E06B6B",
+    borderWidth: 1,
   },
   bottomBar: {
     flexDirection: "row",
@@ -1570,7 +1531,9 @@ const localStyles = StyleSheet.create({
     flex: 1,
   },
   labelAligned: {
-    marginLeft: 0,
+    marginLeft: 10,
+    fontSize: 13,
+    marginBottom: 1,
   },
   fieldRow: {
     marginHorizontal: 10,
@@ -1579,16 +1542,19 @@ const localStyles = StyleSheet.create({
     margin: 0,
   },
   labelInputAligned: {
-    marginHorizontal: 10,
+    marginHorizontal: 0,
   },
   dropdownAligned: {
-    marginHorizontal: 10,
+    marginHorizontal: 0,
   },
   vatRowAligned: {
-    marginHorizontal: 10,
+    marginHorizontal: 0,
   },
   fieldGroup: {
-    marginBottom: 8,
+    marginBottom: 6,
+  },
+  fieldTopSpacing: {
+    marginTop: 4,
   },
   fieldTopSpacingTight: {
     marginTop: 0,

@@ -37,6 +37,20 @@
         }
       },
       {
+        "source": "/auto-assign-verification-by-email",
+        "function": {
+          "functionId": "autoAssignVerificationByEmail",
+          "region": "europe-west2"
+        }
+      },
+      {
+        "source": "/portal-verify-user-email",
+        "function": {
+          "functionId": "portalVerifyUserEmail",
+          "region": "europe-west2"
+        }
+      },
+      {
         "source": "/portal-fetch-image",
         "function": {
           "functionId": "fetchPortalAttachment",

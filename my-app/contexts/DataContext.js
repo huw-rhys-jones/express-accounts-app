@@ -353,8 +353,29 @@ export function DataProvider({ children }) {
     }
   };
 
+  const refreshIncome = async () => {
+    const user = auth.currentUser;
+    if (!user) return;
+
+    try {
+      setIncomeLoading(true);
+      const snap = await getDocs(
+        query(collection(db, 'income'), where('userId', '==', user.uid))
+      );
+      const nextRows = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+      setIncomeItems(nextRows);
+      console.log('[DataContext] Refreshed income after save', {
+        count: nextRows.length,
+      });
+    } catch (error) {
+      console.warn('[DataContext] Could not refresh income after save', error);
+    } finally {
+      setIncomeLoading(false);
+    }
+  };
+
   return (
-    <DataContext.Provider value={{ receipts, incomeItems, bankStatements, userProfile, displayName, initialLoading, receiptsLoading, incomeLoading, bankStatementsLoading, refreshReceipts }}>
+    <DataContext.Provider value={{ receipts, incomeItems, bankStatements, userProfile, displayName, initialLoading, receiptsLoading, incomeLoading, bankStatementsLoading, refreshReceipts, refreshIncome }}>
       {children}
     </DataContext.Provider>
   );
