@@ -584,6 +584,23 @@ exports.exportClientZip = onRequest(
         return Number(value || 0).toFixed(2);
       }
 
+      const MAX_XLSX_CELL_TEXT = 32767;
+      const XLSX_TRUNCATION_SUFFIX = " … [truncated]";
+
+      function sanitizeWorksheetCellValue(value) {
+        if (typeof value !== "string") return value;
+        if (value.length <= MAX_XLSX_CELL_TEXT) return value;
+
+        const keepLength = Math.max(0, MAX_XLSX_CELL_TEXT - XLSX_TRUNCATION_SUFFIX.length);
+        return value.slice(0, keepLength) + XLSX_TRUNCATION_SUFFIX;
+      }
+
+      function sanitizeWorksheetAoa(aoa) {
+        return (Array.isArray(aoa) ? aoa : []).map((row) =>
+          (Array.isArray(row) ? row : [row]).map((cell) => sanitizeWorksheetCellValue(cell))
+        );
+      }
+
       function sanitizeFileSegment(value, fallback) {
         const cleaned = String(value || "")
           .trim()
@@ -1009,9 +1026,21 @@ exports.exportClientZip = onRequest(
 
         setStage("build-workbook");
         const workbook = XLSX.utils.book_new();
-        XLSX.utils.book_append_sheet(workbook, XLSX.utils.aoa_to_sheet(buildReceiptWorkbookRows(receiptExportItems)), "Receipts");
-        XLSX.utils.book_append_sheet(workbook, XLSX.utils.aoa_to_sheet(buildIncomeWorkbookRows(incomeExportItems)), "Income");
-        XLSX.utils.book_append_sheet(workbook, XLSX.utils.aoa_to_sheet(buildBankStatementWorkbookRows(filteredStatements)), "Bank Statements");
+        XLSX.utils.book_append_sheet(
+          workbook,
+          XLSX.utils.aoa_to_sheet(sanitizeWorksheetAoa(buildReceiptWorkbookRows(receiptExportItems))),
+          "Receipts",
+        );
+        XLSX.utils.book_append_sheet(
+          workbook,
+          XLSX.utils.aoa_to_sheet(sanitizeWorksheetAoa(buildIncomeWorkbookRows(incomeExportItems))),
+          "Income",
+        );
+        XLSX.utils.book_append_sheet(
+          workbook,
+          XLSX.utils.aoa_to_sheet(sanitizeWorksheetAoa(buildBankStatementWorkbookRows(filteredStatements))),
+          "Bank Statements",
+        );
 
         const safeName = sanitizeFileSegment(String(payload.userName || targetUserId).toLowerCase(), "client");
         const fileSuffix = startDate && endDate ? `${startDate}-to-${endDate}` : "all-time";
