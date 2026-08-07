@@ -1,0 +1,6 @@
+{
+  "fileName": "I012.jpeg",
+  "rawText": "Invoice\nYour Company Name\nAddress\nline 1\nAddress line 2\nCity, Postcode\nPhone: 1234567890\nTo\nCustomer Company\nCustomer Name\nAddress line\nCity, Postcode\nAdditional information\nAdd any additional instructions or terms here\nLogo\nInvoice Date:\nInvoice Number:\nClient Reference:\nPurchase Order:\nDUE DATE:\n18/03/2021\n1234\n18/03/2021\nDescription\nQty\nUnit\nUnit Price\nVAT%\nVAT\nTotal\nExample product\n5\npos\n£60\n20%\n£ 60,00\n£300,00\nExample work\n10\nh\n£105\n20%\n£210,00\n£1050,00\nSub Total\n£1350,00\nTotal VAT\n£270,00\nTotal amount due\n£ 1620,00\nRegistered Address\nAddress Line 1\nAddress Line 2\nCity Postcode\nContact information\nContact Name\nPhone: 1234567800\nEmail: firstl@company.co.uk\nPayment Details\nBank Name\nSat-Code\nAccount No.\nBarclays PLC\n00-00-00\n123456789",
+  "provider": "vision-direct",
+  "cachedAt": "2026-08-05T21:29:03.354Z"
+}

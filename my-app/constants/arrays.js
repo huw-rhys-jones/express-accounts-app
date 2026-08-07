@@ -177,4 +177,4 @@ export const numbers = /[0-9]/g;
 
 // ---------- helpers ----------
 export const TOTAL_HINT = /\b(total|grand total|amount due|balance|paid|card|subtotal)\b/i;
-export const CURRENCY_SYMS = /(?:£|\$|€|GBP|USD|EUR)/i;
+export const CURRENCY_SYMS = /(?:£|₤|\$|€|GBP|USD|EUR)/i;

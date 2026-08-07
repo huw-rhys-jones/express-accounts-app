@@ -201,11 +201,21 @@ function extractDate(text) {
 
       // score: prefer lines with date keywords; prefer not-in-future; slight bias to earlier lines
       const normalizedMatch = normalizeWhitespace(m[0]).toLowerCase();
-      const line = lines.find(ln => ln.toLowerCase().includes(normalizedMatch)) || '';
+      const lineIndex = lines.findIndex(ln => ln.toLowerCase().includes(normalizedMatch));
+      const line = lineIndex >= 0 ? lines[lineIndex] : '';
+      const contextText = [lines[lineIndex - 1] || '', line, lines[lineIndex + 1] || ''].filter(Boolean).join(' ');
       const today = new Date();
       const dt = new Date(iso);
       let score = 1;
-      if (/\b(date|txn|transaction|issued|invoice|payment)\b/i.test(line)) score += 1.2;
+      const isInvoiceDateContext = /\b(?:invoice|date|issued|statement)\b/i.test(contextText) && !/\b(?:due|payment|deadline)\b/i.test(contextText);
+      const isDueDateContext = DUE_DATE_HINT_RE.test(contextText);
+      const isPeriodContext = /\b(?:week|period|end|commencing|from|to)\b/i.test(contextText);
+      const isTransactionLikeContext = /\b(?:units|rate|vat|net|gross|total|sheet|ref|period|contractor|ts|description)\b/i.test(contextText) && !isInvoiceDateContext;
+      if (isInvoiceDateContext) score += 3.2;
+      if (isDueDateContext) score -= 2.0;
+      if (isPeriodContext) score -= 1.5;
+      if (isTransactionLikeContext) score -= 1.0;
+      if (/\b(txn|transaction|issued|invoice|payment)\b/i.test(contextText)) score += 1.2;
       if (dt > today) score -= 1.0;
       // clamp years to sane range
       const year = dt.getFullYear();
@@ -223,7 +233,11 @@ function extractDate(text) {
 // ---------- amount extraction ----------
 // ---------- amount extraction ----------
 // ---------- amount extraction ----------
-const MONEY_RE = /(?:£\s?|GBP\s*)?(?:\d{1,3}(?:[\s,.]\d{3})+|\d{1,6})[.,]\d{1,2}(?!\d)/g;
+const MONEY_RE = /(?:£\s?|₤\s?|GBP\s*)?(?:\d{1,3}(?:[\s,.]\d{3})+|\d{1,6})[.,]\d{1,2}(?!\d)/g;
+const TOTAL_HINT_RE = /\b(?:grand\s+)?totals?\b|\b(?:total\s+)?amount\s+due\b|\bbalance\s+due\b|\bgrand\s+total\b/i;
+const DUE_HINT_RE = /\b(?:amount|balance)\s+due\b|\btotal\s+amount\s+due\b/i;
+const INVOICE_DATE_HINT_RE = /\b(?:date|invoice\s+date|issued|invoice|statement\s+date)\b/i;
+const DUE_DATE_HINT_RE = /\b(?:due\s+by|payment\s+due|due\s+date)\b/i;
 
 // Inside your extractors.js
 export function extractAmount(reconstructedText) {
@@ -249,7 +263,7 @@ export function extractAmount(reconstructedText) {
   const candidates = [];
 
   // Require a non-alphanumeric boundary before the amount to avoid matches like "9306U261.67"
-  const FORGIVING_MONEY = /(?:^|[^A-Z0-9])((?:GBP|[£S$€¥ECT])?\s?(?:\d{1,3}(?:[\s,.]\d{3})+|\d{1,6})[.,]\s?\d{1,2})(?!\d)/gi;
+  const FORGIVING_MONEY = /(?:^|[^A-Z0-9])((?:GBP|[£₤$€¥])?\s?(?:\d{1,3}(?:[\s,.]\d{3})+|\d{1,6})[.,]\s?\d{1,2})(?!\d)/gi;
 
   const hasNear = (lineIndex, regex, radius = 1) => {
     for (let i = Math.max(0, lineIndex - radius); i <= Math.min(lineData.length - 1, lineIndex + radius); i++) {
@@ -306,7 +320,7 @@ export function extractAmount(reconstructedText) {
   if (!candidates.length) return null;
 
   const totalLine = lineData.findIndex(
-    l => /\bTOTAL\b|\bTOTAT\b|\bTOTA1\b|\bAMOUNT\s+DUE\b|\bBALANCE\s+DUE\b|\bTOT\b/.test(l) && !/\bSUBTOTAL\b/.test(l)
+    l => TOTAL_HINT_RE.test(l) && !/\bSUBTOTAL\b/.test(l)
   );
 
   const valueLines = new Map();
@@ -331,10 +345,14 @@ export function extractAmount(reconstructedText) {
     const key = candidate.val.toFixed(2);
     const uniqueLineCount = (valueLines.get(key) || new Set()).size;
 
-    const isTotalOnLine = /\bTOTAL\b|\bTOTAT\b|\bTOTA1\b|\bAMOUNT\s+DUE\b|\bBALANCE\s+DUE\b|\bGRAND\s+TOTAL\b|\bTOT\b/.test(line);
-    const isTotalNear = hasNear(candidate.lineIndex, /\bAMOUNT\s+DUE\b|\bBALANCE\s+DUE\b|\bGRAND\s+TOTAL\b/, 1);
-    const isTotalAboveOnly = !isTotalOnLine && !isTotalNear && hasAbove(candidate.lineIndex, /\bTOTAL\b|\bTOTAT\b|\bTOTA1\b|\bTOT\b/, 3);
-    const isTotalContext = isTotalOnLine || isTotalNear || isTotalAboveOnly;
+    const isExplicitDueLine = DUE_HINT_RE.test(line);
+    const isExplicitDueNear = hasNear(candidate.lineIndex, DUE_HINT_RE, 1);
+    const isExplicitDueAbove = hasAbove(candidate.lineIndex, DUE_HINT_RE, 2);
+    const isTotalOnLine = TOTAL_HINT_RE.test(line);
+    const isTotalNear = hasNear(candidate.lineIndex, TOTAL_HINT_RE, 1);
+    const isTotalAboveOnly = !isTotalOnLine && !isTotalNear && hasAbove(candidate.lineIndex, TOTAL_HINT_RE, 3);
+    const isGrandTotalLine = /\bgrand\s+total\b/i.test(line) || hasNear(candidate.lineIndex, /\bgrand\s+total\b/i, 1);
+    const isTotalContext = isTotalOnLine || isTotalNear || isTotalAboveOnly || isExplicitDueLine || isExplicitDueNear || isExplicitDueAbove;
     const isSubtotalContext = /\bSUBTOTAL\b|\bDISCOUNT\b|\bREFUND\b|\bTIPS?\b/.test(line)
       || hasNear(candidate.lineIndex, /\bSUBTOTAL\b|\bDISCOUNT\b|\bREFUND\b|\bTIPS?\b/, 1);
     const isVatContext = /\bVAT\b|\bTAX\b/.test(line)
@@ -345,6 +363,8 @@ export function extractAmount(reconstructedText) {
     const isItemLine = /\bKID\b|\bSTEAK\b|\bCHICKEN\b|\bCOOKIE\b|\bSALAD\b|\bWINE\b|\bRUMP\b|\bPRAWN\b|\bAVOCADO\b|\bMOZZARELLA\b|\bTOMATO\b|\bSAUCE\b|\bMEAL\b|\bBAG\s+CHARGE\b/.test(line);
 
     if (candidate.hasCurrency) score += 40;
+    if (isGrandTotalLine) score += 420;
+    if (isExplicitDueLine || isExplicitDueNear || isExplicitDueAbove) score += 320;
     if (candidate.val < 1) score -= 40;
     else if (candidate.val < 3) score -= 15;
 
@@ -360,8 +380,8 @@ export function extractAmount(reconstructedText) {
       score -= 260;
     }
 
-    if (isTotalOnLine || isTotalNear) score += 260;
-    else if (isTotalAboveOnly) score += 130; // reduced: might be column-table label offset
+    if (isTotalOnLine || isTotalNear) score += 420;
+    else if (isTotalAboveOnly) score += 180; // reduced: might be column-table label offset
     if (isSubtotalContext) score -= 190;
     if (isVatContext) score -= 260;
     if (isPaymentContext) score -= 140;
@@ -427,13 +447,18 @@ export function extractAmount(reconstructedText) {
     }
 
     // Strong boost for values tied to explicit TOTAL/SALE/DEBIT lines around the total section
-    if ((/\bTOTAL\b|\bTOTAT\b|\bTOTA1\b|\bAMOUNT\s+DUE\b|\bTOT\b/.test(line) || /\bSALE\b|\bDEBIT\b/.test(line)) && candidate.val >= 10) {
-      score += 170;
+    if ((TOTAL_HINT_RE.test(line) || DUE_HINT_RE.test(line) || /\bSALE\b|\bDEBIT\b/.test(line)) && candidate.val >= 10) {
+      score += 220;
     }
 
     // Small repeated item prices should not beat large final totals near the total line
     if (candidate.val < 10 && uniqueLineCount >= 2 && isItemLine && totalLine >= 0 && candidate.lineIndex <= totalLine) {
       score -= 120;
+    }
+
+    // If the document has explicit grand-total or amount-due framing, prefer the largest value nearby.
+    if (isTotalContext && candidate.val >= 10 && largest > 0 && candidate.val >= largest * 0.7) {
+      score += 80;
     }
 
     candidate.score = score;
@@ -578,10 +603,20 @@ function cleanReferenceValue(raw) {
     .replace(/[.,;:]+$/, "");
 
   if (!cleaned) return null;
-  if (cleaned.length < 3 || cleaned.length > 32) return null;
-  if (!/[A-Z]/i.test(cleaned) || !/\d/.test(cleaned)) return null;
 
-  return cleaned;
+  const withoutLabel = cleaned
+    .replace(/^\s*(?:invoice(?:\s+(?:no|number))?|reference|ref|statement|document|quotation\s+ref|payment\s+reference)\s*[:#-]?\s*/i, "")
+    .trim();
+
+  if (!withoutLabel) return null;
+  if (withoutLabel.length < 2 || withoutLabel.length > 32) return null;
+  if (!/\d/.test(withoutLabel)) return null;
+  if (/\b(?:payment|bank|account|customer|date|vat|phone|address|contact)\b/i.test(withoutLabel)) return null;
+  if (/\b(?:jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|jun(?:e)?|jul(?:y)?|aug(?:ust)?|sep(?:tember)?|sept|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?)\b/i.test(withoutLabel) && /\d{4}/.test(withoutLabel)) return null;
+  if (/\d{1,2}[\/.-]\d{1,2}[\/.-]\d{2,4}/.test(withoutLabel)) return null;
+  if (/^£/.test(withoutLabel)) return null;
+
+  return withoutLabel;
 }
 
 function extractReference(text) {
@@ -603,8 +638,12 @@ function extractReference(text) {
       score: 2.8,
     },
   ];
+  const labelLinePattern = /\b(?:invoice|inv|reference|ref|statement|document)(?:\s*(?:no|number))?\b/i;
 
   lines.forEach((line, index) => {
+    const lineLower = line.toLowerCase();
+    const hasPaymentContext = /\b(payment|bank|account|customer)\b/i.test(lineLower);
+
     referencePatterns.forEach(({ regex, score }) => {
       const match = line.match(regex);
       const reference = cleanReferenceValue(match?.[1]);
@@ -612,10 +651,23 @@ function extractReference(text) {
 
       let candidateScore = score;
       if (/\b(invoice|reference|statement)\b/i.test(line)) candidateScore += 0.6;
+      if (hasPaymentContext) candidateScore -= 1.5;
       if (index <= 4) candidateScore += 0.2;
 
       candidates.push({ reference, score: candidateScore });
     });
+
+    if (labelLinePattern.test(lineLower)) {
+      const nextLine = lines[index + 1];
+      const reference = cleanReferenceValue(nextLine);
+      if (reference && !hasPaymentContext) {
+        let candidateScore = 3.8;
+        if (/\b(invoice|inv)\b/i.test(lineLower)) candidateScore += 0.8;
+        if (/\b(reference|ref)\b/i.test(lineLower)) candidateScore += 0.4;
+        if (index <= 4) candidateScore += 0.2;
+        candidates.push({ reference, score: candidateScore });
+      }
+    }
   });
 
   if (!candidates.length) return null;
@@ -675,11 +727,11 @@ export function extractVAT(text, amountInfo, categoryIdx) {
   if (hdrIdx >= 0) {
     for (let i = 1; i <= 3 && hdrIdx + i < lines.length; i++) {
       const row = lines[hdrIdx + i];
-      const nums = (row.match(/£?\s*\d+\.\d{2}/g) || []).map(s =>
-        parseFloat(s.replace(/[£\s]/g, ""))
+      const nums = (row.match(/£?\s*\d+(?:[.,]\d{2})/g) || []).map(s =>
+        parseFloat(s.replace(/[£\s]/g, "").replace(/,/g, ""))
       );
-      const rm = row.match(/(\d{1,2}(?:\.\d{1,2})?)\s*(?:%|$)/);
-      const snapped = rm ? snapRate(parseFloat(rm[1])) : null;
+      const rm = row.match(/(\d{1,2}(?:[.,]\d{1,2})?)\s*(?:%|$)/);
+      const snapped = rm ? snapRate(parseFloat(rm[1].replace(',', '.'))) : null;
 
       if (nums.length >= 3) {
         const vatVal = nums[nums.length - 1]; // VAT column usually last
@@ -691,26 +743,41 @@ export function extractVAT(text, amountInfo, categoryIdx) {
     }
   }
 
-  // 2) Explicit "VAT amount" lines (ignore "VAT No")
+  // 2) Explicit VAT amount lines (ignore registration / number headers)
   for (const l of lines) {
-    if (/vat\s*no\b/i.test(l)) continue;
+    const low = l.toLowerCase();
+    if (!/\b(?:vat|tax)\b/i.test(low)) continue;
+    if (/vat\s*(?:no|number|reg|registration|account|code)\b/i.test(low)) continue;
+
+    const moneyMatch = l.match(/(£\s*\d+(?:[.,]\d{2})?)/i);
+    if (moneyMatch) {
+      const rawValue = moneyMatch[1].replace(/[£\s]/g, "").replace(/,/g, "");
+      const val = parseFloat(rawValue);
+      if (Number.isFinite(val)) {
+        const rateMatch = l.match(/(\d{1,2}(?:[.,]\d{1,2})?)\s*%/i);
+        const rate = rateMatch ? snapRate(parseFloat(rateMatch[1].replace(',', '.'))) : null;
+        return { value: capVat(parseFloat(val.toFixed(2))), rate };
+      }
+    }
+
     const m =
-      l.match(/vat(?!\s*no)[^0-9£]*(£?\s*\d+\.\d{2})/i) ||
-      l.match(/(£\s*\d+\.\d{2})\s*vat\b/i);
+      l.match(/\b(?:vat|tax)\b(?:[^£%\n]*?)(£\s*\d+(?:[.,]\d{2})?)/i) ||
+      l.match(/(£\s*\d+(?:[.,]\d{2})?)\s*\b(?:vat|tax)\b/i);
     if (m) {
-      const val = parseFloat(m[1].replace(/[£\s]/g, ""));
-      if (isFinite(val)) return { value: capVat(parseFloat(val.toFixed(2))), rate: null };
+      const rawValue = m[1].replace(/[£\s]/g, "").replace(/,/g, "");
+      const val = parseFloat(rawValue);
+      if (Number.isFinite(val)) return { value: capVat(parseFloat(val.toFixed(2))), rate: null };
     }
   }
 
   // 3) A rate near "VAT" → compute using snapped rate
   const rateHit =
-    cleaned.match(/(?:vat[^%\n]{0,12})?(\d{1,2}(?:\.\d{1,2})?)\s*%/i) ||
-    cleaned.match(/(\d{1,2}(?:\.\d{1,2})?)\s*%\s*vat/i);
-  const snappedRate = rateHit ? snapRate(parseFloat(rateHit[1])) : null;
+    cleaned.match(/(?:vat[^%\n]{0,12})?(\d{1,2}(?:[.,]\d{1,2})?)\s*%/i) ||
+    cleaned.match(/(\d{1,2}(?:[.,]\d{1,2})?)\s*%\s*vat/i) ||
+    cleaned.match(/\b(?:vat|tax)\s*(?:rate)?\s*[:#-]?\s*(\d{1,2}(?:[.,]\d{1,2})?)/i);
+  const snappedRate = rateHit ? snapRate(parseFloat(rateHit[1].replace(',', '.'))) : null;
 
   if (snappedRate != null && amountInfo?.amount) {
-    // If detected rate is 0% but the category normally has a higher rate, use category rate
     const catRateOverride = categoryIdx >= 0 ? categories_meta[categoryIdx]?.vatRate : null;
     const effectiveRate = (snappedRate === 0 && Number.isFinite(catRateOverride) && catRateOverride > 0)
       ? catRateOverride
@@ -730,6 +797,15 @@ export function extractVAT(text, amountInfo, categoryIdx) {
       const vat = gross - net;
       return { value: parseFloat(vat.toFixed(2)), rate: catRate };
     }
+  }
+
+  // 5) If the invoice clearly contains a VAT line but the amount is missing, infer from total/amount and a standard UK rate
+  if (amountInfo?.amount && /\bvat\b/i.test(cleaned) && !/\b(?:zero|0(?:\.00)?|no vat|exempt|vat exempt|vat free)\b/i.test(cleaned)) {
+    const inferredRate = 20;
+    const gross = amountInfo.amount;
+    const net = gross / (1 + inferredRate / 100);
+    const vat = gross - net;
+    return { value: parseFloat(vat.toFixed(2)), rate: inferredRate };
   }
 
   return { value: null, rate: null };

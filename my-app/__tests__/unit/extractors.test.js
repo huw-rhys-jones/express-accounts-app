@@ -11,6 +11,7 @@ import {
   extractData,
   reconstructLines,
   categoryFinder,
+  extractVAT,
 } from '../../utils/extractors';
 
 beforeAll(() => {
@@ -61,8 +62,152 @@ describe('extractAmount', () => {
     expect(result.amount).toBeCloseTo(99.0);
   });
 
+  it('prefers balance due amounts over smaller item prices', () => {
+    const text = [
+      'Receipt',
+      'Item 1 £2.50',
+      'Item 2 £3.20',
+      'BALANCE DUE',
+      '£58.56',
+    ].join('\n');
+    const result = extractAmount(text);
+    expect(result).not.toBeNull();
+    expect(result.amount).toBeCloseTo(58.56);
+  });
+
+  it('picks amount due values even without currency symbols', () => {
+    const text = [
+      'Invoice',
+      'Amount Due',
+      '25.99',
+    ].join('\n');
+    const result = extractAmount(text);
+    expect(result).not.toBeNull();
+    expect(result.amount).toBeCloseTo(25.99);
+  });
+
+  it('prefers grand totals over repeated line-item amounts', () => {
+    const text = [
+      'Week Ending',
+      'W/E 11.01.26',
+      '£3,250.00',
+      'Grand Total',
+      '£15,600.00',
+    ].join('\n');
+    const result = extractAmount(text);
+    expect(result).not.toBeNull();
+    expect(result.amount).toBeCloseTo(15600);
+  });
+
+  it('prefers total amount due values on the following line', () => {
+    const text = [
+      'Subtotal',
+      '£3,900.00',
+      'Tax (20%)',
+      '£780.00',
+      'Total Amount Due:',
+      '£4,680.00',
+    ].join('\n');
+    const result = extractAmount(text);
+    expect(result).not.toBeNull();
+    expect(result.amount).toBeCloseTo(4680);
+  });
+
+  it('handles unicode pound symbols', () => {
+    const text = [
+      'Subtotal',
+      '₤3,900.00',
+      'Tax (20%)',
+      '₤780.00',
+      'Total Amount Due:',
+      '₤4,680.00',
+    ].join('\n');
+    const result = extractAmount(text);
+    expect(result).not.toBeNull();
+    expect(result.amount).toBeCloseTo(4680);
+  });
+
   it('returns null when no parseable amount exists', () => {
     expect(extractAmount('No numbers here at all')).toBeNull();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// extractData (date selection)
+// ---------------------------------------------------------------------------
+describe('extractData date selection', () => {
+  it('prefers the invoice date over a later due-by date', () => {
+    const text = [
+      'Invoice 06',
+      '01 July 2023',
+      'Payment due by 31 July 2023',
+    ].join('\n');
+    const result = extractData(text);
+    expect(result.date).toBe('2023-07-01');
+  });
+
+  it('prefers the invoice date over a week-commencing date', () => {
+    const text = [
+      'Week Commencing',
+      '01/12/2025',
+      'Date of Invoice:',
+      '08/12/2025',
+    ].join('\n');
+    const result = extractData(text);
+    expect(result.date).toBe('2025-12-08');
+  });
+
+  it('prefers the date that follows a header label over transaction-row dates', () => {
+    const text = [
+      'Invoice Number:',
+      'PINV94174',
+      'Date:',
+      '02/06/2026',
+      '26/05/26',
+    ].join('\n');
+    const result = extractData(text);
+    expect(result.date).toBe('2026-06-02');
+  });
+});
+
+describe('extractData reference selection', () => {
+  it('extracts a numeric invoice number from an invoice-number label', () => {
+    const text = [
+      'Invoice',
+      'INVOICE NUMBER: 38577398399',
+      'VAT REGISTRATION NUMBER: BAM15322',
+    ].join('\n');
+    const result = extractData(text);
+    expect(result.reference).toBe('38577398399');
+  });
+
+  it('prefers the explicit VAT amount when a line contains both a percentage and money', () => {
+    const result = extractVAT('VAT @ 20% £479.20', { amount: 2898.5 }, 0);
+    expect(result.value).toBeCloseTo(479.2);
+    expect(result.rate).toBe(20);
+  });
+
+  it('extracts an invoice number from the next line when the label is on its own line', () => {
+    const text = [
+      'Invoice Number:',
+      'PINV94174',
+      'Currency: GBP',
+      'Date:',
+      '02/06/2026',
+    ].join('\n');
+    const result = extractData(text);
+    expect(result.reference).toBe('PINV94174');
+  });
+
+  it('avoids false positives from payment reference fields', () => {
+    const text = [
+      'PAY BY BANK TRANSFER',
+      'Payment Reference: Customer 001',
+      'Invoice No:',
+      'INV-0001',
+    ].join('\n');
+    const result = extractData(text);
+    expect(result.reference).toBe('INV-0001');
   });
 });
 
