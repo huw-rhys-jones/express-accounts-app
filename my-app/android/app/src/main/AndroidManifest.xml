@@ -29,6 +29,7 @@
         <category android:name="android.intent.category.DEFAULT"/>
         <category android:name="android.intent.category.BROWSABLE"/>
         <data android:scheme="exp+express-accounts-app"/>
+        <data android:scheme="com.caistec.expressaccounts"/>
       </intent-filter>
     </activity>
   </application>
