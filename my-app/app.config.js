@@ -2,7 +2,7 @@ import 'dotenv/config';
 
 const { version: appVersion } = require("./package.json");
 
-const internalBuildLabel = "";
+const internalBuildLabel = "Internal";
 
 const [major = 0, minor = 0, patch = 0] = String(appVersion)
   .split(".")
@@ -77,8 +77,8 @@ export default ({ config }) => ({
     [
       "expo-splash-screen",
       {
-        "image": "./assets/splash-icon.png",
-        "imageWidth": 960,
+        "image": "./assets/icon.png",
+        "imageWidth": 200,
         "resizeMode": "contain",
         "backgroundColor": "#ffffff"
       }
