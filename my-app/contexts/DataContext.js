@@ -53,7 +53,7 @@ export function DataProvider({ children }) {
       }
     };
 
-    const unsubAuth = onAuthStateChanged(auth, (user) => {
+    const unsubAuth = onAuthStateChanged(auth, async (user) => {
       const nextUid = user?.uid ?? null;
       console.log('[DataContext] onAuthStateChanged', {
         uid: nextUid,
@@ -93,8 +93,23 @@ export function DataProvider({ children }) {
         return;
       }
 
+      let profile = {};
+      try {
+        const userProfileRef = doc(db, 'users', user.uid);
+        const snap = await getDoc(userProfileRef);
+        profile = snap.exists() ? snap.data() || {} : {};
+        setUserProfile(profile);
+      } catch (err) {
+        console.warn('Error loading user profile before data listener gate', err);
+      }
+
+      const profileSaysVerified =
+        profile.emailVerified === true ||
+        String(profile.verificationStatus || '').toLowerCase() === 'verified';
       const isUnverifiedPasswordUser =
-        user.providerData?.some((p) => p.providerId === 'password') && !user.emailVerified;
+        user.providerData?.some((p) => p.providerId === 'password') &&
+        !user.emailVerified &&
+        !profileSaysVerified;
       if (isUnverifiedPasswordUser) {
         hasLiveListenersRef.current = false;
         listenerAttemptRef.current = 0;

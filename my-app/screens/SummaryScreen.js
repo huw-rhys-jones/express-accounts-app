@@ -28,6 +28,7 @@ import { formatDate } from "../utils/format_style";
 import DropDownPicker from "react-native-dropdown-picker";
 import { useData } from "../contexts/DataContext";
 import { getSummaryFilterKey, setAllFilterKeys } from "../utils/appSettings";
+import { calculateTaxTotals } from "../utils/taxCalculations";
 
 const screenWidth = Dimensions.get("window").width;
 const CHART_CARD_WIDTH = screenWidth * 0.9;
@@ -144,6 +145,11 @@ export default function SummaryScreen({ navigation }) {
       activeFilter.endDate
     );
   }, [activeFilter, bankStatements]);
+
+  const taxTotals = useMemo(
+    () => calculateTaxTotals(filteredReceipts, filteredIncome),
+    [filteredReceipts, filteredIncome],
+  );
 
   const totals = useMemo(() => {
     let overall = 0;
@@ -273,6 +279,20 @@ export default function SummaryScreen({ navigation }) {
             <Text style={styles.subtitleNet}>
               Net Position: £{totals.netPosition.toFixed(2)}
             </Text>
+            <Text style={styles.subtitleIncome}>
+              Net Income after CIS: £{taxTotals.netIncomeAfterCis.toFixed(2)}
+            </Text>
+            <Text style={styles.subtitle}>
+              CIS Tax Withheld: £{taxTotals.cisWithheld.toFixed(2)}
+            </Text>
+            <Text style={styles.subtitle}>
+              VAT Position: £{(taxTotals.outputVat - taxTotals.inputVat).toFixed(2)}
+            </Text>
+            {taxTotals.reverseChargeVat > 0 ? (
+              <Text style={styles.subtitleVat}>
+                Reverse Charge VAT: £{taxTotals.reverseChargeVat.toFixed(2)}
+              </Text>
+            ) : null}
           </View>
           {/* Monthly bar chart card */}
           <View style={styles.chartCard}>

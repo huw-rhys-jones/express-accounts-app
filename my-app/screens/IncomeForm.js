@@ -57,6 +57,7 @@ import { triggerHaptic } from "../utils/haptics";
 import { categories_meta } from "../constants/arrays";
 import { getIncomeFilterKey, setIncomeFilterKey } from "../utils/appSettings";
 import { useData } from "../contexts/DataContext";
+import { calculateCis, isVatRegistered, VAT_TREATMENTS } from "../utils/taxCalculations";
 
 const IMAGE_HEIGHT = Math.round(Dimensions.get("window").height * 0.45);
 
@@ -67,6 +68,13 @@ const ANNOTATIONS = [
 ];
 
 const DEBUG_DISABLE_KEYBOARD_DISMISS_WRAPPER = true;
+
+function extractCisMaterialsAmount(rawText) {
+  const match = String(rawText || "").match(
+    /\bmaterials?(?:\s+(?:amount|total))?\s*[:=-]?\s*(?:£\s*)?([0-9][0-9,]*\.\d{2})\b/i,
+  );
+  return match ? Number(match[1].replace(/,/g, "")) : null;
+}
 
 function navigateBackToIncome(navigation) {
   navigation.reset({
@@ -82,7 +90,7 @@ function navigateBackToIncome(navigation) {
 
 export default function IncomeFormScreen({ navigation, route, mode }) {
   const insets = useSafeAreaInsets();
-  const { refreshIncome } = useData();
+  const { refreshIncome, userProfile } = useData();
   const heroHeightAnim = useRef(new Animated.Value(HERO_EXPANDED_HEIGHT)).current;
   const [heroHeight, setHeroHeight] = useState(HERO_EXPANDED_HEIGHT);
   const income = route?.params?.income;
@@ -115,6 +123,17 @@ export default function IncomeFormScreen({ navigation, route, mode }) {
   const [vatAmountEdited, setVatAmountEdited] = useState(
     income?.vatAmount != null && income?.vatAmount !== ""
   );
+  const [cisApplies, setCisApplies] = useState(Boolean(income?.cis?.applies));
+  const [cisMaterialsAmount, setCisMaterialsAmount] = useState(
+    income?.cis?.materialsAmount != null ? String(income.cis.materialsAmount) : "0",
+  );
+  const [cisDeductionRate, setCisDeductionRate] = useState(
+    income?.cis?.deductionRate != null ? String(income.cis.deductionRate) : "20",
+  );
+  const [vatTreatment, setVatTreatment] = useState(
+    income?.vat?.treatment || income?.vatTreatment || VAT_TREATMENTS.STANDARD,
+  );
+  const vatEnabled = isVatRegistered(userProfile) || income?.vatAmount != null || currentIncome?.vatAmount != null;
 
   const deriveVatRateItems = () => {
     const unique = Array.from(
@@ -175,7 +194,7 @@ export default function IncomeFormScreen({ navigation, route, mode }) {
   const incomeFormStateRef = useRef(null);
   incomeDraftsRef.current = incomeDrafts;
   currentDraftIndexRef.current = currentDraftIndex;
-  incomeFormStateRef.current = { amount, vatAmount, vatRate, vatAmountEdited, reference, label, notes, selectedDate, attachments };
+  incomeFormStateRef.current = { amount, vatAmount, vatRate, vatAmountEdited, reference, label, notes, selectedDate, attachments, cisApplies, cisMaterialsAmount, cisDeductionRate, vatTreatment };
 
   const draftSlideX = useRef(new Animated.Value(0)).current;
   const draftFade = useRef(new Animated.Value(1)).current;
@@ -210,6 +229,10 @@ export default function IncomeFormScreen({ navigation, route, mode }) {
       reference: analysis?.reference || "",
       label: "",
       notes: "",
+      cisApplies: /\bCIS\b|CONSTRUCTION INDUSTRY SCHEME/i.test(String(analysis?.raw || "")),
+      cisMaterialsAmount: String(extractCisMaterialsAmount(analysis?.raw) || 0),
+      cisDeductionRate: "20",
+      vatTreatment: VAT_TREATMENTS.STANDARD,
       selectedDate: parsedDate && !Number.isNaN(parsedDate.getTime()) ? parsedDate : new Date(),
       attachments: (assets || []).map((asset) => createImageAttachment(asset)),
       ocrFrames: groupOcrFrames || null,
@@ -221,6 +244,10 @@ export default function IncomeFormScreen({ navigation, route, mode }) {
     setVatAmount(draft?.vatAmount || "");
     setVatRate(draft?.vatRate || "");
     setVatAmountEdited(Boolean(draft?.vatAmountEdited));
+    setCisApplies(Boolean(draft?.cisApplies));
+    setCisMaterialsAmount(draft?.cisMaterialsAmount || "0");
+    setCisDeductionRate(draft?.cisDeductionRate || "20");
+    setVatTreatment(draft?.vatTreatment || VAT_TREATMENTS.STANDARD);
     setReference(draft?.reference || "");
     setLabel(draft?.label || "");
     setNotes(draft?.notes || "");
@@ -241,6 +268,10 @@ export default function IncomeFormScreen({ navigation, route, mode }) {
       notes: f.notes,
       selectedDate: new Date(f.selectedDate),
       attachments: [...f.attachments],
+      cisApplies: f.cisApplies,
+      cisMaterialsAmount: f.cisMaterialsAmount,
+      cisDeductionRate: f.cisDeductionRate,
+      vatTreatment: f.vatTreatment,
     };
   };
 
@@ -365,10 +396,15 @@ export default function IncomeFormScreen({ navigation, route, mode }) {
           userId: user.uid,
           attachments: draft.attachments,
         });
+        const cis = draft.cisApplies
+          ? { applies: true, materialsAmount: Number(draft.cisMaterialsAmount) || 0, deductionRate: Number(draft.cisDeductionRate) || 0, ...calculateCis({ grossAmount: draft.amount, vatAmount: draft.vatAmount, materialsAmount: draft.cisMaterialsAmount, deductionRate: draft.cisDeductionRate }) }
+          : null;
         await addDoc(collection(db, "income"), {
           amount: Number(draft.amount),
           vatAmount: Number(draft.vatAmount),
           vatRate: Number(draft.vatRate),
+          vat: { applies: vatEnabled, treatment: draft.vatTreatment || VAT_TREATMENTS.STANDARD },
+          cis,
           date: new Date(draft.selectedDate).toISOString(),
           reference: (draft.reference || "").trim(),
           label: (draft.label || "").trim(),
@@ -425,6 +461,11 @@ export default function IncomeFormScreen({ navigation, route, mode }) {
     if (extracted.vendor) {
       setReference(extracted.vendor);
       flashField(flashReference);
+    }
+    if (/\bCIS\b|CONSTRUCTION INDUSTRY SCHEME/i.test(String(extracted?.raw || ""))) {
+      setCisApplies(true);
+      const materialsAmount = extractCisMaterialsAmount(extracted.raw);
+      if (materialsAmount != null) setCisMaterialsAmount(String(materialsAmount));
     }
   };
 
@@ -496,7 +537,7 @@ export default function IncomeFormScreen({ navigation, route, mode }) {
   }, [attachments.length]);
 
   useEffect(() => {
-    if (!vatAmountEdited && amount && vatRate) {
+    if (vatEnabled && !vatAmountEdited && amount && vatRate) {
       const gross = parseFloat(amount);
       const rate = parseFloat(vatRate);
       if (isFinite(gross) && isFinite(rate)) {
@@ -512,6 +553,10 @@ export default function IncomeFormScreen({ navigation, route, mode }) {
     setVatAmount(currentIncome?.vatAmount != null ? String(currentIncome.vatAmount) : "");
     setVatRate(currentIncome?.vatRate != null ? String(currentIncome.vatRate) : "");
     setVatAmountEdited(currentIncome?.vatAmount != null && currentIncome?.vatAmount !== "");
+    setCisApplies(Boolean(currentIncome?.cis?.applies));
+    setCisMaterialsAmount(currentIncome?.cis?.materialsAmount != null ? String(currentIncome.cis.materialsAmount) : "0");
+    setCisDeductionRate(currentIncome?.cis?.deductionRate != null ? String(currentIncome.cis.deductionRate) : "20");
+    setVatTreatment(currentIncome?.vat?.treatment || currentIncome?.vatTreatment || VAT_TREATMENTS.STANDARD);
     setReference(currentIncome?.reference || "");
     setLabel(currentIncome?.label || "");
     setNotes(currentIncome?.notes || "");
@@ -748,7 +793,7 @@ export default function IncomeFormScreen({ navigation, route, mode }) {
       return;
     }
 
-    if (!vatAmount || Number(vatAmount) < 0 || !vatRate || Number(vatRate) < 0) {
+    if (vatEnabled && (!vatAmount || Number(vatAmount) < 0 || !vatRate || Number(vatRate) < 0)) {
       Alert.alert("Invalid Input", "Please enter valid VAT amount and VAT rate.");
       return;
     }
@@ -795,10 +840,15 @@ export default function IncomeFormScreen({ navigation, route, mode }) {
         attachments,
       });
 
+      const cis = cisApplies
+        ? { applies: true, materialsAmount: Number(cisMaterialsAmount) || 0, deductionRate: Number(cisDeductionRate) || 0, ...calculateCis({ grossAmount: amount, vatAmount, materialsAmount: cisMaterialsAmount, deductionRate: cisDeductionRate }) }
+        : null;
       const payload = {
         amount: Number(amount),
-        vatAmount: Number(vatAmount),
-        vatRate: Number(vatRate),
+        vatAmount: vatEnabled ? Number(vatAmount) : 0,
+        vatRate: vatEnabled ? Number(vatRate) : 0,
+        vat: { applies: vatEnabled, treatment: vatEnabled ? vatTreatment : VAT_TREATMENTS.LEGACY },
+        cis,
         date: selectedDate.toISOString(),
         reference: reference.trim(),
         label: label.trim(),
@@ -918,10 +968,12 @@ export default function IncomeFormScreen({ navigation, route, mode }) {
 
   const isIncomeFormValid =
     Number(amount) > 0 &&
-    vatAmount.trim().length > 0 &&
-    vatRate.trim().length > 0 &&
-    !Number.isNaN(Number(vatAmount)) &&
-    !Number.isNaN(Number(vatRate));
+    (!vatEnabled || (
+      vatAmount.trim().length > 0 &&
+      vatRate.trim().length > 0 &&
+      !Number.isNaN(Number(vatAmount)) &&
+      !Number.isNaN(Number(vatRate))
+    ));
 
   const buildPercentOverlay = (frame) => {
     const naturalW = ocrFrames?.imageW;
@@ -1159,6 +1211,8 @@ export default function IncomeFormScreen({ navigation, route, mode }) {
               />
             </Animated.View>
 
+            {vatEnabled ? (
+              <>
             <View style={styles.moneyRow}>
               <Animated.View style={[styles.moneyColumn, {
                   backgroundColor: flashVat.interpolate({ inputRange: [0, 1], outputRange: ["transparent", "rgba(253,224,71,0.45)"] }),
@@ -1211,6 +1265,37 @@ export default function IncomeFormScreen({ navigation, route, mode }) {
                   scrollViewProps={{ keyboardShouldPersistTaps: "always" }}
                 />
               </View>
+            </View>
+            <TouchableOpacity style={styles.cisToggleRow} onPress={() => setVatTreatment((current) => current === VAT_TREATMENTS.DOMESTIC_REVERSE_CHARGE ? VAT_TREATMENTS.STANDARD : VAT_TREATMENTS.DOMESTIC_REVERSE_CHARGE)}>
+              <Checkbox status={vatTreatment === VAT_TREATMENTS.DOMESTIC_REVERSE_CHARGE ? "checked" : "unchecked"} color={Colors.accent} />
+              <Text style={ReceiptStyles.ocrLabel}>Domestic reverse charge construction</Text>
+            </TouchableOpacity>
+              </>
+            ) : null}
+
+            <View style={styles.fieldGroup}>
+              <TouchableOpacity style={styles.cisToggleRow} onPress={() => setCisApplies((current) => !current)}>
+                <Checkbox status={cisApplies ? "checked" : "unchecked"} color={Colors.accent} />
+                <Text style={ReceiptStyles.ocrLabel}>CIS deduction applies</Text>
+              </TouchableOpacity>
+              {cisApplies ? (
+                <>
+                  <View style={styles.moneyRow}>
+                    <View style={styles.moneyColumn}>
+                      <Text style={ReceiptStyles.label}>Materials (excl. VAT):</Text>
+                      <TextInput value={cisMaterialsAmount} onChangeText={setCisMaterialsAmount} keyboardType="decimal-pad" placeholder="0.00" placeholderTextColor={Colors.textSecondary} style={[ReceiptStyles.input, styles.compactInput]} />
+                    </View>
+                    <View style={styles.moneyColumn}>
+                      <Text style={ReceiptStyles.label}>CIS rate (%):</Text>
+                      <TextInput value={cisDeductionRate} onChangeText={setCisDeductionRate} keyboardType="decimal-pad" placeholder="20" placeholderTextColor={Colors.textSecondary} style={[ReceiptStyles.input, styles.compactInput]} />
+                    </View>
+                  </View>
+                  {(() => {
+                    const cis = calculateCis({ grossAmount: amount, vatAmount: vatEnabled ? vatAmount : 0, materialsAmount: cisMaterialsAmount, deductionRate: cisDeductionRate });
+                    return <Text style={styles.cisCalculationText}>CIS withheld: £{cis.deductionAmount.toFixed(2)}   Net received: £{cis.netPaid.toFixed(2)}</Text>;
+                  })()}
+                </>
+              ) : null}
             </View>
 
             <View style={styles.fieldGroup}>
@@ -1868,6 +1953,8 @@ const styles = StyleSheet.create({
     marginTop: 8,
     marginBottom: 2,
   },
+  cisToggleRow: { flexDirection: "row", alignItems: "center", marginBottom: 8 },
+  cisCalculationText: { color: Colors.textPrimary, fontWeight: "600", marginTop: 12 },
   summaryListWrap: {
     marginBottom: 6,
   },

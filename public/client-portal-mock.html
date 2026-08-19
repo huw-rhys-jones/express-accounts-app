@@ -797,6 +797,20 @@
             </div>
           </div>
 
+          <div class="split-layout" style="margin-top:10px">
+            <div class="stack">
+              <label for="adminVatRegisteredInput">VAT registered</label>
+              <label style="display:flex; align-items:center; gap:8px; font-weight:600">
+                <input id="adminVatRegisteredInput" type="checkbox" />
+                Registered for VAT
+              </label>
+            </div>
+            <div class="stack">
+              <label for="adminVatNumberInput">VAT registration number</label>
+              <input id="adminVatNumberInput" type="text" placeholder="Optional" />
+            </div>
+          </div>
+
           <div class="stack" style="margin-top:10px">
             <label for="adminCodeInput" style="display:flex; align-items:center; justify-content:space-between; gap:10px;">
               <span>Verification code</span>
@@ -881,6 +895,8 @@
     const adminNameInput = document.getElementById("adminNameInput");
     const adminEmailInput = document.getElementById("adminEmailInput");
     const adminCodeInput = document.getElementById("adminCodeInput");
+    const adminVatRegisteredInput = document.getElementById("adminVatRegisteredInput");
+    const adminVatNumberInput = document.getElementById("adminVatNumberInput");
     const adminGenerateCodeBtn = document.getElementById("adminGenerateCodeBtn");
     const adminSaveBtn = document.getElementById("adminSaveBtn");
     const adminVerifyEmailBtn = document.getElementById("adminVerifyEmailBtn");
@@ -1805,6 +1821,8 @@
       adminNameInput.value = "";
       adminEmailInput.value = "";
       adminCodeInput.value = "";
+      adminVatRegisteredInput.checked = false;
+      adminVatNumberInput.value = "";
     }
 
     function renderAdminClientOptions(searchText) {
@@ -1859,6 +1877,8 @@
       adminNameInput.value = toInputValue(user.originalName || user.name);
       adminEmailInput.value = toInputValue(user.email);
       adminCodeInput.value = toInputValue(user.verificationCode);
+      adminVatRegisteredInput.checked = user.vatRegistered === true;
+      adminVatNumberInput.value = toInputValue(user.vatRegistrationNumber);
       adminStatus.textContent = "Editing " + user.name + ". Update fields and click Save Client Changes.";
     }
 
@@ -1929,6 +1949,8 @@
       const nextEmailRaw = toInputValue(adminEmailInput.value);
       const nextEmail = nextEmailRaw ? nextEmailRaw.toLowerCase() : "";
       const nextCode = normalizeVerificationCode(adminCodeInput.value);
+      const nextVatRegistered = adminVatRegisteredInput.checked === true;
+      const nextVatNumber = toInputValue(adminVatNumberInput.value);
 
       if (nextEmail && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(nextEmail)) {
         adminStatus.textContent = "Please enter a valid email address.";
@@ -1999,6 +2021,16 @@
             verificationCode: nextCode || firebase.firestore.FieldValue.delete(),
             verificationStatus: nextCode ? "verified" : firebase.firestore.FieldValue.delete(),
             verifiedName: nextCode && nextName ? nextName : firebase.firestore.FieldValue.delete(),
+            taxProfile: {
+              vat: {
+                isRegistered: nextVatRegistered,
+                registrationNumber: nextVatRegistered ? nextVatNumber : "",
+                hasAnsweredRegistrationQuestion: true,
+                setupCompletedAt: userData.taxProfile?.vat?.setupCompletedAt || nowTs,
+                updatedAt: nowTs,
+              },
+            },
+            hasAnsweredVatRegistration: true,
             updatedAt: nowTs,
           }, {merge: true});
         });
@@ -2117,6 +2149,8 @@
             amount: Number(data.amount) || 0,
             vatAmount: data.vatAmount != null ? Number(data.vatAmount) : 0,
             vatRate: data.vatRate != null ? Number(data.vatRate) : 0,
+            vat: data.vat || null,
+            cis: data.cis || null,
             date: data.date ? String(data.date).split("T")[0] : "",
             reference: data.reference || "",
             label: data.label || "",
@@ -2184,6 +2218,8 @@
             email: profile.email || null,
             verificationCode: profile.verificationCode || null,
             notifyAccountant: profile.notifyAccountant || false,
+            vatRegistered: profile.taxProfile?.vat?.isRegistered === true,
+            vatRegistrationNumber: profile.taxProfile?.vat?.registrationNumber || "",
             processedAt: toJsDate(profile.processedAt),
             receipts: receiptsByUser[uid] || [],
             receiptCount: (receiptsByUser[uid] || []).length,

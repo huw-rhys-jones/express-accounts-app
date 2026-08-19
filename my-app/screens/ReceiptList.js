@@ -12,7 +12,6 @@ import {
   TextInput,
   Alert,
   Linking,
-  Switch,
   Image,
 } from "react-native";
 import { signOut, deleteUser, updateProfile } from "firebase/auth";
@@ -50,8 +49,6 @@ import {
   formatPeriodLabelWithCount,
 } from "../utils/financialPeriods";
 import {
-  getHapticsEnabled,
-  setHapticsEnabled,
   triggerHaptic,
 } from "../utils/haptics";
 import { getReceiptFilterKey, setReceiptFilterKey, setAllFilterKeys, getVehicles } from "../utils/appSettings";
@@ -59,6 +56,7 @@ import { verifyClientCode } from "../utils/verificationCodes";
 import AddReceiptSheet from "../components/AddReceiptSheet";
 import RegisterVehicleModal from "../components/RegisterVehicleModal";
 import YourVehiclesModal from "../components/YourVehiclesModal";
+import SharedTabMenu from "../components/SharedTabMenu";
 import { useData } from "../contexts/DataContext";
 
 // Inside your component
@@ -67,7 +65,7 @@ const internalBuildLabel = Constants.expoConfig?.extra?.internalBuildLabel || ""
 const versionLabel = internalBuildLabel ? `${appVersion} (${internalBuildLabel})` : appVersion;
 
 const ExpensesScreen = ({ navigation, route }) => {
-  const { receipts, receiptsLoading: dataLoading } = useData();
+  const { receipts, receiptsLoading: dataLoading, userProfile } = useData();
   const [displayName, setDisplayName] = useState("User");
   const [verifiedName, setVerifiedName] = useState("");
   const [verificationStatus, setVerificationStatus] = useState("");
@@ -94,8 +92,6 @@ const ExpensesScreen = ({ navigation, route }) => {
   const [feedbackModalVisible, setFeedbackModalVisible] = useState(false);
   const [feedbackText, setFeedbackText] = useState("");
   const [showNotifyTip, setShowNotifyTip] = useState(false);
-  const [hapticsEnabled, setHapticsEnabledState] = useState(true);
-  const [settingsModalVisible, setSettingsModalVisible] = useState(false);
   const [filterOpen, setFilterOpen] = useState(false);
   const [activeFilterKey, setActiveFilterKey] = useState("current-quarter");
   const [filterItems, setFilterItems] = useState([]);
@@ -374,16 +370,17 @@ const ExpensesScreen = ({ navigation, route }) => {
   }, [clearSelectionMode, selectedIds]);
 
   useEffect(() => {
-    getHapticsEnabled()
-      .then(setHapticsEnabledState)
-      .catch(() => setHapticsEnabledState(true));
-
     getReceiptFilterKey()
       .then(setActiveFilterKey)
       .catch(() => setActiveFilterKey("current-quarter"));
 
     getVehicles().then(setVehicles).catch(() => {});
   }, []);
+
+  useEffect(() => {
+    setVerifiedName(String(userProfile?.verifiedName || ""));
+    setVerificationStatus(String(userProfile?.verificationStatus || ""));
+  }, [userProfile]);
 
   useEffect(() => {
     if (!route?.params?.refreshReceiptFilterAt) {
@@ -564,15 +561,6 @@ const ExpensesScreen = ({ navigation, route }) => {
     await Linking.openURL(url);
   }, []);
 
-  const toggleHapticsSetting = useCallback(async () => {
-    const next = !hapticsEnabled;
-    setHapticsEnabledState(next);
-    await setHapticsEnabled(next);
-    if (next) {
-      triggerHaptic("selection").catch(() => {});
-    }
-  }, [hapticsEnabled]);
-
   const handleSubmitReferralCode = async () => {
     if (!referralCode.trim()) {
       Alert.alert("Invalid Code", "Please enter a client code.");
@@ -648,11 +636,6 @@ const ExpensesScreen = ({ navigation, route }) => {
       "Address Capture Coming Soon",
       "This will become the place to add and confirm a billing or registered address, with proof-of-address support later."
     );
-  }, [closeMenu]);
-
-  const handleOpenSettings = useCallback(() => {
-    closeMenu();
-    requestAnimationFrame(() => setSettingsModalVisible(true));
   }, [closeMenu]);
 
   const handleFilterSelection = useCallback(
@@ -995,154 +978,12 @@ const ExpensesScreen = ({ navigation, route }) => {
 
       {/* Slide-in side menu */}
       <SideMenu open={menuOpen} onClose={closeMenu}>
-        <View style={{ flex: 1 }}>
-          {/* Top Section: Name, Email, Settings Button */}
-          <View style={styles.userInfo}>
-            <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}>
-              <Text style={styles.userEmail}>{displayName}</Text>
-              <TouchableOpacity
-                onPress={() => {
-                  setNewName(displayName);
-                  setNameChangeModalVisible(true);
-                }}
-                style={{ paddingLeft: 8 }}
-              >
-                <Text style={{ fontSize: 14 }}>✏️</Text>
-              </TouchableOpacity>
-            </View>
-            <Text style={styles.userEmail}>{auth.currentUser?.email}</Text>
-            {verificationStatus === "verified" && verifiedName ? (
-              <>
-                <Text style={styles.userEmail}>{verifiedName}</Text>
-                <Text style={styles.userEmail}>(verified user)</Text>
-              </>
-            ) : null}
-          </View>
-
-          {/* Settings Button */}
-          <Image
-            source={require("../assets/images/logo.png")}
-            style={styles.menuLogo}
-            resizeMode="contain"
-          />
-
-          {/* Middle Section: Notify Accountant */}
-          <View style={{ marginTop: 20 }}>
-            <TouchableOpacity
-              onPress={handleNotifyAccountant}
-              style={styles.notifyBtnFilled}
-            >
-              <Text style={styles.filledBtnText}>Notify Accountant</Text>
-            </TouchableOpacity>
-
-            {showNotifyTip ? (
-              <View style={styles.notifyTipBox}>
-                <Text style={styles.notifyTipText}>
-                  Notify your accountant that your receipts are ready for processing
-                </Text>
-                <TouchableOpacity onPress={dismissNotifyTip}>
-                  <Text style={styles.notifyTipOkay}>Okay</Text>
-                </TouchableOpacity>
-              </View>
-            ) : null}
-          </View>
-
-          <View style={{ marginTop: 6 }}>
-            <TouchableOpacity
-              onPress={() => openAfterMenuClose(setRegisterVehicleOpen)}
-              style={styles.secondaryMenuButton}
-            >
-              <Text style={styles.secondaryMenuButtonText}>🚗  Register Vehicle</Text>
-            </TouchableOpacity>
-
-            {vehicles.length > 0 && (
-              <TouchableOpacity
-                onPress={() => openAfterMenuClose(setYourVehiclesOpen)}
-                style={[styles.secondaryMenuButton, { marginTop: 10 }]}
-              >
-                <Text style={styles.secondaryMenuButtonText}>📋  Your Vehicles</Text>
-              </TouchableOpacity>
-            )}
-
-            <TouchableOpacity disabled style={[styles.secondaryMenuButton, styles.disabledMenuButton, { marginTop: 10 }]}>
-              <Text style={[styles.secondaryMenuButtonText, styles.disabledMenuButtonText]}>Add ID Image</Text>
-            </TouchableOpacity>
-
-            <TouchableOpacity
-              disabled
-              style={[styles.secondaryMenuButton, styles.disabledMenuButton, { marginTop: 10 }]}
-            >
-              <Text style={[styles.secondaryMenuButtonText, styles.disabledMenuButtonText]}>Add Address</Text>
-            </TouchableOpacity>
-          </View>
-
-          {/* Bottom Section */}
-          <View style={styles.footerContainer}>
-            {/* Enter Client Code Button - Green */}
-            <TouchableOpacity
-              onPress={() => {
-                setReferralCode("");
-                setReferralCodeModalVisible(true);
-              }}
-              style={[
-                styles.referralBtn,
-                verificationStatus === "verified" ? styles.disabledActionButton : null,
-              ]}
-            >
-              <Text
-                style={[
-                  styles.filledBtnText,
-                  verificationStatus === "verified" ? styles.disabledActionButtonText : null,
-                ]}
-              >
-                Enter Client Code
-              </Text>
-            </TouchableOpacity>
-
-            {/* Sign Out Button - Red */}
-            <TouchableOpacity
-              onPress={async () => {
-                closeMenu();
-                await handleLogout();
-              }}
-              style={[styles.redButton, { marginTop: 10 }]}
-            >
-              <Text style={styles.redButtonText}>Sign Out</Text>
-            </TouchableOpacity>
-
-            {/* Delete Account Button - Red */}
-            <TouchableOpacity
-              onPress={handleDeleteAccount}
-              style={[styles.redButton, { marginTop: 10 }]}
-            >
-              <Text style={styles.redButtonText}>Delete Account</Text>
-            </TouchableOpacity>
-
-            {/* Leave Feedback */}
-            <TouchableOpacity
-              onPress={() => {
-                closeMenu();
-                setFeedbackModalVisible(true);
-              }}
-              style={[styles.signOutLink, { marginTop: 12, marginBottom: 0 }]}
-            >
-              <Text style={[styles.linkBtnText, { textDecorationLine: 'none' }]}>
-                Leave Feedback
-              </Text>
-            </TouchableOpacity>
-
-            {/* Version and Privacy Policy */}
-            <View style={styles.versionContainer}>
-              <Text style={styles.versionText}>Version {versionLabel}</Text>
-              <Text style={styles.versionText}> · </Text>
-              <TouchableOpacity onPress={handleOpenPrivacyPolicy}>
-                <Text style={[styles.versionText, { textDecorationLine: "underline", color: Colors.accent }]}>
-                  Privacy Policy
-                </Text>
-              </TouchableOpacity>
-            </View>
-          </View>
-        </View>
+        <SharedTabMenu
+          navigation={navigation}
+          closeMenu={closeMenu}
+          displayName={auth.currentUser?.displayName || "User"}
+          open={menuOpen}
+        />
       </SideMenu>
 
       {/* Feedback Modal */}
@@ -1181,36 +1022,6 @@ const ExpensesScreen = ({ navigation, route }) => {
                 <Text style={styles.signOutText}>Send</Text>
               </TouchableOpacity>
             </View>
-          </View>
-        </View>
-      </Modal>
-
-      <Modal
-        visible={settingsModalVisible}
-        transparent
-        animationType="slide"
-        onRequestClose={() => setSettingsModalVisible(false)}
-      >
-        <View style={styles.modalOverlay}>
-          <View style={[styles.loadingCard, styles.settingsModalCard]}>
-            <Text style={styles.title}>Settings</Text>
-
-            <View style={styles.settingsRow}>
-              <Text style={styles.settingsLabel}>Haptic feedback</Text>
-              <Switch
-                value={hapticsEnabled}
-                onValueChange={toggleHapticsSetting}
-                trackColor={{ false: "#c8cad2", true: "#f0b5ca" }}
-                thumbColor={hapticsEnabled ? Colors.accent : "#f4f3f4"}
-              />
-            </View>
-
-            <TouchableOpacity
-              onPress={() => setSettingsModalVisible(false)}
-              style={[styles.signOutBtn, { width: "100%" }]}
-            >
-              <Text style={styles.signOutText}>Done</Text>
-            </TouchableOpacity>
           </View>
         </View>
       </Modal>
@@ -1659,6 +1470,12 @@ const styles = StyleSheet.create({
     color: "#7B7B7B",
     fontSize: 14,
   },
+  verifiedAsText: {
+    color: "#2e86de",
+    fontSize: 13,
+    fontWeight: "700",
+    marginTop: 4,
+  },
   signOutBtn: {
     backgroundColor: Colors.accent,
     paddingVertical: 12,
@@ -1686,6 +1503,30 @@ const styles = StyleSheet.create({
   settingsLabel: {
     color: Colors.textPrimary,
     fontSize: 14,
+  },
+  settingsDivider: {
+    height: 1,
+    backgroundColor: "#e0e0e5",
+    marginVertical: 8,
+    width: "100%",
+  },
+  settingsInputGroup: {
+    width: "100%",
+    marginBottom: 12,
+  },
+  settingsInputLabel: {
+    color: Colors.textPrimary,
+    fontSize: 13,
+    fontWeight: "700",
+    marginBottom: 6,
+  },
+  settingsInput: {
+    borderWidth: 1,
+    borderColor: "#c8cad2",
+    borderRadius: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    color: Colors.textPrimary,
   },
   menuLogo: {
     width: "100%",

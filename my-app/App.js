@@ -2,7 +2,7 @@ import React, { useEffect, useRef, useState } from "react";
 import { NavigationContainer } from "@react-navigation/native";
 import { createStackNavigator } from "@react-navigation/stack";
 import { createMaterialTopTabNavigator } from "@react-navigation/material-top-tabs";
-import { View, Text, TouchableOpacity, StyleSheet, Platform, Alert, Modal, Image, Animated } from "react-native";
+import { View, Text, TextInput, TouchableOpacity, StyleSheet, Platform, Alert, Modal, Image, Animated } from "react-native";
 import * as SplashScreen from 'expo-splash-screen';
 import { onAuthStateChanged, reload, sendEmailVerification, signOut } from "firebase/auth";
 import { doc, serverTimestamp, setDoc, collection, query, where, onSnapshot, updateDoc } from "firebase/firestore";
@@ -267,6 +267,9 @@ export default function App() {
   const [authRefreshTick, setAuthRefreshTick] = useState(0);
   const [pendingChallenge, setPendingChallenge] = useState(null);
   const [userProfile, setUserProfile] = useState(null);
+  const [vatSetupVisible, setVatSetupVisible] = useState(false);
+  const [vatRegistered, setVatRegistered] = useState(false);
+  const [vatRegistrationNumber, setVatRegistrationNumber] = useState("");
   const [welcomeVisible, setWelcomeVisible] = useState(false);
   const welcomeOpacity = useRef(new Animated.Value(1)).current;
   const navigationRef = useRef(null);
@@ -421,7 +424,7 @@ export default function App() {
     const unsubscribe = onSnapshot(
       doc(db, "users", activeUser.uid),
       (snap) => {
-        setUserProfile(snap.exists() ? (snap.data() || null) : null);
+        setUserProfile(snap.exists() ? (snap.data() || {}) : {});
       },
       (error) => {
         console.warn("Could not listen for user profile", error);
@@ -430,6 +433,50 @@ export default function App() {
 
     return unsubscribe;
   }, [user]);
+
+  useEffect(() => {
+    if (!user || userProfile === null) return;
+    const vatProfile = userProfile?.taxProfile?.vat;
+    const answeredVatQuestion =
+      vatProfile?.hasAnsweredRegistrationQuestion === true ||
+      userProfile?.hasAnsweredVatRegistration === true ||
+      Boolean(vatProfile?.setupCompletedAt);
+    if (answeredVatQuestion) {
+      setVatSetupVisible(false);
+      return;
+    }
+    setVatRegistered(vatProfile?.isRegistered === true);
+    setVatRegistrationNumber(String(vatProfile?.registrationNumber || ""));
+    setVatSetupVisible(true);
+  }, [user, userProfile]);
+
+  const saveVatSetup = async () => {
+    const activeUser = auth.currentUser || user;
+    if (!activeUser) return;
+    try {
+      await setDoc(
+        doc(db, "users", activeUser.uid),
+        {
+          taxProfile: {
+            vat: {
+              isRegistered: vatRegistered,
+              registrationNumber: vatRegistered ? vatRegistrationNumber.trim() : "",
+              hasAnsweredRegistrationQuestion: true,
+              setupCompletedAt: serverTimestamp(),
+              updatedAt: serverTimestamp(),
+            },
+          },
+          hasAnsweredVatRegistration: true,
+          updatedAt: serverTimestamp(),
+        },
+        { merge: true },
+      );
+      setVatSetupVisible(false);
+    } catch (error) {
+      console.error("Could not save VAT registration", error);
+      Alert.alert("Could not save VAT registration", "Please try again.");
+    }
+  };
 
   // Fallback auto-verification on sign-in: if a matching verification code exists
   // for this email, link it automatically and mark email as verified.
@@ -553,6 +600,45 @@ export default function App() {
         </View>
       </Modal>
 
+      <Modal visible={vatSetupVisible} transparent animationType="fade" onRequestClose={saveVatSetup}>
+        <View style={styles.twoFactorOverlay}>
+          <View style={styles.vatSetupCard}>
+            <Text style={styles.vatSetupTitle}>VAT registration</Text>
+            <Text style={styles.vatSetupText}>Are you registered for VAT?</Text>
+            <View style={styles.vatChoiceRow}>
+              <TouchableOpacity
+                style={[styles.vatChoiceButton, !vatRegistered ? styles.vatChoiceSelected : styles.vatChoiceUnselected]}
+                onPress={() => setVatRegistered(false)}
+              >
+                <Text style={[styles.vatChoiceText, !vatRegistered ? styles.vatChoiceSelectedText : styles.vatChoiceUnselectedText]}>No</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[styles.vatChoiceButton, vatRegistered ? styles.vatChoiceSelected : styles.vatChoiceUnselected]}
+                onPress={() => setVatRegistered(true)}
+              >
+                <Text style={[styles.vatChoiceText, vatRegistered ? styles.vatChoiceSelectedText : styles.vatChoiceUnselectedText]}>Yes</Text>
+              </TouchableOpacity>
+            </View>
+            {vatRegistered ? (
+              <View style={styles.vatNumberGroup}>
+                <Text style={styles.vatNumberLabel}>VAT registration number (optional)</Text>
+                <TextInput
+                  value={vatRegistrationNumber}
+                  onChangeText={setVatRegistrationNumber}
+                  placeholder="e.g. GB123456789"
+                  placeholderTextColor="#8a8a94"
+                  autoCapitalize="characters"
+                  style={styles.vatRegistrationInput}
+                />
+              </View>
+            ) : null}
+            <TouchableOpacity style={styles.vatContinueButton} onPress={saveVatSetup}>
+              <Text style={styles.vatContinueText}>Continue</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
+
       {welcomeVisible && (
         <Animated.View
           style={[StyleSheet.absoluteFill, styles.welcomeSplash, { opacity: welcomeOpacity }]}
@@ -667,6 +753,85 @@ const styles = StyleSheet.create({
     fontWeight: "800",
     color: "#1C1C4E",
     marginBottom: 10,
+  },
+  vatSetupCard: {
+    width: "90%",
+    maxWidth: 420,
+    backgroundColor: "#fff",
+    borderRadius: 18,
+    padding: 24,
+  },
+  vatSetupTitle: {
+    fontSize: 20,
+    fontWeight: "800",
+    color: "#1C1C4E",
+    marginBottom: 10,
+    textAlign: "center",
+  },
+  vatSetupText: {
+    fontSize: 15,
+    color: "#333",
+    textAlign: "center",
+    marginBottom: 16,
+  },
+  vatChoiceRow: {
+    flexDirection: "row",
+    gap: 12,
+    width: "100%",
+  },
+  vatChoiceButton: {
+    flex: 1,
+    borderRadius: 24,
+    paddingVertical: 13,
+    alignItems: "center",
+    borderWidth: 1,
+  },
+  vatChoiceSelected: {
+    backgroundColor: "#a60d49",
+    borderColor: "#a60d49",
+  },
+  vatChoiceUnselected: {
+    backgroundColor: "#fff",
+    borderColor: "#c7c7cc",
+  },
+  vatChoiceText: {
+    fontSize: 15,
+    fontWeight: "700",
+  },
+  vatChoiceSelectedText: {
+    color: "#fff",
+  },
+  vatChoiceUnselectedText: {
+    color: "#1C1C4E",
+  },
+  vatNumberGroup: {
+    marginTop: 18,
+  },
+  vatNumberLabel: {
+    color: "#1C1C4E",
+    fontSize: 13,
+    fontWeight: "700",
+    marginBottom: 6,
+  },
+  vatRegistrationInput: {
+    borderWidth: 1,
+    borderColor: "#c7c7cc",
+    borderRadius: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 11,
+    color: "#1C1C4E",
+  },
+  vatContinueButton: {
+    backgroundColor: "#1f7a3f",
+    borderRadius: 24,
+    paddingVertical: 13,
+    alignItems: "center",
+    marginTop: 18,
+  },
+  vatContinueText: {
+    color: "#fff",
+    fontWeight: "700",
+    fontSize: 15,
   },
   twoFactorText: {
     fontSize: 15,

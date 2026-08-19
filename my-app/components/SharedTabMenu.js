@@ -30,6 +30,7 @@ import appPackage from "../package.json";
 import { auth, db } from "../firebaseConfig";
 import { getVehicles } from "../utils/appSettings";
 import { Colors } from "../utils/sharedStyles";
+import { Checkbox } from "react-native-paper";
 import { triggerHaptic } from "../utils/haptics";
 import { verifyClientCode } from "../utils/verificationCodes";
 import RegisterVehicleModal from "./RegisterVehicleModal";
@@ -66,6 +67,9 @@ export default function SharedTabMenu({ navigation, closeMenu, displayName = "Us
   const [confirmText, setConfirmText] = useState("");
   const [registerVehicleOpen, setRegisterVehicleOpen] = useState(false);
   const [yourVehiclesOpen, setYourVehiclesOpen] = useState(false);
+  const [vatSettingsVisible, setVatSettingsVisible] = useState(false);
+  const [vatRegistered, setVatRegistered] = useState(false);
+  const [vatRegistrationNumber, setVatRegistrationNumber] = useState("");
 
   const isVerifiedAccount = verificationStatus === "verified";
 
@@ -77,6 +81,11 @@ export default function SharedTabMenu({ navigation, closeMenu, displayName = "Us
     } finally {
       setBusy(false);
     }
+  }, []);
+
+  const applyVatProfile = useCallback((profile = {}) => {
+    setVatRegistered(profile?.taxProfile?.vat?.isRegistered === true);
+    setVatRegistrationNumber(String(profile?.taxProfile?.vat?.registrationNumber || ""));
   }, []);
 
   const loadMenuContext = useCallback(async () => {
@@ -103,6 +112,7 @@ export default function SharedTabMenu({ navigation, closeMenu, displayName = "Us
       const userProfile = userProfileSnap.exists() ? userProfileSnap.data() || {} : {};
       setVerifiedName(String(userProfile.verifiedName || ""));
       setVerificationStatus(String(userProfile.verificationStatus || ""));
+      applyVatProfile(userProfile);
 
       const profileUpdate = { email: user.email, updatedAt: serverTimestamp() };
       if (user.displayName) profileUpdate.name = user.displayName;
@@ -117,7 +127,7 @@ export default function SharedTabMenu({ navigation, closeMenu, displayName = "Us
     } catch (error) {
       console.error("Error loading vehicles:", error);
     }
-  }, [contextDisplayName, displayName, userProfile]);
+  }, [applyVatProfile, contextDisplayName, displayName, userProfile]);
 
   useEffect(() => {
     setCurrentDisplayName(contextDisplayName || auth.currentUser?.displayName || displayName || "User");
@@ -125,7 +135,21 @@ export default function SharedTabMenu({ navigation, closeMenu, displayName = "Us
     setVerifiedName(String(userProfile?.verifiedName || ""));
     setVerificationStatus(String(userProfile?.verificationStatus || ""));
     setVehicles(Array.isArray(userProfile?.vehicles) ? userProfile.vehicles : []);
-  }, [contextDisplayName, displayName, userProfile]);
+    applyVatProfile(userProfile);
+  }, [applyVatProfile, contextDisplayName, displayName, userProfile]);
+
+  const openVatSettings = useCallback(async () => {
+    const user = auth.currentUser;
+    if (user) {
+      try {
+        const userProfileSnap = await getDoc(doc(db, "users", user.uid));
+        applyVatProfile(userProfileSnap.exists() ? userProfileSnap.data() || {} : {});
+      } catch (error) {
+        console.error("Error loading VAT settings:", error);
+      }
+    }
+    setVatSettingsVisible(true);
+  }, [applyVatProfile]);
 
   useEffect(() => {
     loadMenuContext().catch(() => {});
@@ -159,6 +183,31 @@ export default function SharedTabMenu({ navigation, closeMenu, displayName = "Us
     closeMenu();
     triggerHaptic("success").catch(() => {});
     Alert.alert("Accountant Notified", "Your accountant has been notified that your receipts are ready for processing.");
+  };
+
+  const saveVatSettings = async () => {
+    const user = auth.currentUser;
+    if (!user) return;
+    const nextVatRegistered = vatRegistered;
+    const nextVatRegistrationNumber = nextVatRegistered ? vatRegistrationNumber.trim() : "";
+    await runWithLoading("Saving VAT settings...", async () => {
+      await setDoc(doc(db, "users", user.uid), {
+        taxProfile: {
+          vat: {
+            isRegistered: nextVatRegistered,
+            registrationNumber: nextVatRegistrationNumber,
+            hasAnsweredRegistrationQuestion: true,
+            setupCompletedAt: serverTimestamp(),
+            updatedAt: serverTimestamp(),
+          },
+        },
+        hasAnsweredVatRegistration: true,
+        updatedAt: serverTimestamp(),
+      }, { merge: true });
+      setVatRegistered(nextVatRegistered);
+      setVatRegistrationNumber(nextVatRegistrationNumber);
+      setVatSettingsVisible(false);
+    });
   };
 
   const handleSubmitReferralCode = async () => {
@@ -360,10 +409,7 @@ export default function SharedTabMenu({ navigation, closeMenu, displayName = "Us
           </View>
           <Text style={styles.userEmail}>{auth.currentUser?.email}</Text>
           {verificationStatus === "verified" && verifiedName ? (
-            <>
-              <Text style={styles.userEmail}>{verifiedName}</Text>
-              <Text style={styles.userEmail}>(verified user)</Text>
-            </>
+            <Text style={styles.verifiedAsText}>Verified as {verifiedName}</Text>
           ) : null}
         </View>
 
@@ -388,6 +434,13 @@ export default function SharedTabMenu({ navigation, closeMenu, displayName = "Us
             style={styles.secondaryMenuButton}
           >
             <Text style={styles.secondaryMenuButtonText}>🚗  Register Vehicle</Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            onPress={openVatSettings}
+            style={[styles.secondaryMenuButton, { marginTop: 10 }]}
+          >
+            <Text style={styles.secondaryMenuButtonText}>VAT Registration</Text>
           </TouchableOpacity>
 
           {vehicles.length > 0 && (
@@ -585,6 +638,35 @@ export default function SharedTabMenu({ navigation, closeMenu, displayName = "Us
         </View>
       </Modal>
 
+      <Modal visible={vatSettingsVisible} transparent animationType="slide" onRequestClose={() => setVatSettingsVisible(false)}>
+        <View style={styles.modalOverlay}>
+          <View style={styles.loadingCard}>
+            <Text style={styles.title}>VAT Registration</Text>
+            <TouchableOpacity style={styles.vatCheckboxRow} onPress={() => setVatRegistered((current) => !current)}>
+              <Checkbox status={vatRegistered ? "checked" : "unchecked"} color={Colors.accent} />
+              <Text style={styles.vatCheckboxText}>Registered for VAT</Text>
+            </TouchableOpacity>
+            {vatRegistered ? (
+              <TextInput
+                style={[styles.input, { color: Colors.textPrimary }]}
+                placeholder="VAT registration number (optional)"
+                placeholderTextColor="#999"
+                value={vatRegistrationNumber}
+                onChangeText={setVatRegistrationNumber}
+              />
+            ) : null}
+            <View style={{ flexDirection: "row", marginTop: 20, gap: 10, width: "100%" }}>
+              <TouchableOpacity onPress={() => setVatSettingsVisible(false)} style={[styles.signOutBtn, { backgroundColor: "#ccc", flex: 1 }]}>
+                <Text style={{ color: "#000", textAlign: "center" }}>Cancel</Text>
+              </TouchableOpacity>
+              <TouchableOpacity onPress={saveVatSettings} style={[styles.signOutBtn, { flex: 1 }]}>
+                <Text style={styles.signOutText}>Save</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
+
       <Modal visible={deleteModalVisible} transparent animationType="fade" onRequestClose={() => setDeleteModalVisible(false)}>
         <View style={styles.modalOverlay}>
           <View style={styles.loadingCard}>
@@ -661,9 +743,17 @@ const styles = StyleSheet.create({
   userInfo: {
     marginBottom: 20,
   },
+  vatCheckboxRow: { flexDirection: "row", alignItems: "center", alignSelf: "stretch", marginVertical: 12 },
+  vatCheckboxText: { color: Colors.textPrimary, fontSize: 15 },
   userEmail: {
     color: "#7B7B7B",
     fontSize: 14,
+    marginBottom: 6,
+  },
+  verifiedAsText: {
+    color: "#2e86de",
+    fontSize: 13,
+    fontWeight: "700",
     marginBottom: 6,
   },
   menuLogo: {
