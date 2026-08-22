@@ -176,6 +176,7 @@ export default function IncomeFormScreen({ navigation, route, mode }) {
   const [draftReviewStates, setDraftReviewStates] = useState([]); // "pending"|"confirmed"|"skipped"
   const [isDetecting, setIsDetecting] = useState(false);
   const [detectProgress, setDetectProgress] = useState(0);
+  const [detectMode, setDetectMode] = useState("auto");
   const [showBatchSummaryModal, setShowBatchSummaryModal] = useState(false);
   const [toastVisible, setToastVisible] = useState(false);
   const [toastMessage, setToastMessage] = useState("");
@@ -467,6 +468,9 @@ export default function IncomeFormScreen({ navigation, route, mode }) {
       const materialsAmount = extractCisMaterialsAmount(extracted.raw);
       if (materialsAmount != null) setCisMaterialsAmount(String(materialsAmount));
     }
+    if (extracted?.ocrFrames) {
+      setOcrFrames(extracted.ocrFrames);
+    }
   };
 
 
@@ -606,6 +610,19 @@ export default function IncomeFormScreen({ navigation, route, mode }) {
     (async () => {
       setIsDetecting(true);
       setDetectProgress(0);
+      setDetectMode("auto");
+      try {
+        const user = auth.currentUser;
+        if (!user) {
+          setDetectMode("local");
+        } else {
+          const userSnap = await getDoc(doc(db, "users", user.uid));
+          const isVerified = userSnap.exists() && userSnap.data()?.verificationStatus === "verified";
+          setDetectMode(isVerified ? "cloud" : "local");
+        }
+      } catch {
+        setDetectMode("local");
+      }
       try {
         const groups = await detectReceiptGroupsFromAssets(initialImages, (p) => setDetectProgress(p));
         if (cancelled) return;
@@ -616,10 +633,12 @@ export default function IncomeFormScreen({ navigation, route, mode }) {
 
         if (effectiveGroups.length === 1) {
           // Single income statement — populate form directly
-          const newAttachments = (effectiveGroups[0].assets || []).map(createImageAttachment);
+          const group = effectiveGroups[0];
+          const newAttachments = (group.assets || []).map(createImageAttachment);
           setAttachments((prev) => [...prev, ...newAttachments]);
-          const extracted = await runOcrOnAssets(effectiveGroups[0].assets || initialImages);
-          if (!cancelled) applyOcrResult(extracted);
+          if (!cancelled) {
+            applyOcrResult({ ...(group.analysis || {}), ocrFrames: group.ocrFrames || group.analysis?.ocrFrames || null });
+          }
         } else {
           // Multiple income statements detected — enter multi-draft mode
           const drafts = effectiveGroups.map((g) => createIncomeDraftFromGroup(g));
@@ -1634,7 +1653,7 @@ export default function IncomeFormScreen({ navigation, route, mode }) {
               Detecting income statements…
             </Text>
             <Text style={{ marginTop: 4, color: "#666", fontSize: 12, textAlign: "center" }}>
-              Please wait while we analyse your images
+              {detectMode === "cloud" ? "Using cloud scanning for this verified account" : "Using on-device scanning"}
             </Text>
             <View style={{ alignSelf: "stretch", marginTop: 16 }}>
               <ProgressBar progress={detectProgress} color={Colors.accent} style={{ borderRadius: 4 }} />

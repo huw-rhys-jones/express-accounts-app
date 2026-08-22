@@ -223,6 +223,12 @@ export default function SummaryScreen({ navigation }) {
   }));
 
   const monthlyData = groupCashflowByMonth(filteredReceipts, filteredIncome, activeFilter?.startDate, activeFilter?.endDate);
+  const showYearLabels = new Set(monthlyData.map((month) => month._year)).size > 1;
+
+  const getFinancialYearLabelForMonth = (month) => {
+    const startYear = month._month >= 3 ? month._year : month._year - 1;
+    return `FY ${startYear}/${String(startYear + 1).slice(-2)}`;
+  };
 
   // Build nice Y axis ticks
   const monthlyTotals = monthlyData.flatMap((month) => [
@@ -329,7 +335,7 @@ export default function SummaryScreen({ navigation }) {
                 onContentSizeChange={() => barChartScrollRef.current?.scrollToEnd({ animated: false })}
               >
                 <View style={styles.cashflowChartArea}>
-                  {monthlyData.map((month) => {
+                  {monthlyData.map((month, index) => {
                     const topTick = yTicks[yTicks.length - 1] || 1;
                     const expenseHeight = Math.max(
                       0,
@@ -340,8 +346,16 @@ export default function SummaryScreen({ navigation }) {
                       (Number(month.incomeTotal) || 0) / topTick
                     ) * BAR_CHART_HEIGHT;
 
+                    const showFinancialYearMarker =
+                      showYearLabels &&
+                      month._month === 3 &&
+                      index > 0;
+
                     return (
                       <View key={`${month._year}-${month._month}`} style={styles.cashflowMonthColumn}>
+                        {showFinancialYearMarker ? (
+                          <Text style={styles.financialYearMarker}>{getFinancialYearLabelForMonth(month)}</Text>
+                        ) : <Text style={styles.financialYearMarkerSpacer}> </Text>}
                         <View style={styles.cashflowBarsRow}>
                           <View style={styles.singleBarWrap}>
                             <View
@@ -363,6 +377,9 @@ export default function SummaryScreen({ navigation }) {
                           </View>
                         </View>
                         <Text style={styles.cashflowMonthLabel}>{month.label}</Text>
+                        {showYearLabels ? (
+                          <Text style={styles.cashflowYearLabel}>'{String(month._year).slice(-2)}</Text>
+                        ) : null}
                       </View>
                     );
                   })}
@@ -736,7 +753,7 @@ const styles = StyleSheet.create({
   cashflowChartArea: {
     flexDirection: "row",
     alignItems: "flex-end",
-    height: BAR_CHART_HEIGHT + 28,
+    height: BAR_CHART_HEIGHT + 58,
     marginLeft: 8,
   },
   cashflowMonthColumn: {
@@ -771,6 +788,21 @@ const styles = StyleSheet.create({
     marginTop: 8,
     fontSize: 12,
     color: Colors.textPrimary,
+  },
+  cashflowYearLabel: {
+    marginTop: 1,
+    fontSize: 11,
+    color: Colors.textMuted,
+  },
+  financialYearMarker: {
+    fontSize: 10,
+    fontWeight: "700",
+    color: Colors.accent,
+    marginBottom: 4,
+  },
+  financialYearMarkerSpacer: {
+    fontSize: 10,
+    marginBottom: 4,
   },
   userInfo: {
     marginBottom: 20,

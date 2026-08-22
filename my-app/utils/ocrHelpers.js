@@ -275,6 +275,9 @@ function mergeStructuredResults(primary, fallback) {
         : (fallback.categoryIndex ?? -1),
     categoryName: primary.categoryName || fallback.categoryName || null,
     raw: primary.raw || fallback.raw || "",
+    ocrSource: primary.ocrSource || fallback.ocrSource || null,
+    ocrProvider: primary.ocrProvider || fallback.ocrProvider || null,
+    ocrFrames: primary.ocrFrames || fallback.ocrFrames || null,
   };
 }
 
@@ -389,7 +392,15 @@ async function analyzeAssetsCloudFirst(assets, onProgress, options = {}) {
 export async function runOcrOnAssets(assets, options = {}) {
   const analyses = await analyzeAssetsCloudFirst(assets || [], undefined, options);
   const combined = analyses.map((entry) => entry.raw).filter(Boolean).join("\n\n");
-  return toStructuredOcrResult(extractData(combined), combined);
+  const structured = toStructuredOcrResult(extractData(combined), combined);
+  if (analyses.length === 1) {
+    return mergeStructuredResults(structured, analyses[0]);
+  }
+  return {
+    ...structured,
+    ocrSource: analyses.some((entry) => entry.ocrSource === "cloud") ? "cloud" : "local",
+    ocrProvider: analyses.find((entry) => entry.ocrProvider)?.ocrProvider || null,
+  };
 }
 
 export async function detectReceiptGroupsFromAssets(assets, onProgress, options = {}) {
