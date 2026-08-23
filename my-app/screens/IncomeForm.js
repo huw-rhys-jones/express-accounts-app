@@ -177,6 +177,8 @@ export default function IncomeFormScreen({ navigation, route, mode }) {
   const [isDetecting, setIsDetecting] = useState(false);
   const [detectProgress, setDetectProgress] = useState(0);
   const [detectMode, setDetectMode] = useState("auto");
+  const pendingDetectionAssetsRef = useRef([]);
+  const detectRequestIdRef = useRef(0);
   const [showBatchSummaryModal, setShowBatchSummaryModal] = useState(false);
   const [toastVisible, setToastVisible] = useState(false);
   const [toastMessage, setToastMessage] = useState("");
@@ -601,16 +603,18 @@ export default function IncomeFormScreen({ navigation, route, mode }) {
     };
   }, [heroHeightAnim]);
 
-  // Process images passed via route params (from AddReceiptSheet)
-  useEffect(() => {
-    const initialImages = route?.params?.initialImages;
-    if (!initialImages?.length) return;
-    let cancelled = false;
+  const processInitialImages = React.useCallback(async (initialImages, { preferLocal = false } = {}) => {
+    const requestId = detectRequestIdRef.current + 1;
+    detectRequestIdRef.current = requestId;
+    pendingDetectionAssetsRef.current = initialImages;
+    setIsDetecting(true);
+    setDetectProgress(0);
+    setDetectMode("auto");
 
-    (async () => {
+    if (preferLocal) {
+      setDetectMode("local");
+    } else {
       setIsDetecting(true);
-      setDetectProgress(0);
-      setDetectMode("auto");
       try {
         const user = auth.currentUser;
         if (!user) {
@@ -623,44 +627,67 @@ export default function IncomeFormScreen({ navigation, route, mode }) {
       } catch {
         setDetectMode("local");
       }
-      try {
-        const groups = await detectReceiptGroupsFromAssets(initialImages, (p) => setDetectProgress(p));
-        if (cancelled) return;
+    }
 
-        const effectiveGroups = groups.length > 0
-          ? groups
-          : [{ assets: initialImages, analysis: {} }];
+    try {
+      const groups = await detectReceiptGroupsFromAssets(
+        initialImages,
+        (progress) => {
+          if (detectRequestIdRef.current === requestId) setDetectProgress(progress);
+        },
+        { preferLocal },
+      );
+      if (detectRequestIdRef.current !== requestId) return;
 
-        if (effectiveGroups.length === 1) {
-          // Single income statement — populate form directly
-          const group = effectiveGroups[0];
-          const newAttachments = (group.assets || []).map(createImageAttachment);
-          setAttachments((prev) => [...prev, ...newAttachments]);
-          if (!cancelled) {
-            applyOcrResult({ ...(group.analysis || {}), ocrFrames: group.ocrFrames || group.analysis?.ocrFrames || null });
-          }
-        } else {
-          // Multiple income statements detected — enter multi-draft mode
-          const drafts = effectiveGroups.map((g) => createIncomeDraftFromGroup(g));
-          setIncomeDrafts(drafts);
-          setDraftReviewStates(Array(drafts.length).fill("pending"));
-          setCurrentDraftIndex(0);
-          applyIncomeDraftToForm(drafts[0]);
-          showToast(`${drafts.length} income statement${drafts.length === 1 ? "" : "s"} detected`);
-        }
-      } catch (err) {
-        console.error("OCR error (income):", err);
-        // Fallback: add all images as attachments
-        const newAttachments = initialImages.map(createImageAttachment);
-        if (!cancelled) setAttachments((prev) => [...prev, ...newAttachments]);
-      } finally {
-        if (!cancelled) { setIsDetecting(false); setDetectProgress(0); }
+      const effectiveGroups = groups.length > 0
+        ? groups
+        : [{ assets: initialImages, analysis: {} }];
+
+      if (effectiveGroups.length === 1) {
+        const group = effectiveGroups[0];
+        setAttachments((group.assets || []).map(createImageAttachment));
+        applyOcrResult({ ...(group.analysis || {}), ocrFrames: group.ocrFrames || group.analysis?.ocrFrames || null });
+      } else {
+        const drafts = effectiveGroups.map((group) => createIncomeDraftFromGroup(group));
+        setIncomeDrafts(drafts);
+        setDraftReviewStates(Array(drafts.length).fill("pending"));
+        setCurrentDraftIndex(0);
+        applyIncomeDraftToForm(drafts[0]);
+        showToast(`${drafts.length} income statements detected`);
       }
-    })();
-
-    return () => { cancelled = true; };
+    } catch (error) {
+      if (detectRequestIdRef.current !== requestId) return;
+      console.error("OCR error (income):", error);
+      setAttachments(initialImages.map(createImageAttachment));
+    } finally {
+      if (detectRequestIdRef.current === requestId) {
+        setIsDetecting(false);
+        setDetectProgress(0);
+      }
+    }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  const cancelDetectionAndExit = () => {
+    detectRequestIdRef.current += 1;
+    setIsDetecting(false);
+    setDetectProgress(0);
+    navigateBackToIncome(navigation);
+  };
+
+  const processDetectionLocally = () => {
+    const assets = pendingDetectionAssetsRef.current;
+    if (assets.length > 0) processInitialImages(assets, { preferLocal: true });
+  };
+
+  // Process images passed via route params (from AddReceiptSheet)
+  useEffect(() => {
+    const initialImages = route?.params?.initialImages;
+    if (!initialImages?.length) return;
+    processInitialImages(initialImages);
+
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [route?.params?.initialImages]);
 
   const showToast = (message) => {
     setToastMessage(message);
@@ -985,14 +1012,17 @@ export default function IncomeFormScreen({ navigation, route, mode }) {
     });
   };
 
+  const amountNumber = parseFloat(amount);
+  const vatAmountNumber = parseFloat(vatAmount);
+  const vatRateNumber = parseFloat(vatRate);
+  const isAmountValid = Number.isFinite(amountNumber) && amountNumber > 0;
+  const isDateValid = selectedDate instanceof Date && !Number.isNaN(selectedDate.getTime());
+  const isVatAmountValid = Number.isFinite(vatAmountNumber) && vatAmountNumber >= 0;
+  const isVatRateValid = Number.isFinite(vatRateNumber) && vatRateNumber >= 0;
   const isIncomeFormValid =
-    Number(amount) > 0 &&
-    (!vatEnabled || (
-      vatAmount.trim().length > 0 &&
-      vatRate.trim().length > 0 &&
-      !Number.isNaN(Number(vatAmount)) &&
-      !Number.isNaN(Number(vatRate))
-    ));
+    isAmountValid &&
+    isDateValid &&
+    (!vatEnabled || (isVatAmountValid && isVatRateValid));
 
   const buildPercentOverlay = (frame) => {
     const naturalW = ocrFrames?.imageW;
@@ -1149,7 +1179,7 @@ export default function IncomeFormScreen({ navigation, route, mode }) {
             ReceiptStyles.container,
             {
               justifyContent: "flex-start",
-              paddingTop: 8,
+              paddingTop: 0,
               paddingBottom: 12,
               paddingHorizontal: 12,
             },
@@ -1163,6 +1193,8 @@ export default function IncomeFormScreen({ navigation, route, mode }) {
                 opacity: draftFade,
                 paddingVertical: 12,
                 paddingHorizontal: 12,
+                borderRadius: 16,
+                borderWidth: 3,
               },
             ]}
             {...(isMultiDraftMode ? draftSwipeResponder.panHandlers : {})}
@@ -1172,7 +1204,7 @@ export default function IncomeFormScreen({ navigation, route, mode }) {
                   backgroundColor: flashAmount.interpolate({ inputRange: [0, 1], outputRange: ["transparent", "rgba(253,224,71,0.45)"] }),
                   borderRadius: 6,
                 }]}>
-                <Text style={ReceiptStyles.label}>Amount:</Text>
+                <Text style={[ReceiptStyles.label, styles.formLabel]}>Amount:</Text>
                 <View style={[ReceiptStyles.inputRow, styles.currencyField]}>
                   <View style={styles.currencyWrapper}>
                     <Text style={styles.currencyText}>£</Text>
@@ -1190,7 +1222,13 @@ export default function IncomeFormScreen({ navigation, route, mode }) {
                         useNativeDriver: false,
                       }).start();
                     }}
-                    style={[ReceiptStyles.input, styles.amountInput, styles.inputWithCurrency, styles.compactInput]}
+                    style={[
+                      ReceiptStyles.input,
+                      styles.amountInput,
+                      styles.inputWithCurrency,
+                      styles.compactInput,
+                      isAmountValid ? styles.validFieldInput : styles.invalidFieldInput,
+                    ]}
                   />
                 </View>
               </Animated.View>
@@ -1199,9 +1237,14 @@ export default function IncomeFormScreen({ navigation, route, mode }) {
                   backgroundColor: flashDate.interpolate({ inputRange: [0, 1], outputRange: ["transparent", "rgba(253,224,71,0.45)"] }),
                   borderRadius: 6,
                 }]}>
-                <Text style={ReceiptStyles.label}>Date:</Text>
+                <Text style={[ReceiptStyles.label, styles.formLabel]}>Date:</Text>
                 <TouchableOpacity
-                  style={[ReceiptStyles.dateButton, styles.dateButtonAligned]}
+                  style={[
+                    ReceiptStyles.dateButton,
+                    styles.dateButtonAligned,
+                    styles.compactField,
+                    isDateValid ? styles.validFieldInput : styles.invalidFieldInput,
+                  ]}
                   onPress={() => setDatePickerVisibility(true)}
                 >
                   <Text style={ReceiptStyles.dateText}>{formatDate(selectedDate)}</Text>
@@ -1213,7 +1256,7 @@ export default function IncomeFormScreen({ navigation, route, mode }) {
                 backgroundColor: flashReference.interpolate({ inputRange: [0, 1], outputRange: ["transparent", "rgba(253,224,71,0.45)"] }),
                 borderRadius: 6,
               }]}>
-              <Text style={ReceiptStyles.label}>Reference (optional):</Text>
+              <Text style={[ReceiptStyles.label, styles.formLabel]}>Reference (optional):</Text>
               <TextInput
                 value={reference}
                 onChangeText={setReference}
@@ -1237,7 +1280,7 @@ export default function IncomeFormScreen({ navigation, route, mode }) {
                   backgroundColor: flashVat.interpolate({ inputRange: [0, 1], outputRange: ["transparent", "rgba(253,224,71,0.45)"] }),
                   borderRadius: 6,
                 }]}>
-                <Text style={ReceiptStyles.label}>VAT Amount:</Text>
+                <Text style={[ReceiptStyles.label, styles.formLabel]}>VAT Amount:</Text>
                 <View style={[ReceiptStyles.inputRow, styles.currencyField]}>
                   <View style={styles.currencyWrapper}>
                     <Text style={styles.currencyText}>£</Text>
@@ -1258,12 +1301,17 @@ export default function IncomeFormScreen({ navigation, route, mode }) {
                         useNativeDriver: false,
                       }).start();
                     }}
-                    style={[ReceiptStyles.input, styles.inputWithCurrency, styles.compactInput]}
+                    style={[
+                      ReceiptStyles.input,
+                      styles.inputWithCurrency,
+                      styles.compactInput,
+                      isVatAmountValid ? styles.validFieldInput : styles.invalidFieldInput,
+                    ]}
                   />
                 </View>
               </Animated.View>
               <View style={[styles.moneyColumn, { zIndex: 3000 }]}>
-                <Text style={ReceiptStyles.label}>VAT Rate (%):</Text>
+                <Text style={[ReceiptStyles.label, styles.formLabel]}>VAT Rate (%):</Text>
                 <DropDownPicker
                   open={vatRateOpen}
                   value={vatRate}
@@ -1276,7 +1324,11 @@ export default function IncomeFormScreen({ navigation, route, mode }) {
                   }}
                   setItems={setVatRateItems}
                   placeholder="Select"
-                  style={ReceiptStyles.vatRatePicker}
+                  style={[
+                    ReceiptStyles.vatRatePicker,
+                    styles.compactPicker,
+                    isVatRateValid ? styles.validFieldInput : styles.invalidFieldInput,
+                  ]}
                   dropDownContainerStyle={ReceiptStyles.vatRateDropdown}
                   zIndex={3000}
                   zIndexInverse={1000}
@@ -1301,11 +1353,11 @@ export default function IncomeFormScreen({ navigation, route, mode }) {
                 <>
                   <View style={styles.moneyRow}>
                     <View style={styles.moneyColumn}>
-                      <Text style={ReceiptStyles.label}>Materials (excl. VAT):</Text>
+                      <Text style={[ReceiptStyles.label, styles.formLabel]}>Materials (excl. VAT):</Text>
                       <TextInput value={cisMaterialsAmount} onChangeText={setCisMaterialsAmount} keyboardType="decimal-pad" placeholder="0.00" placeholderTextColor={Colors.textSecondary} style={[ReceiptStyles.input, styles.compactInput]} />
                     </View>
                     <View style={styles.moneyColumn}>
-                      <Text style={ReceiptStyles.label}>CIS rate (%):</Text>
+                      <Text style={[ReceiptStyles.label, styles.formLabel]}>CIS rate (%):</Text>
                       <TextInput value={cisDeductionRate} onChangeText={setCisDeductionRate} keyboardType="decimal-pad" placeholder="20" placeholderTextColor={Colors.textSecondary} style={[ReceiptStyles.input, styles.compactInput]} />
                     </View>
                   </View>
@@ -1317,28 +1369,8 @@ export default function IncomeFormScreen({ navigation, route, mode }) {
               ) : null}
             </View>
 
-            <View style={styles.fieldGroup}>
-              <Text style={ReceiptStyles.label}>Label (optional):</Text>
-              <TextInput
-                value={label}
-                onChangeText={setLabel}
-                placeholder="An optional label"
-                placeholderTextColor={stylesConst.placeholder}
-                onFocus={() => {
-                  Animated.timing(heroHeightAnim, {
-                    toValue: HERO_COLLAPSED_HEIGHT,
-                    duration: 220,
-                    useNativeDriver: false,
-                  }).start();
-                }}
-                style={[ReceiptStyles.input, styles.compactInput]}
-              />
-            </View>
-
-
-
             <View style={[styles.fieldGroup, styles.notesSection]}>
-              <Text style={ReceiptStyles.label}>Notes:</Text>
+              <Text style={[ReceiptStyles.label, styles.formLabel]}>Notes:</Text>
               <TextInput
                 value={notes}
                 onChangeText={setNotes}
@@ -1353,6 +1385,24 @@ export default function IncomeFormScreen({ navigation, route, mode }) {
                 }}
                 style={[ReceiptStyles.input, styles.compactInput, styles.notesInput]}
                 multiline
+              />
+            </View>
+
+            <View style={styles.fieldGroup}>
+              <Text style={[ReceiptStyles.label, styles.formLabel]}>Label (optional):</Text>
+              <TextInput
+                value={label}
+                onChangeText={setLabel}
+                placeholder="An optional label"
+                placeholderTextColor={stylesConst.placeholder}
+                onFocus={() => {
+                  Animated.timing(heroHeightAnim, {
+                    toValue: HERO_COLLAPSED_HEIGHT,
+                    duration: 220,
+                    useNativeDriver: false,
+                  }).start();
+                }}
+                style={[ReceiptStyles.input, styles.compactInput]}
               />
             </View>
 
@@ -1650,14 +1700,40 @@ export default function IncomeFormScreen({ navigation, route, mode }) {
           <View style={ReceiptStyles.uploadCard}>
             <ActivityIndicator size="large" color={Colors.accent} />
             <Text style={{ marginTop: 12, fontWeight: "700", fontSize: 15 }}>
-              Detecting income statements…
+              {detectMode === "local"
+                ? "Processing income locally…"
+                : detectMode === "cloud"
+                ? "Processing income in the cloud…"
+                : "Processing income…"}
             </Text>
             <Text style={{ marginTop: 4, color: "#666", fontSize: 12, textAlign: "center" }}>
-              {detectMode === "cloud" ? "Using cloud scanning for this verified account" : "Using on-device scanning"}
+              {detectMode === "local"
+                ? "This may be faster, but results can be less accurate."
+                : detectMode === "cloud"
+                ? "Please wait while we process your images in the cloud."
+                : "Selecting the best processing mode for your account."}
             </Text>
             <View style={{ alignSelf: "stretch", marginTop: 16 }}>
               <ProgressBar progress={detectProgress} color={Colors.accent} style={{ borderRadius: 4 }} />
             </View>
+            <View style={styles.detectingActions}>
+              <Button mode="outlined" onPress={cancelDetectionAndExit}>
+                Cancel
+              </Button>
+              <Button
+                mode="contained"
+                buttonColor={Colors.accent}
+                onPress={processDetectionLocally}
+                disabled={detectMode === "local"}
+              >
+                Process locally
+              </Button>
+            </View>
+            {detectMode === "cloud" ? (
+              <Text style={styles.detectingHint}>
+                Local processing can be quicker, but is usually less accurate.
+              </Text>
+            ) : null}
           </View>
         </View>
       )}
@@ -1879,9 +1955,11 @@ const styles = StyleSheet.create({
     fontSize: 13,
     fontWeight: "600",
   },
-  fieldGroup: { marginBottom: 10 },
+  fieldGroup: { marginBottom: 6 },
+  formLabel: { marginLeft: 10, marginBottom: 1, fontSize: 13 },
   attachmentSection: { marginTop: 16 },
   dateButtonAligned: { marginHorizontal: 0 },
+  compactField: { height: 42 },
   currencyField: { position: "relative" },
   currencyWrapper: {
     position: "absolute",
@@ -1897,8 +1975,19 @@ const styles = StyleSheet.create({
   amountInput: { flex: 1 },
   inputWithCurrency: { paddingLeft: 28 },
   notesInput: { height: 96, textAlignVertical: "top", paddingTop: 8 },
-  moneyRow: { flexDirection: "row", justifyContent: "space-between", gap: 8, marginBottom: 10, zIndex: 2000 },
-  compactInput: { paddingVertical: 8 },
+  moneyRow: { flexDirection: "row", justifyContent: "space-between", gap: 8, marginBottom: 6, zIndex: 2000 },
+  compactInput: { height: 42, paddingVertical: 8, borderRadius: 5 },
+  compactPicker: { height: 42, minHeight: 42, borderRadius: 5 },
+  validFieldInput: {
+    backgroundColor: "#fff",
+    borderColor: "#2E9F46",
+    borderWidth: 1,
+  },
+  invalidFieldInput: {
+    backgroundColor: "#fff",
+    borderColor: "#E06B6B",
+    borderWidth: 1,
+  },
   moneyColumn: { flex: 1 },
   attachmentCard: { marginRight: 12, position: "relative" },
   removeAttachmentButton: {
@@ -1983,6 +2072,19 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     alignItems: "center",
     zIndex: 1200,
+  },
+  detectingActions: {
+    marginTop: 16,
+    width: "100%",
+    flexDirection: "row",
+    justifyContent: "space-between",
+    gap: 10,
+  },
+  detectingHint: {
+    marginTop: 8,
+    color: "#666",
+    fontSize: 11,
+    textAlign: "center",
   },
   annBox: {
     position: "absolute",
