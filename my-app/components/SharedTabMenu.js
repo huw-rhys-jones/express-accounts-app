@@ -41,7 +41,7 @@ const appVersion = appPackage?.version || Constants.expoConfig?.version || "unkn
 const internalBuildLabel = Constants.expoConfig?.extra?.internalBuildLabel || "";
 const versionLabel = internalBuildLabel ? `${appVersion} (${internalBuildLabel})` : appVersion;
 
-export default function SharedTabMenu({ navigation, closeMenu, displayName = "User", open = false }) {
+export default function SharedTabMenu({ navigation, closeMenu, displayName = "User", open = false, onVehiclesChanged }) {
   const { userProfile, displayName: contextDisplayName } = useData();
   const [busy, setBusy] = useState(false);
   const [busyText, setBusyText] = useState("Please wait...");
@@ -427,10 +427,7 @@ export default function SharedTabMenu({ navigation, closeMenu, displayName = "Us
 
         <View style={{ marginTop: 6 }}>
           <TouchableOpacity
-            onPress={() => {
-              closeMenu();
-              requestAnimationFrame(() => setRegisterVehicleOpen(true));
-            }}
+            onPress={() => setRegisterVehicleOpen(true)}
             style={styles.secondaryMenuButton}
           >
             <Text style={styles.secondaryMenuButtonText}>🚗  Register Vehicle</Text>
@@ -445,10 +442,7 @@ export default function SharedTabMenu({ navigation, closeMenu, displayName = "Us
 
           {vehicles.length > 0 && (
             <TouchableOpacity
-              onPress={() => {
-                closeMenu();
-                requestAnimationFrame(() => setYourVehiclesOpen(true));
-              }}
+              onPress={() => setYourVehiclesOpen(true)}
               style={[styles.secondaryMenuButton, { marginTop: 10 }]}
             >
               <Text style={styles.secondaryMenuButtonText}>📋  Your Vehicles</Text>
@@ -716,7 +710,10 @@ export default function SharedTabMenu({ navigation, closeMenu, displayName = "Us
       <RegisterVehicleModal
         visible={registerVehicleOpen}
         onClose={() => setRegisterVehicleOpen(false)}
-        onSaved={(updated) => setVehicles(updated)}
+        onSaved={(updated) => {
+          setVehicles(updated);
+          onVehiclesChanged?.(updated);
+        }}
         vehicle={null}
       />
 
@@ -724,7 +721,10 @@ export default function SharedTabMenu({ navigation, closeMenu, displayName = "Us
         visible={yourVehiclesOpen}
         onClose={() => setYourVehiclesOpen(false)}
         vehicles={vehicles}
-        onChanged={(updated) => setVehicles(updated)}
+        onChanged={(updated) => {
+          setVehicles(updated);
+          onVehiclesChanged?.(updated);
+        }}
       />
 
       {busy ? (

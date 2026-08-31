@@ -3,6 +3,14 @@ apply plugin: "org.jetbrains.kotlin.android"
 apply plugin: "com.facebook.react"
 
 def projectRoot = rootDir.getAbsoluteFile().getParentFile().getAbsolutePath()
+def localEnv = new Properties()
+[".env", ".env.local"].each { envFileName ->
+    def envFile = file("$projectRoot/$envFileName")
+    if (envFile.exists()) {
+        envFile.withInputStream { localEnv.load(it) }
+    }
+}
+def googleMapsApiKey = System.getenv("GOOGLE_MAPS_API_KEY") ?: localEnv.getProperty("GOOGLE_MAPS_API_KEY", "")
 
 /**
  * This is the configuration block to customize your React Native Android app.
@@ -94,6 +102,7 @@ android {
         targetSdkVersion rootProject.ext.targetSdkVersion
         versionCode 1786062624
         versionName "1.6.0"
+        manifestPlaceholders.GOOGLE_MAPS_API_KEY = googleMapsApiKey
 
         buildConfigField "String", "REACT_NATIVE_RELEASE_LEVEL", "\"${findProperty('reactNativeReleaseLevel') ?: 'stable'}\""
     }

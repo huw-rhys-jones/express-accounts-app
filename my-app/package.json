@@ -1,6 +1,6 @@
 {
   "name": "my-app",
-  "version": "1.6.1",
+  "version": "1.7.0",
   "main": "index.js",
   "scripts": {
     "start": "expo start",
@@ -12,6 +12,7 @@
     "postinstall": "patch-package"
   },
   "dependencies": {
+    "@mapbox/polyline": "^1.2.1",
     "@react-native-async-storage/async-storage": "2.2.0",
     "@react-native-community/datetimepicker": "8.4.4",
     "@react-native-firebase/app": "^22.2.0",

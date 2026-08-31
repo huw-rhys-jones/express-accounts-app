@@ -28,6 +28,7 @@ import {
 } from "../utils/appSettings";
 import { useData } from "../contexts/DataContext";
 import DateTimePickerModal from "react-native-modal-datetime-picker";
+import MileageRouteMap from "../components/MileageRouteMap";
 
 const GOOGLE_MAPS_KEY =
   Constants.expoConfig?.extra?.GOOGLE_MAPS_API_KEY || "";
@@ -62,6 +63,7 @@ export default function MileageAdd({ navigation }) {
   const [endAddress, setEndAddress] = useState("");
   const [distance, setDistance] = useState("");
   const [loadingRoute, setLoadingRoute] = useState(false);
+  const [routeEndpoints, setRouteEndpoints] = useState(null);
 
   // Autocomplete suggestion lists
   const [startSuggestions, setStartSuggestions] = useState([]);
@@ -116,11 +118,20 @@ export default function MileageAdd({ navigation }) {
       const res = await fetch(url);
       const data = await res.json();
       if (data.status === "OK" && data.routes?.length) {
-        const metres = data.routes[0].legs[0].distance.value;
+        const leg = data.routes[0].legs[0];
+        const metres = leg.distance.value;
         setDistance((metres / 1609.344).toFixed(2));
+        setRouteEndpoints({
+          start: { latitude: leg.start_location.lat, longitude: leg.start_location.lng },
+          end: { latitude: leg.end_location.lat, longitude: leg.end_location.lng },
+          encodedPath: data.routes[0].overview_polyline?.points || "",
+        });
+      } else {
+        setRouteEndpoints(null);
       }
     } catch (err) {
       console.error("Directions error", err);
+      setRouteEndpoints(null);
     } finally {
       setLoadingRoute(false);
     }
@@ -153,6 +164,7 @@ export default function MileageAdd({ navigation }) {
   const handleStartChange = (text) => {
     setStartAddress(text);
     setStartSuggestions([]);
+    setRouteEndpoints(null);
     clearTimeout(startDebounce.current);
     startDebounce.current = setTimeout(async () => {
       setStartSuggestions(await fetchSuggestions(text));
@@ -162,6 +174,7 @@ export default function MileageAdd({ navigation }) {
   const handleEndChange = (text) => {
     setEndAddress(text);
     setEndSuggestions([]);
+    setRouteEndpoints(null);
     clearTimeout(endDebounce.current);
     endDebounce.current = setTimeout(async () => {
       setEndSuggestions(await fetchSuggestions(text));
@@ -206,6 +219,9 @@ export default function MileageAdd({ navigation }) {
           vehicleReg: selectedVehicle?.registrationNumber || "",
           ratePerMile,
           purpose: purpose.trim(),
+          startCoordinate: routeEndpoints?.start || null,
+          endCoordinate: routeEndpoints?.end || null,
+          routePolyline: routeEndpoints?.encodedPath || null,
         },
         createdAt: serverTimestamp(),
       });
@@ -361,6 +377,11 @@ export default function MileageAdd({ navigation }) {
               <Text style={styles.summaryValueBold}>£{effectiveMiles > 0 ? amountGBP : "0.00"}</Text>
             </View>
           </View>
+          <MileageRouteMap
+            start={routeEndpoints?.start}
+            end={routeEndpoints?.end}
+            encodedPath={routeEndpoints?.encodedPath}
+          />
         </ScrollView>
 
         {/* Bottom action bar */}

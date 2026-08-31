@@ -66,6 +66,8 @@ const ANNOTATIONS = [
   { key: "date",   label: "Date",   color: "#1A73E8" },
   { key: "vat",    label: "VAT",    color: "#E06B6B" },
 ];
+const ANNOTATION_MIN_BOX_WIDTH = 64;
+const ANNOTATION_MIN_BOX_HEIGHT = 26;
 
 const DEBUG_DISABLE_KEYBOARD_DISMISS_WRAPPER = true;
 
@@ -1040,13 +1042,20 @@ export default function IncomeFormScreen({ navigation, route, mode }) {
 
     const left = frame.left * scale + offsetX - PAD;
     const top = frame.top * scale + offsetY - PAD;
-    const width = frame.width * scale + PAD * 2;
-    const height = frame.height * scale + PAD * 2;
+    const rawWidth = frame.width * scale + PAD * 2;
+    const width = Math.min(Math.max(rawWidth, ANNOTATION_MIN_BOX_WIDTH), containerW);
+    const height = Math.min(
+      Math.max(frame.height * scale + PAD * 2, ANNOTATION_MIN_BOX_HEIGHT),
+      containerH,
+    );
+
+    const clampedLeft = Math.max(0, Math.min(left, containerW - width));
+    const clampedTop = Math.max(0, Math.min(top, containerH - height));
 
     const toPct = (value, total) => `${Math.max(0, (value / total) * 100).toFixed(4)}%`;
     return {
-      left: toPct(left, containerW),
-      top: toPct(top, containerH),
+      left: toPct(clampedLeft, containerW),
+      top: toPct(clampedTop, containerH),
       width: toPct(width, containerW),
       height: toPct(height, containerH),
     };
@@ -1125,7 +1134,7 @@ export default function IncomeFormScreen({ navigation, route, mode }) {
                         return (
                           <View key={key} style={[styles.annBox, { ...overlayBox, borderColor: color }]}> 
                             <View style={[styles.annChip, { backgroundColor: color }]}> 
-                              <Text style={styles.annChipText}>{label}</Text>
+                              <Text style={styles.annChipText} numberOfLines={1}>{label}</Text>
                             </View>
                           </View>
                         );
@@ -2091,6 +2100,8 @@ const styles = StyleSheet.create({
     borderWidth: 2,
     borderRadius: 4,
     overflow: "visible",
+    minWidth: ANNOTATION_MIN_BOX_WIDTH,
+    minHeight: ANNOTATION_MIN_BOX_HEIGHT,
   },
   annChip: {
     position: "absolute",

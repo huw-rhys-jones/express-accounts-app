@@ -983,6 +983,7 @@ const ExpensesScreen = ({ navigation, route }) => {
           closeMenu={closeMenu}
           displayName={auth.currentUser?.displayName || "User"}
           open={menuOpen}
+          onVehiclesChanged={setVehicles}
         />
       </SideMenu>
 

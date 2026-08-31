@@ -52,6 +52,11 @@ export default ({ config }) => ({
   android: {
     package: "com.caistec.expressaccounts",
     versionCode: numericBuild,
+    config: {
+      googleMaps: {
+        apiKey: process.env.GOOGLE_MAPS_API_KEY,
+      },
+    },
     adaptiveIcon: {
       foregroundImage: "./assets/adaptive-icon.png",
       backgroundColor: "#ffffff"

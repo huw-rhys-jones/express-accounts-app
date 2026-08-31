@@ -271,6 +271,7 @@ export default function App() {
   const [vatRegistered, setVatRegistered] = useState(false);
   const [vatRegistrationNumber, setVatRegistrationNumber] = useState("");
   const [welcomeVisible, setWelcomeVisible] = useState(false);
+  const [startupPresentationComplete, setStartupPresentationComplete] = useState(false);
   const welcomeOpacity = useRef(new Animated.Value(1)).current;
   const navigationRef = useRef(null);
   const autoAssignAttemptRef = useRef("");
@@ -381,10 +382,14 @@ export default function App() {
             toValue: 0,
             duration: 400,
             useNativeDriver: true,
-          }).start(() => setWelcomeVisible(false));
+          }).start(() => {
+            setWelcomeVisible(false);
+            setStartupPresentationComplete(true);
+          });
         }, 1500);
       } else {
         await SplashScreen.hideAsync().catch(() => {});
+        setStartupPresentationComplete(true);
       }
     };
     run();
@@ -600,7 +605,7 @@ export default function App() {
         </View>
       </Modal>
 
-      <Modal visible={vatSetupVisible} transparent animationType="fade" onRequestClose={saveVatSetup}>
+      <Modal visible={startupPresentationComplete && vatSetupVisible} transparent animationType="fade" onRequestClose={saveVatSetup}>
         <View style={styles.twoFactorOverlay}>
           <View style={styles.vatSetupCard}>
             <Text style={styles.vatSetupTitle}>VAT registration</Text>
