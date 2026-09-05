@@ -369,6 +369,50 @@ async function verifyAuthenticatedUser(req) {
   return admin.auth().verifyIdToken(idToken);
 }
 
+function isExpoPushToken(token) {
+  return /^ExponentPushToken\[[^\]]+\]$|^ExpoPushToken\[[^\]]+\]$/.test(String(token || ""));
+}
+
+async function sendExpoPushMessages(messages) {
+  const response = await fetch("https://exp.host/--/api/v2/push/send", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "Accept": "application/json",
+    },
+    body: JSON.stringify(messages),
+  });
+
+  const payload = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    const error = new Error(payload && payload.errors ? JSON.stringify(payload.errors) : "Expo push request failed.");
+    error.statusCode = response.status;
+    throw error;
+  }
+
+  return Array.isArray(payload.data) ? payload.data : [];
+}
+
+async function getExpoPushReceipts(ticketIds) {
+  const response = await fetch("https://exp.host/--/api/v2/push/getReceipts", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "Accept": "application/json",
+    },
+    body: JSON.stringify({ids: ticketIds}),
+  });
+
+  const payload = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    const error = new Error(payload && payload.errors ? JSON.stringify(payload.errors) : "Expo receipt request failed.");
+    error.statusCode = response.status;
+    throw error;
+  }
+
+  return payload.data || {};
+}
+
 async function extractTextFromPdf(pdfBase64, mimeType) {
   const {processorId} = getDocumentAiConfig();
 
@@ -1529,6 +1573,160 @@ exports.portalVerifyUserEmail = onRequest({region: OCR_FUNCTION_REGION, timeoutS
       return res.status(statusCode).json({
         error: statusCode === 401 ? error.message : "Could not verify email for this user.",
       });
+    }
+  });
+});
+
+exports.sendPortalTestNotification = onRequest({region: OCR_FUNCTION_REGION, timeoutSeconds: 60}, (req, res) => {
+  cors(req, res, async () => {
+    if (req.method === "OPTIONS") {
+      return res.status(204).send("");
+    }
+
+    if (req.method !== "POST") {
+      return res.status(405).json({error: "Method Not Allowed"});
+    }
+
+    try {
+      const decodedToken = await verifyAuthenticatedUser(req);
+      if (!isAccountantEmail(decodedToken.email)) {
+        return res.status(403).json({error: "Only authorised accountants can send test notifications."});
+      }
+
+      const {userId, userIds, title, body, action = "open-summary"} = req.body || {};
+      const requestedUserIds = Array.isArray(userIds) ? userIds : [userId];
+      const normalizedUserIds = requestedUserIds
+          .map((id) => String(id || "").trim())
+          .filter(Boolean);
+      const targetUserIds = Array.from(new Set(normalizedUserIds));
+      if (targetUserIds.length === 0) {
+        return res.status(400).json({error: "Missing userId or userIds."});
+      }
+
+      const tokenSnapshots = await Promise.all(targetUserIds.map(async (targetUserId) => {
+        return admin.firestore()
+            .collection("users")
+            .doc(targetUserId)
+            .collection("pushTokens")
+            .get();
+      }));
+
+      const tokenDocs = tokenSnapshots.flatMap((tokenSnap, userIndex) => tokenSnap.docs.map((docSnap) => ({
+        id: docSnap.id,
+        userId: targetUserIds[userIndex],
+        token: String((docSnap.data() || {}).token || ""),
+      }))).filter((entry) => isExpoPushToken(entry.token));
+
+      if (tokenDocs.length === 0) {
+        return res.status(404).json({error: "No push tokens found for this user. Open the app on their device first and allow notifications."});
+      }
+
+      const messages = tokenDocs.map(({token}) => ({
+        to: token,
+        channelId: "alerts",
+        sound: "default",
+        priority: "high",
+        title: String(title || "Express Accounts test"),
+        body: String(body || "This is a test notification from the client portal."),
+        data: {type: "portal-notification", action: String(action || "open-summary")},
+      }));
+
+      const tickets = await sendExpoPushMessages(messages);
+      const batch = admin.firestore().batch();
+      tickets.forEach((ticket, index) => {
+        if (ticket && ticket.status === "error" && ticket.details && ticket.details.error === "DeviceNotRegistered") {
+          batch.delete(admin.firestore()
+              .collection("users")
+              .doc(tokenDocs[index].userId)
+              .collection("pushTokens")
+              .doc(tokenDocs[index].id));
+        }
+      });
+      await batch.commit();
+
+      const ticketRefs = tickets.map((ticket, index) => ({
+        id: ticket && ticket.id ? ticket.id : null,
+        status: ticket && ticket.status ? ticket.status : "unknown",
+        message: ticket && ticket.message ? ticket.message : null,
+        details: ticket && ticket.details ? ticket.details : null,
+        tokenDocId: tokenDocs[index] ? tokenDocs[index].id : null,
+        userId: tokenDocs[index] ? tokenDocs[index].userId : null,
+      }));
+
+      return res.status(200).json({
+        targetedUsers: targetUserIds.length,
+        sent: tokenDocs.length,
+        tickets,
+        ticketRefs,
+      });
+    } catch (error) {
+      console.error("sendPortalTestNotification failed", error);
+      const statusCode = error && error.statusCode ? error.statusCode : 500;
+      return res.status(statusCode).json({error: statusCode === 401 ? error.message : "Could not send test notification."});
+    }
+  });
+});
+
+exports.checkPortalNotificationReceipts = onRequest({region: OCR_FUNCTION_REGION, timeoutSeconds: 60}, (req, res) => {
+  cors(req, res, async () => {
+    if (req.method === "OPTIONS") {
+      return res.status(204).send("");
+    }
+
+    if (req.method !== "POST") {
+      return res.status(405).json({error: "Method Not Allowed"});
+    }
+
+    try {
+      const decodedToken = await verifyAuthenticatedUser(req);
+      if (!isAccountantEmail(decodedToken.email)) {
+        return res.status(403).json({error: "Only authorised accountants can check notification receipts."});
+      }
+
+      const {userId, userIds, tickets} = req.body || {};
+      const requestedUserIds = Array.isArray(userIds) ? userIds : [userId];
+      const normalizedUserIds = requestedUserIds
+          .map((id) => String(id || "").trim())
+          .filter(Boolean);
+      const targetUserIds = Array.from(new Set(normalizedUserIds));
+      if (targetUserIds.length === 0) {
+        return res.status(400).json({error: "Missing userId or userIds."});
+      }
+
+      const ticketRefs = Array.isArray(tickets) ? tickets : [];
+      const ticketIds = ticketRefs.map((ticket) => String(ticket && ticket.id ? ticket.id : "").trim()).filter(Boolean);
+      if (ticketIds.length === 0) {
+        return res.status(400).json({error: "No Expo ticket ids to check yet."});
+      }
+
+      const receipts = await getExpoPushReceipts(ticketIds);
+      const tokenDocByTicket = new Map(
+          ticketRefs.map((ticket) => [String(ticket && ticket.id ? ticket.id : ""), {
+            tokenDocId: String(ticket && ticket.tokenDocId ? ticket.tokenDocId : ""),
+            userId: String(ticket && ticket.userId ? ticket.userId : ""),
+          }]),
+      );
+
+      const batch = admin.firestore().batch();
+      Object.entries(receipts).forEach(([ticketId, receipt]) => {
+        if (receipt && receipt.status === "error" && receipt.details && receipt.details.error === "DeviceNotRegistered") {
+          const tokenRef = tokenDocByTicket.get(ticketId);
+          if (tokenRef && targetUserIds.includes(tokenRef.userId) && tokenRef.tokenDocId) {
+            batch.delete(admin.firestore()
+                .collection("users")
+                .doc(tokenRef.userId)
+                .collection("pushTokens")
+                .doc(tokenRef.tokenDocId));
+          }
+        }
+      });
+      await batch.commit();
+
+      return res.status(200).json({receipts});
+    } catch (error) {
+      console.error("checkPortalNotificationReceipts failed", error);
+      const statusCode = error && error.statusCode ? error.statusCode : 500;
+      return res.status(statusCode).json({error: statusCode === 401 ? error.message : "Could not check notification receipts."});
     }
   });
 });

@@ -609,6 +609,20 @@ export default function ReceiptDetailsScreen({ route, navigation }) {
     !Number.isNaN(parseFloat(vatAmount)) &&
     !Number.isNaN(parseFloat(vatRate));
   const isCategoryValid = Boolean(selectedCategory);
+  const isReceiptDirty = useMemo(() => {
+    if (!currentReceipt) return false;
+    const currentImageUris = images.map((image) => image.uri).join("|");
+    const originalImageUris = (currentReceipt.images || []).join("|");
+    return (
+      amount !== (currentReceipt.amount != null ? String(currentReceipt.amount) : "") ||
+      vatAmount !== (currentReceipt.vatAmount != null ? String(currentReceipt.vatAmount) : "") ||
+      vatRate !== (currentReceipt.vatRate != null ? String(currentReceipt.vatRate) : "") ||
+      selectedDate.toISOString() !== (currentReceipt.date || "") ||
+      selectedCategory !== (currentReceipt.category || "") ||
+      label !== (currentReceipt.label || "") ||
+      currentImageUris !== originalImageUris
+    );
+  }, [amount, currentReceipt, images, label, selectedCategory, selectedDate, vatAmount, vatRate]);
 
   const buildPercentOverlay = (frame) => {
     const naturalW = frame?.imageW;
@@ -653,7 +667,7 @@ export default function ReceiptDetailsScreen({ route, navigation }) {
           style={localStyles.headerBtn}
           activeOpacity={0.8}
         >
-          <Text style={localStyles.headerBtnText}>‹</Text>
+          <Text style={localStyles.headerBtnText}>‹ Back</Text>
         </TouchableOpacity>
         <Text style={localStyles.headerTitle}>Edit Receipt</Text>
         {editableReceiptList.length > 1 ? (
@@ -1062,12 +1076,12 @@ export default function ReceiptDetailsScreen({ route, navigation }) {
         </Button>
         <Button
           mode="contained"
-          onPress={saveChanges}
+          onPress={isReceiptDirty ? saveChanges : safeNavigateToExpenses}
           buttonColor={Colors.accent}
           style={localStyles.bottomActionBtn}
-          disabled={!isReceiptFormValid}
+          disabled={isReceiptDirty && !isReceiptFormValid}
         >
-          Save
+          {isReceiptDirty ? "Save" : "Close"}
         </Button>
       </View>
 
@@ -1420,8 +1434,8 @@ const localStyles = StyleSheet.create({
     paddingBottom: 14,
   },
   headerTitle: { color: "#fff", fontSize: 17, fontWeight: "700" },
-  headerBtn: { width: 40, alignItems: "center" },
-  headerBtnText: { color: "#fff", fontWeight: "600", fontSize: 22 },
+  headerBtn: { width: 82, alignItems: "flex-start" },
+  headerBtnText: { color: "#fff", fontWeight: "600", fontSize: 18 },
   indexPill: {
     position: "absolute",
     right: 54,

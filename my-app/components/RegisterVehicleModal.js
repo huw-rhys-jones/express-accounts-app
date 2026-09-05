@@ -2,6 +2,7 @@ import React, { useEffect, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
+  Dimensions,
   KeyboardAvoidingView,
   Modal,
   Platform,
@@ -29,6 +30,8 @@ const FUEL_TYPES = [
   { label: "Electric", value: "ELECTRIC" },
   { label: "Hybrid", value: "HYBRID" },
 ];
+
+const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get("window");
 
 export default function RegisterVehicleModal({ visible, onClose, onSaved, vehicle }) {
   const insets = useSafeAreaInsets();
@@ -218,12 +221,6 @@ export default function RegisterVehicleModal({ visible, onClose, onSaved, vehicl
             <Text style={styles.rateHint}>
               HMRC advisory rate is 55p/mile. You can adjust this to match your actual rate.
             </Text>
-
-            {isEditing && (
-              <TouchableOpacity style={styles.deleteBtn} onPress={handleDelete}>
-                <Text style={styles.deleteBtnText}>Remove Vehicle</Text>
-              </TouchableOpacity>
-            )}
           </ScrollView>
 
           {/* Buttons always visible outside ScrollView */}
@@ -233,6 +230,11 @@ export default function RegisterVehicleModal({ visible, onClose, onSaved, vehicl
               { paddingBottom: Math.max(insets.bottom, Platform.OS === "android" ? 16 : 8) },
             ]}
           >
+            {isEditing && (
+              <TouchableOpacity style={styles.deleteBtn} onPress={handleDelete}>
+                <Text style={styles.deleteBtnText}>Delete</Text>
+              </TouchableOpacity>
+            )}
             <TouchableOpacity style={styles.cancelBtn} onPress={onClose}>
               <Text style={styles.cancelBtnText}>Cancel</Text>
             </TouchableOpacity>
@@ -253,10 +255,14 @@ export default function RegisterVehicleModal({ visible, onClose, onSaved, vehicl
 const styles = StyleSheet.create({
   overlay: {
     flex: 1,
+    width: SCREEN_WIDTH,
+    height: SCREEN_HEIGHT,
     backgroundColor: "rgba(0,0,0,0.55)",
     justifyContent: "flex-end",
   },
   card: {
+    width: SCREEN_WIDTH,
+    alignSelf: "stretch",
     backgroundColor: "#fff",
     borderTopLeftRadius: 20,
     borderTopRightRadius: 20,
@@ -360,15 +366,15 @@ const styles = StyleSheet.create({
     fontSize: 15,
   },
   deleteBtn: {
-    marginTop: 12,
-    marginBottom: 8,
-    paddingVertical: 12,
+    flex: 1,
+    paddingVertical: 14,
+    borderRadius: 12,
+    backgroundColor: "#fff1f4",
     alignItems: "center",
   },
   deleteBtnText: {
     color: Colors.accent,
-    fontWeight: "600",
-    fontSize: 14,
-    textDecorationLine: "underline",
+    fontWeight: "700",
+    fontSize: 15,
   },
 });

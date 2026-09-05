@@ -51,6 +51,20 @@
         }
       },
       {
+        "source": "/portal-send-test-notification",
+        "function": {
+          "functionId": "sendPortalTestNotification",
+          "region": "europe-west2"
+        }
+      },
+      {
+        "source": "/portal-check-notification-receipts",
+        "function": {
+          "functionId": "checkPortalNotificationReceipts",
+          "region": "europe-west2"
+        }
+      },
+      {
         "source": "/portal-fetch-image",
         "function": {
           "functionId": "fetchPortalAttachment",

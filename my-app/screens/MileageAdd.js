@@ -12,6 +12,7 @@ import {
   View,
 } from "react-native";
 import DropDownPicker from "react-native-dropdown-picker";
+import { Checkbox } from "react-native-paper";
 import Constants from "expo-constants";
 import {
   collection,
@@ -62,6 +63,7 @@ export default function MileageAdd({ navigation }) {
   const [startAddress, setStartAddress] = useState("");
   const [endAddress, setEndAddress] = useState("");
   const [distance, setDistance] = useState("");
+  const [returnTrip, setReturnTrip] = useState(false);
   const [loadingRoute, setLoadingRoute] = useState(false);
   const [routeEndpoints, setRouteEndpoints] = useState(null);
 
@@ -79,7 +81,8 @@ export default function MileageAdd({ navigation }) {
   // ─────────────────────────────────────────────────────────────────────────
   const selectedVehicle = vehicles.find((v) => v.id === vehicleId) || null;
   const ratePerMile = selectedVehicle?.ratePerMile ?? 55;
-  const effectiveMiles = parseFloat(distance) || 0;
+  const oneWayMiles = parseFloat(distance) || 0;
+  const effectiveMiles = oneWayMiles * (returnTrip ? 2 : 1);
   const amountGBP = ((effectiveMiles * ratePerMile) / 100).toFixed(2);
   const canSave = !!vehicleId && effectiveMiles > 0;
 
@@ -215,6 +218,8 @@ export default function MileageAdd({ navigation }) {
           startAddress,
           endAddress,
           distance: effectiveMiles,
+          oneWayDistance: oneWayMiles,
+          returnTrip,
           vehicleId,
           vehicleReg: selectedVehicle?.registrationNumber || "",
           ratePerMile,
@@ -359,6 +364,10 @@ export default function MileageAdd({ navigation }) {
             placeholderTextColor="#999"
             keyboardType="decimal-pad"
           />
+          <TouchableOpacity style={styles.returnTripRow} onPress={() => setReturnTrip((current) => !current)}>
+            <Checkbox status={returnTrip ? "checked" : "unchecked"} color={Colors.accent} />
+            <Text style={styles.returnTripText}>Return trip</Text>
+          </TouchableOpacity>
 
           {/* Summary */}
           <View style={styles.summaryBox}>
@@ -503,4 +512,14 @@ const styles = StyleSheet.create({
     borderBottomColor: "#f0f0f0",
   },
   suggestionText: { fontSize: 14, color: Colors.textPrimary },
+  returnTripRow: {
+    alignItems: "center",
+    flexDirection: "row",
+    marginTop: 8,
+  },
+  returnTripText: {
+    color: Colors.textPrimary,
+    fontSize: 14,
+    fontWeight: "600",
+  },
 });

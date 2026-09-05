@@ -641,6 +641,24 @@ export default function BankStatementForm({ navigation, route, mode }) {
     : accountName.trim().length > 0 &&
       !Number.isNaN(parseMoneyInput(moneyInTotal)) &&
       !Number.isNaN(parseMoneyInput(moneyOutTotal));
+  const isStatementDirty = useMemo(() => {
+    if (mode !== "edit" || !statement) return false;
+    const currentAttachments = attachments.map((item) => getAttachmentUri(item)).join("|");
+    const originalAttachments = normalizeStoredAttachments(statement.attachments || [])
+      .map((item) => getAttachmentUri(item))
+      .join("|");
+    return (
+      accountName !== (statement.accountName || "") ||
+      statementType !== (statement.statementType || "bank") ||
+      statementStartDate.toISOString() !== (statement.statementStartDate || "") ||
+      statementEndDate.toISOString() !== (statement.statementEndDate || "") ||
+      moneyInTotal !== (statement.moneyInTotal != null ? String(statement.moneyInTotal) : "") ||
+      moneyOutTotal !== (statement.moneyOutTotal != null ? String(statement.moneyOutTotal) : "") ||
+      statementBalance !== (statement.statementBalance != null ? String(statement.statementBalance) : "") ||
+      notes !== (statement.notes || "") ||
+      currentAttachments !== originalAttachments
+    );
+  }, [accountName, attachments, mode, moneyInTotal, moneyOutTotal, notes, statement, statementBalance, statementEndDate, statementStartDate, statementType]);
 
   const applyAcceptedOcr = () => {
     if (!ocrResult) {
@@ -860,7 +878,7 @@ export default function BankStatementForm({ navigation, route, mode }) {
           style={styles.headerBtn}
           activeOpacity={0.8}
         >
-          <Text style={styles.headerBtnText}>‹</Text>
+          <Text style={styles.headerBtnText}>‹ Back</Text>
         </TouchableOpacity>
         <Text style={styles.headerTitle}>
           {mode === "edit"
@@ -1043,8 +1061,8 @@ export default function BankStatementForm({ navigation, route, mode }) {
         {mode === "edit" ? (
           <>
             <Button
-              mode="contained"
-              buttonColor="#cc2222"
+              mode="outlined"
+              textColor={Colors.accent}
               onPress={deleteStatement}
               style={styles.bottomActionBtn}
               contentStyle={styles.bottomActionContent}
@@ -1055,12 +1073,12 @@ export default function BankStatementForm({ navigation, route, mode }) {
             <Button
               mode="contained"
               buttonColor={Colors.accent}
-              onPress={saveStatement}
+              onPress={isStatementDirty ? saveStatement : () => navigateBackToBankStatements(navigation)}
               style={styles.bottomActionBtn}
               contentStyle={styles.bottomActionContent}
-              disabled={isSaving || !isBankStatementFormValid}
+              disabled={isSaving || (isStatementDirty && !isBankStatementFormValid)}
             >
-              Save
+              {isStatementDirty ? "Save" : "Close"}
             </Button>
           </>
         ) : (
@@ -1446,8 +1464,8 @@ const styles = StyleSheet.create({
     paddingBottom: 14,
   },
   headerTitle: { color: "#fff", fontSize: 17, fontWeight: "700" },
-  headerBtn: { width: 40, alignItems: "center" },
-  headerBtnText: { color: "#fff", fontWeight: "600", fontSize: 22 },
+  headerBtn: { width: 82, alignItems: "flex-start" },
+  headerBtnText: { color: "#fff", fontWeight: "600", fontSize: 18 },
   scrollContent: { flexGrow: 1, paddingBottom: 180 },
   fieldGroup: { marginBottom: 18 },
   attachmentSection: { marginTop: 16 },

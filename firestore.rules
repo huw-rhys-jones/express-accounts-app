@@ -76,6 +76,10 @@ service cloud.firestore {
       allow read, update: if isAccountant();
     }
 
+    match /users/{userId}/pushTokens/{tokenId} {
+      allow read, write, delete: if isOwner(userId);
+    }
+
     // 2FA challenges: users create and approve/deny their own challenges.
     match /twoFactorChallenges/{challengeId} {
       allow create: if request.auth != null &&

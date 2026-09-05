@@ -4,6 +4,7 @@ import { createStackNavigator } from "@react-navigation/stack";
 import { createMaterialTopTabNavigator } from "@react-navigation/material-top-tabs";
 import { View, Text, TextInput, TouchableOpacity, StyleSheet, Platform, Alert, Modal, Image, Animated } from "react-native";
 import * as SplashScreen from 'expo-splash-screen';
+import * as Notifications from 'expo-notifications';
 import { onAuthStateChanged, reload, sendEmailVerification, signOut } from "firebase/auth";
 import { doc, serverTimestamp, setDoc, collection, query, where, onSnapshot, updateDoc } from "firebase/firestore";
 import { Ionicons } from "@expo/vector-icons";
@@ -28,6 +29,7 @@ import { MD3LightTheme, PaperProvider } from 'react-native-paper';
 import { useSafeAreaInsets, SafeAreaProvider } from 'react-native-safe-area-context';
 import { ensureHapticsDefaultEnabled } from "./utils/haptics";
 import { DataProvider } from "./contexts/DataContext";
+import { registerPushTokenForUser } from "./utils/pushNotifications";
 
 WebBrowser.maybeCompleteAuthSession();
 
@@ -367,6 +369,31 @@ export default function App() {
     });
 
     return unsubscribe;
+  }, []);
+
+  useEffect(() => {
+    if (!user) return;
+    registerPushTokenForUser(user).catch((error) => {
+      console.warn("Could not register push notifications", error);
+    });
+  }, [user]);
+
+  useEffect(() => {
+    const handleNotificationResponse = (response) => {
+      const action = response?.notification?.request?.content?.data?.action;
+      if (action === "open-summary" && navigationRef.current?.isReady()) {
+        navigationRef.current.navigate("MainTabs", { screen: "Summary" });
+      }
+    };
+
+    const subscription = Notifications.addNotificationResponseReceivedListener(handleNotificationResponse);
+    Notifications.getLastNotificationResponseAsync()
+      .then((response) => {
+        if (response) handleNotificationResponse(response);
+      })
+      .catch(() => {});
+
+    return () => subscription.remove();
   }, []);
 
   useEffect(() => {

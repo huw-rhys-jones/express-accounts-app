@@ -1,5 +1,6 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
-import { auth } from "../firebaseConfig";
+import { doc, getDoc, serverTimestamp, setDoc } from "firebase/firestore";
+import { auth, db } from "../firebaseConfig";
 
 const RECEIPT_FILTER_KEY = "@settings:receiptFilterKey";
 const INCOME_FILTER_KEY = "@settings:incomeFilterKey";
@@ -101,19 +102,66 @@ function lastUsedVehicleKey() {
 }
 
 export async function getVehicles() {
+  const user = auth.currentUser;
+  if (!user) return [];
+
+  let cachedVehicles = [];
   try {
     const raw = await AsyncStorage.getItem(vehiclesKey());
-    return raw ? JSON.parse(raw) : [];
+    cachedVehicles = raw ? JSON.parse(raw) : [];
   } catch {
-    return [];
+    cachedVehicles = [];
   }
+
+  try {
+    const userRef = doc(db, "users", user.uid);
+    const snap = await getDoc(userRef);
+    const profile = snap.exists() ? snap.data() || {} : {};
+    const cloudVehicles = Array.isArray(profile.vehicles) ? profile.vehicles : null;
+
+    if (cloudVehicles) {
+      await AsyncStorage.setItem(vehiclesKey(), JSON.stringify(cloudVehicles));
+      return cloudVehicles;
+    }
+
+    if (cachedVehicles.length > 0) {
+      await setDoc(
+        userRef,
+        {
+          vehicles: cachedVehicles,
+          updatedAt: serverTimestamp(),
+        },
+        { merge: true }
+      );
+    }
+  } catch {
+    // If Firestore is unavailable, keep the app usable with the user-scoped cache.
+  }
+
+  return cachedVehicles;
 }
 
 export async function setVehicles(vehicles) {
+  const user = auth.currentUser;
+  if (!user) return;
+
+  const nextVehicles = Array.isArray(vehicles) ? vehicles : [];
   try {
-    await AsyncStorage.setItem(vehiclesKey(), JSON.stringify(vehicles));
+    await setDoc(
+      doc(db, "users", user.uid),
+      {
+        vehicles: nextVehicles,
+        updatedAt: serverTimestamp(),
+      },
+      { merge: true }
+    );
+    await AsyncStorage.setItem(vehiclesKey(), JSON.stringify(nextVehicles));
   } catch {
-    // ignore
+    try {
+      await AsyncStorage.setItem(vehiclesKey(), JSON.stringify(nextVehicles));
+    } catch {
+      // ignore
+    }
   }
 }
 

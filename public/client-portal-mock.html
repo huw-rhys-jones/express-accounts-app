@@ -703,6 +703,10 @@
         </select>
       </div>
 
+      <div class="actions" style="margin:12px 0 6px">
+        <button id="broadcastNotificationBtn" type="button" class="btn-primary">Broadcast Notification to Visible Users</button>
+      </div>
+
       <div id="clientBoard" class="board"></div>
       <div id="statusLine" class="statusline">Select a client tile to export receipt, income, and bank statement data.</div>
       </div>
@@ -823,6 +827,7 @@
           <div class="actions" style="margin-top:14px">
             <button id="adminSaveBtn" type="button" class="btn-primary">Save Client Changes</button>
             <button id="adminVerifyEmailBtn" type="button" class="btn-secondary">Confirm Email Verified</button>
+            <button id="adminSendTestNotificationBtn" type="button" class="btn-secondary">Send Test Notification</button>
             <button id="adminClearBtn" type="button" class="btn-secondary">Clear</button>
           </div>
           <div id="adminStatus" class="statusline" style="margin-top:10px">Select a client to edit their details.</div>
@@ -841,9 +846,32 @@
 
         <div class="modal-actions">
           <button id="resetNotifyBtn" type="button" class="btn-success" style="display:none">Mark As Processed</button>
+          <button id="modalSendTestNotificationBtn" type="button" class="btn-secondary" style="display:none">Send Notification</button>
           <button id="cancelDateBtn" type="button" class="btn-secondary">Cancel</button>
           <button id="confirmDateBtn" type="button" class="btn-primary">Download ZIP</button>
         </div>
+      </div>
+    </div>
+  </div>
+
+  <div id="broadcastModal" class="modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="broadcastModalTitle">
+    <div class="modal">
+      <div id="broadcastModalTitle" class="modal-head">Notification</div>
+      <div class="modal-body">
+        <div id="broadcastAudience" class="period-summary" style="margin-bottom:14px"></div>
+        <div class="stack">
+          <label for="broadcastTitleInput">Header</label>
+          <input id="broadcastTitleInput" type="text" maxlength="80" placeholder="Message header" />
+        </div>
+        <div class="stack" style="margin-top:12px">
+          <label for="broadcastBodyInput">Body text</label>
+          <textarea id="broadcastBodyInput" maxlength="500" rows="5" placeholder="Write the notification message..."></textarea>
+        </div>
+        <div class="modal-actions">
+          <button id="cancelBroadcastBtn" type="button" class="btn-secondary">Cancel</button>
+          <button id="sendBroadcastBtn" type="button" class="btn-primary">Send Notification</button>
+        </div>
+        <div id="broadcastStatus" class="statusline"></div>
       </div>
     </div>
   </div>
@@ -866,6 +894,15 @@
     const clientBoard = document.getElementById("clientBoard");
     const loginInfo = document.getElementById("loginInfo");
     const statusLine = document.getElementById("statusLine");
+    const broadcastNotificationBtn = document.getElementById("broadcastNotificationBtn");
+    const broadcastModal = document.getElementById("broadcastModal");
+    const broadcastModalTitle = document.getElementById("broadcastModalTitle");
+    const broadcastAudience = document.getElementById("broadcastAudience");
+    const broadcastTitleInput = document.getElementById("broadcastTitleInput");
+    const broadcastBodyInput = document.getElementById("broadcastBodyInput");
+    const cancelBroadcastBtn = document.getElementById("cancelBroadcastBtn");
+    const sendBroadcastBtn = document.getElementById("sendBroadcastBtn");
+    const broadcastStatus = document.getElementById("broadcastStatus");
     const logOutBtn = document.getElementById("logOutBtn");
     const activityTabBtn = document.getElementById("activityTabBtn");
     const managementTabBtn = document.getElementById("managementTabBtn");
@@ -900,6 +937,7 @@
     const adminGenerateCodeBtn = document.getElementById("adminGenerateCodeBtn");
     const adminSaveBtn = document.getElementById("adminSaveBtn");
     const adminVerifyEmailBtn = document.getElementById("adminVerifyEmailBtn");
+    const adminSendTestNotificationBtn = document.getElementById("adminSendTestNotificationBtn");
     const adminClearBtn = document.getElementById("adminClearBtn");
     const adminStatus = document.getElementById("adminStatus");
 
@@ -909,12 +947,14 @@
     const cancelDateBtn = document.getElementById("cancelDateBtn");
     const confirmDateBtn = document.getElementById("confirmDateBtn");
     const resetNotifyBtn = document.getElementById("resetNotifyBtn");
+    const modalSendTestNotificationBtn = document.getElementById("modalSendTestNotificationBtn");
 
     let currentAccountant = null;
     let previousLoginDate = null;
     let liveUsers = [];
     let selectedUser = null;
     let selectedAdminUserId = "";
+    let broadcastUsers = [];
     let adminClientOptions = [];
     const activeStatusFilters = new Set();
     let currentTab = "activity";
@@ -2099,6 +2139,224 @@
       }
     }
 
+    async function sendTestNotificationToUser(userId, statusTarget, button, clientName) {
+      if (!currentAccountant) {
+        statusTarget.textContent = "You must be signed in.";
+        return;
+      }
+      if (!userId) {
+        statusTarget.textContent = "Please select a client first.";
+        return;
+      }
+
+      const originalButtonText = button ? button.textContent : "";
+      if (button) {
+        button.disabled = true;
+        button.textContent = "Sending...";
+      }
+      statusTarget.textContent = "Sending notification" + (clientName ? " to " + clientName : "") + "...";
+
+      try {
+        const currentUser = auth.currentUser;
+        if (!currentUser) {
+          throw new Error("You are signed out. Please sign in again.");
+        }
+
+        const idToken = await currentUser.getIdToken();
+        const response = await fetch("/portal-send-test-notification", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: "Bearer " + idToken,
+          },
+          body: JSON.stringify({
+            userId,
+            title: "Express Accounts test",
+            body: "This is a notification from your accountant.",
+          }),
+        });
+
+        const payload = await response.json().catch(() => ({}));
+        if (!response.ok) {
+          throw new Error(payload && payload.error ? payload.error : "Could not send test notification.");
+        }
+
+        const ticketRefs = Array.isArray(payload.ticketRefs) ? payload.ticketRefs : [];
+        const ticketSummary = ticketRefs.length
+          ? " Ticket: " + ticketRefs.map((ticket) => ticket.status + (ticket.id ? " " + ticket.id : ticket.message ? " " + ticket.message : "")).join("; ")
+          : "";
+        statusTarget.textContent = "Notification sent to " + payload.sent + " device" + (payload.sent === 1 ? "." : "s.") + ticketSummary;
+
+        const checkableTickets = ticketRefs.filter((ticket) => ticket.id);
+        if (checkableTickets.length > 0) {
+          setTimeout(() => {
+            checkNotificationReceipts(userId, checkableTickets, statusTarget).catch((error) => {
+              console.error("checkNotificationReceipts error", error);
+              statusTarget.textContent += " Receipt check failed: " + (error && error.message ? error.message : String(error));
+            });
+          }, 5000);
+        }
+      } catch (error) {
+        console.error("sendTestNotificationToUser error", error);
+        statusTarget.textContent = "Notification failed: " + (error && error.message ? error.message : String(error));
+      } finally {
+        if (button) {
+          button.disabled = false;
+          button.textContent = originalButtonText;
+        }
+      }
+    }
+
+    async function checkNotificationReceipts(userId, tickets, statusTarget) {
+      const currentUser = auth.currentUser;
+      if (!currentUser) {
+        throw new Error("You are signed out. Please sign in again.");
+      }
+
+      const idToken = await currentUser.getIdToken();
+      const response = await fetch("/portal-check-notification-receipts", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: "Bearer " + idToken,
+        },
+        body: JSON.stringify({
+          ...(Array.isArray(userId) ? {userIds: userId} : {userId}),
+          tickets,
+        }),
+      });
+
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        throw new Error(payload && payload.error ? payload.error : "Could not check notification receipts.");
+      }
+
+      const entries = Object.entries(payload.receipts || {});
+      if (entries.length === 0) {
+        statusTarget.textContent += " Receipt: pending.";
+        return;
+      }
+
+      const summary = entries.map(([ticketId, receipt]) => {
+        const shortId = ticketId.slice(0, 8);
+        if (!receipt) return shortId + ": missing";
+        if (receipt.status === "ok") return shortId + ": delivered ok";
+        const detail = receipt.details && receipt.details.error ? " (" + receipt.details.error + ")" : "";
+        return shortId + ": " + receipt.status + (receipt.message ? " " + receipt.message : "") + detail;
+      }).join("; ");
+
+      statusTarget.textContent += " Receipt: " + summary;
+    }
+
+    function closeBroadcastModal() {
+      broadcastModal.style.display = "none";
+      broadcastUsers = [];
+      broadcastStatus.textContent = "";
+    }
+
+    function openNotificationComposer(users, isBroadcast) {
+      if (!currentAccountant) {
+        statusLine.textContent = "You must be signed in.";
+        return;
+      }
+
+      broadcastUsers = users;
+      if (broadcastUsers.length === 0) {
+        statusLine.textContent = "No users match the current filters.";
+        return;
+      }
+
+      broadcastModalTitle.textContent = isBroadcast ? "Broadcast notification" : "Send notification";
+      sendBroadcastBtn.textContent = isBroadcast ? "Send Broadcast" : "Send Notification";
+      broadcastAudience.textContent = isBroadcast
+        ? "This will target " + broadcastUsers.length + " visible user" + (broadcastUsers.length === 1 ? "" : "s") + ". Users hidden by the current filters will not be included."
+        : "This will target " + (broadcastUsers[0].name || "this client") + ".";
+      broadcastTitleInput.value = "";
+      broadcastBodyInput.value = "";
+      broadcastStatus.textContent = "";
+      sendBroadcastBtn.disabled = false;
+      broadcastModal.style.display = "flex";
+      broadcastTitleInput.focus();
+    }
+
+    function openBroadcastModal() {
+      openNotificationComposer(applyFiltersAndSort(liveUsers), true);
+    }
+
+    async function sendBroadcastNotification() {
+      if (!broadcastUsers.length) return;
+      const title = broadcastTitleInput.value.trim();
+      const body = broadcastBodyInput.value.trim();
+      if (!title || !body) {
+        broadcastStatus.textContent = "Enter both a header and body text.";
+        return;
+      }
+
+      const currentUser = auth.currentUser;
+      if (!currentUser) {
+        broadcastStatus.textContent = "You are signed out. Please sign in again.";
+        return;
+      }
+
+      sendBroadcastBtn.disabled = true;
+      broadcastStatus.textContent = "Sending to " + broadcastUsers.length + " visible users...";
+      try {
+        const idToken = await currentUser.getIdToken();
+        const response = await fetch("/portal-send-test-notification", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: "Bearer " + idToken,
+          },
+          body: JSON.stringify({
+            userIds: broadcastUsers.map((user) => user.id),
+            title,
+            body,
+            action: "open-summary",
+          }),
+        });
+        const payload = await response.json().catch(() => ({}));
+        if (!response.ok) {
+          throw new Error(payload && payload.error ? payload.error : "Could not send broadcast notification.");
+        }
+
+        const ticketRefs = Array.isArray(payload.ticketRefs) ? payload.ticketRefs : [];
+        broadcastStatus.textContent = "Sent to " + payload.targetedUsers + " users with " + payload.sent + " registered device" + (payload.sent === 1 ? "." : "s.");
+        const checkableTickets = ticketRefs.filter((ticket) => ticket.id);
+        if (checkableTickets.length > 0) {
+          setTimeout(() => {
+            checkNotificationReceipts(
+              broadcastUsers.map((user) => user.id),
+              checkableTickets,
+              broadcastStatus,
+            ).catch((error) => {
+              broadcastStatus.textContent += " Receipt check failed: " + (error && error.message ? error.message : String(error));
+            });
+          }, 5000);
+        }
+      } catch (error) {
+        console.error("sendBroadcastNotification error", error);
+        broadcastStatus.textContent = "Broadcast failed: " + (error && error.message ? error.message : String(error));
+      } finally {
+        sendBroadcastBtn.disabled = false;
+      }
+    }
+
+    async function sendTestNotificationFromPortal() {
+      const user = selectedAdminUserId ? getUserById(selectedAdminUserId) : null;
+      await sendTestNotificationToUser(
+        selectedAdminUserId,
+        adminStatus,
+        adminSendTestNotificationBtn,
+        user && user.name ? user.name : "",
+      );
+    }
+
+    async function sendModalNotificationToSelectedUser() {
+      if (!selectedUser) return;
+      openNotificationComposer([selectedUser], false);
+    }
+
     function refreshProcessedButtonState() {
       if (!selectedUser) return;
       const isProcessed = !!selectedUser.processedAt;
@@ -2706,6 +2964,7 @@
       periodSummary.textContent = "Loading receipts for " + user.name + "...";
       confirmDateBtn.disabled = true;
       resetNotifyBtn.style.display = "inline-block";
+      modalSendTestNotificationBtn.style.display = "inline-block";
       refreshProcessedButtonState();
 
       document.getElementById("modalTitle").textContent = "Export data for " + user.name;
@@ -2729,6 +2988,7 @@
       dateModal.style.display = "none";
       selectedUser = null;
       resetNotifyBtn.style.display = "none";
+      modalSendTestNotificationBtn.style.display = "none";
       if (periodSummary) {
         periodSummary.textContent = "Select a period to see record totals.";
       }
@@ -3304,6 +3564,13 @@
     adminGenerateCodeBtn.addEventListener("click", generateAdminVerificationCode);
     adminSaveBtn.addEventListener("click", saveAdminClientChanges);
     adminVerifyEmailBtn.addEventListener("click", verifySelectedUserEmailFromPortal);
+    adminSendTestNotificationBtn.addEventListener("click", sendTestNotificationFromPortal);
+    broadcastNotificationBtn.addEventListener("click", openBroadcastModal);
+    cancelBroadcastBtn.addEventListener("click", closeBroadcastModal);
+    sendBroadcastBtn.addEventListener("click", sendBroadcastNotification);
+    broadcastModal.addEventListener("click", (event) => {
+      if (event.target === broadcastModal) closeBroadcastModal();
+    });
     adminClearBtn.addEventListener("click", () => {
       clearAdminForm();
       adminStatus.textContent = "Select a client to edit their details.";
@@ -3311,6 +3578,7 @@
 
     cancelDateBtn.addEventListener("click", closeDateModal);
     periodSelect.addEventListener("change", renderPeriodSummary);
+    modalSendTestNotificationBtn.addEventListener("click", sendModalNotificationToSelectedUser);
     resetNotifyBtn.addEventListener("click", async () => {
       if (!selectedUser) return;
       if (selectedUser.processedAt) {

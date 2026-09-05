@@ -1025,6 +1025,27 @@ export default function IncomeFormScreen({ navigation, route, mode }) {
     isAmountValid &&
     isDateValid &&
     (!vatEnabled || (isVatAmountValid && isVatRateValid));
+  const isIncomeDirty = useMemo(() => {
+    if (mode !== "edit" || !currentIncome) return false;
+    const currentAttachments = attachments.map((item) => getAttachmentUri(item)).join("|");
+    const originalAttachments = normalizeStoredAttachments(currentIncome.attachments || [])
+      .map((item) => getAttachmentUri(item))
+      .join("|");
+    return (
+      amount !== (currentIncome.amount != null ? String(currentIncome.amount) : "") ||
+      vatAmount !== (currentIncome.vatAmount != null ? String(currentIncome.vatAmount) : "") ||
+      vatRate !== (currentIncome.vatRate != null ? String(currentIncome.vatRate) : "") ||
+      selectedDate.toISOString() !== (currentIncome.date || "") ||
+      reference !== (currentIncome.reference || "") ||
+      label !== (currentIncome.label || "") ||
+      notes !== (currentIncome.notes || "") ||
+      cisApplies !== Boolean(currentIncome.cis?.applies) ||
+      cisMaterialsAmount !== (currentIncome.cis?.materialsAmount != null ? String(currentIncome.cis.materialsAmount) : "0") ||
+      cisDeductionRate !== (currentIncome.cis?.deductionRate != null ? String(currentIncome.cis.deductionRate) : "20") ||
+      vatTreatment !== (currentIncome.vat?.treatment || currentIncome.vatTreatment || VAT_TREATMENTS.STANDARD) ||
+      currentAttachments !== originalAttachments
+    );
+  }, [amount, attachments, cisApplies, cisDeductionRate, cisMaterialsAmount, currentIncome, label, mode, notes, reference, selectedDate, vatAmount, vatRate, vatTreatment]);
 
   const buildPercentOverlay = (frame) => {
     const naturalW = ocrFrames?.imageW;
@@ -1072,7 +1093,7 @@ export default function IncomeFormScreen({ navigation, route, mode }) {
           style={styles.headerBtn}
           activeOpacity={0.8}
         >
-          <Text style={styles.headerBtnText}>‹</Text>
+          <Text style={styles.headerBtnText}>‹ Back</Text>
         </TouchableOpacity>
         <Text style={styles.headerTitle}>
           {mode === "edit" ? "Edit Income" : isMultiDraftMode ? "Review Income" : "Add Income"}
@@ -1822,10 +1843,10 @@ export default function IncomeFormScreen({ navigation, route, mode }) {
                   mode="contained"
                   buttonColor={Colors.accent}
                   style={styles.stickyActionButton}
-                  onPress={saveIncome}
-                  disabled={isSaving || !isIncomeFormValid}
+                  onPress={isIncomeDirty ? saveIncome : () => navigateBackToIncome(navigation)}
+                  disabled={isSaving || (isIncomeDirty && !isIncomeFormValid)}
                 >
-                  Save
+                  {isIncomeDirty ? "Save" : "Close"}
                 </Button>
               </>
             ) : (
@@ -1892,8 +1913,8 @@ const styles = StyleSheet.create({
     paddingBottom: 14,
   },
   headerTitle: { color: "#fff", fontSize: 17, fontWeight: "700" },
-  headerBtn: { width: 40, alignItems: "center" },
-  headerBtnText: { color: "#fff", fontWeight: "600", fontSize: 22 },
+  headerBtn: { width: 82, alignItems: "flex-start" },
+  headerBtnText: { color: "#fff", fontWeight: "600", fontSize: 18 },
   indexPill: {
     position: "absolute",
     right: 54,

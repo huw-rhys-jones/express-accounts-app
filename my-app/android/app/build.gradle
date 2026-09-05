@@ -11,6 +11,8 @@ def localEnv = new Properties()
     }
 }
 def googleMapsApiKey = System.getenv("GOOGLE_MAPS_API_KEY") ?: localEnv.getProperty("GOOGLE_MAPS_API_KEY", "")
+def envValue = { name -> System.getenv(name) ?: localEnv.getProperty(name, "") }
+def buildConfigString = { value -> "\"${String.valueOf(value).replace('\\', '\\\\').replace('"', '\\"')}\"" }
 
 /**
  * This is the configuration block to customize your React Native Android app.
@@ -95,9 +97,9 @@ android {
     buildToolsVersion rootProject.ext.buildToolsVersion
     compileSdk rootProject.ext.compileSdkVersion
 
-    namespace 'com.caistec.expressaccounts'
+    namespace "com.caistec.expressaccounts"
     defaultConfig {
-        applicationId 'com.caistec.expressaccounts'
+        applicationId "com.caistec.expressaccounts"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
         versionCode 1786062624
@@ -105,6 +107,11 @@ android {
         manifestPlaceholders.GOOGLE_MAPS_API_KEY = googleMapsApiKey
 
         buildConfigField "String", "REACT_NATIVE_RELEASE_LEVEL", "\"${findProperty('reactNativeReleaseLevel') ?: 'stable'}\""
+        buildConfigField "String", "FIREBASE_API_KEY", buildConfigString(envValue("FIREBASE_API_KEY"))
+        buildConfigField "String", "FIREBASE_APP_ID", buildConfigString(envValue("FIREBASE_APP_ID"))
+        buildConfigField "String", "FIREBASE_PROJECT_ID", buildConfigString(envValue("FIREBASE_PROJECT_ID"))
+        buildConfigField "String", "FIREBASE_STORAGE_BUCKET", buildConfigString(envValue("FIREBASE_STORAGE_BUCKET"))
+        buildConfigField "String", "FIREBASE_MESSAGING_SENDER_ID", buildConfigString(envValue("FIREBASE_MESSAGING_SENDER_ID"))
     }
     signingConfigs {
         debug {
@@ -164,6 +171,8 @@ android {
 dependencies {
     // The version of react-native is set by the React Native Gradle Plugin
     implementation("com.facebook.react:react-android")
+    implementation(platform("com.google.firebase:firebase-bom:33.16.0"))
+    implementation("com.google.firebase:firebase-common")
 
     def isGifEnabled = (findProperty('expo.gif.enabled') ?: "") == "true";
     def isWebpEnabled = (findProperty('expo.webp.enabled') ?: "") == "true";
