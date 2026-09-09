@@ -25,6 +25,11 @@ export default ({ config }) => ({
   newArchEnabled: false, // Keeping this false as per your current setup
   backgroundColor: "#302C66",
 
+  notification: {
+    icon: "./assets/notification-icon.png",
+    color: "#9B0D35"
+  },
+
   splash: {
     image: "./assets/splash-icon.png",
     resizeMode: "contain",
@@ -68,7 +73,13 @@ export default ({ config }) => ({
 
   plugins: [
     "expo-apple-authentication",
-    "expo-notifications",
+    [
+      "expo-notifications",
+      {
+        "icon": "./assets/notification-icon.png",
+        "color": "#9B0D35"
+      }
+    ],
     "expo-router",
     [
       "expo-location",

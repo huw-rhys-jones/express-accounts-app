@@ -262,6 +262,29 @@ export function extractAmount(reconstructedText) {
   const lineData = lines.map(l => l.toUpperCase());
   const candidates = [];
 
+  const labelledAmount = (label, maxLines = 2) => {
+    const labelIndex = lineData.findIndex(line => label.test(line));
+    if (labelIndex < 0) return null;
+    for (let offset = 0; offset <= maxLines && labelIndex + offset < lines.length; offset += 1) {
+      const match = lines[labelIndex + offset].match(/(?:£\s*)?(\d{1,3}(?:[,.\s]\d{3})+(?:[.,]\d{2})?|\d+[.,]\d{2})/);
+      const value = match ? parseAmount(match[1]) : null;
+      if (Number.isFinite(value) && value > 0) return value;
+    }
+    return null;
+  };
+
+  const grandTotal = labelledAmount(/\bGRAND\s+TOTAL\b/, 2);
+  if (grandTotal != null) {
+    return { amount: grandTotal, display: `£${grandTotal.toFixed(2)}` };
+  }
+
+  if (/construction industry scheme|payment and deduction statement/i.test(reconstructedText)) {
+    const grossPaid = labelledAmount(/\bGROSS\s+(?:PAID|PAYMENT)\b/, 2);
+    if (grossPaid != null) {
+      return { amount: grossPaid, display: `£${grossPaid.toFixed(2)}` };
+    }
+  }
+
   // Require a non-alphanumeric boundary before the amount to avoid matches like "9306U261.67"
   const FORGIVING_MONEY = /(?:^|[^A-Z0-9])((?:GBP|[£₤$€¥])?\s?(?:\d{1,3}(?:[\s,.]\d{3})+|\d{1,6})[.,]\s?\d{1,2})(?!\d)/gi;
 

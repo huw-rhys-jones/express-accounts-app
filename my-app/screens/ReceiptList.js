@@ -56,6 +56,7 @@ import { verifyClientCode } from "../utils/verificationCodes";
 import AddReceiptSheet from "../components/AddReceiptSheet";
 import RegisterVehicleModal from "../components/RegisterVehicleModal";
 import YourVehiclesModal from "../components/YourVehiclesModal";
+import SharedTabMenu from "../components/SharedTabMenu";
 import { useData } from "../contexts/DataContext";
 
 // Inside your component
@@ -843,154 +844,13 @@ const ExpensesScreen = ({ navigation, route }) => {
 
       {/* Slide-in side menu */}
       <SideMenu open={menuOpen} onClose={closeMenu}>
-        <View style={{ flex: 1 }}>
-          {/* Top Section: Name, Email, Settings Button */}
-          <View style={styles.userInfo}>
-            <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}>
-              <Text style={styles.userEmail}>{displayName}</Text>
-              <TouchableOpacity
-                onPress={() => {
-                  setNewName(displayName);
-                  setNameChangeModalVisible(true);
-                }}
-                style={{ paddingLeft: 8 }}
-              >
-                <Text style={{ fontSize: 14 }}>✏️</Text>
-              </TouchableOpacity>
-            </View>
-            <Text style={styles.userEmail}>{auth.currentUser?.email}</Text>
-            {verificationStatus === "verified" && verifiedName ? (
-              <>
-                <Text style={styles.userEmail}>{verifiedName}</Text>
-                <Text style={styles.userEmail}>(verified user)</Text>
-              </>
-            ) : null}
-          </View>
-
-          {/* Settings Button */}
-          <Image
-            source={require("../assets/images/logo.png")}
-            style={styles.menuLogo}
-            resizeMode="contain"
-          />
-
-          {/* Middle Section: Notify Accountant */}
-          <View style={{ marginTop: 20 }}>
-            <TouchableOpacity
-              onPress={handleNotifyAccountant}
-              style={styles.notifyBtnFilled}
-            >
-              <Text style={styles.filledBtnText}>Notify Accountant</Text>
-            </TouchableOpacity>
-
-            {showNotifyTip ? (
-              <View style={styles.notifyTipBox}>
-                <Text style={styles.notifyTipText}>
-                  Notify your accountant that your receipts are ready for processing
-                </Text>
-                <TouchableOpacity onPress={dismissNotifyTip}>
-                  <Text style={styles.notifyTipOkay}>Okay</Text>
-                </TouchableOpacity>
-              </View>
-            ) : null}
-          </View>
-
-          <View style={{ marginTop: 6 }}>
-            <TouchableOpacity
-              onPress={() => openAfterMenuClose(setRegisterVehicleOpen)}
-              style={styles.secondaryMenuButton}
-            >
-              <Text style={styles.secondaryMenuButtonText}>🚗  Register Vehicle</Text>
-            </TouchableOpacity>
-
-            {vehicles.length > 0 && (
-              <TouchableOpacity
-                onPress={() => openAfterMenuClose(setYourVehiclesOpen)}
-                style={[styles.secondaryMenuButton, { marginTop: 10 }]}
-              >
-                <Text style={styles.secondaryMenuButtonText}>📋  Your Vehicles</Text>
-              </TouchableOpacity>
-            )}
-
-            <TouchableOpacity disabled style={[styles.secondaryMenuButton, styles.disabledMenuButton, { marginTop: 10 }]}>
-              <Text style={[styles.secondaryMenuButtonText, styles.disabledMenuButtonText]}>Add ID Image</Text>
-            </TouchableOpacity>
-
-            <TouchableOpacity
-              disabled
-              style={[styles.secondaryMenuButton, styles.disabledMenuButton, { marginTop: 10 }]}
-            >
-              <Text style={[styles.secondaryMenuButtonText, styles.disabledMenuButtonText]}>Add Address</Text>
-            </TouchableOpacity>
-          </View>
-
-          {/* Bottom Section */}
-          <View style={styles.footerContainer}>
-            {/* Enter Client Code Button - Green */}
-            <TouchableOpacity
-              onPress={() => {
-                setReferralCode("");
-                setReferralCodeModalVisible(true);
-              }}
-              style={[
-                styles.referralBtn,
-                verificationStatus === "verified" ? styles.disabledActionButton : null,
-              ]}
-            >
-              <Text
-                style={[
-                  styles.filledBtnText,
-                  verificationStatus === "verified" ? styles.disabledActionButtonText : null,
-                ]}
-              >
-                Enter Client Code
-              </Text>
-            </TouchableOpacity>
-
-            {/* Sign Out Button - Red */}
-            <TouchableOpacity
-              onPress={async () => {
-                closeMenu();
-                await handleLogout();
-              }}
-              style={[styles.redButton, { marginTop: 10 }]}
-            >
-              <Text style={styles.redButtonText}>Sign Out</Text>
-            </TouchableOpacity>
-
-            {/* Delete Account Button - Red */}
-            <TouchableOpacity
-              onPress={handleDeleteAccount}
-              style={[styles.redButton, { marginTop: 10 }]}
-            >
-              <Text style={styles.redButtonText}>Delete Account</Text>
-            </TouchableOpacity>
-
-            {/* Leave Feedback */}
-            <TouchableOpacity
-              onPress={() => {
-                closeMenu();
-                setFeedbackModalVisible(true);
-              }}
-              style={[styles.signOutLink, { marginTop: 12, marginBottom: 0 }]}
-            >
-              <Text style={[styles.linkBtnText, { textDecorationLine: 'none' }]}>
-                Leave Feedback
-              </Text>
-            </TouchableOpacity>
-
-            {/* Version and Privacy Policy */}
-            <View style={styles.versionContainer}>
-              <Text style={styles.versionText}>Version {versionLabel}</Text>
-              <Text style={styles.versionText}> · </Text>
-              <TouchableOpacity onPress={handleOpenPrivacyPolicy}>
-                <Text style={[styles.versionText, { textDecorationLine: "underline", color: Colors.accent }]}>
-                  Privacy Policy
-                </Text>
-              </TouchableOpacity>
-            </View>
-          </View>
-        </View>
+        <SharedTabMenu
+          navigation={navigation}
+          closeMenu={closeMenu}
+          displayName={displayName}
+          open={menuOpen}
+          onVehiclesChanged={setVehicles}
+        />
       </SideMenu>
 
       {/* Feedback Modal */}

@@ -99,6 +99,31 @@ describe('extractAmount', () => {
     expect(result.amount).toBeCloseTo(15600);
   });
 
+  it('extracts a grand total written without decimal cents', () => {
+    const text = [
+      'Total',
+      '£13,000',
+      'VAT',
+      '£2,600',
+      'Grand Total',
+      '£15,600',
+    ].join('\n');
+    const result = extractAmount(text);
+    expect(result.amount).toBeCloseTo(15600);
+  });
+
+  it('prefers the labelled gross paid amount on a CIS statement', () => {
+    const text = [
+      'Construction Industry Scheme Payment and Deduction Statement',
+      'Gross paid (excl VAT) (A)',
+      '6,522.99',
+      'Paid (A-B)',
+      '5,218.40',
+    ].join('\n');
+    const result = extractAmount(text);
+    expect(result.amount).toBeCloseTo(6522.99);
+  });
+
   it('prefers total amount due values on the following line', () => {
     const text = [
       'Subtotal',
