@@ -30,7 +30,7 @@
         <category android:name="android.intent.category.DEFAULT"/>
         <category android:name="android.intent.category.BROWSABLE"/>
         <data android:scheme="exp+express-accounts-app"/>
-        <data android:scheme="com.caistec.expressaccounts"/>
+        <data android:scheme="${AUTH_REDIRECT_SCHEME}"/>
       </intent-filter>
     </activity>
   </application>

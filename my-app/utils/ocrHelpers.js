@@ -171,6 +171,7 @@ function toStructuredOcrResult(res, raw) {
     date: res?.date ?? null,
     reference: res?.reference ?? null,
     vat: res?.vat ?? null,
+    cis: res?.cis ?? { applies: false, materialsAmount: 0, deductionRate: 0, taxWithheld: 0 },
     categoryIndex,
     categoryName,
     raw: raw || "",
@@ -269,6 +270,7 @@ function mergeStructuredResults(primary, fallback) {
       value: primary.vat?.value ?? fallback.vat?.value ?? null,
       rate: primary.vat?.rate ?? fallback.vat?.rate ?? null,
     },
+    cis: primary.cis?.applies ? primary.cis : fallback.cis,
     categoryIndex:
       primary.categoryIndex != null && primary.categoryIndex >= 0
         ? primary.categoryIndex

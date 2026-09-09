@@ -6,7 +6,6 @@ const path = require("path");
 const root = path.resolve(__dirname, "..");
 const packageJsonPath = path.join(root, "package.json");
 const gradlePropsPath = path.join(root, "android", "gradle.properties");
-const androidAppBuildGradlePath = path.join(root, "android", "app", "build.gradle");
 const plistPath = path.join(root, "ios", "ExpressAccounts", "Info.plist");
 const pbxprojPath = path.join(root, "ios", "ExpressAccounts.xcodeproj", "project.pbxproj");
 
@@ -49,15 +48,6 @@ function replaceRequired(contents, pattern, replacement, label) {
   return contents.replace(pattern, replacement);
 }
 
-function replaceOrAppend(contents, pattern, replacementLine) {
-  if (pattern.test(contents)) {
-    return contents.replace(pattern, replacementLine);
-  }
-
-  const suffix = contents.endsWith("\n") ? "" : "\n";
-  return `${contents}${suffix}${replacementLine}\n`;
-}
-
 function getBuildNumber(version) {
   const explicit =
     parseEnvInt("BUILD_NUMBER") ||
@@ -76,39 +66,21 @@ function getBuildNumber(version) {
 function syncGradleProperties(version, buildNumber) {
   let contents = readText(gradlePropsPath);
 
-  contents = replaceOrAppend(
+  contents = replaceRequired(
     contents,
     /^android\.versionCode=.*$/m,
-    `android.versionCode=${buildNumber}`
+    `android.versionCode=${buildNumber}`,
+    "android.versionCode"
   );
 
-  contents = replaceOrAppend(
+  contents = replaceRequired(
     contents,
     /^android\.versionName=.*$/m,
-    `android.versionName=${version}`
+    `android.versionName=${version}`,
+    "android.versionName"
   );
 
   writeText(gradlePropsPath, contents);
-}
-
-function syncAndroidAppBuildGradle(version, buildNumber) {
-  let contents = readText(androidAppBuildGradlePath);
-
-  contents = replaceRequired(
-    contents,
-    /(\bversionCode\s+)\d+/m,
-    `$1${buildNumber}`,
-    "android app versionCode"
-  );
-
-  contents = replaceRequired(
-    contents,
-    /(\bversionName\s+")[^"]*(")/m,
-    `$1${version}$2`,
-    "android app versionName"
-  );
-
-  writeText(androidAppBuildGradlePath, contents);
 }
 
 function syncInfoPlist(version, buildNumber) {
@@ -157,7 +129,6 @@ function main() {
   const buildNumber = getBuildNumber(version);
 
   syncGradleProperties(version, buildNumber);
-  syncAndroidAppBuildGradle(version, buildNumber);
   syncInfoPlist(version, buildNumber);
   syncPbxproj(version, buildNumber);
 

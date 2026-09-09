@@ -209,6 +209,43 @@ describe('extractData reference selection', () => {
     const result = extractData(text);
     expect(result.reference).toBe('INV-0001');
   });
+
+  it('extracts CIS status, rate, and labelled withheld tax', () => {
+    const text = [
+      'Construction Industry Scheme Payment and Deduction Statement',
+      'Gross paid (excl VAT) (A)',
+      '6,522.99',
+      'Deducted (B)',
+      '1,304.59',
+    ].join('\n');
+    const result = extractData(text);
+    expect(result.cis).toEqual({
+      applies: true,
+      materialsAmount: 0,
+      deductionRate: 20,
+      taxWithheld: 1304.59,
+    });
+  });
+
+  it('does not treat a CIS tax deduction column as a CIS payment statement', () => {
+    const result = extractData('Subcontractor Statement\nCIS Tax Deduction Tax Rate\n20%');
+    expect(result.cis).toEqual({
+      applies: false,
+      materialsAmount: 0,
+      deductionRate: 0,
+      taxWithheld: 0,
+    });
+  });
+
+  it('extracts an explicit tax deduction rate from a remittance advice', () => {
+    const result = extractData('REMITTANCE ADVICE\nCredit note Tax deduction 20%\n330.61-');
+    expect(result.cis).toEqual({
+      applies: true,
+      materialsAmount: 0,
+      deductionRate: 20,
+      taxWithheld: 330.61,
+    });
+  });
 });
 
 // ---------------------------------------------------------------------------

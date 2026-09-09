@@ -18,6 +18,8 @@ import SideMenu from "../components/SideMenu";
 import SharedTabMenu from "../components/SharedTabMenu";
 import { db, auth } from "../firebaseConfig";
 import { PieChart, BarChart } from "react-native-chart-kit";
+import MapView, { Polyline } from "react-native-maps";
+import polyline from "@mapbox/polyline";
 import { groupCashflowByMonth } from "../utils/groupByMonth";
 import { Colors, SharedStyles } from "../utils/sharedStyles";
 import {
@@ -41,6 +43,26 @@ const PIE_CHART_PADDING_LEFT = Math.round(PIE_CHART_SIZE * 0.13);
 const PIE_CHART_CENTER_X = PIE_CHART_SIZE * 0.12;
 const BAR_CHART_HEIGHT = 220;
 const Y_AXIS_WIDTH = 46;
+const MAP_MIN_DELTA = 0.05;
+
+function decodeMileagePath(routePolyline, startCoordinate, endCoordinate) {
+  if (routePolyline) {
+    try {
+      const decoded = polyline
+        .decode(routePolyline)
+        .map(([latitude, longitude]) => ({ latitude, longitude }));
+      if (decoded.length > 1) return decoded;
+    } catch (error) {
+      console.warn("Could not decode mileage route polyline", error);
+    }
+  }
+
+  if (startCoordinate && endCoordinate) {
+    return [startCoordinate, endCoordinate];
+  }
+
+  return [];
+}
 
 export default function SummaryScreen({ navigation }) {
   const {
@@ -225,6 +247,57 @@ export default function SummaryScreen({ navigation }) {
   const monthlyData = groupCashflowByMonth(filteredReceipts, filteredIncome, activeFilter?.startDate, activeFilter?.endDate);
   const showYearLabels = new Set(monthlyData.map((month) => month._year)).size > 1;
 
+  const mileageRecords = useMemo(
+    () => filteredReceipts.filter((receipt) => receipt.type === "mileage"),
+    [filteredReceipts],
+  );
+
+  const monthlyMileageData = useMemo(
+    () => monthlyData.map((month) => {
+      const totalMiles = mileageRecords.reduce((sum, receipt) => {
+        const date = new Date(receipt.date);
+        if (date.getFullYear() !== month._year || date.getMonth() !== month._month) {
+          return sum;
+        }
+        return sum + (Number(receipt.mileageDetails?.distance) || 0);
+      }, 0);
+      return {...month, totalMiles};
+    }),
+    [mileageRecords, monthlyData],
+  );
+
+  const mileageTotal = monthlyMileageData.reduce((sum, month) => sum + month.totalMiles, 0);
+
+  const mileageRoutes = useMemo(
+    () => mileageRecords
+      .map((receipt) => decodeMileagePath(
+        receipt.mileageDetails?.routePolyline,
+        receipt.mileageDetails?.startCoordinate,
+        receipt.mileageDetails?.endCoordinate,
+      ))
+      .filter((route) => route.length > 1),
+    [mileageRecords],
+  );
+
+  const mileageRouteRegion = useMemo(() => {
+    const points = mileageRoutes.flat();
+    if (points.length === 0) return null;
+
+    const latitudes = points.map((point) => point.latitude);
+    const longitudes = points.map((point) => point.longitude);
+    const minLatitude = Math.min(...latitudes);
+    const maxLatitude = Math.max(...latitudes);
+    const minLongitude = Math.min(...longitudes);
+    const maxLongitude = Math.max(...longitudes);
+
+    return {
+      latitude: (minLatitude + maxLatitude) / 2,
+      longitude: (minLongitude + maxLongitude) / 2,
+      latitudeDelta: Math.max((maxLatitude - minLatitude) * 1.35, MAP_MIN_DELTA),
+      longitudeDelta: Math.max((maxLongitude - minLongitude) * 1.35, MAP_MIN_DELTA),
+    };
+  }, [mileageRoutes]);
+
   const getFinancialYearLabelForMonth = (month) => {
     const startYear = month._month >= 3 ? month._year : month._year - 1;
     return `FY ${startYear}/${String(startYear + 1).slice(-2)}`;
@@ -302,9 +375,8 @@ export default function SummaryScreen({ navigation }) {
           </View>
           {/* Monthly bar chart card */}
           <View style={styles.chartCard}>
-              <Text style={styles.chartTitle}>
-                Monthly Income vs Spending ({activeFilter?.label || "Current Financial Quarter"})
-              </Text>
+            <Text style={styles.chartTitle}>Monthly Income vs Spending</Text>
+            <Text style={styles.chartSubtitle}>{activeFilter?.label || "Current Financial Quarter"}</Text>
             <View style={styles.cashflowLegendRow}>
               <View style={styles.cashflowLegendItem}>
                 <View style={[styles.cashflowLegendSwatch, styles.expenseSwatch]} />
@@ -512,6 +584,42 @@ export default function SummaryScreen({ navigation }) {
               </View>
             );
           })}
+
+          <View style={styles.summaryPill}>
+            <View style={styles.pillHeaderRow}>
+              <Text style={styles.pillTitle}>Mileage</Text>
+              <Text style={styles.pillTotal}>{mileageTotal.toFixed(2)} mi</Text>
+            </View>
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.mileageMonthScroller}>
+              {monthlyMileageData.map((month) => (
+                <View key={`mileage-${month._year}-${month._month}`} style={styles.mileageMonthPill}>
+                  <Text style={styles.mileageMonthLabel}>{month.label}{showYearLabels ? ` '${String(month._year).slice(-2)}` : ""}</Text>
+                  <Text style={styles.mileageMonthValue}>{month.totalMiles.toFixed(1)}</Text>
+                </View>
+              ))}
+            </ScrollView>
+          </View>
+
+          <View style={styles.summaryPill}>
+            <View style={styles.pillHeaderRow}>
+              <Text style={styles.pillTitle}>Mileage Heat Map</Text>
+              <Text style={styles.pillMeta}>{mileageRoutes.length} route{mileageRoutes.length === 1 ? "" : "s"}</Text>
+            </View>
+            {mileageRouteRegion ? (
+              <MapView style={styles.mileageHeatMap} region={mileageRouteRegion} scrollEnabled={false} rotateEnabled={false}>
+                {mileageRoutes.map((route, index) => (
+                  <Polyline
+                    key={`mileage-route-${index}`}
+                    coordinates={route}
+                    strokeColor="rgba(166, 13, 73, 0.36)"
+                    strokeWidth={6}
+                  />
+                ))}
+              </MapView>
+            ) : (
+              <Text style={styles.noData}>Add mileage routes with start and end locations to build the map.</Text>
+            )}
+          </View>
         </ScrollView>
       )}
 
@@ -671,7 +779,14 @@ const styles = StyleSheet.create({
     width: "100%",
     alignItems: "center",
   },
-  chartTitle: { fontSize: 16, fontWeight: "bold", marginBottom: 12, textAlign: "center", color: "black" },
+  chartTitle: { fontSize: 16, fontWeight: "bold", marginBottom: 3, textAlign: "center", color: "black" },
+  chartSubtitle: {
+    color: "#555",
+    fontSize: 13,
+    fontWeight: "600",
+    marginBottom: 12,
+    textAlign: "center",
+  },
   noData: { fontSize: 15, color: "#666", marginTop: 10, textAlign: "center" },
   center: { flex: 1, justifyContent: "center", alignItems: "center" },
   legendContainer: {
@@ -734,6 +849,62 @@ const styles = StyleSheet.create({
   cashflowLegendText: {
     fontSize: 13,
     color: Colors.textPrimary,
+  },
+  summaryPill: {
+    backgroundColor: Colors.surface,
+    borderRadius: 16,
+    marginTop: 12,
+    padding: 14,
+    width: CHART_CARD_WIDTH,
+  },
+  pillHeaderRow: {
+    alignItems: "center",
+    flexDirection: "row",
+    justifyContent: "space-between",
+    marginBottom: 10,
+  },
+  pillTitle: {
+    color: Colors.textPrimary,
+    fontSize: 15,
+    fontWeight: "800",
+  },
+  pillTotal: {
+    color: Colors.accent,
+    fontSize: 17,
+    fontWeight: "800",
+  },
+  pillMeta: {
+    color: "#555",
+    fontSize: 12,
+    fontWeight: "700",
+  },
+  mileageMonthScroller: {
+    gap: 8,
+    paddingRight: 4,
+  },
+  mileageMonthPill: {
+    alignItems: "center",
+    backgroundColor: "#f4f4f8",
+    borderRadius: 12,
+    minWidth: 64,
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+  },
+  mileageMonthLabel: {
+    color: "#555",
+    fontSize: 12,
+    fontWeight: "700",
+  },
+  mileageMonthValue: {
+    color: Colors.textPrimary,
+    fontSize: 14,
+    fontWeight: "800",
+    marginTop: 3,
+  },
+  mileageHeatMap: {
+    borderRadius: 12,
+    height: 190,
+    width: "100%",
   },
   yAxis: {
     width: Y_AXIS_WIDTH,

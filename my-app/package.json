@@ -17,7 +17,6 @@
     "@react-native-community/datetimepicker": "8.4.4",
     "@react-native-firebase/app": "^22.2.0",
     "@react-native-ml-kit/text-recognition": "^2.0.0",
-    "@react-native/virtualized-lists": "^0.81.5",
     "@react-navigation/bottom-tabs": "^7.3.10",
     "@react-navigation/material-top-tabs": "^7.4.23",
     "@react-navigation/native": "^7.0.14",
@@ -71,12 +70,9 @@
   "devDependencies": {
     "@babel/core": "^7.20.0",
     "@react-native-community/cli": "^19.1.1",
-    "@testing-library/react-native": "^13.3.3",
     "expo-build-properties": "~1.0.10",
-    "jest-expo": "^55.0.17",
     "patch-package": "^8.0.1",
-    "prettier": "^3.6.2",
-    "react-test-renderer": "^19.1.0"
+    "prettier": "^3.6.2"
   },
   "private": true
 }

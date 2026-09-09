@@ -8,9 +8,11 @@ import Constants from "expo-constants";
 
 WebBrowser.maybeCompleteAuthSession();
 
+const redirectScheme = "com.caistec.expressaccounts";
+
 export function useGoogleSignIn(onSuccess) {
   const redirectUri = makeRedirectUri({
-    scheme: "com.caistec.expressaccounts", // same as in your Android manifest/app.json
+    scheme: redirectScheme,
   });
 
   const expoClientId = Constants.expoConfig.extra.GOOGLE_EXPO_CLIENT_ID;

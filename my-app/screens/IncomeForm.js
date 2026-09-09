@@ -234,9 +234,9 @@ export default function IncomeFormScreen({ navigation, route, mode }) {
       reference: analysis?.reference || "",
       label: "",
       notes: "",
-      cisApplies: /\bCIS\b|CONSTRUCTION INDUSTRY SCHEME/i.test(String(analysis?.raw || "")),
-      cisMaterialsAmount: String(extractCisMaterialsAmount(analysis?.raw) || 0),
-      cisDeductionRate: "20",
+      cisApplies: Boolean(analysis?.cis?.applies),
+      cisMaterialsAmount: String(analysis?.cis?.materialsAmount ?? extractCisMaterialsAmount(analysis?.raw) ?? 0),
+      cisDeductionRate: String(analysis?.cis?.deductionRate ?? 20),
       vatTreatment: VAT_TREATMENTS.STANDARD,
       selectedDate: parsedDate && !Number.isNaN(parsedDate.getTime()) ? parsedDate : new Date(),
       attachments: (assets || []).map((asset) => createImageAttachment(asset)),
@@ -467,10 +467,11 @@ export default function IncomeFormScreen({ navigation, route, mode }) {
       setReference(extracted.vendor);
       flashField(flashReference);
     }
-    if (/\bCIS\b|CONSTRUCTION INDUSTRY SCHEME/i.test(String(extracted?.raw || ""))) {
+    if (extracted?.cis?.applies) {
       setCisApplies(true);
-      const materialsAmount = extractCisMaterialsAmount(extracted.raw);
+      const materialsAmount = extracted.cis.materialsAmount ?? extractCisMaterialsAmount(extracted.raw);
       if (materialsAmount != null) setCisMaterialsAmount(String(materialsAmount));
+      if (extracted.cis.deductionRate != null) setCisDeductionRate(String(extracted.cis.deductionRate));
     }
     if (extracted?.ocrFrames) {
       setOcrFrames(extracted.ocrFrames);

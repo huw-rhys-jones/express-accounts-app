@@ -10,7 +10,6 @@ def localEnv = new Properties()
         envFile.withInputStream { localEnv.load(it) }
     }
 }
-def googleMapsApiKey = System.getenv("GOOGLE_MAPS_API_KEY") ?: localEnv.getProperty("GOOGLE_MAPS_API_KEY", "")
 def envValue = { name -> System.getenv(name) ?: localEnv.getProperty(name, "") }
 def buildConfigString = { value -> "\"${String.valueOf(value).replace('\\', '\\\\').replace('"', '\\"')}\"" }
 
@@ -77,6 +76,7 @@ react {
  * Set this to true in release builds to optimize the app using [R8](https://developer.android.com/topic/performance/app-optimization/enable-app-optimization).
  */
 def enableMinifyInReleaseBuilds = (findProperty('android.enableMinifyInReleaseBuilds') ?: false).toBoolean()
+def googleMapsApiKey = (findProperty('GOOGLE_MAPS_API_KEY') ?: System.getenv('GOOGLE_MAPS_API_KEY') ?: "")
 
 /**
  * The preferred build flavor of JavaScriptCore (JSC)
@@ -97,14 +97,17 @@ android {
     buildToolsVersion rootProject.ext.buildToolsVersion
     compileSdk rootProject.ext.compileSdkVersion
 
-    namespace "com.caistec.expressaccounts"
+    namespace 'com.caistec.expressaccounts'
     defaultConfig {
-        applicationId "com.caistec.expressaccounts"
+        applicationId 'com.caistec.expressaccounts'
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
-        versionCode 1786062624
-        versionName "1.6.0"
-        manifestPlaceholders.GOOGLE_MAPS_API_KEY = googleMapsApiKey
+        versionCode (findProperty('android.versionCode') as Integer) ?: 1
+        versionName (findProperty('android.versionName') ?: '1.2.0')
+        manifestPlaceholders = [
+            GOOGLE_MAPS_API_KEY: googleMapsApiKey,
+            AUTH_REDIRECT_SCHEME: "com.caistec.expressaccounts"
+        ]
 
         buildConfigField "String", "REACT_NATIVE_RELEASE_LEVEL", "\"${findProperty('reactNativeReleaseLevel') ?: 'stable'}\""
         buildConfigField "String", "FIREBASE_API_KEY", buildConfigString(envValue("FIREBASE_API_KEY"))
@@ -124,6 +127,9 @@ android {
     buildTypes {
         debug {
             signingConfig signingConfigs.debug
+            applicationIdSuffix ".dev"
+            versionNameSuffix "-dev"
+            resValue "string", "app_name", "Express Accounts Dev"
         }
         release {
             // Caution! In production, you need to generate your own keystore file.

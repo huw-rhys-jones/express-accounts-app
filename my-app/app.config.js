@@ -2,7 +2,7 @@ import 'dotenv/config';
 
 const { version: appVersion } = require("./package.json");
 
-const internalBuildLabel = "Internal";
+const internalBuildLabel = "";
 
 const [major = 0, minor = 0, patch = 0] = String(appVersion)
   .split(".")
@@ -52,11 +52,6 @@ export default ({ config }) => ({
   android: {
     package: "com.caistec.expressaccounts",
     versionCode: numericBuild,
-    config: {
-      googleMaps: {
-        apiKey: process.env.GOOGLE_MAPS_API_KEY,
-      },
-    },
     adaptiveIcon: {
       foregroundImage: "./assets/adaptive-icon.png",
       backgroundColor: "#ffffff"
@@ -84,8 +79,8 @@ export default ({ config }) => ({
     [
       "expo-splash-screen",
       {
-        "image": "./assets/icon.png",
-        "imageWidth": 200,
+        "image": "./assets/splash-icon.png",
+        "imageWidth": 960,
         "resizeMode": "contain",
         "backgroundColor": "#ffffff"
       }

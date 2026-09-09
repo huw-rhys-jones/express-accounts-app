@@ -2,7 +2,6 @@ import React, { useState, useEffect, useCallback, useMemo, useRef } from "react"
 import {
   View,
   Text,
-  Pressable,
   TouchableOpacity,
   StyleSheet,
   FlatList,
@@ -12,6 +11,7 @@ import {
   TextInput,
   Alert,
   Linking,
+  Switch,
   Image,
 } from "react-native";
 import { signOut, deleteUser, updateProfile } from "firebase/auth";
@@ -45,10 +45,10 @@ import {
 import {
   buildFinancialFilterOptions,
   filterReceiptsByDateRange,
-  getPeriodRecordCount,
-  formatPeriodLabelWithCount,
 } from "../utils/financialPeriods";
 import {
+  getHapticsEnabled,
+  setHapticsEnabled,
   triggerHaptic,
 } from "../utils/haptics";
 import { getReceiptFilterKey, setReceiptFilterKey, setAllFilterKeys, getVehicles } from "../utils/appSettings";
@@ -56,7 +56,6 @@ import { verifyClientCode } from "../utils/verificationCodes";
 import AddReceiptSheet from "../components/AddReceiptSheet";
 import RegisterVehicleModal from "../components/RegisterVehicleModal";
 import YourVehiclesModal from "../components/YourVehiclesModal";
-import SharedTabMenu from "../components/SharedTabMenu";
 import { useData } from "../contexts/DataContext";
 
 // Inside your component
@@ -65,7 +64,7 @@ const internalBuildLabel = Constants.expoConfig?.extra?.internalBuildLabel || ""
 const versionLabel = internalBuildLabel ? `${appVersion} (${internalBuildLabel})` : appVersion;
 
 const ExpensesScreen = ({ navigation, route }) => {
-  const { receipts, receiptsLoading: dataLoading, userProfile } = useData();
+  const { receipts, initialLoading: dataLoading } = useData();
   const [displayName, setDisplayName] = useState("User");
   const [verifiedName, setVerifiedName] = useState("");
   const [verificationStatus, setVerificationStatus] = useState("");
@@ -77,8 +76,6 @@ const ExpensesScreen = ({ navigation, route }) => {
   const [vehicles, setVehicles] = useState([]);
   const [registerVehicleOpen, setRegisterVehicleOpen] = useState(false);
   const [yourVehiclesOpen, setYourVehiclesOpen] = useState(false);
-  const [isSelectionMode, setIsSelectionMode] = useState(false);
-  const [selectedIds, setSelectedIds] = useState(new Set());
 
   // --- sorting state ---
   const [sortKey, setSortKey] = useState("date"); // "date" | "amount" | "category"
@@ -92,6 +89,8 @@ const ExpensesScreen = ({ navigation, route }) => {
   const [feedbackModalVisible, setFeedbackModalVisible] = useState(false);
   const [feedbackText, setFeedbackText] = useState("");
   const [showNotifyTip, setShowNotifyTip] = useState(false);
+  const [hapticsEnabled, setHapticsEnabledState] = useState(true);
+  const [settingsModalVisible, setSettingsModalVisible] = useState(false);
   const [filterOpen, setFilterOpen] = useState(false);
   const [activeFilterKey, setActiveFilterKey] = useState("current-quarter");
   const [filterItems, setFilterItems] = useState([]);
@@ -232,14 +231,6 @@ const ExpensesScreen = ({ navigation, route }) => {
     [activeFilterKey, filterOptions]
   );
 
-  const filterCountsByKey = useMemo(() => {
-    const counts = {};
-    for (const option of filterOptions) {
-      counts[option.key] = getPeriodRecordCount(receipts, option);
-    }
-    return counts;
-  }, [filterOptions, receipts]);
-
   useEffect(() => {
     if (!activeFilter && filterOptions[0]) {
       setActiveFilterKey(filterOptions[0].key);
@@ -248,15 +239,9 @@ const ExpensesScreen = ({ navigation, route }) => {
 
   useEffect(() => {
     setFilterItems(
-      filterOptions.map((option) => {
-        const count = filterCountsByKey[option.key] ?? 0;
-        return {
-          label: formatPeriodLabelWithCount(option.label, count, "Expense", "Expenses"),
-          value: option.key,
-        };
-      })
+      filterOptions.map((option) => ({ label: option.label, value: option.key }))
     );
-  }, [filterCountsByKey, filterOptions]);
+  }, [filterOptions]);
 
   useEffect(() => {
     if (filterOptions.length === 0) {
@@ -309,88 +294,17 @@ const ExpensesScreen = ({ navigation, route }) => {
     return data;
   }, [filteredReceipts, sortKey, sortDir]);
 
-  const swipeableReceipts = useMemo(
-    () => sortedReceipts.filter((entry) => entry.type !== "mileage"),
-    [sortedReceipts]
-  );
-
-  const clearSelectionMode = useCallback(() => {
-    setIsSelectionMode(false);
-    setSelectedIds(new Set());
-  }, []);
-
-  const toggleSelectedId = useCallback((id) => {
-    setSelectedIds((previous) => {
-      const next = new Set(previous);
-      if (next.has(id)) {
-        next.delete(id);
-      } else {
-        next.add(id);
-      }
-      if (next.size === 0) {
-        setIsSelectionMode(false);
-      }
-      return next;
-    });
-  }, []);
-
-  const beginSelectionWithId = useCallback((id) => {
-    setIsSelectionMode(true);
-    setSelectedIds(new Set([id]));
-  }, []);
-
-  const handleBatchDeleteReceipts = useCallback(() => {
-    if (selectedIds.size === 0) {
-      return;
-    }
-
-    const idsToDelete = Array.from(selectedIds);
-    Alert.alert(
-      "Delete Receipts",
-      `Are you sure you want to delete ${idsToDelete.length} items?`,
-      [
-        { text: "Cancel", style: "cancel" },
-        {
-          text: "Delete",
-          style: "destructive",
-          onPress: async () => {
-            await runWithLoading("Deleting receipts…", async () => {
-              const batch = writeBatch(db);
-              idsToDelete.forEach((id) => {
-                batch.delete(doc(db, "receipts", id));
-              });
-              await batch.commit();
-            });
-            triggerHaptic("success").catch(() => {});
-            clearSelectionMode();
-          },
-        },
-      ],
-    );
-  }, [clearSelectionMode, selectedIds]);
-
   useEffect(() => {
+    getHapticsEnabled()
+      .then(setHapticsEnabledState)
+      .catch(() => setHapticsEnabledState(true));
+
     getReceiptFilterKey()
       .then(setActiveFilterKey)
       .catch(() => setActiveFilterKey("current-quarter"));
 
     getVehicles().then(setVehicles).catch(() => {});
   }, []);
-
-  useEffect(() => {
-    setVerifiedName(String(userProfile?.verifiedName || ""));
-    setVerificationStatus(String(userProfile?.verificationStatus || ""));
-  }, [userProfile]);
-
-  useEffect(() => {
-    if (!route?.params?.refreshReceiptFilterAt) {
-      return;
-    }
-
-    getReceiptFilterKey()
-      .then(setActiveFilterKey)
-      .catch(() => setActiveFilterKey("current-quarter"));
-  }, [route?.params?.refreshReceiptFilterAt]);
 
   useEffect(() => {
     const unsubscribeFocus = navigation.addListener("focus", () => {
@@ -402,14 +316,6 @@ const ExpensesScreen = ({ navigation, route }) => {
     });
 
     return unsubscribeFocus;
-  }, [navigation]);
-
-  useEffect(() => {
-    const unsubscribeBlur = navigation.addListener("blur", () => {
-      setFilterOpen(false);
-    });
-
-    return unsubscribeBlur;
   }, [navigation]);
 
   useEffect(() => {
@@ -561,6 +467,15 @@ const ExpensesScreen = ({ navigation, route }) => {
     await Linking.openURL(url);
   }, []);
 
+  const toggleHapticsSetting = useCallback(async () => {
+    const next = !hapticsEnabled;
+    setHapticsEnabledState(next);
+    await setHapticsEnabled(next);
+    if (next) {
+      triggerHaptic("selection").catch(() => {});
+    }
+  }, [hapticsEnabled]);
+
   const handleSubmitReferralCode = async () => {
     if (!referralCode.trim()) {
       Alert.alert("Invalid Code", "Please enter a client code.");
@@ -636,6 +551,11 @@ const ExpensesScreen = ({ navigation, route }) => {
       "Address Capture Coming Soon",
       "This will become the place to add and confirm a billing or registered address, with proof-of-address support later."
     );
+  }, [closeMenu]);
+
+  const handleOpenSettings = useCallback(() => {
+    closeMenu();
+    requestAnimationFrame(() => setSettingsModalVisible(true));
   }, [closeMenu]);
 
   const handleFilterSelection = useCallback(
@@ -750,7 +670,6 @@ const ExpensesScreen = ({ navigation, route }) => {
 
   const renderReceiptItem = ({ item, index }) => {
     const isFirst = index === 0;
-    const isSelected = selectedIds.has(item.id);
 
     return (
       <View style={{ width: "100%", alignItems: "center" }}>
@@ -762,39 +681,13 @@ const ExpensesScreen = ({ navigation, route }) => {
           ]}
         >
           <TouchableOpacity
-            onPress={() => {
-              if (isSelectionMode) {
-                toggleSelectedId(item.id);
-                return;
-              }
-
-              if (item.type === "mileage") {
-                navigation.navigate("MileageDetails", { item });
-                return;
-              }
-
-              const initialIndex = swipeableReceipts.findIndex(
-                (entry) => entry.id === item.id,
-              );
-              navigation.navigate("ReceiptDetails", {
-                receipt: item,
-                receiptList: swipeableReceipts,
-                initialIndex: initialIndex >= 0 ? initialIndex : 0,
-              });
-            }}
-            onLongPress={() => beginSelectionWithId(item.id)}
-            delayLongPress={220}
-            style={[
-              styles.receiptItem,
-              { width: "100%", marginBottom: 0 },
-              isSelected && styles.selectedReceiptItem,
-            ]}
+            onPress={() =>
+              item.type === "mileage"
+                ? navigation.navigate("MileageDetails", { item })
+                : navigation.navigate("ReceiptDetails", { receipt: item })
+            }
+            style={[styles.receiptItem, { width: "100%", marginBottom: 0 }]}
           >
-            {isSelectionMode ? (
-              <View style={[styles.selectionBadge, isSelected && styles.selectionBadgeActive]}>
-                <Text style={styles.selectionBadgeText}>{isSelected ? "✓" : ""}</Text>
-              </View>
-            ) : null}
             <Text style={styles.receiptDate}>
               {formatDate(new Date(item.date))}
             </Text>
@@ -830,7 +723,7 @@ const ExpensesScreen = ({ navigation, route }) => {
         </View>
 
         {/* 2. The Tooltip (Sibling to the blue box) */}
-        {isFirst && !isSelectionMode && showItemTip && sortedReceipts.length === 1 && (
+        {isFirst && showItemTip && sortedReceipts.length === 1 && (
           <ItemTooltip onDismiss={dismissItemTip} />
         )}
       </View>
@@ -856,43 +749,23 @@ const ExpensesScreen = ({ navigation, route }) => {
       <StatusBar backgroundColor="#1C1C4E" barStyle="light-content" />
       {/* Top App Bar */}
       <View style={[styles.topBar, { paddingTop: 5 }]}>
-        {isSelectionMode ? (
-          <>
-            <TouchableOpacity style={styles.topBarButton} onPress={clearSelectionMode}>
-              <Text style={styles.topBarButtonText}>✕</Text>
-            </TouchableOpacity>
+        <TouchableOpacity
+          style={styles.topBarButton}
+          onPress={() => setMenuOpen(true)}
+        >
+          <Text style={styles.topBarButtonText}>≡</Text>
+        </TouchableOpacity>
 
-            <Text style={styles.topBarTitle}>{selectedIds.size} selected</Text>
+        <Text style={styles.topBarTitle}>Expenses</Text>
 
-            <TouchableOpacity
-              style={[styles.topBarButton, selectedIds.size === 0 && { opacity: 0.4 }]}
-              disabled={selectedIds.size === 0}
-              onPress={handleBatchDeleteReceipts}
-            >
-              <Text style={styles.topBarButtonText}>🗑</Text>
-            </TouchableOpacity>
-          </>
-        ) : (
-          <>
-            <TouchableOpacity
-              style={styles.topBarButton}
-              onPress={() => setMenuOpen(true)}
-            >
-              <Text style={styles.topBarButtonText}>≡</Text>
-            </TouchableOpacity>
-
-            <Text style={styles.topBarTitle}>Expenses</Text>
-
-            {/* Right spacer to balance the layout (same width as the button) */}
-            <View style={{ width: 44 }} />
-          </>
-        )}
+        {/* Right spacer to balance the layout (same width as the button) */}
+        <View style={{ width: 44 }} />
       </View>
 
       <View style={styles.content}>
 
         {/* Header row OUTSIDE the FlatList to avoid Android sticky bug */}
-        {hasReceipts && !isSelectionMode ? (
+        {hasReceipts ? (
           <View style={{ marginTop: 12, marginBottom: 8 }}>
             {renderHeaderRow()}
           </View>
@@ -903,7 +776,6 @@ const ExpensesScreen = ({ navigation, route }) => {
           data={(loading || dataLoading) ? [] : sortedReceipts}
           keyExtractor={(item) => item.id}
           renderItem={renderReceiptItem}
-          extraData={{ isSelectionMode, selectedIds: Array.from(selectedIds).join("|") }}
           contentContainerStyle={[
             { paddingVertical: 10 },
             !hasReceipts ? { flexGrow: 1, justifyContent: "center" } : { paddingBottom: 110 },
@@ -915,15 +787,8 @@ const ExpensesScreen = ({ navigation, route }) => {
 
       </View>
 
-      {filterOpen ? (
-        <Pressable
-          style={styles.filterDismissOverlay}
-          onPress={() => setFilterOpen(false)}
-        />
-      ) : null}
-
       {/* Period filter bar — sits just above the bottom tab bar */}
-      {!isSelectionMode && !dataLoading && !loading && filterOptions.length > 0 ? (
+      {!dataLoading && !loading && filterOptions.length > 0 ? (
         <View style={styles.filterBar}>
           <DropDownPicker
             open={filterOpen}
@@ -947,7 +812,7 @@ const ExpensesScreen = ({ navigation, route }) => {
       ) : null}
 
       {/* Floating Add Expenses Button */}
-      {!isSelectionMode && !addSheetVisible && (
+      {!addSheetVisible && (
         <TouchableOpacity
           style={styles.floatingButton}
           onPress={() => setAddSheetVisible(true)}
@@ -978,12 +843,154 @@ const ExpensesScreen = ({ navigation, route }) => {
 
       {/* Slide-in side menu */}
       <SideMenu open={menuOpen} onClose={closeMenu}>
-        <SharedTabMenu
-          navigation={navigation}
-          closeMenu={closeMenu}
-          displayName={auth.currentUser?.displayName || "User"}
-          open={menuOpen}
-        />
+        <View style={{ flex: 1 }}>
+          {/* Top Section: Name, Email, Settings Button */}
+          <View style={styles.userInfo}>
+            <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}>
+              <Text style={styles.userEmail}>{displayName}</Text>
+              <TouchableOpacity
+                onPress={() => {
+                  setNewName(displayName);
+                  setNameChangeModalVisible(true);
+                }}
+                style={{ paddingLeft: 8 }}
+              >
+                <Text style={{ fontSize: 14 }}>✏️</Text>
+              </TouchableOpacity>
+            </View>
+            <Text style={styles.userEmail}>{auth.currentUser?.email}</Text>
+            {verificationStatus === "verified" && verifiedName ? (
+              <>
+                <Text style={styles.userEmail}>{verifiedName}</Text>
+                <Text style={styles.userEmail}>(verified user)</Text>
+              </>
+            ) : null}
+          </View>
+
+          {/* Settings Button */}
+          <Image
+            source={require("../assets/images/logo.png")}
+            style={styles.menuLogo}
+            resizeMode="contain"
+          />
+
+          {/* Middle Section: Notify Accountant */}
+          <View style={{ marginTop: 20 }}>
+            <TouchableOpacity
+              onPress={handleNotifyAccountant}
+              style={styles.notifyBtnFilled}
+            >
+              <Text style={styles.filledBtnText}>Notify Accountant</Text>
+            </TouchableOpacity>
+
+            {showNotifyTip ? (
+              <View style={styles.notifyTipBox}>
+                <Text style={styles.notifyTipText}>
+                  Notify your accountant that your receipts are ready for processing
+                </Text>
+                <TouchableOpacity onPress={dismissNotifyTip}>
+                  <Text style={styles.notifyTipOkay}>Okay</Text>
+                </TouchableOpacity>
+              </View>
+            ) : null}
+          </View>
+
+          <View style={{ marginTop: 6 }}>
+            <TouchableOpacity
+              onPress={() => openAfterMenuClose(setRegisterVehicleOpen)}
+              style={styles.secondaryMenuButton}
+            >
+              <Text style={styles.secondaryMenuButtonText}>🚗  Register Vehicle</Text>
+            </TouchableOpacity>
+
+            {vehicles.length > 0 && (
+              <TouchableOpacity
+                onPress={() => openAfterMenuClose(setYourVehiclesOpen)}
+                style={[styles.secondaryMenuButton, { marginTop: 10 }]}
+              >
+                <Text style={styles.secondaryMenuButtonText}>📋  Your Vehicles</Text>
+              </TouchableOpacity>
+            )}
+
+            <TouchableOpacity disabled style={[styles.secondaryMenuButton, styles.disabledMenuButton, { marginTop: 10 }]}>
+              <Text style={[styles.secondaryMenuButtonText, styles.disabledMenuButtonText]}>Add ID Image</Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              disabled
+              style={[styles.secondaryMenuButton, styles.disabledMenuButton, { marginTop: 10 }]}
+            >
+              <Text style={[styles.secondaryMenuButtonText, styles.disabledMenuButtonText]}>Add Address</Text>
+            </TouchableOpacity>
+          </View>
+
+          {/* Bottom Section */}
+          <View style={styles.footerContainer}>
+            {/* Enter Client Code Button - Green */}
+            <TouchableOpacity
+              onPress={() => {
+                setReferralCode("");
+                setReferralCodeModalVisible(true);
+              }}
+              style={[
+                styles.referralBtn,
+                verificationStatus === "verified" ? styles.disabledActionButton : null,
+              ]}
+            >
+              <Text
+                style={[
+                  styles.filledBtnText,
+                  verificationStatus === "verified" ? styles.disabledActionButtonText : null,
+                ]}
+              >
+                Enter Client Code
+              </Text>
+            </TouchableOpacity>
+
+            {/* Sign Out Button - Red */}
+            <TouchableOpacity
+              onPress={async () => {
+                closeMenu();
+                await handleLogout();
+              }}
+              style={[styles.redButton, { marginTop: 10 }]}
+            >
+              <Text style={styles.redButtonText}>Sign Out</Text>
+            </TouchableOpacity>
+
+            {/* Delete Account Button - Red */}
+            <TouchableOpacity
+              onPress={handleDeleteAccount}
+              style={[styles.redButton, { marginTop: 10 }]}
+            >
+              <Text style={styles.redButtonText}>Delete Account</Text>
+            </TouchableOpacity>
+
+            {/* Leave Feedback */}
+            <TouchableOpacity
+              onPress={() => {
+                closeMenu();
+                setFeedbackModalVisible(true);
+              }}
+              style={[styles.signOutLink, { marginTop: 12, marginBottom: 0 }]}
+            >
+              <Text style={[styles.linkBtnText, { textDecorationLine: 'none' }]}>
+                Leave Feedback
+              </Text>
+            </TouchableOpacity>
+
+            {/* Version and Privacy Policy */}
+            <View style={styles.versionContainer}>
+              <Text style={styles.versionText}>Version {versionLabel}</Text>
+              <Text style={styles.versionText}> · </Text>
+              <TouchableOpacity onPress={handleOpenPrivacyPolicy}>
+                <Text style={[styles.versionText, { textDecorationLine: "underline", color: Colors.accent }]}>
+                  Privacy Policy
+                </Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
       </SideMenu>
 
       {/* Feedback Modal */}
@@ -1022,6 +1029,36 @@ const ExpensesScreen = ({ navigation, route }) => {
                 <Text style={styles.signOutText}>Send</Text>
               </TouchableOpacity>
             </View>
+          </View>
+        </View>
+      </Modal>
+
+      <Modal
+        visible={settingsModalVisible}
+        transparent
+        animationType="slide"
+        onRequestClose={() => setSettingsModalVisible(false)}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={[styles.loadingCard, styles.settingsModalCard]}>
+            <Text style={styles.title}>Settings</Text>
+
+            <View style={styles.settingsRow}>
+              <Text style={styles.settingsLabel}>Haptic feedback</Text>
+              <Switch
+                value={hapticsEnabled}
+                onValueChange={toggleHapticsSetting}
+                trackColor={{ false: "#c8cad2", true: "#f0b5ca" }}
+                thumbColor={hapticsEnabled ? Colors.accent : "#f4f3f4"}
+              />
+            </View>
+
+            <TouchableOpacity
+              onPress={() => setSettingsModalVisible(false)}
+              style={[styles.signOutBtn, { width: "100%" }]}
+            >
+              <Text style={styles.signOutText}>Done</Text>
+            </TouchableOpacity>
           </View>
         </View>
       </Modal>
@@ -1240,14 +1277,6 @@ const styles = StyleSheet.create({
     borderColor: Colors.border,
     backgroundColor: Colors.card,
   },
-  filterDismissOverlay: {
-    position: "absolute",
-    top: 0,
-    left: 0,
-    right: 0,
-    bottom: 0,
-    zIndex: 900,
-  },
   description: {
     fontSize: 16,
     color: Colors.textPrimary,
@@ -1335,34 +1364,6 @@ const styles = StyleSheet.create({
     justifyContent: "space-between",
     alignItems: "flex-end",
     minHeight: 60,
-  },
-  selectedReceiptItem: {
-    borderWidth: 2,
-    borderColor: Colors.accent,
-    backgroundColor: "#fef3f8",
-    position: "relative",
-  },
-  selectionBadge: {
-    position: "absolute",
-    left: 10,
-    top: 8,
-    width: 18,
-    height: 18,
-    borderRadius: 9,
-    borderWidth: 1,
-    borderColor: Colors.accent,
-    backgroundColor: "#fff",
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  selectionBadgeActive: {
-    backgroundColor: Colors.accent,
-  },
-  selectionBadgeText: {
-    color: "#fff",
-    fontSize: 12,
-    fontWeight: "700",
-    lineHeight: 12,
   },
   receiptDate: { fontSize: 14, color: Colors.textMuted, minWidth: 90 },
   receiptLabel: {
@@ -1470,12 +1471,6 @@ const styles = StyleSheet.create({
     color: "#7B7B7B",
     fontSize: 14,
   },
-  verifiedAsText: {
-    color: "#2e86de",
-    fontSize: 13,
-    fontWeight: "700",
-    marginTop: 4,
-  },
   signOutBtn: {
     backgroundColor: Colors.accent,
     paddingVertical: 12,
@@ -1503,30 +1498,6 @@ const styles = StyleSheet.create({
   settingsLabel: {
     color: Colors.textPrimary,
     fontSize: 14,
-  },
-  settingsDivider: {
-    height: 1,
-    backgroundColor: "#e0e0e5",
-    marginVertical: 8,
-    width: "100%",
-  },
-  settingsInputGroup: {
-    width: "100%",
-    marginBottom: 12,
-  },
-  settingsInputLabel: {
-    color: Colors.textPrimary,
-    fontSize: 13,
-    fontWeight: "700",
-    marginBottom: 6,
-  },
-  settingsInput: {
-    borderWidth: 1,
-    borderColor: "#c8cad2",
-    borderRadius: 8,
-    paddingHorizontal: 12,
-    paddingVertical: 10,
-    color: Colors.textPrimary,
   },
   menuLogo: {
     width: "100%",

@@ -703,10 +703,6 @@
         </select>
       </div>
 
-      <div class="actions" style="margin:12px 0 6px">
-        <button id="broadcastNotificationBtn" type="button" class="btn-primary">Broadcast Notification to Visible Users</button>
-      </div>
-
       <div id="clientBoard" class="board"></div>
       <div id="statusLine" class="statusline">Select a client tile to export receipt, income, and bank statement data.</div>
       </div>
@@ -783,7 +779,6 @@
           <h3 style="margin:0 0 14px; font-family:'Space Grotesk',sans-serif; font-size:1.05rem; color:var(--ink)">Edit Client Details</h3>
           <div class="stack">
             <label for="adminClientSelect">Select client</label>
-            <input id="adminClientSearch" type="text" placeholder="Search clients..." />
             <select id="adminClientSelect">
               <option value="">Choose a client...</option>
             </select>
@@ -801,33 +796,14 @@
             </div>
           </div>
 
-          <div class="split-layout" style="margin-top:10px">
-            <div class="stack">
-              <label for="adminVatRegisteredInput">VAT registered</label>
-              <label style="display:flex; align-items:center; gap:8px; font-weight:600">
-                <input id="adminVatRegisteredInput" type="checkbox" />
-                Registered for VAT
-              </label>
-            </div>
-            <div class="stack">
-              <label for="adminVatNumberInput">VAT registration number</label>
-              <input id="adminVatNumberInput" type="text" placeholder="Optional" />
-            </div>
-          </div>
-
           <div class="stack" style="margin-top:10px">
-            <label for="adminCodeInput" style="display:flex; align-items:center; justify-content:space-between; gap:10px;">
-              <span>Verification code</span>
-              <button id="adminGenerateCodeBtn" type="button" class="btn-secondary" style="padding:6px 12px; font-size:0.86rem;">Generate</button>
-            </label>
+            <label for="adminCodeInput">Verification code</label>
             <input id="adminCodeInput" type="text" placeholder="Optional, e.g. ABC123" style="text-transform:uppercase" />
             <p class="hint" style="margin-top:0">If provided, the code is created/updated in VerificationCodes and linked to this user.</p>
           </div>
 
           <div class="actions" style="margin-top:14px">
             <button id="adminSaveBtn" type="button" class="btn-primary">Save Client Changes</button>
-            <button id="adminVerifyEmailBtn" type="button" class="btn-secondary">Confirm Email Verified</button>
-            <button id="adminSendTestNotificationBtn" type="button" class="btn-secondary">Send Test Notification</button>
             <button id="adminClearBtn" type="button" class="btn-secondary">Clear</button>
           </div>
           <div id="adminStatus" class="statusline" style="margin-top:10px">Select a client to edit their details.</div>
@@ -846,32 +822,9 @@
 
         <div class="modal-actions">
           <button id="resetNotifyBtn" type="button" class="btn-success" style="display:none">Mark As Processed</button>
-          <button id="modalSendTestNotificationBtn" type="button" class="btn-secondary" style="display:none">Send Notification</button>
           <button id="cancelDateBtn" type="button" class="btn-secondary">Cancel</button>
           <button id="confirmDateBtn" type="button" class="btn-primary">Download ZIP</button>
         </div>
-      </div>
-    </div>
-  </div>
-
-  <div id="broadcastModal" class="modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="broadcastModalTitle">
-    <div class="modal">
-      <div id="broadcastModalTitle" class="modal-head">Notification</div>
-      <div class="modal-body">
-        <div id="broadcastAudience" class="period-summary" style="margin-bottom:14px"></div>
-        <div class="stack">
-          <label for="broadcastTitleInput">Header</label>
-          <input id="broadcastTitleInput" type="text" maxlength="80" placeholder="Message header" />
-        </div>
-        <div class="stack" style="margin-top:12px">
-          <label for="broadcastBodyInput">Body text</label>
-          <textarea id="broadcastBodyInput" maxlength="500" rows="5" placeholder="Write the notification message..."></textarea>
-        </div>
-        <div class="modal-actions">
-          <button id="cancelBroadcastBtn" type="button" class="btn-secondary">Cancel</button>
-          <button id="sendBroadcastBtn" type="button" class="btn-primary">Send Notification</button>
-        </div>
-        <div id="broadcastStatus" class="statusline"></div>
       </div>
     </div>
   </div>
@@ -894,15 +847,6 @@
     const clientBoard = document.getElementById("clientBoard");
     const loginInfo = document.getElementById("loginInfo");
     const statusLine = document.getElementById("statusLine");
-    const broadcastNotificationBtn = document.getElementById("broadcastNotificationBtn");
-    const broadcastModal = document.getElementById("broadcastModal");
-    const broadcastModalTitle = document.getElementById("broadcastModalTitle");
-    const broadcastAudience = document.getElementById("broadcastAudience");
-    const broadcastTitleInput = document.getElementById("broadcastTitleInput");
-    const broadcastBodyInput = document.getElementById("broadcastBodyInput");
-    const cancelBroadcastBtn = document.getElementById("cancelBroadcastBtn");
-    const sendBroadcastBtn = document.getElementById("sendBroadcastBtn");
-    const broadcastStatus = document.getElementById("broadcastStatus");
     const logOutBtn = document.getElementById("logOutBtn");
     const activityTabBtn = document.getElementById("activityTabBtn");
     const managementTabBtn = document.getElementById("managementTabBtn");
@@ -927,17 +871,11 @@
     const allCodesStatus = document.getElementById("allCodesStatus");
     const generatedCodesTableBody = document.querySelector("#generatedCodesTable tbody");
     const allCodesTableBody = document.querySelector("#allCodesTable tbody");
-    const adminClientSearch = document.getElementById("adminClientSearch");
     const adminClientSelect = document.getElementById("adminClientSelect");
     const adminNameInput = document.getElementById("adminNameInput");
     const adminEmailInput = document.getElementById("adminEmailInput");
     const adminCodeInput = document.getElementById("adminCodeInput");
-    const adminVatRegisteredInput = document.getElementById("adminVatRegisteredInput");
-    const adminVatNumberInput = document.getElementById("adminVatNumberInput");
-    const adminGenerateCodeBtn = document.getElementById("adminGenerateCodeBtn");
     const adminSaveBtn = document.getElementById("adminSaveBtn");
-    const adminVerifyEmailBtn = document.getElementById("adminVerifyEmailBtn");
-    const adminSendTestNotificationBtn = document.getElementById("adminSendTestNotificationBtn");
     const adminClearBtn = document.getElementById("adminClearBtn");
     const adminStatus = document.getElementById("adminStatus");
 
@@ -947,15 +885,12 @@
     const cancelDateBtn = document.getElementById("cancelDateBtn");
     const confirmDateBtn = document.getElementById("confirmDateBtn");
     const resetNotifyBtn = document.getElementById("resetNotifyBtn");
-    const modalSendTestNotificationBtn = document.getElementById("modalSendTestNotificationBtn");
 
     let currentAccountant = null;
     let previousLoginDate = null;
     let liveUsers = [];
     let selectedUser = null;
     let selectedAdminUserId = "";
-    let broadcastUsers = [];
-    let adminClientOptions = [];
     const activeStatusFilters = new Set();
     let currentTab = "activity";
     let receiptCountLoadRun = 0;
@@ -1839,10 +1774,6 @@
       return String(value || "").trim();
     }
 
-    function normalizeEmail(value) {
-      return String(value || "").trim().toLowerCase();
-    }
-
     function normalizeVerificationCode(value) {
       return String(value || "")
         .trim()
@@ -1856,31 +1787,10 @@
 
     function clearAdminForm() {
       selectedAdminUserId = "";
-      adminClientSearch.value = "";
       adminClientSelect.value = "";
       adminNameInput.value = "";
       adminEmailInput.value = "";
       adminCodeInput.value = "";
-      adminVatRegisteredInput.checked = false;
-      adminVatNumberInput.value = "";
-    }
-
-    function renderAdminClientOptions(searchText) {
-      const queryText = String(searchText || "").trim().toLowerCase();
-      const filtered = !queryText
-        ? adminClientOptions
-        : adminClientOptions.filter((option) => {
-          return option.searchValue.includes(queryText);
-        });
-
-      adminClientSelect.innerHTML = "<option value=''>Choose a client...</option>" +
-        filtered.map((option) => {
-          return "<option value='" + escHtml(option.id) + "'>" + escHtml(option.label) + "</option>";
-        }).join("");
-
-      if (selectedAdminUserId && filtered.some((option) => option.id === selectedAdminUserId)) {
-        adminClientSelect.value = selectedAdminUserId;
-      }
     }
 
     function populateAdminClientSelect() {
@@ -1888,18 +1798,15 @@
         String(a && a.name ? a.name : "").localeCompare(String(b && b.name ? b.name : ""), undefined, {sensitivity: "base"})
       );
 
-      adminClientOptions = sortedUsers.map((user) => {
-        const label = (user.name || "Unknown user") + (user.email ? " (" + user.email + ")" : "");
-        return {
-          id: user.id,
-          label,
-          searchValue: ((user.name || "") + " " + (user.email || "") + " " + user.id).toLowerCase(),
-        };
-      });
+      adminClientSelect.innerHTML = "<option value=''>Choose a client...</option>" +
+        sortedUsers.map((user) => {
+          const label = (user.name || "Unknown user") + (user.email ? " (" + user.email + ")" : "");
+          return "<option value='" + escHtml(user.id) + "'>" + escHtml(label) + "</option>";
+        }).join("");
 
-      renderAdminClientOptions(adminClientSearch.value);
-
-      if (!selectedAdminUserId || !getUserById(selectedAdminUserId)) {
+      if (selectedAdminUserId && getUserById(selectedAdminUserId)) {
+        adminClientSelect.value = selectedAdminUserId;
+      } else {
         selectedAdminUserId = "";
       }
     }
@@ -1917,56 +1824,7 @@
       adminNameInput.value = toInputValue(user.originalName || user.name);
       adminEmailInput.value = toInputValue(user.email);
       adminCodeInput.value = toInputValue(user.verificationCode);
-      adminVatRegisteredInput.checked = user.vatRegistered === true;
-      adminVatNumberInput.value = toInputValue(user.vatRegistrationNumber);
       adminStatus.textContent = "Editing " + user.name + ". Update fields and click Save Client Changes.";
-    }
-
-    async function generateAdminVerificationCode() {
-      if (!currentAccountant) {
-        alert("You must be signed in to generate a verification code.");
-        return;
-      }
-
-      const nextName = toInputValue(adminNameInput.value);
-      const nextEmail = normalizeEmail(adminEmailInput.value);
-      const isValidEmail = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(nextEmail);
-
-      if (!nextName) {
-        alert("Please enter the client name before generating a verification code.");
-        return;
-      }
-      if (!nextEmail || !isValidEmail) {
-        alert("Please enter a valid email address before generating a verification code.");
-        return;
-      }
-
-      adminGenerateCodeBtn.disabled = true;
-      adminStatus.textContent = "Generating verification code...";
-
-      try {
-        const code = await generateUniqueClientCode();
-        await db.collection("VerificationCodes").doc(code).set({
-          code,
-          accountantSubmittedName: nextName,
-          accountantSubmittedEmail: nextEmail,
-          accountantSubmittedEmailLower: nextEmail,
-          createdAt: firebase.firestore.FieldValue.serverTimestamp(),
-          createdByUid: currentAccountant.uid,
-          createdByEmail: currentAccountant.email || null,
-          usedBy: null,
-          usedAt: null,
-          verificationStatus: "available",
-        }, { merge: true });
-
-        adminCodeInput.value = code;
-        adminStatus.textContent = "Generated verification code " + code + ". Click Save Client Changes to link it to this user.";
-      } catch (error) {
-        console.error("generateAdminVerificationCode error", error);
-        adminStatus.textContent = "Could not generate verification code: " + (error && error.message ? error.message : String(error));
-      } finally {
-        adminGenerateCodeBtn.disabled = false;
-      }
     }
 
     async function saveAdminClientChanges() {
@@ -1989,8 +1847,6 @@
       const nextEmailRaw = toInputValue(adminEmailInput.value);
       const nextEmail = nextEmailRaw ? nextEmailRaw.toLowerCase() : "";
       const nextCode = normalizeVerificationCode(adminCodeInput.value);
-      const nextVatRegistered = adminVatRegisteredInput.checked === true;
-      const nextVatNumber = toInputValue(adminVatNumberInput.value);
 
       if (nextEmail && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(nextEmail)) {
         adminStatus.textContent = "Please enter a valid email address.";
@@ -2028,7 +1884,6 @@
               code: nextCode,
               accountantSubmittedName: nextName || userData.name || userData.displayName || "",
               accountantSubmittedEmail: nextEmail || null,
-              accountantSubmittedEmailLower: nextEmail || null,
               createdByUid: currentAccountant.uid,
               createdByEmail: currentAccountant.email || null,
               usedBy: user.id,
@@ -2061,16 +1916,6 @@
             verificationCode: nextCode || firebase.firestore.FieldValue.delete(),
             verificationStatus: nextCode ? "verified" : firebase.firestore.FieldValue.delete(),
             verifiedName: nextCode && nextName ? nextName : firebase.firestore.FieldValue.delete(),
-            taxProfile: {
-              vat: {
-                isRegistered: nextVatRegistered,
-                registrationNumber: nextVatRegistered ? nextVatNumber : "",
-                hasAnsweredRegistrationQuestion: true,
-                setupCompletedAt: userData.taxProfile?.vat?.setupCompletedAt || nowTs,
-                updatedAt: nowTs,
-              },
-            },
-            hasAnsweredVatRegistration: true,
             updatedAt: nowTs,
           }, {merge: true});
         });
@@ -2084,277 +1929,6 @@
       } finally {
         adminSaveBtn.disabled = false;
       }
-    }
-
-    async function verifySelectedUserEmailFromPortal() {
-      if (!currentAccountant) {
-        adminStatus.textContent = "You must be signed in.";
-        return;
-      }
-      if (!selectedAdminUserId) {
-        adminStatus.textContent = "Please select a client first.";
-        return;
-      }
-
-      adminVerifyEmailBtn.disabled = true;
-      adminStatus.textContent = "Confirming email verification...";
-
-      try {
-        const currentUser = auth.currentUser;
-        if (!currentUser) {
-          throw new Error("You are signed out. Please sign in again.");
-        }
-
-        const selectedUser = getUserById(selectedAdminUserId);
-        const selectedEmail = normalizeEmail(adminEmailInput.value || (selectedUser && selectedUser.email) || "");
-
-        const idToken = await currentUser.getIdToken();
-        const response = await fetch("/portal-verify-user-email", {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            Authorization: "Bearer " + idToken,
-          },
-          body: JSON.stringify({
-            userId: selectedAdminUserId,
-            email: selectedEmail || null,
-          }),
-        });
-
-        const payload = await response.json().catch(() => ({}));
-        if (!response.ok) {
-          throw new Error(payload && payload.error ? payload.error : "Could not verify email for this user.");
-        }
-
-        await reloadAndRenderBoard();
-        renderAdminClientForm(selectedAdminUserId);
-        adminStatus.textContent = payload && payload.codeAssigned
-          ? ("Email verified and code " + payload.code + " assigned to Auth user.")
-          : "Email marked as verified for selected client.";
-      } catch (error) {
-        console.error("verifySelectedUserEmailFromPortal error", error);
-        adminStatus.textContent = "Email verification failed: " + (error && error.message ? error.message : String(error));
-      } finally {
-        adminVerifyEmailBtn.disabled = false;
-      }
-    }
-
-    async function sendTestNotificationToUser(userId, statusTarget, button, clientName) {
-      if (!currentAccountant) {
-        statusTarget.textContent = "You must be signed in.";
-        return;
-      }
-      if (!userId) {
-        statusTarget.textContent = "Please select a client first.";
-        return;
-      }
-
-      const originalButtonText = button ? button.textContent : "";
-      if (button) {
-        button.disabled = true;
-        button.textContent = "Sending...";
-      }
-      statusTarget.textContent = "Sending notification" + (clientName ? " to " + clientName : "") + "...";
-
-      try {
-        const currentUser = auth.currentUser;
-        if (!currentUser) {
-          throw new Error("You are signed out. Please sign in again.");
-        }
-
-        const idToken = await currentUser.getIdToken();
-        const response = await fetch("/portal-send-test-notification", {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            Authorization: "Bearer " + idToken,
-          },
-          body: JSON.stringify({
-            userId,
-            title: "Express Accounts test",
-            body: "This is a notification from your accountant.",
-          }),
-        });
-
-        const payload = await response.json().catch(() => ({}));
-        if (!response.ok) {
-          throw new Error(payload && payload.error ? payload.error : "Could not send test notification.");
-        }
-
-        const ticketRefs = Array.isArray(payload.ticketRefs) ? payload.ticketRefs : [];
-        const ticketSummary = ticketRefs.length
-          ? " Ticket: " + ticketRefs.map((ticket) => ticket.status + (ticket.id ? " " + ticket.id : ticket.message ? " " + ticket.message : "")).join("; ")
-          : "";
-        statusTarget.textContent = "Notification sent to " + payload.sent + " device" + (payload.sent === 1 ? "." : "s.") + ticketSummary;
-
-        const checkableTickets = ticketRefs.filter((ticket) => ticket.id);
-        if (checkableTickets.length > 0) {
-          setTimeout(() => {
-            checkNotificationReceipts(userId, checkableTickets, statusTarget).catch((error) => {
-              console.error("checkNotificationReceipts error", error);
-              statusTarget.textContent += " Receipt check failed: " + (error && error.message ? error.message : String(error));
-            });
-          }, 5000);
-        }
-      } catch (error) {
-        console.error("sendTestNotificationToUser error", error);
-        statusTarget.textContent = "Notification failed: " + (error && error.message ? error.message : String(error));
-      } finally {
-        if (button) {
-          button.disabled = false;
-          button.textContent = originalButtonText;
-        }
-      }
-    }
-
-    async function checkNotificationReceipts(userId, tickets, statusTarget) {
-      const currentUser = auth.currentUser;
-      if (!currentUser) {
-        throw new Error("You are signed out. Please sign in again.");
-      }
-
-      const idToken = await currentUser.getIdToken();
-      const response = await fetch("/portal-check-notification-receipts", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: "Bearer " + idToken,
-        },
-        body: JSON.stringify({
-          ...(Array.isArray(userId) ? {userIds: userId} : {userId}),
-          tickets,
-        }),
-      });
-
-      const payload = await response.json().catch(() => ({}));
-      if (!response.ok) {
-        throw new Error(payload && payload.error ? payload.error : "Could not check notification receipts.");
-      }
-
-      const entries = Object.entries(payload.receipts || {});
-      if (entries.length === 0) {
-        statusTarget.textContent += " Receipt: pending.";
-        return;
-      }
-
-      const summary = entries.map(([ticketId, receipt]) => {
-        const shortId = ticketId.slice(0, 8);
-        if (!receipt) return shortId + ": missing";
-        if (receipt.status === "ok") return shortId + ": delivered ok";
-        const detail = receipt.details && receipt.details.error ? " (" + receipt.details.error + ")" : "";
-        return shortId + ": " + receipt.status + (receipt.message ? " " + receipt.message : "") + detail;
-      }).join("; ");
-
-      statusTarget.textContent += " Receipt: " + summary;
-    }
-
-    function closeBroadcastModal() {
-      broadcastModal.style.display = "none";
-      broadcastUsers = [];
-      broadcastStatus.textContent = "";
-    }
-
-    function openNotificationComposer(users, isBroadcast) {
-      if (!currentAccountant) {
-        statusLine.textContent = "You must be signed in.";
-        return;
-      }
-
-      broadcastUsers = users;
-      if (broadcastUsers.length === 0) {
-        statusLine.textContent = "No users match the current filters.";
-        return;
-      }
-
-      broadcastModalTitle.textContent = isBroadcast ? "Broadcast notification" : "Send notification";
-      sendBroadcastBtn.textContent = isBroadcast ? "Send Broadcast" : "Send Notification";
-      broadcastAudience.textContent = isBroadcast
-        ? "This will target " + broadcastUsers.length + " visible user" + (broadcastUsers.length === 1 ? "" : "s") + ". Users hidden by the current filters will not be included."
-        : "This will target " + (broadcastUsers[0].name || "this client") + ".";
-      broadcastTitleInput.value = "";
-      broadcastBodyInput.value = "";
-      broadcastStatus.textContent = "";
-      sendBroadcastBtn.disabled = false;
-      broadcastModal.style.display = "flex";
-      broadcastTitleInput.focus();
-    }
-
-    function openBroadcastModal() {
-      openNotificationComposer(applyFiltersAndSort(liveUsers), true);
-    }
-
-    async function sendBroadcastNotification() {
-      if (!broadcastUsers.length) return;
-      const title = broadcastTitleInput.value.trim();
-      const body = broadcastBodyInput.value.trim();
-      if (!title || !body) {
-        broadcastStatus.textContent = "Enter both a header and body text.";
-        return;
-      }
-
-      const currentUser = auth.currentUser;
-      if (!currentUser) {
-        broadcastStatus.textContent = "You are signed out. Please sign in again.";
-        return;
-      }
-
-      sendBroadcastBtn.disabled = true;
-      broadcastStatus.textContent = "Sending to " + broadcastUsers.length + " visible users...";
-      try {
-        const idToken = await currentUser.getIdToken();
-        const response = await fetch("/portal-send-test-notification", {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            Authorization: "Bearer " + idToken,
-          },
-          body: JSON.stringify({
-            userIds: broadcastUsers.map((user) => user.id),
-            title,
-            body,
-            action: "open-summary",
-          }),
-        });
-        const payload = await response.json().catch(() => ({}));
-        if (!response.ok) {
-          throw new Error(payload && payload.error ? payload.error : "Could not send broadcast notification.");
-        }
-
-        const ticketRefs = Array.isArray(payload.ticketRefs) ? payload.ticketRefs : [];
-        broadcastStatus.textContent = "Sent to " + payload.targetedUsers + " users with " + payload.sent + " registered device" + (payload.sent === 1 ? "." : "s.");
-        const checkableTickets = ticketRefs.filter((ticket) => ticket.id);
-        if (checkableTickets.length > 0) {
-          setTimeout(() => {
-            checkNotificationReceipts(
-              broadcastUsers.map((user) => user.id),
-              checkableTickets,
-              broadcastStatus,
-            ).catch((error) => {
-              broadcastStatus.textContent += " Receipt check failed: " + (error && error.message ? error.message : String(error));
-            });
-          }, 5000);
-        }
-      } catch (error) {
-        console.error("sendBroadcastNotification error", error);
-        broadcastStatus.textContent = "Broadcast failed: " + (error && error.message ? error.message : String(error));
-      } finally {
-        sendBroadcastBtn.disabled = false;
-      }
-    }
-
-    async function sendTestNotificationFromPortal() {
-      const user = selectedAdminUserId ? getUserById(selectedAdminUserId) : null;
-      await sendTestNotificationToUser(
-        selectedAdminUserId,
-        adminStatus,
-        adminSendTestNotificationBtn,
-        user && user.name ? user.name : "",
-      );
-    }
-
-    async function sendModalNotificationToSelectedUser() {
-      if (!selectedUser) return;
-      openNotificationComposer([selectedUser], false);
     }
 
     function refreshProcessedButtonState() {
@@ -2407,8 +1981,6 @@
             amount: Number(data.amount) || 0,
             vatAmount: data.vatAmount != null ? Number(data.vatAmount) : 0,
             vatRate: data.vatRate != null ? Number(data.vatRate) : 0,
-            vat: data.vat || null,
-            cis: data.cis || null,
             date: data.date ? String(data.date).split("T")[0] : "",
             reference: data.reference || "",
             label: data.label || "",
@@ -2476,8 +2048,6 @@
             email: profile.email || null,
             verificationCode: profile.verificationCode || null,
             notifyAccountant: profile.notifyAccountant || false,
-            vatRegistered: profile.taxProfile?.vat?.isRegistered === true,
-            vatRegistrationNumber: profile.taxProfile?.vat?.registrationNumber || "",
             processedAt: toJsDate(profile.processedAt),
             receipts: receiptsByUser[uid] || [],
             receiptCount: (receiptsByUser[uid] || []).length,
@@ -2751,13 +2321,11 @@
 
         const rows = [];
         for (const client of clients) {
-          const normalizedClientEmail = normalizeEmail(client.email || "");
           const code = await generateUniqueClientCode();
           await db.collection("VerificationCodes").doc(code).set({
             code,
             accountantSubmittedName: client.name,
-            accountantSubmittedEmail: normalizedClientEmail || null,
-            accountantSubmittedEmailLower: normalizedClientEmail || null,
+            accountantSubmittedEmail: client.email || null,
             createdAt: firebase.firestore.FieldValue.serverTimestamp(),
             createdByUid: currentAccountant.uid,
             createdByEmail: currentAccountant.email || null,
@@ -2765,62 +2333,7 @@
             usedAt: null,
             verificationStatus: "available",
           }, { merge: true });
-
-          let rowStatus = "Created";
-          if (normalizedClientEmail) {
-            const userSnap = await db.collection("users")
-              .where("email", "==", normalizedClientEmail)
-              .limit(1)
-              .get();
-
-            if (!userSnap.empty) {
-              const linkedUser = userSnap.docs[0];
-              const userRef = db.collection("users").doc(linkedUser.id);
-              const codeRef = db.collection("VerificationCodes").doc(code);
-              const nowTs = firebase.firestore.FieldValue.serverTimestamp();
-
-              await db.runTransaction(async (tx) => {
-                const userDoc = await tx.get(userRef);
-                const userData = userDoc.exists ? (userDoc.data() || {}) : {};
-                const currentCode = normalizeVerificationCode(userData.verificationCode || "");
-
-                tx.set(userRef, {
-                  verificationStatus: "verified",
-                  verifiedName: client.name || userData.name || userData.displayName || "Verified client",
-                  verificationCode: code,
-                  hideAds: true,
-                  updatedAt: nowTs,
-                }, { merge: true });
-
-                tx.set(codeRef, {
-                  usedBy: linkedUser.id,
-                  usedAt: nowTs,
-                  verificationStatus: "verified",
-                  updatedAt: nowTs,
-                }, { merge: true });
-
-                if (currentCode && currentCode !== code) {
-                  const oldCodeRef = db.collection("VerificationCodes").doc(currentCode);
-                  const oldCodeSnap = await tx.get(oldCodeRef);
-                  if (oldCodeSnap.exists) {
-                    const oldCodeData = oldCodeSnap.data() || {};
-                    if (String(oldCodeData.usedBy || "") === linkedUser.id) {
-                      tx.set(oldCodeRef, {
-                        usedBy: null,
-                        usedAt: null,
-                        verificationStatus: "available",
-                        updatedAt: nowTs,
-                      }, { merge: true });
-                    }
-                  }
-                }
-              });
-
-              rowStatus = "Assigned to existing user";
-            }
-          }
-
-          rows.push({ name: client.name, email: normalizedClientEmail || "", code, status: rowStatus });
+          rows.push({ name: client.name, email: client.email || "", code, status: "Created" });
         }
 
         renderGeneratedCodesTable(rows);
@@ -2964,7 +2477,6 @@
       periodSummary.textContent = "Loading receipts for " + user.name + "...";
       confirmDateBtn.disabled = true;
       resetNotifyBtn.style.display = "inline-block";
-      modalSendTestNotificationBtn.style.display = "inline-block";
       refreshProcessedButtonState();
 
       document.getElementById("modalTitle").textContent = "Export data for " + user.name;
@@ -2988,7 +2500,6 @@
       dateModal.style.display = "none";
       selectedUser = null;
       resetNotifyBtn.style.display = "none";
-      modalSendTestNotificationBtn.style.display = "none";
       if (periodSummary) {
         periodSummary.textContent = "Select a period to see record totals.";
       }
@@ -3557,20 +3068,8 @@
     sendAllEmailsBtn.addEventListener("click", () => sendAllEmails(sendAllEmailsBtn._rows || []));
     clearManagementBtn.addEventListener("click", clearManagementInputs);
     loadAllCodesBtn.addEventListener("click", loadAllCodes);
-    adminClientSearch.addEventListener("input", () => {
-      renderAdminClientOptions(adminClientSearch.value);
-    });
     adminClientSelect.addEventListener("change", () => renderAdminClientForm(adminClientSelect.value));
-    adminGenerateCodeBtn.addEventListener("click", generateAdminVerificationCode);
     adminSaveBtn.addEventListener("click", saveAdminClientChanges);
-    adminVerifyEmailBtn.addEventListener("click", verifySelectedUserEmailFromPortal);
-    adminSendTestNotificationBtn.addEventListener("click", sendTestNotificationFromPortal);
-    broadcastNotificationBtn.addEventListener("click", openBroadcastModal);
-    cancelBroadcastBtn.addEventListener("click", closeBroadcastModal);
-    sendBroadcastBtn.addEventListener("click", sendBroadcastNotification);
-    broadcastModal.addEventListener("click", (event) => {
-      if (event.target === broadcastModal) closeBroadcastModal();
-    });
     adminClearBtn.addEventListener("click", () => {
       clearAdminForm();
       adminStatus.textContent = "Select a client to edit their details.";
@@ -3578,7 +3077,6 @@
 
     cancelDateBtn.addEventListener("click", closeDateModal);
     periodSelect.addEventListener("change", renderPeriodSummary);
-    modalSendTestNotificationBtn.addEventListener("click", sendModalNotificationToSelectedUser);
     resetNotifyBtn.addEventListener("click", async () => {
       if (!selectedUser) return;
       if (selectedUser.processedAt) {

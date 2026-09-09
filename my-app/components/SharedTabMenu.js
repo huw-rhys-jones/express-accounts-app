@@ -36,12 +36,13 @@ import { verifyClientCode } from "../utils/verificationCodes";
 import RegisterVehicleModal from "./RegisterVehicleModal";
 import YourVehiclesModal from "./YourVehiclesModal";
 import { useData } from "../contexts/DataContext";
+import { registerPushTokenForUser, sendLocalTestNotification } from "../utils/pushNotifications";
 
 const appVersion = appPackage?.version || Constants.expoConfig?.version || "unknown";
 const internalBuildLabel = Constants.expoConfig?.extra?.internalBuildLabel || "";
 const versionLabel = internalBuildLabel ? `${appVersion} (${internalBuildLabel})` : appVersion;
 
-export default function SharedTabMenu({ navigation, closeMenu, displayName = "User", open = false }) {
+export default function SharedTabMenu({ navigation, closeMenu, displayName = "User", open = false, onVehiclesChanged }) {
   const { userProfile, displayName: contextDisplayName } = useData();
   const [busy, setBusy] = useState(false);
   const [busyText, setBusyText] = useState("Please wait...");
@@ -183,6 +184,24 @@ export default function SharedTabMenu({ navigation, closeMenu, displayName = "Us
     closeMenu();
     triggerHaptic("success").catch(() => {});
     Alert.alert("Accountant Notified", "Your accountant has been notified that your receipts are ready for processing.");
+  };
+
+  const handleSendTestNotification = async () => {
+    try {
+      const token = await registerPushTokenForUser(auth.currentUser);
+      const sent = await sendLocalTestNotification();
+      if (!sent) {
+        Alert.alert("Notifications Disabled", "Allow notifications for Express Accounts to receive test alerts.");
+      } else if (!token) {
+        Alert.alert(
+          "Local Test Sent",
+          "The local notification worked, but no push token was saved for portal notifications. Try this again from an installed development or production build.",
+        );
+      }
+    } catch (error) {
+      console.error("Could not send local test notification", error);
+      Alert.alert("Notification Failed", "Could not send the test notification on this device.");
+    }
   };
 
   const saveVatSettings = async () => {
@@ -427,10 +446,7 @@ export default function SharedTabMenu({ navigation, closeMenu, displayName = "Us
 
         <View style={{ marginTop: 6 }}>
           <TouchableOpacity
-            onPress={() => {
-              closeMenu();
-              requestAnimationFrame(() => setRegisterVehicleOpen(true));
-            }}
+            onPress={() => setRegisterVehicleOpen(true)}
             style={styles.secondaryMenuButton}
           >
             <Text style={styles.secondaryMenuButtonText}>🚗  Register Vehicle</Text>
@@ -443,12 +459,16 @@ export default function SharedTabMenu({ navigation, closeMenu, displayName = "Us
             <Text style={styles.secondaryMenuButtonText}>VAT Registration</Text>
           </TouchableOpacity>
 
+          <TouchableOpacity
+            onPress={handleSendTestNotification}
+            style={[styles.secondaryMenuButton, { marginTop: 10 }]}
+          >
+            <Text style={styles.secondaryMenuButtonText}>Send Test Notification</Text>
+          </TouchableOpacity>
+
           {vehicles.length > 0 && (
             <TouchableOpacity
-              onPress={() => {
-                closeMenu();
-                requestAnimationFrame(() => setYourVehiclesOpen(true));
-              }}
+              onPress={() => setYourVehiclesOpen(true)}
               style={[styles.secondaryMenuButton, { marginTop: 10 }]}
             >
               <Text style={styles.secondaryMenuButtonText}>📋  Your Vehicles</Text>
@@ -716,7 +736,10 @@ export default function SharedTabMenu({ navigation, closeMenu, displayName = "Us
       <RegisterVehicleModal
         visible={registerVehicleOpen}
         onClose={() => setRegisterVehicleOpen(false)}
-        onSaved={(updated) => setVehicles(updated)}
+        onSaved={(updated) => {
+          setVehicles(updated);
+          onVehiclesChanged?.(updated);
+        }}
         vehicle={null}
       />
 
@@ -724,7 +747,10 @@ export default function SharedTabMenu({ navigation, closeMenu, displayName = "Us
         visible={yourVehiclesOpen}
         onClose={() => setYourVehiclesOpen(false)}
         vehicles={vehicles}
-        onChanged={(updated) => setVehicles(updated)}
+        onChanged={(updated) => {
+          setVehicles(updated);
+          onVehiclesChanged?.(updated);
+        }}
       />
 
       {busy ? (

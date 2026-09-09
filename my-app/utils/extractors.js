@@ -811,6 +811,51 @@ export function extractVAT(text, amountInfo, categoryIdx) {
   return { value: null, rate: null };
 }
 
+export function extractCIS(text, amountInfo) {
+  if (!text) {
+    return { applies: false, materialsAmount: 0, deductionRate: 0, taxWithheld: 0 };
+  }
+
+  const lines = text.replace(/\r\n/g, "\n").split("\n").map(line => line.trim()).filter(Boolean);
+  const applies = /construction industry scheme|cis\s+(?:subcontractors?\s+)?payment statement|payment and deduction statement|remittance advice(?=[\s\S]*?tax deduction)/i.test(text);
+  if (!applies) {
+    return { applies: false, materialsAmount: 0, deductionRate: 0, taxWithheld: 0 };
+  }
+
+  const moneyFromLine = (line) => {
+    const match = line.match(/(?:£\s*)?(\d{1,3}(?:[,.]\d{3})*[.,]\d{2})-?/);
+    return match ? parseAmount(match[1]) : null;
+  };
+
+  const rateMatch = text.match(/\b(?:cis\s+)?(?:tax\s+)?(?:deduction|rate)\b[^%\n]{0,20}?(\d{1,2}(?:[.,]\d{1,2})?)\s*%/i) ||
+    text.match(/\b(\d{1,2}(?:[.,]\d{1,2})?)\s*%\b(?=[\s\S]{0,80}\b(?:cis|tax)\b)/i);
+  const deductionRate = rateMatch ? parseFloat(rateMatch[1].replace(',', '.')) : 20;
+
+  let taxWithheld = null;
+  for (let index = 0; index < lines.length; index += 1) {
+    if (!/\b(?:cis\s+|tax\s+)deduction\b|\bdeducted\s*\(\s*b\s*\)|\btax\s+withheld\b/i.test(lines[index])) continue;
+    for (let offset = 0; offset <= 4 && index + offset < lines.length; offset += 1) {
+      const value = moneyFromLine(lines[index + offset]);
+      if (value != null) {
+        taxWithheld = value;
+        break;
+      }
+    }
+    if (taxWithheld != null) break;
+  }
+
+  if (taxWithheld == null && amountInfo?.amount != null) {
+    taxWithheld = Number((amountInfo.amount * deductionRate / 100).toFixed(2));
+  }
+
+  return {
+    applies: true,
+    materialsAmount: 0,
+    deductionRate,
+    taxWithheld: taxWithheld ?? 0,
+  };
+}
+
 
 
 
@@ -862,6 +907,7 @@ export function extractData(text) {
       reference: null,
       category: -1,
       vat: { value: null, rate: null },
+      cis: { applies: false, materialsAmount: 0, deductionRate: null, taxWithheld: 0 },
     };
   }
 
@@ -872,6 +918,7 @@ export function extractData(text) {
   const reference = extractReference(cleaned);
   const categoryIdx = categoryFinder(cleaned, categories_meta);
   const vatInfo = extractVAT(cleaned, amountInfo, categoryIdx);
+  const cisInfo = extractCIS(cleaned, amountInfo);
 
   return {
     money: {
@@ -883,6 +930,7 @@ export function extractData(text) {
     reference,
     category: categoryIdx,
     vat: vatInfo, // ✅ new field
+    cis: cisInfo,
   };
 }
 
