@@ -31,16 +31,18 @@ import { auth, db } from "../firebaseConfig";
 import { getVehicles } from "../utils/appSettings";
 import { Colors } from "../utils/sharedStyles";
 import { Checkbox } from "react-native-paper";
+import { Ionicons } from "@expo/vector-icons";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 import { triggerHaptic } from "../utils/haptics";
 import { verifyClientCode } from "../utils/verificationCodes";
 import RegisterVehicleModal from "./RegisterVehicleModal";
 import YourVehiclesModal from "./YourVehiclesModal";
 import { useData } from "../contexts/DataContext";
-import { registerPushTokenForUser, sendLocalTestNotification } from "../utils/pushNotifications";
 
 const appVersion = appPackage?.version || Constants.expoConfig?.version || "unknown";
 const internalBuildLabel = Constants.expoConfig?.extra?.internalBuildLabel || "";
 const versionLabel = internalBuildLabel ? `${appVersion} (${internalBuildLabel})` : appVersion;
+const profileImageStorageKey = (userId) => `express-accounts-profile-image:${userId}`;
 
 export default function SharedTabMenu({ navigation, closeMenu, displayName = "User", open = false, onVehiclesChanged }) {
   const { userProfile, displayName: contextDisplayName } = useData();
@@ -54,6 +56,9 @@ export default function SharedTabMenu({ navigation, closeMenu, displayName = "Us
   const [verifiedName, setVerifiedName] = useState(String(userProfile?.verifiedName || ""));
   const [verificationStatus, setVerificationStatus] = useState(
     String(userProfile?.verificationStatus || "")
+  );
+  const [profileImageUrl, setProfileImageUrl] = useState(
+    String(userProfile?.profileImageUrl || auth.currentUser?.photoURL || "")
   );
   const [vehicles, setVehicles] = useState(
     Array.isArray(userProfile?.vehicles) ? userProfile.vehicles : []
@@ -98,6 +103,8 @@ export default function SharedTabMenu({ navigation, closeMenu, displayName = "Us
     }
 
     setCurrentDisplayName(user.displayName || contextDisplayName || displayName || "User");
+    const localProfileImage = await AsyncStorage.getItem(profileImageStorageKey(user.uid)).catch(() => null);
+    if (localProfileImage) setProfileImageUrl(localProfileImage);
 
     if (userProfile?.verifiedName || userProfile?.verificationStatus) {
       setVerifiedName(String(userProfile?.verifiedName || ""));
@@ -113,6 +120,8 @@ export default function SharedTabMenu({ navigation, closeMenu, displayName = "Us
       const userProfile = userProfileSnap.exists() ? userProfileSnap.data() || {} : {};
       setVerifiedName(String(userProfile.verifiedName || ""));
       setVerificationStatus(String(userProfile.verificationStatus || ""));
+      setProfileImageUrl(String(userProfile.profileImageUrl || user.photoURL || ""));
+      if (localProfileImage) setProfileImageUrl(localProfileImage);
       applyVatProfile(userProfile);
 
       const profileUpdate = { email: user.email, updatedAt: serverTimestamp() };
@@ -184,24 +193,6 @@ export default function SharedTabMenu({ navigation, closeMenu, displayName = "Us
     closeMenu();
     triggerHaptic("success").catch(() => {});
     Alert.alert("Accountant Notified", "Your accountant has been notified that your receipts are ready for processing.");
-  };
-
-  const handleSendTestNotification = async () => {
-    try {
-      const token = await registerPushTokenForUser(auth.currentUser);
-      const sent = await sendLocalTestNotification();
-      if (!sent) {
-        Alert.alert("Notifications Disabled", "Allow notifications for Express Accounts to receive test alerts.");
-      } else if (!token) {
-        Alert.alert(
-          "Local Test Sent",
-          "The local notification worked, but no push token was saved for portal notifications. Try this again from an installed development or production build.",
-        );
-      }
-    } catch (error) {
-      console.error("Could not send local test notification", error);
-      Alert.alert("Notification Failed", "Could not send the test notification on this device.");
-    }
   };
 
   const saveVatSettings = async () => {
@@ -414,22 +405,31 @@ export default function SharedTabMenu({ navigation, closeMenu, displayName = "Us
     <>
       <View style={{ flex: 1 }}>
         <View style={styles.userInfo}>
-          <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}>
+          <TouchableOpacity
+            onPress={() => {
+              closeMenu();
+              navigation.navigate("Profile");
+            }}
+            accessibilityRole="button"
+            accessibilityLabel="Open profile"
+            style={styles.profileMenuButton}
+          >
+            <View style={styles.menuAvatar}>
+              {profileImageUrl ? (
+                <Image
+                  source={{ uri: profileImageUrl }}
+                  style={styles.menuAvatarImage}
+                />
+              ) : (
+                <Ionicons name="person" size={28} color={Colors.textPrimary} />
+              )}
+            </View>
             <Text style={styles.userEmail}>{currentDisplayName}</Text>
-            <TouchableOpacity
-              onPress={() => {
-                setNewName(currentDisplayName);
-                setNameChangeModalVisible(true);
-              }}
-              style={{ paddingLeft: 8 }}
-            >
-              <Text style={{ fontSize: 14 }}>✏️</Text>
-            </TouchableOpacity>
-          </View>
-          <Text style={styles.userEmail}>{auth.currentUser?.email}</Text>
-          {verificationStatus === "verified" && verifiedName ? (
-            <Text style={styles.verifiedAsText}>Verified as {verifiedName}</Text>
-          ) : null}
+            <Text style={styles.userEmail}>{auth.currentUser?.email}</Text>
+            {verificationStatus === "verified" && verifiedName ? (
+              <Text style={styles.verifiedAsText}>Verified as {verifiedName}</Text>
+            ) : null}
+          </TouchableOpacity>
         </View>
 
         <Image
@@ -441,49 +441,6 @@ export default function SharedTabMenu({ navigation, closeMenu, displayName = "Us
         <View style={{ marginTop: 20 }}>
           <TouchableOpacity onPress={handleNotifyAccountant} style={styles.notifyBtnFilled}>
             <Text style={styles.filledBtnText}>Notify Accountant</Text>
-          </TouchableOpacity>
-        </View>
-
-        <View style={{ marginTop: 6 }}>
-          <TouchableOpacity
-            onPress={() => setRegisterVehicleOpen(true)}
-            style={styles.secondaryMenuButton}
-          >
-            <Text style={styles.secondaryMenuButtonText}>🚗  Register Vehicle</Text>
-          </TouchableOpacity>
-
-          <TouchableOpacity
-            onPress={openVatSettings}
-            style={[styles.secondaryMenuButton, { marginTop: 10 }]}
-          >
-            <Text style={styles.secondaryMenuButtonText}>VAT Registration</Text>
-          </TouchableOpacity>
-
-          <TouchableOpacity
-            onPress={handleSendTestNotification}
-            style={[styles.secondaryMenuButton, { marginTop: 10 }]}
-          >
-            <Text style={styles.secondaryMenuButtonText}>Send Test Notification</Text>
-          </TouchableOpacity>
-
-          {vehicles.length > 0 && (
-            <TouchableOpacity
-              onPress={() => setYourVehiclesOpen(true)}
-              style={[styles.secondaryMenuButton, { marginTop: 10 }]}
-            >
-              <Text style={styles.secondaryMenuButtonText}>📋  Your Vehicles</Text>
-            </TouchableOpacity>
-          )}
-
-          <TouchableOpacity disabled style={[styles.secondaryMenuButton, styles.disabledMenuButton, { marginTop: 10 }]}> 
-            <Text style={[styles.secondaryMenuButtonText, styles.disabledMenuButtonText]}>Add ID Image</Text>
-          </TouchableOpacity>
-
-          <TouchableOpacity
-            disabled
-            style={[styles.secondaryMenuButton, styles.disabledMenuButton, { marginTop: 10 }]}
-          >
-            <Text style={[styles.secondaryMenuButtonText, styles.disabledMenuButtonText]}>Add Address</Text>
           </TouchableOpacity>
         </View>
 
@@ -508,17 +465,6 @@ export default function SharedTabMenu({ navigation, closeMenu, displayName = "Us
             >
               Enter Client Code
             </Text>
-          </TouchableOpacity>
-
-          <TouchableOpacity onPress={handleLogout} style={[styles.redButton, { marginTop: 10 }]}> 
-            <Text style={styles.redButtonText}>Sign Out</Text>
-          </TouchableOpacity>
-
-          <TouchableOpacity
-            onPress={handleDeleteAccount}
-            style={[styles.redButton, { marginTop: 10 }]}
-          >
-            <Text style={styles.redButtonText}>Delete Account</Text>
           </TouchableOpacity>
 
           <TouchableOpacity
@@ -768,7 +714,24 @@ export default function SharedTabMenu({ navigation, closeMenu, displayName = "Us
 const styles = StyleSheet.create({
   userInfo: {
     marginBottom: 20,
+    alignItems: "center",
   },
+  profileMenuButton: {
+    alignItems: "center",
+    paddingVertical: 4,
+  },
+  menuAvatar: {
+    width: 56,
+    height: 56,
+    borderRadius: 28,
+    borderWidth: 1,
+    borderColor: Colors.border,
+    alignItems: "center",
+    justifyContent: "center",
+    overflow: "visible",
+    marginBottom: 8,
+  },
+  menuAvatarImage: { width: "100%", height: "100%", borderRadius: 28 },
   vatCheckboxRow: { flexDirection: "row", alignItems: "center", alignSelf: "stretch", marginVertical: 12 },
   vatCheckboxText: { color: Colors.textPrimary, fontSize: 15 },
   userEmail: {

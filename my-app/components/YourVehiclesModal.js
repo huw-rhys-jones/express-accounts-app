@@ -83,7 +83,7 @@ export default function YourVehiclesModal({ visible, onClose, vehicles, onChange
                   onClose?.();
                 }}
               >
-                <Text style={styles.addBtnText}>+ Add Another Vehicle</Text>
+                <Text style={styles.addBtnText}>+ Add Vehicle</Text>
               </TouchableOpacity>
             </ScrollView>
 

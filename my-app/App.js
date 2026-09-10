@@ -24,6 +24,7 @@ import BankStatementEdit from "./screens/BankStatementEdit";
 import MileageAdd from "./screens/MileageAdd";
 import MileageEdit from "./screens/MileageEdit";
 import SummaryScreen from "./screens/SummaryScreen";
+import ProfileScreen from "./screens/ProfileScreen";
 import * as WebBrowser from "expo-web-browser";
 import { MD3LightTheme, PaperProvider } from 'react-native-paper';
 import { useSafeAreaInsets, SafeAreaProvider } from 'react-native-safe-area-context';
@@ -598,6 +599,7 @@ export default function App() {
           <Stack.Screen name="BankStatementDetails" component={BankStatementEdit} />
           <Stack.Screen name="MileageRecord" component={MileageAdd} />
           <Stack.Screen name="MileageDetails" component={MileageEdit} />
+          <Stack.Screen name="Profile" component={ProfileScreen} />
         </Stack.Navigator>
       </NavigationContainer>
       </DataProvider>

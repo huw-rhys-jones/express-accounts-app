@@ -2,6 +2,7 @@ import React, { useState, useEffect, useCallback, useMemo, useRef } from "react"
 import {
   View,
   Text,
+  Pressable,
   TouchableOpacity,
   StyleSheet,
   FlatList,
@@ -788,6 +789,15 @@ const ExpensesScreen = ({ navigation, route }) => {
 
       </View>
 
+      {filterOpen ? (
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel="Close period selector"
+          onPress={() => setFilterOpen(false)}
+          style={styles.filterDismissLayer}
+        />
+      ) : null}
+
       {/* Period filter bar — sits just above the bottom tab bar */}
       {!dataLoading && !loading && filterOptions.length > 0 ? (
         <View style={styles.filterBar}>
@@ -804,6 +814,7 @@ const ExpensesScreen = ({ navigation, route }) => {
             setItems={setFilterItems}
             listMode="SCROLLVIEW"
             dropDownDirection="TOP"
+            closeOnClickOutside={true}
             style={styles.filterDropdown}
             dropDownContainerStyle={styles.filterDropdownContainer}
             zIndex={3000}
@@ -1126,7 +1137,13 @@ const styles = StyleSheet.create({
     backgroundColor: "#1C1C4E",
     paddingHorizontal: 12,
     paddingVertical: 6,
-    zIndex: 1000,
+    zIndex: 3000,
+    elevation: 30,
+  },
+  filterDismissLayer: {
+    ...StyleSheet.absoluteFillObject,
+    zIndex: 2000,
+    elevation: 20,
   },
   filterDropdown: {
     borderColor: Colors.border,

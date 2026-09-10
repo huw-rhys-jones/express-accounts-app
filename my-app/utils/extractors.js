@@ -647,6 +647,38 @@ function extractReference(text) {
 
   const lines = text.split("\n").map(normalizeWhitespace).filter(Boolean);
   const candidates = [];
+  const addCandidate = (reference, score) => {
+    const cleaned = cleanReferenceValue(reference);
+    if (cleaned) candidates.push({ reference: cleaned, score });
+  };
+
+  lines.forEach((line, index) => {
+    const nextLines = lines.slice(index + 1, index + 7);
+
+    const standaloneInvoice = line.match(/^inv[-/]?\d{2,}[a-z0-9/-]*$/i);
+    if (standaloneInvoice) addCandidate(standaloneInvoice[0], 4.8);
+
+    if (/^invoice$/i.test(line)) {
+      const identifier = nextLines.find(value =>
+        /^(?:[a-z]+[-/]?)?\d+[a-z0-9/-]*$/i.test(value) &&
+        !/^\d{1,2}[/.\-]\d{1,2}[/.\-]\d{2,4}$/.test(value)
+      );
+      if (identifier) addCandidate(identifier, 4.4);
+    }
+
+    if (/^invoice number:?$/i.test(line)) {
+      const identifier = nextLines.find(value =>
+        /^\d{4,}$/.test(value) && !/^\d{1,2}[/.\-]\d{1,2}[/.\-]\d{2,4}$/.test(value)
+      );
+      if (identifier) addCandidate(identifier, 4.6);
+    }
+
+    if (/^sub\s*contractor\s*(?:no|number)\.?$/i.test(line)) {
+      const identifier = nextLines.find(value => /^\d{5,}$/.test(value));
+      if (identifier) addCandidate(identifier, 4.2);
+    }
+  });
+
   const referencePatterns = [
     {
       regex: /\b(?:reference|ref)(?:\s*(?:no|number))?\.?\s*[:#-]?\s*([A-Z0-9][A-Z0-9\/.\-]*(?:\s+[A-Z0-9\/.\-]+){0,2})\b/i,
@@ -731,6 +763,29 @@ export function extractVAT(text, amountInfo, categoryIdx) {
 
   const cleaned = text.replace(/\r\n/g, "\n");
   const lines = cleaned.split("\n").map(l => l.trim()).filter(Boolean);
+  const inferRateFromAmounts = (vatValue) => {
+    if (!Number.isFinite(vatValue) || !amountInfo?.amount || vatValue <= 0 || vatValue >= amountInfo.amount) return null;
+    return snapRate((vatValue / (amountInfo.amount - vatValue)) * 100);
+  };
+
+  const isCisDeductionStatement = /\b(?:subcontractor statement|statement of payment and deductions|construction industry scheme|payment and deduction statement|remittance advice)\b/i.test(cleaned) &&
+    /\b(?:cis\s+)?tax deduction\b|\bdeducted\s*\(\s*b\s*\)|\bgross\s+(?:paid|payment)\b/i.test(cleaned);
+  if (isCisDeductionStatement) {
+    return { value: 0, rate: 0 };
+  }
+
+  for (let index = 0; index < lines.length; index += 1) {
+    const label = lines[index];
+    if (!/^vat(?:\s*\(\s*\d{1,2}(?:[.,]\d{1,2})?\s*%\s*\))?\s*[:\-]?$/i.test(label)) continue;
+    const valueLine = lines[index + 1] || "";
+    if (/\b\d{1,2}[/.\-]\d{1,2}[/.\-]\d{2,4}\b/.test(valueLine)) continue;
+    const valueMatch = valueLine.match(/(?:£\s*)?(\d{1,3}(?:[,.]\d{3})*(?:[.,]\d{2})?)/);
+    const value = valueMatch ? parseAmount(valueMatch[1]) : null;
+    if (!Number.isFinite(value)) continue;
+    const rateMatch = label.match(/(\d{1,2}(?:[.,]\d{1,2})?)\s*%/i);
+    const rate = value === 0 ? 0 : rateMatch ? snapRate(parseFloat(rateMatch[1].replace(',', '.'))) : inferRateFromAmounts(value);
+    return { value: parseFloat(value.toFixed(2)), rate };
+  }
 
   // Cap an OCR-detected VAT value at the theoretical maximum for the detected
   // category: if the receipt shows a higher number it is almost certainly an OCR
@@ -778,7 +833,7 @@ export function extractVAT(text, amountInfo, categoryIdx) {
       const val = parseFloat(rawValue);
       if (Number.isFinite(val)) {
         const rateMatch = l.match(/(\d{1,2}(?:[.,]\d{1,2})?)\s*%/i);
-        const rate = rateMatch ? snapRate(parseFloat(rateMatch[1].replace(',', '.'))) : null;
+        const rate = rateMatch ? snapRate(parseFloat(rateMatch[1].replace(',', '.'))) : inferRateFromAmounts(val);
         return { value: capVat(parseFloat(val.toFixed(2))), rate };
       }
     }

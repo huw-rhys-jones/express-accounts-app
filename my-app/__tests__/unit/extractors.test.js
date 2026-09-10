@@ -212,6 +212,31 @@ describe('extractData reference selection', () => {
     expect(result.rate).toBe(20);
   });
 
+  it('extracts a comma-decimal VAT amount from the line after its label', () => {
+    const result = extractVAT('VAT (20%)\n£10,00\nTotal\n£55,00', { amount: 55 }, 0);
+    expect(result).toEqual({ value: 10, rate: 20 });
+  });
+
+  it('keeps explicitly zero VAT at zero instead of inferring the category rate', () => {
+    const result = extractVAT('VAT\n0.00\nTOTAL\n50.00', { amount: 50 }, 0);
+    expect(result).toEqual({ value: 0, rate: 0 });
+  });
+
+  it('parses a thousands-formatted VAT amount and derives its rate from the gross total', () => {
+    const result = extractVAT('VAT\n£2,600\nGrand Total\n£15,600', { amount: 15600 }, 0);
+    expect(result).toEqual({ value: 2600, rate: 20 });
+  });
+
+  it('does not treat a following date as the amount under a VAT table header', () => {
+    const result = extractVAT('Rate\nVAT\n02/06/2026\nNet\n£3,072.81', { amount: 18436.86 }, 0);
+    expect(result.value).not.toBe(2);
+  });
+
+  it('does not infer VAT from a CIS deduction statement', () => {
+    const result = extractVAT('Construction Industry Scheme\nPayment and Deduction Statement\nGross paid (excl VAT)\nTax deduction 20%', { amount: 6522.99 }, 0);
+    expect(result).toEqual({ value: 0, rate: 0 });
+  });
+
   it('extracts an invoice number from the next line when the label is on its own line', () => {
     const text = [
       'Invoice Number:',
@@ -222,6 +247,48 @@ describe('extractData reference selection', () => {
     ].join('\n');
     const result = extractData(text);
     expect(result.reference).toBe('PINV94174');
+  });
+
+  it('preserves an INV-prefixed identifier below a standalone invoice label', () => {
+    const text = [
+      'INVOICE',
+      'Invoice No:',
+      'Issue Date:',
+      'INV-0001',
+      '01.01.2024',
+    ].join('\n');
+    expect(extractData(text).reference).toBe('INV-0001');
+  });
+
+  it('finds a standalone invoice identifier after the invoice date', () => {
+    const text = [
+      'Invoice',
+      '08 December 2025',
+      'MFQAQC-29-2025',
+    ].join('\n');
+    expect(extractData(text).reference).toBe('MFQAQC-29-2025');
+  });
+
+  it('finds a numeric invoice number after intervening empty labels', () => {
+    const text = [
+      'Invoice Number:',
+      'Client Reference:',
+      'Purchase Order:',
+      'DUE DATE:',
+      '18/03/2021',
+      '1234',
+    ].join('\n');
+    expect(extractData(text).reference).toBe('1234');
+  });
+
+  it('uses the printed subcontractor number as the statement reference', () => {
+    const text = [
+      'Sub Contractor No.',
+      'Unique Tax Reference',
+      'Verification No.',
+      '691595',
+    ].join('\n');
+    expect(extractData(text).reference).toBe('691595');
   });
 
   it('avoids false positives from payment reference fields', () => {
