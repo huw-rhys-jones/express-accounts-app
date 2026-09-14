@@ -123,6 +123,30 @@ export function buildFinancialFilterOptions(receipts = [], now = new Date()) {
   return options;
 }
 
+export function buildFinancialYearOptions(receipts = [], now = new Date(), count = 5) {
+  const currentStartYear = getFinancialYearStartYear(now);
+  return [
+    { key: "all-time", label: "All Time", count: receipts.length, startYear: null },
+    ...Array.from({ length: count }, (_, index) => {
+      const startYear = currentStartYear - index;
+      const period = getFinancialYearPeriod(startYear);
+      return {
+        key: period.key,
+        label: period.label,
+        count: getPeriodRecordCount(receipts, period),
+        startYear,
+      };
+    }),
+  ];
+}
+
+export function buildReceiptPeriodOptions(receipts = [], startYear, now = new Date()) {
+  const selectedStartYear = startYear ?? getFinancialYearStartYear(now);
+  return getFinancialQuarterPeriods(selectedStartYear).filter(
+    (quarter) => getPeriodRecordCount(receipts, quarter) > 0,
+  );
+}
+
 export function filterReceiptsByDateRange(receipts = [], startDate, endDate) {
   if (!startDate || !endDate) return receipts;
 

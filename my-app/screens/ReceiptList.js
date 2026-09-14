@@ -44,7 +44,9 @@ import {
   deleteObject,
 } from "firebase/storage";
 import {
-  buildFinancialFilterOptions,
+  buildReceiptPeriodOptions,
+  getFinancialYearPeriod,
+  getFinancialYearStartYear,
   filterReceiptsByDateRange,
 } from "../utils/financialPeriods";
 import {
@@ -52,7 +54,7 @@ import {
   setHapticsEnabled,
   triggerHaptic,
 } from "../utils/haptics";
-import { getReceiptFilterKey, setReceiptFilterKey, setAllFilterKeys, getVehicles } from "../utils/appSettings";
+import { getReceiptFilterKey, setReceiptFilterKey, getReceiptFinancialYear, setAllFilterKeys, getVehicles } from "../utils/appSettings";
 import { verifyClientCode } from "../utils/verificationCodes";
 import AddReceiptSheet from "../components/AddReceiptSheet";
 import RegisterVehicleModal from "../components/RegisterVehicleModal";
@@ -95,6 +97,7 @@ const ExpensesScreen = ({ navigation, route }) => {
   const [settingsModalVisible, setSettingsModalVisible] = useState(false);
   const [filterOpen, setFilterOpen] = useState(false);
   const [activeFilterKey, setActiveFilterKey] = useState("current-quarter");
+  const [selectedFinancialYear, setSelectedFinancialYear] = useState(getFinancialYearStartYear(new Date()));
   const [filterItems, setFilterItems] = useState([]);
   const [referralCodeModalVisible, setReferralCodeModalVisible] = useState(false);
   const [referralCode, setReferralCode] = useState("");
@@ -224,18 +227,26 @@ const ExpensesScreen = ({ navigation, route }) => {
   };
 
   const filterOptions = useMemo(
-    () => buildFinancialFilterOptions(receipts, new Date()),
-    [receipts]
+    () => buildReceiptPeriodOptions(receipts, selectedFinancialYear, new Date()),
+    [receipts, selectedFinancialYear]
   );
 
+  const selectedYearOption = useMemo(() => {
+    if (activeFilterKey === "all-time") return { key: "all-time", label: "All Time", startDate: null, endDate: null };
+    if (/^year-\d{4}$/.test(activeFilterKey)) {
+      return getFinancialYearPeriod(Number(activeFilterKey.slice(5)));
+    }
+    return null;
+  }, [activeFilterKey]);
+
   const activeFilter = useMemo(
-    () => filterOptions.find((option) => option.key === activeFilterKey) || filterOptions[0],
-    [activeFilterKey, filterOptions]
+    () => selectedYearOption || filterOptions.find((option) => option.key === activeFilterKey) || filterOptions[0],
+    [activeFilterKey, filterOptions, selectedYearOption]
   );
 
   useEffect(() => {
-    if (!activeFilter && filterOptions[0]) {
-      setActiveFilterKey(filterOptions[0].key);
+    if (!activeFilter && (filterOptions[0] || selectedYearOption)) {
+      setActiveFilterKey(selectedYearOption?.key || filterOptions[0].key);
     }
   }, [activeFilter, filterOptions]);
 
@@ -250,12 +261,12 @@ const ExpensesScreen = ({ navigation, route }) => {
       return;
     }
 
-    const hasActiveOption = filterOptions.some(
+    const hasActiveOption = activeFilterKey === "all-time" || /^year-\d{4}$/.test(activeFilterKey) || filterOptions.some(
       (option) => option.key === activeFilterKey
     );
 
     if (!hasActiveOption) {
-      const fallbackKey = filterOptions[0].key;
+      const fallbackKey = filterOptions[0]?.key || "all-time";
       setActiveFilterKey(fallbackKey);
       setReceiptFilterKey(fallbackKey).catch(() => {});
     }
@@ -301,18 +312,20 @@ const ExpensesScreen = ({ navigation, route }) => {
       .then(setHapticsEnabledState)
       .catch(() => setHapticsEnabledState(true));
 
-    getReceiptFilterKey()
-      .then(setActiveFilterKey)
-      .catch(() => setActiveFilterKey("current-quarter"));
+    getReceiptFilterKey().then(setActiveFilterKey).catch(() => {});
+    getReceiptFinancialYear().then((value) => {
+      if (value !== "all-time" && Number.isFinite(value)) setSelectedFinancialYear(value);
+    }).catch(() => {});
 
     getVehicles().then(setVehicles).catch(() => {});
   }, []);
 
   useEffect(() => {
     const unsubscribeFocus = navigation.addListener("focus", () => {
-      getReceiptFilterKey()
-        .then(setActiveFilterKey)
-        .catch(() => setActiveFilterKey("current-quarter"));
+      getReceiptFilterKey().then(setActiveFilterKey).catch(() => {});
+      getReceiptFinancialYear().then((value) => {
+        if (value !== "all-time" && Number.isFinite(value)) setSelectedFinancialYear(value);
+      }).catch(() => {});
 
       getVehicles().then(setVehicles).catch(() => {});
     });
@@ -815,6 +828,7 @@ const ExpensesScreen = ({ navigation, route }) => {
             listMode="SCROLLVIEW"
             dropDownDirection="TOP"
             closeOnClickOutside={true}
+            maxHeight={Math.max(56, filterItems.length * 48 + 12)}
             style={styles.filterDropdown}
             dropDownContainerStyle={styles.filterDropdownContainer}
             zIndex={3000}

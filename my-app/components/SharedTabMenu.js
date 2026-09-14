@@ -29,12 +29,13 @@ import Constants from "expo-constants";
 import appPackage from "../package.json";
 import { auth, db } from "../firebaseConfig";
 import { getVehicles } from "../utils/appSettings";
+import { getReceiptFinancialYear, setReceiptFinancialYear, setAllFilterKeys } from "../utils/appSettings";
+import { buildFinancialYearOptions, getFinancialYearLabel, getFinancialYearStartYear } from "../utils/financialPeriods";
 import { Colors } from "../utils/sharedStyles";
 import { Checkbox } from "react-native-paper";
 import { Ionicons } from "@expo/vector-icons";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { triggerHaptic } from "../utils/haptics";
-import { verifyClientCode } from "../utils/verificationCodes";
 import RegisterVehicleModal from "./RegisterVehicleModal";
 import YourVehiclesModal from "./YourVehiclesModal";
 import { useData } from "../contexts/DataContext";
@@ -45,7 +46,7 @@ const versionLabel = internalBuildLabel ? `${appVersion} (${internalBuildLabel})
 const profileImageStorageKey = (userId) => `express-accounts-profile-image:${userId}`;
 
 export default function SharedTabMenu({ navigation, closeMenu, displayName = "User", open = false, onVehiclesChanged }) {
-  const { userProfile, displayName: contextDisplayName } = useData();
+  const { userProfile, displayName: contextDisplayName, receipts } = useData();
   const [busy, setBusy] = useState(false);
   const [busyText, setBusyText] = useState("Please wait...");
 
@@ -66,8 +67,6 @@ export default function SharedTabMenu({ navigation, closeMenu, displayName = "Us
 
   const [feedbackModalVisible, setFeedbackModalVisible] = useState(false);
   const [feedbackText, setFeedbackText] = useState("");
-  const [referralCodeModalVisible, setReferralCodeModalVisible] = useState(false);
-  const [referralCode, setReferralCode] = useState("");
   const [nameChangeModalVisible, setNameChangeModalVisible] = useState(false);
   const [deleteModalVisible, setDeleteModalVisible] = useState(false);
   const [confirmText, setConfirmText] = useState("");
@@ -76,8 +75,14 @@ export default function SharedTabMenu({ navigation, closeMenu, displayName = "Us
   const [vatSettingsVisible, setVatSettingsVisible] = useState(false);
   const [vatRegistered, setVatRegistered] = useState(false);
   const [vatRegistrationNumber, setVatRegistrationNumber] = useState("");
+  const [financialYearModalVisible, setFinancialYearModalVisible] = useState(false);
+  const [selectedFinancialYear, setSelectedFinancialYear] = useState(null);
 
   const isVerifiedAccount = verificationStatus === "verified";
+  const financialYearOptions = buildFinancialYearOptions(receipts, new Date());
+  const selectedFinancialYearLabel = selectedFinancialYear === "all-time"
+    ? "All Time"
+    : `Financial Year ${getFinancialYearLabel(Number(selectedFinancialYear || getFinancialYearStartYear(new Date())))}`;
 
   const runWithLoading = useCallback(async (text, fn) => {
     setBusyText(text);
@@ -146,6 +151,7 @@ export default function SharedTabMenu({ navigation, closeMenu, displayName = "Us
     setVerificationStatus(String(userProfile?.verificationStatus || ""));
     setVehicles(Array.isArray(userProfile?.vehicles) ? userProfile.vehicles : []);
     applyVatProfile(userProfile);
+    getReceiptFinancialYear().then((value) => setSelectedFinancialYear(value ?? getFinancialYearStartYear(new Date()))).catch(() => {});
   }, [applyVatProfile, contextDisplayName, displayName, userProfile]);
 
   const openVatSettings = useCallback(async () => {
@@ -195,6 +201,15 @@ export default function SharedTabMenu({ navigation, closeMenu, displayName = "Us
     Alert.alert("Accountant Notified", "Your accountant has been notified that your receipts are ready for processing.");
   };
 
+  const selectFinancialYear = async (option) => {
+    if (option.count === 0) return;
+    const nextValue = option.key === "all-time" ? "all-time" : option.startYear;
+    setSelectedFinancialYear(nextValue);
+    await setReceiptFinancialYear(nextValue);
+    await setAllFilterKeys(option.key === "all-time" ? "all-time" : `year-${option.startYear}`);
+    setFinancialYearModalVisible(false);
+  };
+
   const saveVatSettings = async () => {
     const user = auth.currentUser;
     if (!user) return;
@@ -218,38 +233,6 @@ export default function SharedTabMenu({ navigation, closeMenu, displayName = "Us
       setVatRegistrationNumber(nextVatRegistrationNumber);
       setVatSettingsVisible(false);
     });
-  };
-
-  const handleSubmitReferralCode = async () => {
-    if (!referralCode.trim()) {
-      Alert.alert("Invalid Code", "Please enter a client code.");
-      return;
-    }
-
-    const user = auth.currentUser;
-    if (!user) return;
-
-    triggerHaptic("selection").catch(() => {});
-
-    try {
-      const result = await verifyClientCode({
-        db,
-        userId: user.uid,
-        rawCode: referralCode,
-      });
-      setVerifiedName(result.verifiedName);
-      setVerificationStatus("verified");
-      triggerHaptic("success").catch(() => {});
-      Alert.alert(
-        "Verified",
-        `Code accepted. Your account is now verified as ${result.verifiedName}.`
-      );
-      setReferralCodeModalVisible(false);
-      setReferralCode("");
-    } catch (error) {
-      console.error("Error verifying referral code:", error);
-      Alert.alert("Verification Failed", error.message || "Could not verify that code. Please try again.");
-    }
   };
 
   const handleSubmitNameChange = async () => {
@@ -439,32 +422,22 @@ export default function SharedTabMenu({ navigation, closeMenu, displayName = "Us
         />
 
         <View style={{ marginTop: 20 }}>
-          <TouchableOpacity onPress={handleNotifyAccountant} style={styles.notifyBtnFilled}>
-            <Text style={styles.filledBtnText}>Notify Accountant</Text>
+          <TouchableOpacity
+            onPress={isVerifiedAccount ? handleNotifyAccountant : undefined}
+            disabled={!isVerifiedAccount}
+            style={[styles.notifyBtnFilled, !isVerifiedAccount && styles.notifyPlaceholder]}
+          >
+            <Text style={styles.filledBtnText}>{isVerifiedAccount ? "Notify Accountant" : "Thinking of joining us?"}</Text>
           </TouchableOpacity>
         </View>
 
         <View style={styles.footerContainer}>
           <TouchableOpacity
-            disabled={isVerifiedAccount}
-            onPress={() => {
-              if (isVerifiedAccount) return;
-              setReferralCode("");
-              setReferralCodeModalVisible(true);
-            }}
-            style={[
-              styles.referralBtn,
-              isVerifiedAccount ? styles.disabledActionButton : null,
-            ]}
+            onPress={() => setFinancialYearModalVisible(true)}
+            style={styles.secondaryMenuButton}
           >
-            <Text
-              style={[
-                styles.filledBtnText,
-                isVerifiedAccount ? styles.disabledActionButtonText : null,
-              ]}
-            >
-              Enter Client Code
-            </Text>
+            <Text style={styles.secondaryMenuButtonText}>Select Financial Year</Text>
+            <Text style={styles.periodValueText}>{selectedFinancialYearLabel}</Text>
           </TouchableOpacity>
 
           <TouchableOpacity
@@ -486,6 +459,28 @@ export default function SharedTabMenu({ navigation, closeMenu, displayName = "Us
           </View>
         </View>
       </View>
+
+      <Modal visible={financialYearModalVisible} transparent animationType="slide" onRequestClose={() => setFinancialYearModalVisible(false)}>
+        <View style={styles.modalOverlay}>
+          <View style={styles.loadingCard}>
+            <Text style={styles.title}>Select Financial Year</Text>
+            {financialYearOptions.map((option) => (
+              <TouchableOpacity
+                key={option.key}
+                disabled={option.count === 0}
+                onPress={() => selectFinancialYear(option)}
+                style={[styles.periodOption, option.count === 0 && styles.disabledPeriodOption]}
+              >
+                <Text style={[styles.secondaryMenuButtonText, option.count === 0 && styles.disabledMenuButtonText]}>{option.label}</Text>
+                <Text style={[styles.periodCountText, option.count === 0 && styles.disabledMenuButtonText]}>{option.count} {option.count === 1 ? "receipt" : "receipts"}</Text>
+              </TouchableOpacity>
+            ))}
+            <TouchableOpacity onPress={() => setFinancialYearModalVisible(false)} style={[styles.signOutBtn, { width: "100%" }]}>
+              <Text style={styles.signOutText}>Cancel</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
 
       <Modal visible={feedbackModalVisible} transparent animationType="slide" onRequestClose={() => setFeedbackModalVisible(false)}>
         <View style={styles.modalOverlay}>
@@ -517,50 +512,6 @@ export default function SharedTabMenu({ navigation, closeMenu, displayName = "Us
 
               <TouchableOpacity onPress={handleSendFeedback} style={[styles.signOutBtn, { flex: 1 }]}> 
                 <Text style={styles.signOutText}>Send</Text>
-              </TouchableOpacity>
-            </View>
-          </View>
-        </View>
-      </Modal>
-
-      <Modal
-        visible={referralCodeModalVisible}
-        transparent
-        animationType="slide"
-        onRequestClose={() => setReferralCodeModalVisible(false)}
-      >
-        <View style={styles.modalOverlay}>
-          <View style={styles.loadingCard}>
-            <Text style={styles.title}>Enter Client Code</Text>
-            <Text style={{ textAlign: "center", marginVertical: 10, color: Colors.textPrimary }}>
-              Enter your verification code to link your account to your accountant.
-            </Text>
-
-            {verificationStatus === "verified" ? (
-              <Text style={styles.verificationWarningText}>
-                This account is already verified{verifiedName ? ` as ${verifiedName}` : ""}. Entering another code may overwrite that link.
-              </Text>
-            ) : null}
-
-            <TextInput
-              style={[styles.input, { color: Colors.textPrimary }]}
-              placeholder="Client code"
-              placeholderTextColor="#999"
-              value={referralCode}
-              onChangeText={setReferralCode}
-              autoCapitalize="none"
-            />
-
-            <View style={{ flexDirection: "row", marginTop: 20, gap: 10, width: "100%" }}>
-              <TouchableOpacity
-                onPress={() => setReferralCodeModalVisible(false)}
-                style={[styles.signOutBtn, { backgroundColor: "#ccc", flex: 1 }]}
-              >
-                <Text style={{ color: "#000", textAlign: "center" }}>Cancel</Text>
-              </TouchableOpacity>
-
-              <TouchableOpacity onPress={handleSubmitReferralCode} style={[styles.signOutBtn, { flex: 1 }]}> 
-                <Text style={styles.signOutText}>Submit</Text>
               </TouchableOpacity>
             </View>
           </View>
@@ -758,6 +709,9 @@ const styles = StyleSheet.create({
     borderRadius: 10,
     marginBottom: 10,
   },
+  notifyPlaceholder: {
+    backgroundColor: "#b9bcc8",
+  },
   filledBtnText: {
     color: "white",
     fontWeight: "700",
@@ -776,6 +730,31 @@ const styles = StyleSheet.create({
     color: Colors.textPrimary,
     fontWeight: "600",
     textAlign: "center",
+  },
+  periodValueText: {
+    color: "#777",
+    fontSize: 12,
+    marginTop: 3,
+    textAlign: "center",
+  },
+  periodOption: {
+    width: "100%",
+    borderWidth: 1,
+    borderColor: Colors.border,
+    borderRadius: 10,
+    paddingVertical: 11,
+    paddingHorizontal: 12,
+    marginTop: 8,
+    alignItems: "center",
+  },
+  disabledPeriodOption: {
+    backgroundColor: "#eeeef2",
+    opacity: 0.6,
+  },
+  periodCountText: {
+    color: "#777",
+    fontSize: 12,
+    marginTop: 3,
   },
   disabledMenuButton: {
     backgroundColor: "#f0f0f0",
