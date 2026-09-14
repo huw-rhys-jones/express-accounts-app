@@ -3,6 +3,7 @@ import {
   ActivityIndicator,
   Alert,
   Animated,
+  BackHandler,
   Dimensions,
   Keyboard,
   KeyboardAvoidingView,
@@ -171,6 +172,7 @@ export default function IncomeFormScreen({ navigation, route, mode }) {
   const [imageContainerHeight, setImageContainerHeight] = useState(HERO_EXPANDED_HEIGHT);
   const [fullScreenImageIndex, setFullScreenImageIndex] = useState(null);
   const [ocrFrames, setOcrFrames] = useState(null);
+  const [showConfirmLeaveModal, setShowConfirmLeaveModal] = useState(false);
 
   // Multi-statement draft mode (when multiple income images are detected)
   const [incomeDrafts, setIncomeDrafts] = useState([]);
@@ -200,6 +202,39 @@ export default function IncomeFormScreen({ navigation, route, mode }) {
   incomeDraftsRef.current = incomeDrafts;
   currentDraftIndexRef.current = currentDraftIndex;
   incomeFormStateRef.current = { amount, vatAmount, vatRate, vatAmountEdited, reference, label, notes, selectedDate, attachments, cisApplies, cisMaterialsAmount, cisDeductionRate, vatTreatment };
+
+  const indicatorScrollRef = useRef(null);
+  const indicatorLayoutsRef = useRef({});
+  const indicatorViewportWidthRef = useRef(0);
+
+  const scrollIndicatorIntoView = (index) => {
+    const attempt = () => {
+      const layout = indicatorLayoutsRef.current[index];
+      const viewportWidth = indicatorViewportWidthRef.current;
+      if (!layout || !viewportWidth || !indicatorScrollRef.current) return;
+      const targetX = Math.max(
+        0,
+        layout.x + layout.width / 2 - viewportWidth / 2,
+      );
+      indicatorScrollRef.current.scrollTo({ x: targetX, animated: true });
+    };
+    attempt();
+    requestAnimationFrame(attempt);
+  };
+
+  useEffect(() => {
+    if (!isMultiDraftMode) return;
+    scrollIndicatorIntoView(currentDraftIndex);
+  }, [currentDraftIndex, incomeDrafts.length, isMultiDraftMode]);
+
+  const isIncomeDraftValid = (draft) => {
+    if (!draft) return false;
+    const a = parseFloat(draft.amount);
+    const validAmount = Number.isFinite(a) && a > 0;
+    const d = draft.selectedDate instanceof Date ? draft.selectedDate : new Date(draft.selectedDate);
+    const validDate = !Number.isNaN(d.getTime());
+    return validAmount && validDate;
+  };
 
   const draftSlideX = useRef(new Animated.Value(0)).current;
   const draftFade = useRef(new Animated.Value(1)).current;
@@ -382,6 +417,31 @@ export default function IncomeFormScreen({ navigation, route, mode }) {
       navigateToIncomeDraft(nextIndex);
     }
   };
+
+  const handleLeavePress = () => {
+    if (mode === "edit") {
+      navigateBackToIncome(navigation);
+      return;
+    }
+    setShowConfirmLeaveModal(true);
+  };
+
+  useEffect(() => {
+    if (mode === "edit") return undefined;
+    const backHandler = BackHandler.addEventListener("hardwareBackPress", () => {
+      if (showConfirmLeaveModal) {
+        setShowConfirmLeaveModal(false);
+        return true;
+      }
+      if (!amount && !attachments.length && incomeDrafts.length === 0) {
+        navigation.goBack();
+        return true;
+      }
+      setShowConfirmLeaveModal(true);
+      return true;
+    });
+    return () => backHandler.remove();
+  }, [amount, attachments.length, incomeDrafts.length, mode, navigation, showConfirmLeaveModal]);
 
   const handleSaveReviewedIncomes = async () => {
     if (!allDraftsReviewed) return;
@@ -1090,7 +1150,7 @@ export default function IncomeFormScreen({ navigation, route, mode }) {
     >
       <View style={[styles.header, { paddingTop: Math.max(insets.top + 10, 24) }]}>
         <TouchableOpacity
-          onPress={() => navigateBackToIncome(navigation)}
+          onPress={handleLeavePress}
           style={styles.headerBtn}
           activeOpacity={0.8}
         >
@@ -1769,6 +1829,54 @@ export default function IncomeFormScreen({ navigation, route, mode }) {
         </View>
       )}
 
+      {/* Dark red divider line — top of fixed area */}
+      {isMultiDraftMode ? <View style={styles.buttonBarDivider} /> : null}
+
+      {/* Draft indicator dots */}
+      {isMultiDraftMode && incomeDrafts.length > 0 ? (
+        <ScrollView
+          ref={indicatorScrollRef}
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          style={styles.receiptIndicatorRow}
+          contentContainerStyle={styles.receiptIndicatorRowContent}
+          onLayout={(e) => {
+            indicatorViewportWidthRef.current = e.nativeEvent.layout.width;
+          }}
+        >
+          {incomeDrafts.map((draft, index) => {
+            const isActive = index === currentDraftIndex;
+            const state = draftReviewStates[index];
+            let dotColor;
+            if (state === "confirmed") dotColor = "#2E9F46";
+            else if (state === "skipped") dotColor = "#555";
+            else {
+              const valid =
+                index === currentDraftIndex ? isIncomeFormValid : isIncomeDraftValid(draft);
+              dotColor = valid ? "#4A90D9" : "#E06B6B";
+            }
+            return (
+              <TouchableOpacity
+                key={String(index)}
+                style={styles.indicatorDotWrapper}
+                onPress={() => navigateToIncomeDraft(index)}
+                onLayout={(e) => {
+                  indicatorLayoutsRef.current[index] = e.nativeEvent.layout;
+                }}
+                hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+              >
+                <View
+                  style={
+                    isActive ? styles.indicatorTriangle : styles.indicatorTriangleHidden
+                  }
+                />
+                <View style={[styles.indicatorDot, { backgroundColor: dotColor }]} />
+              </TouchableOpacity>
+            );
+          })}
+        </ScrollView>
+      ) : null}
+
       {/* Sticky bottom action bar */}
       {isMultiDraftMode && allDraftsReviewed ? (
         <View style={styles.submitButtonContainer}>
@@ -1802,14 +1910,15 @@ export default function IncomeFormScreen({ navigation, route, mode }) {
               const isCurrentSkipped = draftReviewStates[currentDraftIndex] === "skipped";
               return (
                 <>
-                  <Text style={styles.draftCounter}>
-                    {currentDraftIndex + 1} / {incomeDrafts.length}
-                  </Text>
                   <Button
                     mode={isCurrentSkipped ? "contained" : "outlined"}
                     buttonColor={isCurrentSkipped ? "#555" : undefined}
                     textColor={isCurrentSkipped ? "#fff" : Colors.accent}
-                    style={[styles.stickyActionButton, isCurrentConfirmed ? styles.multiActionFaded : null]}
+                    style={[
+                      styles.stickyActionButton,
+                      !isCurrentSkipped && !isCurrentConfirmed ? styles.multiActionDefaultButton : null,
+                      isCurrentConfirmed ? styles.multiActionFaded : null,
+                    ]}
                     onPress={skipIncomeDraft}
                   >
                     {isCurrentSkipped ? "Skipped" : "Skip"}
@@ -1818,7 +1927,11 @@ export default function IncomeFormScreen({ navigation, route, mode }) {
                     mode={isCurrentConfirmed ? "contained" : "outlined"}
                     buttonColor={isCurrentConfirmed ? Colors.accent : undefined}
                     textColor={isCurrentConfirmed ? "#fff" : Colors.accent}
-                    style={[styles.stickyActionButton, isCurrentSkipped ? styles.multiActionFaded : null]}
+                    style={[
+                      styles.stickyActionButton,
+                      !isCurrentSkipped && !isCurrentConfirmed ? styles.multiActionDefaultButton : null,
+                      isCurrentSkipped ? styles.multiActionFaded : null,
+                    ]}
                     onPress={confirmIncomeDraft}
                     disabled={!isIncomeFormValid}
                   >
@@ -1856,7 +1969,7 @@ export default function IncomeFormScreen({ navigation, route, mode }) {
                   mode="contained"
                   buttonColor={Colors.accent}
                   style={styles.stickyActionButton}
-                  onPress={() => navigateBackToIncome(navigation)}
+                  onPress={handleLeavePress}
                 >
                   Cancel
                 </Button>
@@ -1883,6 +1996,37 @@ export default function IncomeFormScreen({ navigation, route, mode }) {
           </View>
         </View>
       ) : null}
+
+      {/* Leave Modal */}
+      <Modal
+        visible={showConfirmLeaveModal}
+        transparent
+        animationType="slide"
+        onRequestClose={() => setShowConfirmLeaveModal(false)}
+      >
+        <View style={ReceiptStyles.modalOverlay}>
+          <View style={ReceiptStyles.modalContent}>
+            <Text style={ReceiptStyles.modalTitle}>
+              Are you sure you want to go back?
+            </Text>
+            <View style={ReceiptStyles.modalButtons}>
+              <Button mode="outlined" onPress={() => setShowConfirmLeaveModal(false)}>
+                Cancel
+              </Button>
+              <Button
+                mode="contained"
+                buttonColor="#a60d49"
+                onPress={() => {
+                  setShowConfirmLeaveModal(false);
+                  navigateBackToIncome(navigation);
+                }}
+              >
+                Confirm
+              </Button>
+            </View>
+          </View>
+        </View>
+      </Modal>
 
       {/* Toast notification */}
       {toastVisible ? (
@@ -2080,6 +2224,10 @@ const styles = StyleSheet.create({
   multiActionFaded: {
     opacity: 0.45,
   },
+  multiActionDefaultButton: {
+    borderColor: "#b5b5b5",
+    borderWidth: 1,
+  },
   saveAllButton: {
     marginTop: 12,
     borderRadius: 8,
@@ -2161,6 +2309,57 @@ const styles = StyleSheet.create({
     color: Colors.accent,
     minWidth: 40,
     textAlign: "center",
+  },
+  // Draft indicator dots
+  buttonBarDivider: {
+    height: 2,
+    backgroundColor: "#a60d49",
+    width: "100%",
+  },
+  receiptIndicatorRow: {
+    flexGrow: 0,
+    backgroundColor: "#fff",
+  },
+  receiptIndicatorRowContent: {
+    flexDirection: "row",
+    alignItems: "flex-end",
+    justifyContent: "center",
+    flexGrow: 1,
+    paddingVertical: 2,
+    paddingHorizontal: 12,
+    gap: 14,
+  },
+  indicatorDotWrapper: {
+    alignItems: "center",
+    paddingHorizontal: 2,
+    paddingVertical: 2,
+  },
+  indicatorDot: {
+    width: 16,
+    height: 16,
+    borderRadius: 8,
+  },
+  indicatorTriangle: {
+    width: 0,
+    height: 0,
+    borderLeftWidth: 6,
+    borderRightWidth: 6,
+    borderTopWidth: 8,
+    borderLeftColor: "transparent",
+    borderRightColor: "transparent",
+    borderTopColor: "#1C1C4E",
+    marginBottom: 3,
+  },
+  indicatorTriangleHidden: {
+    width: 0,
+    height: 0,
+    borderLeftWidth: 6,
+    borderRightWidth: 6,
+    borderTopWidth: 8,
+    borderLeftColor: "transparent",
+    borderRightColor: "transparent",
+    borderTopColor: "transparent",
+    marginBottom: 3,
   },
   submitButtonContainer: {
     paddingHorizontal: 16,
