@@ -2,6 +2,8 @@ import React, { createContext, useContext, useEffect, useRef, useState } from 'r
 import { collection, doc, getDoc, getDocs, onSnapshot, query, serverTimestamp, setDoc, where } from 'firebase/firestore';
 import { onAuthStateChanged } from 'firebase/auth';
 import { auth, db } from '../firebaseConfig';
+import { getFinancialYearScope, setFinancialYearScope as persistFinancialYearScope } from '../utils/appSettings';
+import { getFinancialYearStartYear } from '../utils/financialPeriods';
 
 const DataContext = createContext(null);
 
@@ -14,6 +16,7 @@ export function DataProvider({ children }) {
   const [receiptsLoading, setReceiptsLoading] = useState(true);
   const [incomeLoading, setIncomeLoading] = useState(true);
   const [bankStatementsLoading, setBankStatementsLoading] = useState(true);
+  const [financialYearScope, setFinancialYearScopeState] = useState(() => getFinancialYearStartYear(new Date()));
 
   const loadedRef = useRef({ receipts: false, income: false, bankStatements: false });
   const activeUidRef = useRef(null);
@@ -344,6 +347,17 @@ export function DataProvider({ children }) {
     };
   }, []);
 
+  useEffect(() => {
+    getFinancialYearScope()
+      .then((value) => setFinancialYearScopeState(value ?? getFinancialYearStartYear(new Date())))
+      .catch(() => {});
+  }, []);
+
+  const setFinancialYearScope = async (value) => {
+    setFinancialYearScopeState(value);
+    await persistFinancialYearScope(value);
+  };
+
   const displayName = auth.currentUser?.displayName || userProfile.name || 'User';
 
   const refreshReceipts = async () => {
@@ -390,7 +404,7 @@ export function DataProvider({ children }) {
   };
 
   return (
-    <DataContext.Provider value={{ receipts, incomeItems, bankStatements, userProfile, displayName, initialLoading, receiptsLoading, incomeLoading, bankStatementsLoading, refreshReceipts, refreshIncome }}>
+    <DataContext.Provider value={{ receipts, incomeItems, bankStatements, userProfile, displayName, financialYearScope, setFinancialYearScope, initialLoading, receiptsLoading, incomeLoading, bankStatementsLoading, refreshReceipts, refreshIncome }}>
       {children}
     </DataContext.Provider>
   );

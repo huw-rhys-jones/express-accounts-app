@@ -29,8 +29,8 @@ import Constants from "expo-constants";
 import appPackage from "../package.json";
 import { auth, db } from "../firebaseConfig";
 import { getVehicles } from "../utils/appSettings";
-import { getReceiptFinancialYear, setReceiptFinancialYear, setAllFilterKeys } from "../utils/appSettings";
-import { buildFinancialYearOptions, getFinancialYearLabel, getFinancialYearStartYear } from "../utils/financialPeriods";
+import { setAllFilterKeys } from "../utils/appSettings";
+import { buildFinancialYearOptions, getFinancialYearLabel } from "../utils/financialPeriods";
 import { Colors } from "../utils/sharedStyles";
 import { Checkbox } from "react-native-paper";
 import { Ionicons } from "@expo/vector-icons";
@@ -45,8 +45,8 @@ const internalBuildLabel = Constants.expoConfig?.extra?.internalBuildLabel || ""
 const versionLabel = internalBuildLabel ? `${appVersion} (${internalBuildLabel})` : appVersion;
 const profileImageStorageKey = (userId) => `express-accounts-profile-image:${userId}`;
 
-export default function SharedTabMenu({ navigation, closeMenu, displayName = "User", open = false, onVehiclesChanged }) {
-  const { userProfile, displayName: contextDisplayName, receipts } = useData();
+export default function SharedTabMenu({ navigation, closeMenu, displayName = "User", open = false, onVehiclesChanged, onFinancialYearScopeChange }) {
+  const { userProfile, displayName: contextDisplayName, receipts, financialYearScope, setFinancialYearScope } = useData();
   const [busy, setBusy] = useState(false);
   const [busyText, setBusyText] = useState("Please wait...");
 
@@ -76,13 +76,12 @@ export default function SharedTabMenu({ navigation, closeMenu, displayName = "Us
   const [vatRegistered, setVatRegistered] = useState(false);
   const [vatRegistrationNumber, setVatRegistrationNumber] = useState("");
   const [financialYearModalVisible, setFinancialYearModalVisible] = useState(false);
-  const [selectedFinancialYear, setSelectedFinancialYear] = useState(null);
 
   const isVerifiedAccount = verificationStatus === "verified";
   const financialYearOptions = buildFinancialYearOptions(receipts, new Date());
-  const selectedFinancialYearLabel = selectedFinancialYear === "all-time"
+  const selectedFinancialYearLabel = financialYearScope === "all-time"
     ? "All Time"
-    : `Financial Year ${getFinancialYearLabel(Number(selectedFinancialYear || getFinancialYearStartYear(new Date())))}`;
+    : `Financial Year ${getFinancialYearLabel(Number(financialYearScope))}`;
 
   const runWithLoading = useCallback(async (text, fn) => {
     setBusyText(text);
@@ -151,7 +150,6 @@ export default function SharedTabMenu({ navigation, closeMenu, displayName = "Us
     setVerificationStatus(String(userProfile?.verificationStatus || ""));
     setVehicles(Array.isArray(userProfile?.vehicles) ? userProfile.vehicles : []);
     applyVatProfile(userProfile);
-    getReceiptFinancialYear().then((value) => setSelectedFinancialYear(value ?? getFinancialYearStartYear(new Date()))).catch(() => {});
   }, [applyVatProfile, contextDisplayName, displayName, userProfile]);
 
   const openVatSettings = useCallback(async () => {
@@ -204,9 +202,10 @@ export default function SharedTabMenu({ navigation, closeMenu, displayName = "Us
   const selectFinancialYear = async (option) => {
     if (option.count === 0) return;
     const nextValue = option.key === "all-time" ? "all-time" : option.startYear;
-    setSelectedFinancialYear(nextValue);
-    await setReceiptFinancialYear(nextValue);
-    await setAllFilterKeys(option.key === "all-time" ? "all-time" : `year-${option.startYear}`);
+    const nextFilterKey = option.key === "all-time" ? "all-time" : `year-${option.startYear}`;
+    await setFinancialYearScope(nextValue);
+    await setAllFilterKeys(nextFilterKey);
+    onFinancialYearScopeChange?.(nextValue, nextFilterKey);
     setFinancialYearModalVisible(false);
   };
 

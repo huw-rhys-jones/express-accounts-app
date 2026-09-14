@@ -5,7 +5,7 @@ const RECEIPT_FILTER_KEY = "@settings:receiptFilterKey";
 const INCOME_FILTER_KEY = "@settings:incomeFilterKey";
 const BANK_FILTER_KEY = "@settings:bankFilterKey";
 const SUMMARY_FILTER_KEY = "@settings:summaryFilterKey";
-const RECEIPT_FINANCIAL_YEAR_KEY = "@settings:receiptFinancialYear";
+const FINANCIAL_YEAR_SCOPE_KEY = "@settings:financialYearScope";
 
 async function getFilterKey(storageKey) {
   try {
@@ -28,17 +28,17 @@ export async function setReceiptFilterKey(filterKey) {
   await setFilterKey(RECEIPT_FILTER_KEY, filterKey);
 }
 
-export async function getReceiptFinancialYear() {
+export async function getFinancialYearScope() {
   try {
-    const value = await AsyncStorage.getItem(RECEIPT_FINANCIAL_YEAR_KEY);
+    const value = await AsyncStorage.getItem(FINANCIAL_YEAR_SCOPE_KEY);
     return value === "all-time" ? "all-time" : (value ? Number(value) : null);
   } catch {
     return null;
   }
 }
 
-export async function setReceiptFinancialYear(startYear) {
-  await AsyncStorage.setItem(RECEIPT_FINANCIAL_YEAR_KEY, String(startYear ?? "all-time"));
+export async function setFinancialYearScope(startYear) {
+  await AsyncStorage.setItem(FINANCIAL_YEAR_SCOPE_KEY, String(startYear ?? "all-time"));
 }
 
 export async function getIncomeFilterKey() {

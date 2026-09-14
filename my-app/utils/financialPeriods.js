@@ -73,6 +73,50 @@ export function getCurrentFinancialQuarter(now = new Date()) {
   );
 }
 
+// Not included in buildFinancialFilterOptions; selectable only from the side-menu financial year picker.
+export const ALL_TIME_FILTER_OPTION = {
+  key: "all-time",
+  label: "All Time",
+  startDate: null,
+  endDate: null,
+};
+
+function getYearsPresent(records = [], now = new Date()) {
+  const years = new Set([getFinancialYearStartYear(now)]);
+  for (const record of records) {
+    const d = toDateOrNull(record?.date);
+    if (!d) continue;
+    years.add(getFinancialYearStartYear(d));
+  }
+  return Array.from(years).sort((a, b) => b - a);
+}
+
+// Options for a single selected financial year: the year itself plus its four quarters.
+export function buildYearScopedFilterOptions(startYear) {
+  const fy = getFinancialYearPeriod(startYear);
+  const options = [{ key: `year-${startYear}`, label: fy.label, startDate: fy.startDate, endDate: fy.endDate }];
+  for (const quarter of getFinancialQuarterPeriods(startYear)) {
+    options.push({
+      key: `quarter-${quarter.key}`,
+      label: quarter.label,
+      startDate: quarter.startDate,
+      endDate: quarter.endDate,
+    });
+  }
+  return options;
+}
+
+// Options for the "All Time" scope: All Time plus every financial year present in the data (no quarters).
+export function buildAllTimeScopedFilterOptions(records = [], now = new Date()) {
+  return [
+    ALL_TIME_FILTER_OPTION,
+    ...getYearsPresent(records, now).map((year) => {
+      const fy = getFinancialYearPeriod(year);
+      return { key: `year-${year}`, label: fy.label, startDate: fy.startDate, endDate: fy.endDate };
+    }),
+  ];
+}
+
 export function buildFinancialFilterOptions(receipts = [], now = new Date()) {
   const years = new Set([getFinancialYearStartYear(now)]);
 
@@ -84,13 +128,6 @@ export function buildFinancialFilterOptions(receipts = [], now = new Date()) {
 
   const orderedYears = Array.from(years).sort((a, b) => b - a);
   const options = [];
-
-  options.push({
-    key: "all-time",
-    label: "All Time",
-    startDate: null,
-    endDate: null,
-  });
 
   const currentQuarter = getCurrentFinancialQuarter(now);
   options.push({
@@ -138,13 +175,6 @@ export function buildFinancialYearOptions(receipts = [], now = new Date(), count
       };
     }),
   ];
-}
-
-export function buildReceiptPeriodOptions(receipts = [], startYear, now = new Date()) {
-  const selectedStartYear = startYear ?? getFinancialYearStartYear(now);
-  return getFinancialQuarterPeriods(selectedStartYear).filter(
-    (quarter) => getPeriodRecordCount(receipts, quarter) > 0,
-  );
 }
 
 export function filterReceiptsByDateRange(receipts = [], startDate, endDate) {

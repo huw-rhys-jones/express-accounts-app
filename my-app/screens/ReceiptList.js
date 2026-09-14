@@ -44,17 +44,18 @@ import {
   deleteObject,
 } from "firebase/storage";
 import {
-  buildReceiptPeriodOptions,
-  getFinancialYearPeriod,
-  getFinancialYearStartYear,
+  buildYearScopedFilterOptions,
+  buildAllTimeScopedFilterOptions,
   filterReceiptsByDateRange,
+  getPeriodRecordCount,
+  formatPeriodLabelWithCount,
 } from "../utils/financialPeriods";
 import {
   getHapticsEnabled,
   setHapticsEnabled,
   triggerHaptic,
 } from "../utils/haptics";
-import { getReceiptFilterKey, setReceiptFilterKey, getReceiptFinancialYear, setAllFilterKeys, getVehicles } from "../utils/appSettings";
+import { getReceiptFilterKey, setReceiptFilterKey, setAllFilterKeys, getVehicles } from "../utils/appSettings";
 import { verifyClientCode } from "../utils/verificationCodes";
 import AddReceiptSheet from "../components/AddReceiptSheet";
 import RegisterVehicleModal from "../components/RegisterVehicleModal";
@@ -68,7 +69,7 @@ const internalBuildLabel = Constants.expoConfig?.extra?.internalBuildLabel || ""
 const versionLabel = internalBuildLabel ? `${appVersion} (${internalBuildLabel})` : appVersion;
 
 const ExpensesScreen = ({ navigation, route }) => {
-  const { receipts, initialLoading: dataLoading } = useData();
+  const { receipts, incomeItems, bankStatements, financialYearScope, setFinancialYearScope, initialLoading: dataLoading } = useData();
   const [displayName, setDisplayName] = useState("User");
   const [verifiedName, setVerifiedName] = useState("");
   const [verificationStatus, setVerificationStatus] = useState("");
@@ -97,7 +98,6 @@ const ExpensesScreen = ({ navigation, route }) => {
   const [settingsModalVisible, setSettingsModalVisible] = useState(false);
   const [filterOpen, setFilterOpen] = useState(false);
   const [activeFilterKey, setActiveFilterKey] = useState("current-quarter");
-  const [selectedFinancialYear, setSelectedFinancialYear] = useState(getFinancialYearStartYear(new Date()));
   const [filterItems, setFilterItems] = useState([]);
   const [referralCodeModalVisible, setReferralCodeModalVisible] = useState(false);
   const [referralCode, setReferralCode] = useState("");
@@ -227,46 +227,54 @@ const ExpensesScreen = ({ navigation, route }) => {
   };
 
   const filterOptions = useMemo(
-    () => buildReceiptPeriodOptions(receipts, selectedFinancialYear, new Date()),
-    [receipts, selectedFinancialYear]
+    () => (financialYearScope === "all-time"
+      ? buildAllTimeScopedFilterOptions([...receipts, ...incomeItems, ...bankStatements], new Date())
+      : buildYearScopedFilterOptions(financialYearScope)),
+    [financialYearScope, receipts, incomeItems, bankStatements]
   );
-
-  const selectedYearOption = useMemo(() => {
-    if (activeFilterKey === "all-time") return { key: "all-time", label: "All Time", startDate: null, endDate: null };
-    if (/^year-\d{4}$/.test(activeFilterKey)) {
-      return getFinancialYearPeriod(Number(activeFilterKey.slice(5)));
-    }
-    return null;
-  }, [activeFilterKey]);
 
   const activeFilter = useMemo(
-    () => selectedYearOption || filterOptions.find((option) => option.key === activeFilterKey) || filterOptions[0],
-    [activeFilterKey, filterOptions, selectedYearOption]
+    () => filterOptions.find((option) => option.key === activeFilterKey) || filterOptions[0],
+    [activeFilterKey, filterOptions]
   );
 
+  const filterCountsByKey = useMemo(() => {
+    const counts = {};
+    for (const option of filterOptions) {
+      counts[option.key] = getPeriodRecordCount(receipts, option);
+    }
+    return counts;
+  }, [filterOptions, receipts]);
+
   useEffect(() => {
-    if (!activeFilter && (filterOptions[0] || selectedYearOption)) {
-      setActiveFilterKey(selectedYearOption?.key || filterOptions[0].key);
+    if (!activeFilter && filterOptions[0]) {
+      setActiveFilterKey(filterOptions[0].key);
     }
   }, [activeFilter, filterOptions]);
 
   useEffect(() => {
     setFilterItems(
-      filterOptions.map((option) => ({ label: option.label, value: option.key }))
+      filterOptions.map((option) => {
+        const count = filterCountsByKey[option.key] ?? 0;
+        return {
+          label: formatPeriodLabelWithCount(option.label, count, "Receipt"),
+          value: option.key,
+        };
+      })
     );
-  }, [filterOptions]);
+  }, [filterCountsByKey, filterOptions]);
 
   useEffect(() => {
     if (filterOptions.length === 0) {
       return;
     }
 
-    const hasActiveOption = activeFilterKey === "all-time" || /^year-\d{4}$/.test(activeFilterKey) || filterOptions.some(
+    const hasActiveOption = filterOptions.some(
       (option) => option.key === activeFilterKey
     );
 
     if (!hasActiveOption) {
-      const fallbackKey = filterOptions[0]?.key || "all-time";
+      const fallbackKey = filterOptions[0].key;
       setActiveFilterKey(fallbackKey);
       setReceiptFilterKey(fallbackKey).catch(() => {});
     }
@@ -312,20 +320,18 @@ const ExpensesScreen = ({ navigation, route }) => {
       .then(setHapticsEnabledState)
       .catch(() => setHapticsEnabledState(true));
 
-    getReceiptFilterKey().then(setActiveFilterKey).catch(() => {});
-    getReceiptFinancialYear().then((value) => {
-      if (value !== "all-time" && Number.isFinite(value)) setSelectedFinancialYear(value);
-    }).catch(() => {});
+    getReceiptFilterKey()
+      .then(setActiveFilterKey)
+      .catch(() => setActiveFilterKey("current-quarter"));
 
     getVehicles().then(setVehicles).catch(() => {});
   }, []);
 
   useEffect(() => {
     const unsubscribeFocus = navigation.addListener("focus", () => {
-      getReceiptFilterKey().then(setActiveFilterKey).catch(() => {});
-      getReceiptFinancialYear().then((value) => {
-        if (value !== "all-time" && Number.isFinite(value)) setSelectedFinancialYear(value);
-      }).catch(() => {});
+      getReceiptFilterKey()
+        .then(setActiveFilterKey)
+        .catch(() => setActiveFilterKey("current-quarter"));
 
       getVehicles().then(setVehicles).catch(() => {});
     });
@@ -828,7 +834,7 @@ const ExpensesScreen = ({ navigation, route }) => {
             listMode="SCROLLVIEW"
             dropDownDirection="TOP"
             closeOnClickOutside={true}
-            maxHeight={Math.max(56, filterItems.length * 48 + 12)}
+            maxHeight={filterItems.length * 48 + 12}
             style={styles.filterDropdown}
             dropDownContainerStyle={styles.filterDropdownContainer}
             zIndex={3000}
@@ -875,6 +881,10 @@ const ExpensesScreen = ({ navigation, route }) => {
           displayName={displayName}
           open={menuOpen}
           onVehiclesChanged={setVehicles}
+          onFinancialYearScopeChange={(scope, filterKey) => {
+            setFinancialYearScope(scope);
+            setActiveFilterKey(filterKey);
+          }}
         />
       </SideMenu>
 

@@ -21,20 +21,22 @@ import { formatDate } from "../utils/format_style";
 import { useData } from "../contexts/DataContext";
 import DropDownPicker from "react-native-dropdown-picker";
 import {
-  buildFinancialFilterOptions,
+  buildYearScopedFilterOptions,
+  buildAllTimeScopedFilterOptions,
   filterReceiptsByDateRange,
   getPeriodRecordCount,
   formatPeriodLabelWithCount,
 } from "../utils/financialPeriods";
 import {
   getBankFilterKey,
+  setBankFilterKey,
   setAllFilterKeys,
   getHiddenPeriodTooltipDismissed,
   setHiddenPeriodTooltipDismissed,
 } from "../utils/appSettings";
 
 export default function BankStatementList({ navigation }) {
-  const { bankStatements, bankStatementsLoading } = useData();
+  const { receipts, incomeItems, bankStatements, bankStatementsLoading, financialYearScope, setFinancialYearScope } = useData();
   const statements = bankStatements;
   const loading = bankStatementsLoading;
   const [refreshing, setRefreshing] = useState(false);
@@ -50,8 +52,10 @@ export default function BankStatementList({ navigation }) {
   const [hiddenPeriodTipTemporarilyDismissed, setHiddenPeriodTipTemporarilyDismissed] = useState(false);
 
   const filterOptions = useMemo(
-    () => buildFinancialFilterOptions(statements, new Date()),
-    [statements]
+    () => (financialYearScope === "all-time"
+      ? buildAllTimeScopedFilterOptions([...receipts, ...incomeItems, ...bankStatements], new Date())
+      : buildYearScopedFilterOptions(financialYearScope)),
+    [financialYearScope, receipts, incomeItems, bankStatements]
   );
 
   const activeFilter = useMemo(
@@ -111,6 +115,15 @@ export default function BankStatementList({ navigation }) {
     });
     return unsub;
   }, [navigation]);
+
+  useEffect(() => {
+    if (filterOptions.length === 0) return;
+    if (!filterOptions.some((o) => o.key === activeFilterKey)) {
+      const fallbackKey = filterOptions[0].key;
+      setActiveFilterKey(fallbackKey);
+      setBankFilterKey(fallbackKey).catch(() => {});
+    }
+  }, [activeFilterKey, filterOptions]);
 
   useEffect(() => {
     if (
@@ -337,6 +350,7 @@ export default function BankStatementList({ navigation }) {
             setItems={setFilterItems}
             listMode="SCROLLVIEW"
             dropDownDirection="TOP"
+            maxHeight={filterItems.length * 48 + 12}
             style={styles.filterDropdown}
             dropDownContainerStyle={styles.filterDropdownContainer}
             zIndex={3000}
@@ -364,6 +378,10 @@ export default function BankStatementList({ navigation }) {
           closeMenu={closeMenu}
           displayName={auth.currentUser?.displayName || "User"}
           open={menuOpen}
+          onFinancialYearScopeChange={(scope, filterKey) => {
+            setFinancialYearScope(scope);
+            setActiveFilterKey(filterKey);
+          }}
         />
       </SideMenu>
 

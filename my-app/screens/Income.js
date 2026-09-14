@@ -22,7 +22,8 @@ import { Colors } from "../utils/sharedStyles";
 import { useData } from "../contexts/DataContext";
 import DropDownPicker from "react-native-dropdown-picker";
 import {
-  buildFinancialFilterOptions,
+  buildYearScopedFilterOptions,
+  buildAllTimeScopedFilterOptions,
   filterReceiptsByDateRange,
   getPeriodRecordCount,
   formatPeriodLabelWithCount,
@@ -30,7 +31,7 @@ import {
 import { getIncomeFilterKey, setIncomeFilterKey, setAllFilterKeys } from "../utils/appSettings";
 
 export default function IncomeScreen({ navigation }) {
-  const { incomeItems, incomeLoading } = useData();
+  const { receipts, incomeItems, bankStatements, incomeLoading, financialYearScope, setFinancialYearScope } = useData();
   const loading = incomeLoading;
   const [refreshing, setRefreshing] = useState(false);
   const [sortKey, setSortKey] = useState("date");
@@ -42,8 +43,10 @@ export default function IncomeScreen({ navigation }) {
   const [filterItems, setFilterItems] = useState([]);
 
   const filterOptions = useMemo(
-    () => buildFinancialFilterOptions(incomeItems, new Date()),
-    [incomeItems]
+    () => (financialYearScope === "all-time"
+      ? buildAllTimeScopedFilterOptions([...receipts, ...incomeItems, ...bankStatements], new Date())
+      : buildYearScopedFilterOptions(financialYearScope)),
+    [financialYearScope, receipts, incomeItems, bankStatements]
   );
 
   const activeFilter = useMemo(
@@ -92,6 +95,15 @@ export default function IncomeScreen({ navigation }) {
     });
     return unsub;
   }, [navigation]);
+
+  useEffect(() => {
+    if (filterOptions.length === 0) return;
+    if (!filterOptions.some((o) => o.key === activeFilterKey)) {
+      const fallbackKey = filterOptions[0].key;
+      setActiveFilterKey(fallbackKey);
+      setIncomeFilterKey(fallbackKey).catch(() => {});
+    }
+  }, [activeFilterKey, filterOptions]);
 
   const handleFilterSelection = useCallback(async (nextKey) => {
     setActiveFilterKey(nextKey);
@@ -263,6 +275,7 @@ export default function IncomeScreen({ navigation }) {
             setItems={setFilterItems}
             listMode="SCROLLVIEW"
             dropDownDirection="TOP"
+            maxHeight={filterItems.length * 48 + 12}
             style={styles.filterDropdown}
             dropDownContainerStyle={styles.filterDropdownContainer}
             zIndex={3000}
@@ -294,6 +307,10 @@ export default function IncomeScreen({ navigation }) {
           closeMenu={closeMenu}
           displayName={auth.currentUser?.displayName || "User"}
           open={menuOpen}
+          onFinancialYearScopeChange={(scope, filterKey) => {
+            setFinancialYearScope(scope);
+            setActiveFilterKey(filterKey);
+          }}
         />
       </SideMenu>
 

@@ -23,7 +23,8 @@ import polyline from "@mapbox/polyline";
 import { groupCashflowByMonth } from "../utils/groupByMonth";
 import { Colors, SharedStyles } from "../utils/sharedStyles";
 import {
-  buildFinancialFilterOptions,
+  buildYearScopedFilterOptions,
+  buildAllTimeScopedFilterOptions,
   filterReceiptsByDateRange,
 } from "../utils/financialPeriods";
 import { formatDate } from "../utils/format_style";
@@ -72,6 +73,8 @@ export default function SummaryScreen({ navigation }) {
     receiptsLoading,
     incomeLoading,
     bankStatementsLoading,
+    financialYearScope,
+    setFinancialYearScope,
   } = useData();
   const loading = receiptsLoading || incomeLoading || bankStatementsLoading;
   const [refreshing, setRefreshing] = useState(false);
@@ -92,8 +95,10 @@ export default function SummaryScreen({ navigation }) {
   };
 
   const filterOptions = useMemo(
-    () => buildFinancialFilterOptions([...receipts, ...incomeItems, ...bankStatements], new Date()),
-    [receipts, incomeItems, bankStatements]
+    () => (financialYearScope === "all-time"
+      ? buildAllTimeScopedFilterOptions([...receipts, ...incomeItems, ...bankStatements], new Date())
+      : buildYearScopedFilterOptions(financialYearScope)),
+    [financialYearScope, receipts, incomeItems, bankStatements]
   );
 
   const activeFilter = useMemo(
@@ -638,6 +643,7 @@ export default function SummaryScreen({ navigation }) {
             setItems={setFilterItems}
             listMode="SCROLLVIEW"
             dropDownDirection="TOP"
+            maxHeight={filterItems.length * 48 + 12}
             style={styles.filterDropdown}
             dropDownContainerStyle={styles.filterDropdownContainer}
             textStyle={styles.filterDropdownText}
@@ -653,6 +659,10 @@ export default function SummaryScreen({ navigation }) {
           closeMenu={closeMenu}
           displayName={auth.currentUser?.displayName || "User"}
           open={menuOpen}
+          onFinancialYearScopeChange={(scope, filterKey) => {
+            setFinancialYearScope(scope);
+            setActiveFilterKey(filterKey);
+          }}
         />
       </SideMenu>
     </SafeAreaView>
