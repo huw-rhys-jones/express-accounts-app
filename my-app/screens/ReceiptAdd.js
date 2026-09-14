@@ -232,6 +232,30 @@ const ReceiptAdd = ({ navigation, route }) => {
   receiptDraftsRef.current = receiptDrafts;
   currentReceiptIndexRef.current = currentReceiptIndex;
 
+  const indicatorScrollRef = useRef(null);
+  const indicatorLayoutsRef = useRef({});
+  const indicatorViewportWidthRef = useRef(0);
+
+  const scrollIndicatorIntoView = (index) => {
+    const attempt = () => {
+      const layout = indicatorLayoutsRef.current[index];
+      const viewportWidth = indicatorViewportWidthRef.current;
+      if (!layout || !viewportWidth || !indicatorScrollRef.current) return;
+      const targetX = Math.max(
+        0,
+        layout.x + layout.width / 2 - viewportWidth / 2,
+      );
+      indicatorScrollRef.current.scrollTo({ x: targetX, animated: true });
+    };
+    attempt();
+    requestAnimationFrame(attempt);
+  };
+
+  useEffect(() => {
+    if (!isMultiReceiptMode) return;
+    scrollIndicatorIntoView(currentReceiptIndex);
+  }, [currentReceiptIndex, receiptDrafts.length, isMultiReceiptMode]);
+
   const scrollToTop = () => {
     requestAnimationFrame(() => {
       scrollRef.current?.scrollToPosition?.(0, 0, true);
@@ -1886,7 +1910,16 @@ const ReceiptAdd = ({ navigation, route }) => {
 
       {/* Receipt indicator dots */}
       {isMultiReceiptMode && receiptDrafts.length > 0 ? (
-        <View style={localStyles.receiptIndicatorRow}>
+        <ScrollView
+          ref={indicatorScrollRef}
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          style={localStyles.receiptIndicatorRow}
+          contentContainerStyle={localStyles.receiptIndicatorRowContent}
+          onLayout={(e) => {
+            indicatorViewportWidthRef.current = e.nativeEvent.layout.width;
+          }}
+        >
           {receiptDrafts.map((draft, index) => {
             const isActive = index === currentReceiptIndex;
             const state = receiptReviewStates[index];
@@ -1905,6 +1938,9 @@ const ReceiptAdd = ({ navigation, route }) => {
                 key={String(index)}
                 style={localStyles.indicatorDotWrapper}
                 onPress={() => navigateToDraftIndex(index)}
+                onLayout={(e) => {
+                  indicatorLayoutsRef.current[index] = e.nativeEvent.layout;
+                }}
                 hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
               >
                 <View
@@ -1920,7 +1956,7 @@ const ReceiptAdd = ({ navigation, route }) => {
               </TouchableOpacity>
             );
           })}
-        </View>
+        </ScrollView>
       ) : null}
 
       {/* Submit & Save — shown after all receipts reviewed */}
@@ -3067,13 +3103,17 @@ const localStyles = StyleSheet.create({
   },
   // Receipt indicator dots
   receiptIndicatorRow: {
+    flexGrow: 0,
+    backgroundColor: "#fff",
+  },
+  receiptIndicatorRowContent: {
     flexDirection: "row",
-    justifyContent: "center",
     alignItems: "flex-end",
+    justifyContent: "center",
+    flexGrow: 1,
     paddingVertical: 2,
     paddingHorizontal: 12,
     gap: 14,
-    backgroundColor: "#fff",
   },
   indicatorDotWrapper: {
     alignItems: "center",
