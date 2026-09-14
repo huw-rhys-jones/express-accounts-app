@@ -234,7 +234,10 @@ function extractDate(text) {
 // ---------- amount extraction ----------
 // ---------- amount extraction ----------
 const MONEY_RE = /(?:£\s?|₤\s?|GBP\s*)?(?:\d{1,3}(?:[\s,.]\d{3})+|\d{1,6})[.,]\d{1,2}(?!\d)/g;
-const TOTAL_HINT_RE = /\b(?:grand\s+)?totals?\b|\b(?:total\s+)?amount\s+due\b|\bbalance\s+due\b|\bgrand\s+total\b/i;
+// Matches "total"/"totals" plus common OCR misreads of the word (TOTAT, TOTA1, IOTAL, TOTAI)
+// seen on thermal-printer receipts — keeps this in sync with the guardrail regexes below
+// that already special-case these variants.
+const TOTAL_HINT_RE = /\b(?:grand\s+)?tot[a4][l1t]s?\b|\biotal\b|\b(?:total\s+)?amount\s+due\b|\bbalance\s+due\b|\bgrand\s+total\b/i;
 const DUE_HINT_RE = /\b(?:amount|balance)\s+due\b|\btotal\s+amount\s+due\b/i;
 const INVOICE_DATE_HINT_RE = /\b(?:date|invoice\s+date|issued|invoice|statement\s+date)\b/i;
 const DUE_DATE_HINT_RE = /\b(?:due\s+by|payment\s+due|due\s+date)\b/i;
