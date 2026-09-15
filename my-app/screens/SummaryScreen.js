@@ -315,6 +315,23 @@ export default function SummaryScreen({ navigation }) {
   ]);
   const { yTicks } = getYAxisTicks(monthlyTotals, 5);
 
+  const vatPosition = Number((taxTotals.outputVat - taxTotals.inputVat).toFixed(2)) || 0;
+  const showGrossIncomeRow = Number(totals.incomeTotal) > 0;
+  const showExpensesRow = Number(totals.overall) > 0;
+  const showCisRow = Number(taxTotals.cisWithheld) > 0;
+  const showVatRow = Math.abs(vatPosition) > 0;
+  const showNetIncomeRow = showGrossIncomeRow && (showCisRow || showVatRow);
+  const showNetPositionRow = showGrossIncomeRow && showExpensesRow;
+
+  const summaryRows = [
+    showGrossIncomeRow ? { label: "Gross Income", value: totals.incomeTotal, tone: "income" } : null,
+    showExpensesRow ? { label: "Total Expenses", value: totals.overall, tone: "expense" } : null,
+    showCisRow ? { label: "CIS Withheld", value: taxTotals.cisWithheld, tone: "expense" } : null,
+    showVatRow ? { label: "VAT", value: vatPosition, tone: vatPosition >= 0 ? "income" : "expense" } : null,
+    showNetIncomeRow ? { label: "Net income", value: taxTotals.netIncomeAfterCis, tone: "income" } : null,
+    showNetPositionRow ? { label: "Net position", value: totals.netPosition, tone: totals.netPosition >= 0 ? "income" : "expense" } : null,
+  ].filter(Boolean);
+
   return (
     <SafeAreaView
       style={[styles.container, { backgroundColor: '#1C1C4E' }]}
@@ -353,30 +370,25 @@ export default function SummaryScreen({ navigation }) {
         >
           {/* Summary totals card */}
           <View style={[styles.card, { zIndex: 10, overflow: "visible" }]}>
-            <Text style={styles.subtitle}>
-              Total Spent: £{totals.overall.toFixed(2)}{" "}
-              <Text style={styles.subtitleVat}>(£{totals.totalVat.toFixed(2)} VAT)</Text>
-            </Text>
-            <Text style={styles.subtitleIncome}>
-              Total Income: £{totals.incomeTotal.toFixed(2)}
-            </Text>
-            <Text style={styles.subtitleNet}>
-              Net Position: £{totals.netPosition.toFixed(2)}
-            </Text>
-            <Text style={styles.subtitleIncome}>
-              Net Income after CIS: £{taxTotals.netIncomeAfterCis.toFixed(2)}
-            </Text>
-            <Text style={styles.subtitle}>
-              CIS Tax Withheld: £{taxTotals.cisWithheld.toFixed(2)}
-            </Text>
-            <Text style={styles.subtitle}>
-              VAT Position: £{(taxTotals.outputVat - taxTotals.inputVat).toFixed(2)}
-            </Text>
-            {taxTotals.reverseChargeVat > 0 ? (
-              <Text style={styles.subtitleVat}>
-                Reverse Charge VAT: £{taxTotals.reverseChargeVat.toFixed(2)}
-              </Text>
-            ) : null}
+            {summaryRows.map((row) => {
+              const isPositive = Number(row.value) >= 0;
+              const valueText = `£${Math.abs(Number(row.value) || 0).toFixed(2)}`;
+              const toneStyle =
+                row.tone === "income"
+                  ? styles.summaryRowIncome
+                  : row.tone === "expense"
+                    ? styles.summaryRowExpense
+                    : styles.summaryRowNeutral;
+
+              return (
+                <View key={row.label} style={styles.summaryRow}>
+                  <Text style={[styles.summaryLabel, toneStyle]}>{row.label}</Text>
+                  <Text style={[styles.summaryValue, toneStyle]}>
+                    {isPositive ? valueText : `-£${Math.abs(Number(row.value) || 0).toFixed(2)}`}
+                  </Text>
+                </View>
+              );
+            })}
           </View>
           {/* Monthly bar chart card */}
           <View style={styles.chartCard}>
@@ -762,6 +774,34 @@ const styles = StyleSheet.create({
   subtitleVat: { fontSize: 15, color: Colors.textPrimary },
   subtitleIncome: { fontSize: 15, color: "#2e7d32", marginTop: 6 },
   subtitleNet: { fontSize: 15, color: Colors.textPrimary, marginTop: 6 },
+  summaryRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    width: "100%",
+    minHeight: 28,
+    marginVertical: 2,
+  },
+  summaryLabel: {
+    flex: 1,
+    fontSize: 15,
+    textAlign: "left",
+    paddingRight: 8,
+  },
+  summaryValue: {
+    flex: 1,
+    fontSize: 15,
+    textAlign: "right",
+  },
+  summaryRowIncome: {
+    color: "#2e7d32",
+  },
+  summaryRowExpense: {
+    color: "#d32f2f",
+  },
+  summaryRowNeutral: {
+    color: Colors.textPrimary,
+  },
   filterDropdown: {
     backgroundColor: Colors.card,
     borderColor: Colors.border,

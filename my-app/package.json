@@ -71,6 +71,8 @@
     "@babel/core": "^7.20.0",
     "@react-native-community/cli": "^19.1.1",
     "expo-build-properties": "~1.0.10",
+    "jest": "^30.5.1",
+    "jest-expo": "^57.0.5",
     "patch-package": "^8.0.1",
     "prettier": "^3.6.2"
   },

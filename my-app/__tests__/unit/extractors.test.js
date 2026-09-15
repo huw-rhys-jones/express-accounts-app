@@ -124,6 +124,58 @@ describe('extractAmount', () => {
     expect(result.amount).toBeCloseTo(6522.99);
   });
 
+  it('handles 4-digit OCR totals that omit the decimal point', () => {
+    const text = [
+      'VAT No. 904 4048 50',
+      '8995',
+      '+',
+      '12/95',
+      '260',
+      'e',
+      '2445',
+    ].join('\n');
+    const result = extractAmount(text);
+    expect(result).not.toBeNull();
+    expect(result.amount).toBeCloseTo(24.45);
+  });
+
+  it('prefers the final amount after a total label over earlier subtotal-like rows', () => {
+    const text = [
+      '1',
+      'Madri Lager',
+      '1',
+      'GK IPA Cask',
+      '1',
+      'Cod & Chips',
+      '=',
+      '2',
+      'Coca Cola REG',
+      '=',
+      '# || || ||',
+      '= 6.75',
+      '=',
+      '5.50',
+      'Total',
+      '16.50',
+      '8.00',
+      '£36.75',
+    ].join('\n');
+    const result = extractAmount(text);
+    expect(result).not.toBeNull();
+    expect(result.amount).toBeCloseTo(36.75);
+  });
+
+  it('ignores rating/tip amounts when no total line is present', () => {
+    const text = [
+      'You rode with ABU',
+      '5.00 Rating',
+      'Rate or tip',
+      'UberX 1.74 miles | 7 min(s)',
+      '20:36',
+    ].join('\n');
+    expect(extractAmount(text)).toBeNull();
+  });
+
   it('prefers total amount due values on the following line', () => {
     const text = [
       'Subtotal',

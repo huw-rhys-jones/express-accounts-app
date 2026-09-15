@@ -64,6 +64,19 @@ function parseAmount(raw) {
   const neg = /^\(.*\)$/.test(t) || /^-/.test(t);
   t = t.replace(/[()\-]/g, '');
   t = t.replace(CURRENCY_SYMS, '');
+
+  // Common OCR artifact: 2445 means 24.45, 8995 means 89.95, etc. Keep the
+  // conversion conservative so real years/quantities are not misread as money.
+  const looksLikeOsrPrice = /^\d{4}$/.test(t) && !/^20\d{2}$/.test(t) && !/^19\d{2}$/.test(t);
+  if (looksLikeOsrPrice) {
+    const whole = Number(t.slice(0, -2));
+    const cents = Number(t.slice(-2));
+    if (Number.isFinite(whole) && Number.isFinite(cents) && whole >= 0 && cents >= 0 && cents <= 99) {
+      const num = Number(`${whole}.${String(cents).padStart(2, '0')}`);
+      if (Number.isFinite(num) && num > 0 && num < 1000) return neg ? -num : num;
+    }
+  }
+
   const lastComma = t.lastIndexOf(',');
   const lastDot = t.lastIndexOf('.');
 
@@ -260,6 +273,7 @@ export function extractAmount(reconstructedText) {
       return `${intPart}/${decPart}`;
     }
   );
+  reconstructedText = reconstructedText.replace(/([£₤$€¥]\s*\d{1,6}[.,])([CO])\b/gi, '$10');
 
   const lines = reconstructedText.split('\n');
   const lineData = lines.map(l => l.toUpperCase());
@@ -276,9 +290,64 @@ export function extractAmount(reconstructedText) {
     return null;
   };
 
-  const grandTotal = labelledAmount(/\bGRAND\s+TOTAL\b/, 2);
-  if (grandTotal != null) {
-    return { amount: grandTotal, display: `£${grandTotal.toFixed(2)}` };
+  const strongLabelPatterns = [
+    /\bgrand\s+total\b/i,
+    /\b(?:total\s+)?amount\s+due\b/i,
+    /\bbalance\s+due\b/i,
+    /\btotal\s+to\s+pay\b/i,
+    /\bcash\s+price\b/i,
+    /\bamount\s+payable\b/i,
+  ];
+
+  const explicitTotal = (() => {
+    const indices = lineData
+      .map((line, index) => ({ line, index }))
+      .filter(({ line }) => strongLabelPatterns.some((pattern) => pattern.test(line)))
+      .map(({ line, index }) => ({ line, index }));
+
+    for (let i = indices.length - 1; i >= 0; i -= 1) {
+      const { line, index: idx } = indices[i];
+      if (/\bBALANCE\s+DUE\b/.test(line)) {
+        const followingBlock = lineData.slice(idx + 1, idx + 5).join(' ');
+        const previousCurrency = lines[idx - 1]?.match(/(?:GBP\s*)?[£₤$€¥]\s*(\d{1,3}(?:[,\.\s]\d{3})+(?:[.,]\d{2})?|\d+[.,]\d{1,2})/i);
+        if (previousCurrency && /\b(?:GIFT\s+CARD|CARD|MASTERCARD|VISA|PAYMENT)\b/.test(followingBlock)) {
+          const previousValue = parseAmount(previousCurrency[1]);
+          if (Number.isFinite(previousValue) && previousValue > 0) {
+            return { amount: previousValue, display: `£${previousValue.toFixed(2)}` };
+          }
+        }
+      }
+
+      const offsets = /\bBALANCE\s+DUE\b/.test(line) ? [0, 1, 2] : [0, 1, 2, 3, 4, 5];
+      const followingLabels = lineData.slice(idx, idx + 5).join(' ');
+      const passes = [
+        /(?:GBP\s*)?[£₤$€¥]\s*(\d{1,3}(?:[,\.\s]\d{3})+(?:[.,]\d{2})?|\d+[.,]\d{1,2})/i,
+        /\b(\d{1,3}(?:[,\.\s]\d{3})+(?:[.,]\d{2})?|\d+[.,]\d{2})\b/,
+      ];
+
+      for (const amountPattern of passes) {
+        if (amountPattern === passes[1] && /\bTOTAL\s+TO\s+PAY\b/.test(line) && /\bCASH\s+TENDERED\b/.test(followingLabels) && /\bCHANGE\b/.test(followingLabels)) {
+          continue;
+        }
+        for (const offset of offsets) {
+          const lineIndex = idx + offset;
+          if (lineIndex < 0 || lineIndex >= lines.length) continue;
+          const candidateLine = lines[lineIndex];
+          const match = candidateLine.match(amountPattern);
+          if (!match) continue;
+          if (amountPattern === passes[1] && /[A-Za-z].*\d|\d.*[A-Za-z]|\//.test(candidateLine)) continue;
+          const value = parseAmount(match[1]);
+          if (Number.isFinite(value) && value > 0) {
+            return { amount: value, display: `£${value.toFixed(2)}` };
+          }
+        }
+      }
+    }
+    return null;
+  })();
+
+  if (explicitTotal != null) {
+    return explicitTotal;
   }
 
   if (/construction industry scheme|payment and deduction statement/i.test(reconstructedText)) {
@@ -310,13 +379,29 @@ export function extractAmount(reconstructedText) {
 
   lines.forEach((line, lineIndex) => {
     const matches = [...line.matchAll(FORGIVING_MONEY)];
-    if (!matches.length) return;
+    const bareFourDigitValues = [...line.matchAll(/\b(\d{4})\b/g)].map(m => m[1]);
 
-    // Prevent duplicate same-value hits from the same line inflating repetition
+    const candidateRaws = new Map();
+    matches.forEach((match) => candidateRaws.set(match[1], match[1]));
+    bareFourDigitValues.forEach((token) => {
+      if (!/^\d{4}$/.test(token)) return;
+      if (/^(19|20)\d{2}$/.test(token)) return;
+      if (/[\/]/.test(line) || /\d{1,2}[\/.-]\d{1,2}/.test(line)) return;
+      if (/\b(?:date|time|invoice|order|acc|account|till|table|room|phone|vat\s+no|total|subtotal|discount|payment|receipt)\b/i.test(line)) {
+        // Keep these only when the line is a stand-alone price-like value, not a date or ID.
+      } else if (/(?:^|\s)\d{4}(?:\s|$)/.test(line) && !/[A-Za-z]/.test(line)) {
+        candidateRaws.set(token, token);
+      }
+      if (/^\d{4}$/.test(line.trim()) && /(?:^|\s)\d{4}(?:\s|$)/.test(line) && !/[A-Za-z]/.test(line)) {
+        candidateRaws.set(token, token);
+      }
+    });
+
+    const allRaws = [...candidateRaws.keys()];
+    if (!allRaws.length) return;
+
     const seenValueInLine = new Set();
-
-    matches.forEach((match) => {
-      const raw = match[1];
+    allRaws.forEach((raw) => {
       const val = parseAmount(raw);
       if (Number.isNaN(val) || val <= 0 || val > 100000) return;
       const valueKey = val.toFixed(2);
@@ -325,10 +410,6 @@ export function extractAmount(reconstructedText) {
 
       const upperLine = lineData[lineIndex];
       const hasCurrency = /[£S$€¥]/i.test(raw);
-
-      // Reject 1-decimal amounts without a currency symbol — these are usually
-      // unit prices, percentages, or OCR noise (e.g. "168.9 p/litre", "20.0%").
-      // 2-decimal amounts are fine without currency (standard price format).
       const cleanedRaw = raw.replace(/[£S$€¥GBP\s]/gi, '');
       const decPart = cleanedRaw.split(/[.,]/).pop();
       if (decPart && decPart.length === 1 && !hasCurrency) return;
@@ -357,6 +438,67 @@ export function extractAmount(reconstructedText) {
     valueLines.set(key, set);
   });
 
+  const totalToPayIndex = lineData.findIndex(l => /\bTOTAL\s+TO\s+PAY\b/.test(l));
+  const cashTenderedIndex = lineData.findIndex(l => /\bCASH\s+TENDERED\b/.test(l));
+  const changeIndex = lineData.findIndex(l => /\bCHANGE\b/.test(l));
+  if (totalToPayIndex >= 0 && cashTenderedIndex > totalToPayIndex && changeIndex > cashTenderedIndex) {
+    const currencyValues = [...new Set(
+      candidates
+        .filter(c => c.hasCurrency && c.lineIndex > totalToPayIndex)
+        .map(c => Number(c.val.toFixed(2)))
+    )];
+    for (const totalValue of currencyValues) {
+      for (const cashValue of currencyValues) {
+        for (const changeValue of currencyValues) {
+          if (totalValue >= cashValue || changeValue >= totalValue) continue;
+          if (Math.abs((totalValue + changeValue) - cashValue) > 0.06) continue;
+          return { amount: totalValue, display: `£${totalValue.toFixed(2)}` };
+        }
+      }
+    }
+  }
+
+  const nettIndex = lineData.findIndex(l => /^\s*NETT?\s*$/.test(l));
+  const taxIndex = lineData.findIndex((l, index) => index > nettIndex && /^\s*TAX\s*$/.test(l));
+  const grossIndex = lineData.findIndex((l, index) => index > taxIndex && /^\s*GROSS\s*$/.test(l));
+  if (nettIndex >= 0 && taxIndex > nettIndex && grossIndex > taxIndex && grossIndex - nettIndex <= 6) {
+    const summaryValues = candidates
+      .filter(c => c.lineIndex > grossIndex && c.lineIndex <= grossIndex + 8)
+      .sort((a, b) => a.lineIndex - b.lineIndex)
+      .map(c => Number(c.val.toFixed(2)));
+    for (let i = 0; i < summaryValues.length; i += 1) {
+      for (let j = 0; j < summaryValues.length; j += 1) {
+        for (let k = 0; k < summaryValues.length; k += 1) {
+          const netValue = summaryValues[i];
+          const taxValue = summaryValues[j];
+          const grossValue = summaryValues[k];
+          if (grossValue <= netValue || grossValue <= taxValue) continue;
+          if (Math.abs((netValue + taxValue) - grossValue) > 0.06) continue;
+          return { amount: grossValue, display: `£${grossValue.toFixed(2)}` };
+        }
+      }
+    }
+  }
+
+  const genericTotalIndex = lineData.findIndex(l => /^\s*(?:TOTAL|TOTAT|TOTA1|IOTAL)\s*:?\s*$/.test(l));
+  if (genericTotalIndex >= 0) {
+    const totalBlock = candidates.filter(c => {
+      if (!c.hasCurrency) return false;
+      if (c.lineIndex <= genericTotalIndex || c.lineIndex > genericTotalIndex + 12) return false;
+      const nearbyText = [lineData[c.lineIndex - 1] || '', c.upperLine].join(' ');
+      return !/\b(?:PAYMENT\s+RECEIPT|CASH|CHANGE|TENDER|CARD\s+PAYMENT|MASTERCARD|VISA|AID|AUTH(?:ORI[ZS]ATION)?|VAT\s+SUMMARY|POINTS?|VOUCHERS?)\b/.test(nearbyText);
+    });
+
+    if (totalBlock.length >= 2) {
+      totalBlock.sort((a, b) => {
+        if (b.val !== a.val) return b.val - a.val;
+        return b.lineIndex - a.lineIndex;
+      });
+      const winner = totalBlock[0];
+      return { amount: winner.val, display: `£${winner.val.toFixed(2)}` };
+    }
+  }
+
   const uniqueValues = [...new Set(candidates.map(c => c.val))].sort((a, b) => a - b);
   const median = uniqueValues[Math.floor(uniqueValues.length / 2)] || 0;
   const largest = uniqueValues[uniqueValues.length - 1] || 0;
@@ -378,6 +520,7 @@ export function extractAmount(reconstructedText) {
     const isTotalNear = hasNear(candidate.lineIndex, TOTAL_HINT_RE, 1);
     const isTotalAboveOnly = !isTotalOnLine && !isTotalNear && hasAbove(candidate.lineIndex, TOTAL_HINT_RE, 3);
     const isGrandTotalLine = /\bgrand\s+total\b/i.test(line) || hasNear(candidate.lineIndex, /\bgrand\s+total\b/i, 1);
+    const isRatingContext = /\b(?:rating|rate\s+or\s+tip|tip)\b/i.test(line) || hasNear(candidate.lineIndex, /\b(?:rating|rate\s+or\s+tip|tip)\b/i, 1);
     const isTotalContext = isTotalOnLine || isTotalNear || isTotalAboveOnly || isExplicitDueLine || isExplicitDueNear || isExplicitDueAbove;
     const isSubtotalContext = /\bSUBTOTAL\b|\bDISCOUNT\b|\bREFUND\b|\bTIPS?\b/.test(line)
       || hasNear(candidate.lineIndex, /\bSUBTOTAL\b|\bDISCOUNT\b|\bREFUND\b|\bTIPS?\b/, 1);
@@ -390,7 +533,21 @@ export function extractAmount(reconstructedText) {
 
     if (candidate.hasCurrency) score += 40;
     if (isGrandTotalLine) score += 420;
+    if (isRatingContext && !isTotalContext) score -= 900;
     if (isExplicitDueLine || isExplicitDueNear || isExplicitDueAbove) score += 320;
+    if (totalLine >= 0) {
+      const isAfterTotalLabel = candidate.lineIndex >= totalLine && candidate.lineIndex <= totalLine + 5;
+      const isBeforeTotalLabel = candidate.lineIndex < totalLine;
+      if (isAfterTotalLabel) score += 260;
+      if (isBeforeTotalLabel) score -= 240;
+      if (candidate.lineIndex > totalLine + 5) score -= 120;
+      const windowValues = candidates.filter(c => c.lineIndex >= totalLine && c.lineIndex <= totalLine + 5).map(c => c.val);
+      if (windowValues.length) {
+        const maxWindowValue = Math.max(...windowValues);
+        if (candidate.val >= maxWindowValue * 0.98 && candidate.val === maxWindowValue) score += 450;
+        else if (candidate.val < maxWindowValue * 0.9) score -= 160;
+      }
+    }
     if (candidate.val < 1) score -= 40;
     else if (candidate.val < 3) score -= 15;
 
@@ -584,6 +741,11 @@ export function extractAmount(reconstructedText) {
     if (freqB !== freqA) return freqB - freqA;
     return b.lineIndex - a.lineIndex;
   });
+
+  const hasRatingContext = lineData.some(l => /\b(?:rating|rate\s+or\s+tip|tip)\b/i.test(l));
+  if (totalLine < 0 && hasRatingContext && candidates.every(c => c.val <= 20)) {
+    return null;
+  }
 
   const winner = candidates[0];
 
