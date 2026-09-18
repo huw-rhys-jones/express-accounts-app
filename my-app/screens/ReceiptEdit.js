@@ -40,7 +40,7 @@ import {
   deleteObject,
 } from "firebase/storage";
 import { categories_meta } from "../constants/arrays";
-import { formatDate } from "../utils/format_style";
+import { formatDate, formatCurrency } from "../utils/format_style";
 import { extractData } from "../utils/extractors";
 import ImageViewer from "react-native-image-zoom-viewer";
 import { Colors, ReceiptStyles } from "../utils/sharedStyles";
@@ -1169,7 +1169,7 @@ export default function ReceiptDetailsScreen({ route, navigation }) {
                     ]}
                   >
                     {ocrResult?.amount != null
-                      ? `£${Number(ocrResult.amount).toFixed(2)}`
+                      ? formatCurrency(ocrResult.amount)
                       : "Not detected"}
                   </Text>
                 </View>
@@ -1253,7 +1253,7 @@ export default function ReceiptDetailsScreen({ route, navigation }) {
                       ]}
                     >
                       {ocrResult?.vat?.value != null
-                        ? `£${ocrResult.vat.value}`
+                        ? formatCurrency(ocrResult.vat.value)
                         : "—"}{" "}
                       (Rate {ocrResult?.vat?.rate ?? "Not detected"}%)
                     </Text>

@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useCallback, useMemo } from "react";
 import {
   Alert,
+  Modal,
   Platform,
   Pressable,
   View,
@@ -27,7 +28,7 @@ import {
   buildAllTimeScopedFilterOptions,
   filterReceiptsByDateRange,
 } from "../utils/financialPeriods";
-import { formatDate } from "../utils/format_style";
+import { formatDate, formatCurrency } from "../utils/format_style";
 import DropDownPicker from "react-native-dropdown-picker";
 import { useData } from "../contexts/DataContext";
 import { getSummaryFilterKey, setAllFilterKeys } from "../utils/appSettings";
@@ -82,6 +83,7 @@ export default function SummaryScreen({ navigation }) {
   const [filterOpen, setFilterOpen] = useState(false);
   const [filterItems, setFilterItems] = useState([]);
   const [menuOpen, setMenuOpen] = useState(false);
+  const [disclaimerModalVisible, setDisclaimerModalVisible] = useState(false);
 
   const barChartScrollRef = React.useRef(null);
   
@@ -215,7 +217,6 @@ export default function SummaryScreen({ navigation }) {
       incomeTotal,
       bankMoneyIn,
       bankMoneyOut,
-      netPosition: incomeTotal - overall,
     };
   }, [filteredBankStatements, filteredIncome, filteredReceipts]);
 
@@ -315,22 +316,56 @@ export default function SummaryScreen({ navigation }) {
   ]);
   const { yTicks } = getYAxisTicks(monthlyTotals, 5);
 
-  const vatPosition = Number((taxTotals.outputVat - taxTotals.inputVat).toFixed(2)) || 0;
   const showGrossIncomeRow = Number(totals.incomeTotal) > 0;
   const showExpensesRow = Number(totals.overall) > 0;
   const showCisRow = Number(taxTotals.cisWithheld) > 0;
-  const showVatRow = Math.abs(vatPosition) > 0;
-  const showNetIncomeRow = showGrossIncomeRow && (showCisRow || showVatRow);
-  const showNetPositionRow = showGrossIncomeRow && showExpensesRow;
+  const netIncome = Number((totals.incomeTotal - taxTotals.cisWithheld).toFixed(2)) || 0;
+  const showNetIncomeRow = showGrossIncomeRow && showCisRow;
 
-  const summaryRows = [
-    showGrossIncomeRow ? { label: "Gross Income", value: totals.incomeTotal, tone: "income" } : null,
-    showExpensesRow ? { label: "Total Expenses", value: totals.overall, tone: "expense" } : null,
-    showCisRow ? { label: "CIS Withheld", value: taxTotals.cisWithheld, tone: "expense" } : null,
-    showVatRow ? { label: "VAT", value: vatPosition, tone: vatPosition >= 0 ? "income" : "expense" } : null,
-    showNetIncomeRow ? { label: "Net income", value: taxTotals.netIncomeAfterCis, tone: "income" } : null,
-    showNetPositionRow ? { label: "Net position", value: totals.netPosition, tone: totals.netPosition >= 0 ? "income" : "expense" } : null,
-  ].filter(Boolean);
+  // UK personal allowance, frozen through the 2027/28 tax year — used only for
+  // a rough estimate; the disclaimer makes clear this is not tax advice.
+  const PERSONAL_ALLOWANCE = 12570;
+  const BASIC_RATE = 0.2;
+
+  const showTaxEstimateSection = showGrossIncomeRow || showExpensesRow || showCisRow;
+  const netTaxableProfit = Number((totals.incomeTotal - totals.overall).toFixed(2)) || 0;
+  const taxableProfit = Math.max(0, Number((netTaxableProfit - PERSONAL_ALLOWANCE).toFixed(2)));
+  const estimatedTaxOwed = Number((taxableProfit * BASIC_RATE).toFixed(2));
+  const cisAlreadyPaid = Number(taxTotals.cisWithheld.toFixed(2)) || 0;
+  const taxBalance = Number((estimatedTaxOwed - cisAlreadyPaid).toFixed(2));
+  const isTaxRebate = taxBalance <= 0;
+
+  const summarySections = [
+    {
+      title: "Income",
+      navTarget: "Income",
+      rows: [
+        showGrossIncomeRow ? { label: "Gross Income", value: totals.incomeTotal, tone: "income" } : null,
+        showCisRow ? { label: "CIS Tax Withheld", value: -taxTotals.cisWithheld, tone: "expense" } : null,
+        showNetIncomeRow ? { label: "Net Income Received", value: netIncome, tone: "income" } : null,
+      ].filter(Boolean),
+    },
+    {
+      title: "Expenses",
+      navTarget: "Expenses",
+      rows: [
+        showExpensesRow ? { label: "Total Expenses", value: -totals.overall, tone: "expense" } : null,
+      ].filter(Boolean),
+    },
+    {
+      title: "Tax Position Estimate",
+      rows: showTaxEstimateSection ? [
+        { label: "Net Taxable Profit", value: netTaxableProfit, tone: netTaxableProfit >= 0 ? "income" : "expense" },
+        { label: "Less Personal Allowance", value: -PERSONAL_ALLOWANCE, tone: "expense" },
+        { label: "Taxable Profit", value: taxableProfit, tone: "neutral", divider: true, emphasis: true },
+        { label: "Estimated Tax Owed (20%)", value: estimatedTaxOwed, tone: "expense", spacing: true },
+        { label: "Less CIS Tax Already Paid", value: -cisAlreadyPaid, tone: "expense" },
+        isTaxRebate
+          ? { label: "Estimated Tax Rebate", value: Math.abs(taxBalance), tone: "income", divider: true, emphasis: true }
+          : { label: "Estimated Tax Owed", value: -taxBalance, tone: "expense", divider: true, emphasis: true },
+      ] : [],
+    },
+  ].filter((section) => section.rows.length > 0);
 
   return (
     <SafeAreaView
@@ -370,25 +405,62 @@ export default function SummaryScreen({ navigation }) {
         >
           {/* Summary totals card */}
           <View style={[styles.card, { zIndex: 10, overflow: "visible" }]}>
-            {summaryRows.map((row) => {
-              const isPositive = Number(row.value) >= 0;
-              const valueText = `£${Math.abs(Number(row.value) || 0).toFixed(2)}`;
-              const toneStyle =
-                row.tone === "income"
-                  ? styles.summaryRowIncome
-                  : row.tone === "expense"
-                    ? styles.summaryRowExpense
-                    : styles.summaryRowNeutral;
-
+            {summarySections.map((section, sectionIndex) => {
+              const SectionWrapper = section.navTarget ? TouchableOpacity : View;
+              const wrapperProps = section.navTarget
+                ? { activeOpacity: 0.7, onPress: () => navigation.navigate(section.navTarget) }
+                : {};
               return (
-                <View key={row.label} style={styles.summaryRow}>
-                  <Text style={[styles.summaryLabel, toneStyle]}>{row.label}</Text>
-                  <Text style={[styles.summaryValue, toneStyle]}>
-                    {isPositive ? valueText : `-£${Math.abs(Number(row.value) || 0).toFixed(2)}`}
-                  </Text>
-                </View>
+                <SectionWrapper
+                  key={section.title}
+                  style={[
+                    styles.summarySection,
+                    sectionIndex > 0 ? styles.summarySectionDivider : null,
+                  ]}
+                  {...wrapperProps}
+                >
+                  <Text style={styles.summarySectionTitle}>{section.title}</Text>
+                  {section.rows.map((row) => {
+                    const isPositive = Number(row.value) >= 0;
+                    const valueText = formatCurrency(Math.abs(Number(row.value) || 0));
+                    const toneStyle =
+                      row.tone === "income"
+                        ? styles.summaryRowIncome
+                        : row.tone === "expense"
+                          ? styles.summaryRowExpense
+                          : styles.summaryRowNeutral;
+
+                    return (
+                      <View
+                        key={row.label}
+                        style={[
+                          styles.summaryRow,
+                          row.divider ? styles.summaryRowDivider : null,
+                          row.spacing ? styles.summaryRowSpacing : null,
+                        ]}
+                      >
+                        <Text style={[styles.summaryLabel, toneStyle, row.emphasis ? styles.summaryRowEmphasis : null]}>
+                          {row.label}
+                        </Text>
+                        <Text style={[styles.summaryValue, toneStyle, row.emphasis ? styles.summaryRowEmphasis : null]}>
+                          {isPositive ? valueText : `-${valueText}`}
+                        </Text>
+                      </View>
+                    );
+                  })}
+                </SectionWrapper>
               );
             })}
+            <TouchableOpacity
+              onPress={() => setDisclaimerModalVisible(true)}
+              style={styles.disclaimerRow}
+              accessibilityRole="button"
+              accessibilityLabel="View disclaimer details"
+            >
+              <Text style={styles.disclaimerText}>
+                These values are estimates based on the information you have provided. Final values must be reviewed and calculated by a qualified accountant.
+              </Text>
+            </TouchableOpacity>
           </View>
           {/* Monthly bar chart card */}
           <View style={styles.chartCard}>
@@ -409,7 +481,7 @@ export default function SummaryScreen({ navigation }) {
               <View style={styles.yAxis}>
                 {yTicks.slice().reverse().map((t, i) => (
                   <Text key={i} style={styles.yAxisLabel}>
-                    £{t.toFixed(0)}
+                    {formatCurrency(t)}
                   </Text>
                 ))}
               </View>
@@ -508,7 +580,7 @@ export default function SummaryScreen({ navigation }) {
                     <View key={d.name} style={styles.legendItem}>
                       <View style={[styles.legendDot, { backgroundColor: d.color }]} />
                       <Text style={styles.legendText}>
-                        {d.name}: £{Number(d.amount).toFixed(2)}
+                        {d.name}: {formatCurrency(d.amount)}
                       </Text>
                     </View>
                   ))}
@@ -561,7 +633,7 @@ export default function SummaryScreen({ navigation }) {
                       <View key={row.label} style={{ marginVertical: 6, alignSelf: "stretch" }}>
                         <View style={{ flexDirection: "row", alignItems: "center", marginBottom: 3 }}>
                           <Text style={{ width: 90, fontSize: 13, color: Colors.textSecondary }}>{row.label}</Text>
-                          <Text style={{ fontSize: 13, fontWeight: "700", color: row.color }}>£{row.value.toFixed(2)}</Text>
+                          <Text style={{ fontSize: 13, fontWeight: "700", color: row.color }}>{formatCurrency(row.value)}</Text>
                         </View>
                         <View style={{ height: 22, backgroundColor: "#e8e8e8", borderRadius: 4, overflow: "hidden", width: "100%" }}>
                           <View style={{ height: "100%", width: `${(row.value / maxCashflow) * 100}%`, backgroundColor: row.color, borderRadius: 4 }} />
@@ -592,7 +664,7 @@ export default function SummaryScreen({ navigation }) {
                       {topVendors.map((d) => (
                         <View key={d.name} style={styles.legendItem}>
                           <View style={[styles.legendDot, { backgroundColor: d.color }]} />
-                          <Text style={styles.legendText}>{d.name}: £{Number(d.population).toFixed(2)}</Text>
+                          <Text style={styles.legendText}>{d.name}: {formatCurrency(d.population)}</Text>
                         </View>
                       ))}
                     </View>
@@ -677,6 +749,31 @@ export default function SummaryScreen({ navigation }) {
           }}
         />
       </SideMenu>
+
+      <Modal
+        visible={disclaimerModalVisible}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setDisclaimerModalVisible(false)}
+      >
+        <Pressable
+          style={styles.disclaimerModalOverlay}
+          onPress={() => setDisclaimerModalVisible(false)}
+        >
+          <Pressable style={styles.disclaimerModalCard} onPress={() => {}}>
+            <Text style={styles.disclaimerModalTitle}>Please Note</Text>
+            <Text style={styles.disclaimerModalText}>
+              These values are estimates based on the information you have provided. Final values must be reviewed and calculated by a qualified accountant.
+            </Text>
+            <TouchableOpacity
+              onPress={() => setDisclaimerModalVisible(false)}
+              style={styles.disclaimerModalButton}
+            >
+              <Text style={styles.disclaimerModalButtonText}>Got it</Text>
+            </TouchableOpacity>
+          </Pressable>
+        </Pressable>
+      </Modal>
     </SafeAreaView>
   );
 }
@@ -782,6 +879,37 @@ const styles = StyleSheet.create({
     minHeight: 28,
     marginVertical: 2,
   },
+  summaryRowDivider: {
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: Colors.border,
+    marginTop: 6,
+    paddingTop: 8,
+  },
+  summaryRowSpacing: {
+    marginTop: 10,
+  },
+  summaryRowEmphasis: {
+    fontSize: 16,
+    fontWeight: "800",
+  },
+  summarySection: {
+    width: "100%",
+    paddingVertical: 6,
+  },
+  summarySectionDivider: {
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: Colors.border,
+    marginTop: 6,
+    paddingTop: 12,
+  },
+  summarySectionTitle: {
+    color: Colors.textPrimary,
+    fontSize: 12,
+    fontWeight: "800",
+    letterSpacing: 0,
+    marginBottom: 4,
+    textTransform: "uppercase",
+  },
   summaryLabel: {
     flex: 1,
     fontSize: 15,
@@ -801,6 +929,57 @@ const styles = StyleSheet.create({
   },
   summaryRowNeutral: {
     color: Colors.textPrimary,
+  },
+  disclaimerRow: {
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: Colors.border,
+    marginTop: 12,
+    paddingTop: 10,
+  },
+  disclaimerText: {
+    color: "#777",
+    fontSize: 11,
+    fontStyle: "italic",
+    lineHeight: 15,
+    textAlign: "center",
+  },
+  disclaimerModalOverlay: {
+    flex: 1,
+    backgroundColor: "rgba(0,0,0,0.5)",
+    alignItems: "center",
+    justifyContent: "center",
+    padding: 24,
+  },
+  disclaimerModalCard: {
+    backgroundColor: Colors.surface,
+    borderRadius: 16,
+    padding: 20,
+    width: "100%",
+    maxWidth: 400,
+  },
+  disclaimerModalTitle: {
+    color: Colors.textPrimary,
+    fontSize: 17,
+    fontWeight: "800",
+    marginBottom: 10,
+  },
+  disclaimerModalText: {
+    color: Colors.textPrimary,
+    fontSize: 15,
+    lineHeight: 21,
+  },
+  disclaimerModalButton: {
+    alignSelf: "flex-end",
+    backgroundColor: Colors.accent,
+    borderRadius: 10,
+    marginTop: 16,
+    paddingHorizontal: 18,
+    paddingVertical: 10,
+  },
+  disclaimerModalButtonText: {
+    color: "#fff",
+    fontSize: 14,
+    fontWeight: "700",
   },
   filterDropdown: {
     backgroundColor: Colors.card,

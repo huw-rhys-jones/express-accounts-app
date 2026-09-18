@@ -17,7 +17,7 @@ import SharedTabMenu from "../components/SharedTabMenu";
 import AddBankStatementSheet from "../components/AddBankStatementSheet";
 import { auth } from "../firebaseConfig";
 import { Colors } from "../utils/sharedStyles";
-import { formatDate } from "../utils/format_style";
+import { formatDate, formatCurrency } from "../utils/format_style";
 import { useData } from "../contexts/DataContext";
 import DropDownPicker from "react-native-dropdown-picker";
 import {
@@ -247,7 +247,7 @@ export default function BankStatementList({ navigation }) {
                 {item.accountName || (item.statementType === "credit" ? "Credit card" : "Bank statement")}
               </Text>
             </View>
-            <Text style={styles.rowNet}>£{Number(item.netMovement || 0).toFixed(2)}</Text>
+            <Text style={styles.rowNet}>{formatCurrency(item.netMovement || 0)}</Text>
           </View>
         </TouchableOpacity>
       </View>

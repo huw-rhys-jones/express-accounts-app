@@ -22,7 +22,7 @@ import {
 } from "firebase/firestore";
 import { auth, db } from "../firebaseConfig";
 import { Colors } from "../utils/sharedStyles";
-import { formatDate } from "../utils/format_style";
+import { formatDate, formatCurrency } from "../utils/format_style";
 import DateTimePickerModal from "react-native-modal-datetime-picker";
 import {
   getVehicles,
@@ -368,7 +368,7 @@ export default function MileageEdit({ navigation, route }) {
             </View>
             <View style={[styles.summaryRow, styles.summaryRowLast]}>
               <Text style={styles.summaryLabelBold}>Amount</Text>
-              <Text style={styles.summaryValueBold}>£{effectiveMiles > 0 ? amountGBP : "0.00"}</Text>
+              <Text style={styles.summaryValueBold}>{effectiveMiles > 0 ? formatCurrency(amountGBP) : "£0.00"}</Text>
             </View>
           </View>
           <MileageRouteMap

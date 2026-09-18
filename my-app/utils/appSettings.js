@@ -102,6 +102,25 @@ export async function setHiddenPeriodTooltipDismissed() {
   }
 }
 
+const MILEAGE_OPTION_SEEN_KEY = "@settings:mileageOptionSeen";
+
+export async function getMileageOptionSeen() {
+  try {
+    const value = await AsyncStorage.getItem(MILEAGE_OPTION_SEEN_KEY);
+    return value === "true";
+  } catch {
+    return false;
+  }
+}
+
+export async function setMileageOptionSeen() {
+  try {
+    await AsyncStorage.setItem(MILEAGE_OPTION_SEEN_KEY, "true");
+  } catch {
+    // ignore
+  }
+}
+
 // ── Vehicles ──────────────────────────────────────────────────────────────────
 // Keys are scoped per user so each account has its own vehicle list on the device.
 function vehiclesKey() {

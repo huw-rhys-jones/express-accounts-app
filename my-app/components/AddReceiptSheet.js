@@ -19,7 +19,13 @@ import { Colors } from "../utils/sharedStyles";
 import {
   getAddSheetTooltipSeen,
   setAddSheetTooltipSeen,
+  getMileageOptionSeen,
+  setMileageOptionSeen,
+  getVehicles,
 } from "../utils/appSettings";
+import { useData } from "../contexts/DataContext";
+import { triggerHaptic } from "../utils/haptics";
+import RegisterVehicleModal from "./RegisterVehicleModal";
 
 const SHEET_HEIGHT = 320;
 
@@ -30,14 +36,23 @@ export default function AddReceiptSheet({
   targetScreen = "Receipt",
   // Optional: short label used in the tooltip headline, e.g. "receipt" or "invoice"
   itemLabel = "receipt",
-  vehicles = [],
+  vehicles: vehiclesProp,
 }) {
+  const { userProfile } = useData();
+  const isVerifiedAccount = String(userProfile?.verificationStatus || "").toLowerCase() === "verified";
   const insets = useSafeAreaInsets();
   const [renderSheet, setRenderSheet] = React.useState(visible);
   const [sheetHeight, setSheetHeight] = React.useState(SHEET_HEIGHT);
   const translateY = useRef(new Animated.Value(SHEET_HEIGHT)).current;
   const backdropOpacity = useRef(new Animated.Value(0)).current;
   const [busy, setBusy] = React.useState(false);
+
+  // Mileage option: NEW badge until first tap, plus verification/vehicle gating
+  const [localVehicles, setLocalVehicles] = React.useState(vehiclesProp || []);
+  const [showMileageNewBadge, setShowMileageNewBadge] = React.useState(false);
+  const [mileagePremiumModalVisible, setMileagePremiumModalVisible] = React.useState(false);
+  const [mileageVehicleModalVisible, setMileageVehicleModalVisible] = React.useState(false);
+  const [registerVehicleOpen, setRegisterVehicleOpen] = React.useState(false);
 
   // First-time tooltip
   const [tooltipVisible, setTooltipVisible] = React.useState(false);
@@ -78,6 +93,9 @@ export default function AddReceiptSheet({
           }).start();
         }
       });
+
+      getMileageOptionSeen().then((seen) => setShowMileageNewBadge(!seen));
+      getVehicles().then(setLocalVehicles).catch(() => setLocalVehicles([]));
     } else {
       setTooltipVisible(false);
       tooltipOpacity.setValue(0);
@@ -204,9 +222,29 @@ export default function AddReceiptSheet({
     setTimeout(() => navigation.navigate(targetScreen, {}), 220);
   };
 
-  const handleMileage = () => {
+  const navigateToMileage = () => {
     onClose();
     setTimeout(() => navigation.navigate("MileageRecord", {}), 220);
+  };
+
+  const handleMileagePress = async () => {
+    triggerHaptic("selection").catch(() => {});
+    setShowMileageNewBadge(false);
+    setMileageOptionSeen().catch(() => {});
+
+    if (!isVerifiedAccount) {
+      setMileagePremiumModalVisible(true);
+      return;
+    }
+
+    const currentVehicles = await getVehicles().catch(() => localVehicles);
+    setLocalVehicles(currentVehicles);
+    if (currentVehicles.length === 0) {
+      setMileageVehicleModalVisible(true);
+      return;
+    }
+
+    navigateToMileage();
   };
 
   return (
@@ -316,17 +354,14 @@ export default function AddReceiptSheet({
                   onPress={handlePickImage}
                 />
                 <View style={styles.divider} />
-                {vehicles.length > 0 && (
-                  <>
-                    <Option
-                      icon="🚗"
-                      label="Mileage"
-                      sub="Record a business mileage trip"
-                      onPress={handleMileage}
-                    />
-                    <View style={styles.divider} />
-                  </>
-                )}
+                <Option
+                  icon="🚗"
+                  label="Mileage"
+                  sub="Record a business mileage trip"
+                  onPress={handleMileagePress}
+                  badge={showMileageNewBadge ? "NEW" : null}
+                />
+                <View style={styles.divider} />
                 <Option
                   icon="✏️"
                   label="Enter Manually"
@@ -388,11 +423,85 @@ export default function AddReceiptSheet({
           </View>
         </View>
       </Modal>
+
+      {/* Mileage gating: account not verified */}
+      <Modal
+        visible={mileagePremiumModalVisible}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setMileagePremiumModalVisible(false)}
+      >
+        <View style={styles.gatingModalOverlay}>
+          <View style={styles.gatingModalCard}>
+            <Text style={styles.gatingModalTitle}>Premium Feature</Text>
+            <Text style={styles.gatingModalText}>
+              This feature is available to premium users.
+            </Text>
+            <TouchableOpacity
+              style={[styles.gatingModalPrimaryBtn, styles.gatingModalBtnDisabled]}
+              disabled
+            >
+              <Text style={styles.gatingModalPrimaryBtnText}>Thinking of joining us?</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={styles.gatingModalCloseBtn}
+              onPress={() => setMileagePremiumModalVisible(false)}
+            >
+              <Text style={styles.gatingModalCloseBtnText}>Close</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
+
+      {/* Mileage gating: verified but no registered vehicle */}
+      <Modal
+        visible={mileageVehicleModalVisible}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setMileageVehicleModalVisible(false)}
+      >
+        <View style={styles.gatingModalOverlay}>
+          <View style={styles.gatingModalCard}>
+            <Text style={styles.gatingModalTitle}>Vehicle Required</Text>
+            <Text style={styles.gatingModalText}>
+              You need a registered vehicle to record mileage expenses.
+            </Text>
+            <View style={styles.gatingModalButtonRow}>
+              <TouchableOpacity
+                style={styles.gatingModalSecondaryBtn}
+                onPress={() => setMileageVehicleModalVisible(false)}
+              >
+                <Text style={styles.gatingModalSecondaryBtnText}>Cancel</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={styles.gatingModalPrimaryBtn}
+                onPress={() => {
+                  setMileageVehicleModalVisible(false);
+                  setRegisterVehicleOpen(true);
+                }}
+              >
+                <Text style={styles.gatingModalPrimaryBtnText}>Register Vehicle</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
+
+      <RegisterVehicleModal
+        visible={registerVehicleOpen}
+        onClose={() => setRegisterVehicleOpen(false)}
+        onSaved={(updated) => setLocalVehicles(updated)}
+        vehicle={null}
+        onRecordMileage={() => {
+          onClose();
+          setTimeout(() => navigation.navigate("MileageRecord", {}), 220);
+        }}
+      />
     </>
   );
 }
 
-function Option({ icon, label, sub, onPress, disabled = false }) {
+function Option({ icon, label, sub, onPress, disabled = false, badge }) {
   return (
     <TouchableOpacity
       style={[styles.option, disabled ? styles.optionDisabled : null]}
@@ -406,14 +515,21 @@ function Option({ icon, label, sub, onPress, disabled = false }) {
         {icon}
       </Text>
       <View style={styles.optionText}>
-        <Text
-          style={[
-            styles.optionLabel,
-            disabled ? styles.optionTextDisabled : null,
-          ]}
-        >
-          {label}
-        </Text>
+        <View style={styles.optionLabelRow}>
+          <Text
+            style={[
+              styles.optionLabel,
+              disabled ? styles.optionTextDisabled : null,
+            ]}
+          >
+            {label}
+          </Text>
+          {badge ? (
+            <View style={styles.optionBadge}>
+              <Text style={styles.optionBadgeText}>{badge}</Text>
+            </View>
+          ) : null}
+        </View>
         <Text style={styles.optionSub}>{sub}</Text>
       </View>
     </TouchableOpacity>
@@ -558,10 +674,27 @@ const styles = StyleSheet.create({
   optionText: {
     flex: 1,
   },
+  optionLabelRow: {
+    flexDirection: "row",
+    alignItems: "center",
+  },
   optionLabel: {
     fontSize: 16,
     fontWeight: "600",
     color: "#1C1C4E",
+  },
+  optionBadge: {
+    backgroundColor: Colors.accent,
+    borderRadius: 8,
+    marginLeft: 8,
+    paddingHorizontal: 7,
+    paddingVertical: 2,
+  },
+  optionBadgeText: {
+    color: "#fff",
+    fontSize: 10,
+    fontWeight: "800",
+    letterSpacing: 0.5,
   },
   optionSub: {
     fontSize: 12,
@@ -639,6 +772,72 @@ const styles = StyleSheet.create({
   photoModalBtnTextSecondary: {
     color: "#333",
     fontWeight: "600",
+    fontSize: 14,
+  },
+  gatingModalOverlay: {
+    flex: 1,
+    backgroundColor: "rgba(0,0,0,0.55)",
+    justifyContent: "center",
+    alignItems: "center",
+    padding: 24,
+  },
+  gatingModalCard: {
+    backgroundColor: "#fff",
+    borderRadius: 16,
+    padding: 20,
+    width: "100%",
+    maxWidth: 400,
+  },
+  gatingModalTitle: {
+    fontSize: 17,
+    fontWeight: "800",
+    color: "#1C1C4E",
+    marginBottom: 10,
+  },
+  gatingModalText: {
+    fontSize: 14,
+    color: "#444",
+    lineHeight: 20,
+    marginBottom: 18,
+  },
+  gatingModalButtonRow: {
+    flexDirection: "row",
+    gap: 12,
+  },
+  gatingModalPrimaryBtn: {
+    flex: 1,
+    backgroundColor: Colors.accent,
+    borderRadius: 10,
+    paddingVertical: 12,
+    alignItems: "center",
+  },
+  gatingModalBtnDisabled: {
+    backgroundColor: "#ccc",
+  },
+  gatingModalPrimaryBtnText: {
+    color: "#fff",
+    fontWeight: "700",
+    fontSize: 14,
+  },
+  gatingModalSecondaryBtn: {
+    flex: 1,
+    backgroundColor: "#f0f0f0",
+    borderRadius: 10,
+    paddingVertical: 12,
+    alignItems: "center",
+  },
+  gatingModalSecondaryBtnText: {
+    color: "#333",
+    fontWeight: "600",
+    fontSize: 14,
+  },
+  gatingModalCloseBtn: {
+    marginTop: 14,
+    alignItems: "center",
+  },
+  gatingModalCloseBtnText: {
+    color: Colors.accent,
+    fontWeight: "700",
     fontSize: 14,
   },
 });

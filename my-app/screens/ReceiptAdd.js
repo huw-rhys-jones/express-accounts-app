@@ -43,7 +43,7 @@ import {
 } from "firebase/firestore";
 import { getStorage, ref, uploadBytes, getDownloadURL } from "firebase/storage";
 import { categories_meta } from "../constants/arrays";
-import { formatDate } from "../utils/format_style";
+import { formatDate, formatCurrency } from "../utils/format_style";
 import {
   runOcrOnAssets,
   detectReceiptGroupsFromAssets,
@@ -2074,7 +2074,7 @@ const ReceiptAdd = ({ navigation, route }) => {
                   .filter((_, i) => receiptReviewStates[i] === "accepted")
                   .map((draft, idx) => (
                     <Text key={idx} style={ReceiptStyles.modalDetailText}>
-                      £{draft.amount} · {formatDate(new Date(draft.selectedDate))} · {draft.selectedCategory || "—"}
+                      {formatCurrency(draft.amount)} · {formatDate(new Date(draft.selectedDate))} · {draft.selectedCategory || "—"}
                     </Text>
                   ))}
               </View>

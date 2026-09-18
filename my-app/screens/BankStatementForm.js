@@ -34,7 +34,7 @@ import {
 } from "firebase/firestore";
 import { auth, db } from "../firebaseConfig";
 import { Colors, ReceiptStyles } from "../utils/sharedStyles";
-import { formatDate } from "../utils/format_style";
+import { formatDate, formatCurrency } from "../utils/format_style";
 import { reconstructLines } from "../utils/extractors";
 import { extractBankStatementData } from "../utils/bankStatementExtractors";
 import { extractBankStatementPdfInCloud } from "../utils/cloudBankStatementOcr";
@@ -1230,7 +1230,7 @@ export default function BankStatementForm({ navigation, route, mode }) {
                         <Text style={ReceiptStyles.ocrLabel}>Balance:</Text>
                         <Text style={ReceiptStyles.ocrValue}>
                           {Number.isFinite(ocrResult?.statementBalance)
-                            ? `£${Number(ocrResult.statementBalance).toFixed(2)}`
+                            ? formatCurrency(ocrResult.statementBalance)
                             : "Not detected"}
                         </Text>
                       </View>
@@ -1278,7 +1278,7 @@ export default function BankStatementForm({ navigation, route, mode }) {
                         <Text style={ReceiptStyles.ocrLabel}>Money In:</Text>
                         <Text style={ReceiptStyles.ocrValue}>
                           {Number.isFinite(ocrResult?.moneyInTotal)
-                            ? `£${Number(ocrResult.moneyInTotal).toFixed(2)}`
+                            ? formatCurrency(ocrResult.moneyInTotal)
                             : "Not detected"}
                         </Text>
                       </View>
@@ -1293,7 +1293,7 @@ export default function BankStatementForm({ navigation, route, mode }) {
                         <Text style={ReceiptStyles.ocrLabel}>Money Out:</Text>
                         <Text style={ReceiptStyles.ocrValue}>
                           {Number.isFinite(ocrResult?.moneyOutTotal)
-                            ? `£${Number(ocrResult.moneyOutTotal).toFixed(2)}`
+                            ? formatCurrency(ocrResult.moneyOutTotal)
                             : "Not detected"}
                         </Text>
                       </View>
@@ -1873,7 +1873,7 @@ const StatementBreakdown = ({ data }) => {
           <Text style={styles.breakdownTitle}>Payments / credits</Text>
           {paymentRows.map((row, index) => (
             <Text key={`in-${row.vendor}-${row.moneyIn}-${index}`} style={styles.breakdownLine}>
-              {row.vendor} · £{Number(row.moneyIn || 0).toFixed(2)}
+              {row.vendor} · {formatCurrency(row.moneyIn || 0)}
             </Text>
           ))}
         </View>
@@ -1885,14 +1885,14 @@ const StatementBreakdown = ({ data }) => {
           {categorizedExpenses.map((group, index) => (
             <View key={`${group.category}-${group.total}-${index}`} style={styles.categoryGroupCard}>
               <Text style={styles.categoryGroupTitle}>
-                {group.category} · £{Number(group.total || 0).toFixed(2)}
+                {group.category} · {formatCurrency(group.total || 0)}
               </Text>
               {group.vendors.map((vendorRow, vendorIndex) => (
                 <Text
                   key={`${group.category}-${vendorRow.vendor}-${vendorRow.total}-${vendorIndex}`}
                   style={styles.breakdownIndentedLine}
                 >
-                  {vendorRow.vendor} · £{Number(vendorRow.total || 0).toFixed(2)}
+                  {vendorRow.vendor} · {formatCurrency(vendorRow.total || 0)}
                 </Text>
               ))}
             </View>

@@ -29,7 +29,7 @@ import {
   writeBatch,
 } from "firebase/firestore";
 import { db, auth } from "../firebaseConfig";
-import { formatDate } from "../utils/format_style";
+import { formatDate, formatCurrency } from "../utils/format_style";
 import SideMenu from "../components/SideMenu";
 import { StatusBar, Platform } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
@@ -869,7 +869,7 @@ const ExpensesScreen = ({ navigation, route }) => {
             </View>
 
             <Text style={styles.receiptAmount}>
-              £{Number(item.amount).toFixed(2)}
+              {formatCurrency(item.amount)}
             </Text>
           </TouchableOpacity>
         </View>
@@ -1286,11 +1286,13 @@ const ExpensesScreen = ({ navigation, route }) => {
         onClose={() => setRegisterVehicleOpen(false)}
         onSaved={(updated) => setVehicles(updated)}
         vehicle={null}
+        onRecordMileage={() => navigation.navigate("MileageRecord", {})}
       />
       <YourVehiclesModal
         visible={yourVehiclesOpen}
         onClose={() => setYourVehiclesOpen(false)}
         vehicles={vehicles}
+        onRecordMileage={() => navigation.navigate("MileageRecord", {})}
         onChanged={(updated) => setVehicles(updated)}
       />
 

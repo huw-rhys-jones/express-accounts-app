@@ -7,6 +7,24 @@ export const formatDate = (date) => {
   return `${day}/${month}/${year}`;
 };
 
+// Inserts a comma after every group of three digits in the integer part, e.g. "12345.6" -> "12,345.6"
+export const formatNumber = (value, decimals = 2) => {
+  const num = Number(value);
+  const safeNum = Number.isFinite(num) ? num : 0;
+  const [intPart, decPart] = Math.abs(safeNum).toFixed(decimals).split(".");
+  const withCommas = intPart.replace(/\B(?=(\d{3})+(?!\d))/g, ",");
+  const sign = safeNum < 0 ? "-" : "";
+  return decPart ? `${sign}${withCommas}.${decPart}` : `${sign}${withCommas}`;
+};
+
+// Formats a monetary amount as e.g. "£1,234.56" (negative values become "-£1,234.56")
+export const formatCurrency = (value) => {
+  const num = Number(value);
+  const safeNum = Number.isFinite(num) ? num : 0;
+  const sign = safeNum < 0 ? "-" : "";
+  return `${sign}£${formatNumber(Math.abs(safeNum), 2)}`;
+};
+
 export const GoogleLogo = () => (
   <Svg width={20} height={20} viewBox="0 0 533.5 544.3">
     <Path

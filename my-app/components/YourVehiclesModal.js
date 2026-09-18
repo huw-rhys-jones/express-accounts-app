@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { useState } from "react";
 import {
   Modal,
   ScrollView,
@@ -10,28 +10,9 @@ import {
 import { Colors } from "../utils/sharedStyles";
 import RegisterVehicleModal from "./RegisterVehicleModal";
 
-export default function YourVehiclesModal({ visible, onClose, vehicles, onChanged }) {
+export default function YourVehiclesModal({ visible, onClose, vehicles, onChanged, onRecordMileage }) {
   const [editingVehicle, setEditingVehicle] = useState(null);
   const [registerOpen, setRegisterOpen] = useState(false);
-  const [pendingEditVehicle, setPendingEditVehicle] = useState(null);
-  const [pendingCreateVehicle, setPendingCreateVehicle] = useState(false);
-
-  useEffect(() => {
-    if (visible) {
-      return;
-    }
-
-    if (pendingEditVehicle) {
-      setEditingVehicle(pendingEditVehicle);
-      setPendingEditVehicle(null);
-      return;
-    }
-
-    if (pendingCreateVehicle) {
-      setRegisterOpen(true);
-      setPendingCreateVehicle(false);
-    }
-  }, [pendingCreateVehicle, pendingEditVehicle, visible]);
 
   const engineLabel = (key) => {
     if (key === "over_2000") return "Over 2000cc";
@@ -54,10 +35,7 @@ export default function YourVehiclesModal({ visible, onClose, vehicles, onChange
                   <TouchableOpacity
                     key={v.id}
                     style={styles.vehicleRow}
-                    onPress={() => {
-                      setPendingEditVehicle(v);
-                      onClose?.();
-                    }}
+                    onPress={() => setEditingVehicle(v)}
                     activeOpacity={0.75}
                   >
                     <View style={styles.regBadge}>
@@ -78,10 +56,7 @@ export default function YourVehiclesModal({ visible, onClose, vehicles, onChange
 
               <TouchableOpacity
                 style={styles.addBtn}
-                onPress={() => {
-                  setPendingCreateVehicle(true);
-                  onClose?.();
-                }}
+                onPress={() => setRegisterOpen(true)}
               >
                 <Text style={styles.addBtnText}>+ Add Vehicle</Text>
               </TouchableOpacity>
@@ -98,6 +73,7 @@ export default function YourVehiclesModal({ visible, onClose, vehicles, onChange
       <RegisterVehicleModal
         visible={Boolean(editingVehicle)}
         vehicle={editingVehicle}
+        onRecordMileage={onRecordMileage}
         onClose={() => setEditingVehicle(null)}
         onSaved={(updated) => {
           setEditingVehicle(null);
@@ -108,6 +84,7 @@ export default function YourVehiclesModal({ visible, onClose, vehicles, onChange
       {/* Add new vehicle */}
       <RegisterVehicleModal
         visible={registerOpen}
+        onRecordMileage={onRecordMileage}
         onClose={() => setRegisterOpen(false)}
         onSaved={(updated) => {
           setRegisterOpen(false);

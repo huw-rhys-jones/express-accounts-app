@@ -96,7 +96,6 @@ export default function ProfileScreen({ navigation }) {
       setProfileImageUrl(localProfileImageUri || localImage || storedProfileImage);
       setVerifiedName(String(latestProfile.verifiedName || ""));
       setVerificationStatus(String(latestProfile.verificationStatus || ""));
-      setVehicles(Array.isArray(latestProfile.vehicles) ? latestProfile.vehicles : []);
       setVatRegistered(latestProfile.taxProfile?.vat?.isRegistered === true);
       setVatRegistrationNumber(String(latestProfile.taxProfile?.vat?.registrationNumber || ""));
     };
@@ -267,7 +266,7 @@ export default function ProfileScreen({ navigation }) {
       <Modal visible={deleteModalVisible} transparent animationType="fade" onRequestClose={() => setDeleteModalVisible(false)}>
         <View style={styles.modalOverlay}><View style={styles.modalCard}><Text style={[styles.modalTitle, styles.dangerText]}>Delete Account?</Text><Text style={styles.modalText}>This will permanently erase all receipts and images. Type DELETE to confirm.</Text><TextInput style={styles.input} value={confirmText} onChangeText={setConfirmText} autoCapitalize="characters" placeholder="Type DELETE" /><ModalButtons onCancel={() => { setDeleteModalVisible(false); setConfirmText(""); }} onSave={performDeletion} saveLabel="Delete All" disabled={confirmText !== "DELETE"} danger /></View></View>
       </Modal>
-      <YourVehiclesModal visible={vehiclesVisible} onClose={() => setVehiclesVisible(false)} vehicles={vehicles} onChanged={setVehicles} />
+      <YourVehiclesModal visible={vehiclesVisible} onClose={() => setVehiclesVisible(false)} vehicles={vehicles} onRecordMileage={() => navigation.navigate("MileageRecord", {})} onChanged={setVehicles} />
       {busy ? <View style={styles.busyOverlay}><ActivityIndicator size="large" color="#fff" /><Text style={styles.busyText}>{busyText}</Text></View> : null}
     </SafeAreaView>
   );

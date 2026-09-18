@@ -18,7 +18,7 @@ import SharedTabMenu from "../components/SharedTabMenu";
 import AddReceiptSheet from "../components/AddReceiptSheet";
 import { doc, writeBatch } from "firebase/firestore";
 import { auth, db } from "../firebaseConfig";
-import { formatDate } from "../utils/format_style";
+import { formatDate, formatCurrency } from "../utils/format_style";
 import { Colors } from "../utils/sharedStyles";
 import { triggerHaptic } from "../utils/haptics";
 import { useData } from "../contexts/DataContext";
@@ -344,7 +344,7 @@ export default function IncomeScreen({ navigation }) {
                 {String(item.reference || "No reference")}
               </Text>
             </View>
-            <Text style={styles.rowAmount}>£{Number(item.amount || 0).toFixed(2)}</Text>
+            <Text style={styles.rowAmount}>{formatCurrency(item.amount || 0)}</Text>
           </TouchableOpacity>
         </View>
       </View>

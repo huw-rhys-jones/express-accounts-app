@@ -39,7 +39,7 @@ import {
 } from "firebase/firestore";
 import { auth, db } from "../firebaseConfig";
 import { Colors, ReceiptStyles } from "../utils/sharedStyles";
-import { formatDate } from "../utils/format_style";
+import { formatDate, formatCurrency } from "../utils/format_style";
 import {
   getCurrentFinancialQuarter,
   getCurrentYearAprilSix,
@@ -1454,7 +1454,7 @@ export default function IncomeFormScreen({ navigation, route, mode }) {
                   </View>
                   {(() => {
                     const cis = calculateCis({ grossAmount: amount, vatAmount: vatEnabled ? vatAmount : 0, materialsAmount: cisMaterialsAmount, deductionRate: cisDeductionRate });
-                    return <Text style={styles.cisCalculationText}>CIS withheld: £{cis.deductionAmount.toFixed(2)}   Net received: £{cis.netPaid.toFixed(2)}</Text>;
+                    return <Text style={styles.cisCalculationText}>CIS withheld: {formatCurrency(cis.deductionAmount)}   Net received: {formatCurrency(cis.netPaid)}</Text>;
                   })()}
                 </>
               ) : null}
@@ -1559,7 +1559,7 @@ export default function IncomeFormScreen({ navigation, route, mode }) {
                     <Text style={ReceiptStyles.ocrLabel}>Amount:</Text>
                     <Text style={ReceiptStyles.ocrValue}>
                       {ocrResult?.amount != null
-                        ? `£${Number(ocrResult.amount).toFixed(2)}`
+                        ? formatCurrency(ocrResult.amount)
                         : "Not detected"}
                     </Text>
                   </View>
@@ -1601,7 +1601,7 @@ export default function IncomeFormScreen({ navigation, route, mode }) {
                     />
                     <Text style={ReceiptStyles.ocrLabel}>VAT:</Text>
                     <Text style={ReceiptStyles.ocrValue}>
-                      {ocrResult?.vat?.value != null ? `£${Number(ocrResult.vat.value).toFixed(2)}` : "Not detected"}
+                      {ocrResult?.vat?.value != null ? formatCurrency(ocrResult.vat.value) : "Not detected"}
                       {`  (Rate ${ocrResult?.vat?.rate ?? "—"}%)`}
                     </Text>
                   </View>
@@ -1744,7 +1744,7 @@ export default function IncomeFormScreen({ navigation, route, mode }) {
               <View style={styles.summaryListWrap}>
                 {batchSaveSummary.saved.map((entry, index) => (
                   <Text key={`${entry.date}-${entry.amount}-${index}`} style={ReceiptStyles.modalDetailText}>
-                    £{entry.amount} — {entry.reference || "—"} — {entry.date}
+                    {formatCurrency(entry.amount)} — {entry.reference || "—"} — {entry.date}
                   </Text>
                 ))}
               </View>

@@ -102,7 +102,7 @@ export default function SharedTabMenu({ navigation, closeMenu, displayName = "Us
     const user = auth.currentUser;
     if (!user) {
       setCurrentDisplayName(contextDisplayName || displayName || "User");
-      setVehicles(Array.isArray(userProfile?.vehicles) ? userProfile.vehicles : []);
+      getVehicles().then(setVehicles).catch(() => {});
       return;
     }
 
@@ -113,9 +113,6 @@ export default function SharedTabMenu({ navigation, closeMenu, displayName = "Us
     if (userProfile?.verifiedName || userProfile?.verificationStatus) {
       setVerifiedName(String(userProfile?.verifiedName || ""));
       setVerificationStatus(String(userProfile?.verificationStatus || ""));
-    }
-    if (Array.isArray(userProfile?.vehicles)) {
-      setVehicles(userProfile.vehicles);
     }
 
     try {
@@ -148,7 +145,6 @@ export default function SharedTabMenu({ navigation, closeMenu, displayName = "Us
     setNewName((previous) => previous || contextDisplayName || displayName || "User");
     setVerifiedName(String(userProfile?.verifiedName || ""));
     setVerificationStatus(String(userProfile?.verificationStatus || ""));
-    setVehicles(Array.isArray(userProfile?.vehicles) ? userProfile.vehicles : []);
     applyVatProfile(userProfile);
   }, [applyVatProfile, contextDisplayName, displayName, userProfile]);
 
@@ -431,6 +427,8 @@ export default function SharedTabMenu({ navigation, closeMenu, displayName = "Us
         </View>
 
         <View style={styles.footerContainer}>
+
+
           <TouchableOpacity
             onPress={() => setFinancialYearModalVisible(true)}
             style={styles.secondaryMenuButton}
@@ -637,12 +635,20 @@ export default function SharedTabMenu({ navigation, closeMenu, displayName = "Us
           onVehiclesChanged?.(updated);
         }}
         vehicle={null}
+        onRecordMileage={() => {
+          closeMenu();
+          setTimeout(() => navigation.navigate("MileageRecord", {}), 220);
+        }}
       />
 
       <YourVehiclesModal
         visible={yourVehiclesOpen}
         onClose={() => setYourVehiclesOpen(false)}
         vehicles={vehicles}
+        onRecordMileage={() => {
+          closeMenu();
+          setTimeout(() => navigation.navigate("MileageRecord", {}), 220);
+        }}
         onChanged={(updated) => {
           setVehicles(updated);
           onVehiclesChanged?.(updated);
