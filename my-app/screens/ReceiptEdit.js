@@ -1423,7 +1423,7 @@ export default function ReceiptDetailsScreen({ route, navigation }) {
             style={ReceiptStyles.fullScreenCloseButton}
             onPress={() => setFullScreenImage(null)}
           >
-            <Text style={ReceiptStyles.fullScreenCloseText}>Close</Text>
+            <Text style={ReceiptStyles.fullScreenCloseText}>✕</Text>
           </TouchableOpacity>
         </View>
       </Modal>

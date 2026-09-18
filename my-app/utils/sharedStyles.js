@@ -480,6 +480,17 @@ export const ReceiptStyles = StyleSheet.create({
     minWidth: 180,
   },
 
+  fullScreenCloseButtonWrapper: {
+    position: "absolute",
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    zIndex: 2000,
+    elevation: 2000,
+    pointerEvents: "box-none",
+  },
+
   // Fullscreen close button (top-left X circle)
   fullScreenCloseButton: {
     position: "absolute",
@@ -491,7 +502,8 @@ export const ReceiptStyles = StyleSheet.create({
     backgroundColor: "rgba(166, 13, 73, 0.88)",
     alignItems: "center",
     justifyContent: "center",
-    zIndex: 999,
+    zIndex: 2001,
+    elevation: 2001,
   },
   fullScreenCloseText: { color: "#fff", fontWeight: "bold", fontSize: 18, lineHeight: 20 },
 
