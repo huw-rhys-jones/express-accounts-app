@@ -67,6 +67,7 @@ export async function setSummaryFilterKey(filterKey) {
 
 const ADD_SHEET_TOOLTIP_SEEN_KEY = "@settings:addSheetTooltipSeen";
 const HIDDEN_PERIOD_TOOLTIP_DISMISSED_KEY = "@settings:hiddenPeriodTooltipDismissed";
+const ANNOTATE_IMAGES_KEY = "@settings:annotateImages";
 
 export async function getAddSheetTooltipSeen() {
   try {
@@ -97,6 +98,23 @@ export async function getHiddenPeriodTooltipDismissed() {
 export async function setHiddenPeriodTooltipDismissed() {
   try {
     await AsyncStorage.setItem(HIDDEN_PERIOD_TOOLTIP_DISMISSED_KEY, "true");
+  } catch {
+    // ignore
+  }
+}
+
+export async function getAnnotateImages() {
+  try {
+    const value = await AsyncStorage.getItem(ANNOTATE_IMAGES_KEY);
+    return value == null ? true : value === "true";
+  } catch {
+    return true;
+  }
+}
+
+export async function setAnnotateImages(enabled) {
+  try {
+    await AsyncStorage.setItem(ANNOTATE_IMAGES_KEY, enabled ? "true" : "false");
   } catch {
     // ignore
   }

@@ -25,6 +25,7 @@ import {
 import { Button, Checkbox, ProgressBar } from "react-native-paper";
 import DateTimePickerModal from "react-native-modal-datetime-picker";
 import * as ImagePicker from "react-native-image-picker";
+import ImageViewer from "react-native-image-zoom-viewer";
 import { KeyboardAwareScrollView } from "react-native-keyboard-aware-scroll-view";
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import DropDownPicker from "react-native-dropdown-picker";
@@ -58,6 +59,7 @@ import {
 import { triggerHaptic } from "../utils/haptics";
 import {
   getReceiptFilterKey,
+  getAnnotateImages,
   setReceiptFilterKey,
 } from "../utils/appSettings";
 import { useData } from "../contexts/DataContext";
@@ -130,7 +132,8 @@ const ReceiptAdd = ({ navigation, route }) => {
   });
   const [successMode, setSuccessMode] = useState("single");
   const [imageContainerHeight, setImageContainerHeight] = useState(HERO_EXPANDED_HEIGHT);
-  const [fullScreenViewport, setFullScreenViewport] = useState({ width: 0, height: 0 });
+  const [fullScreenImage, setFullScreenImage] = useState(null);
+  const [annotateImages, setAnnotateImages] = useState(true);
 
   // isMultiReceiptMode is true when we have multiple detected receipt drafts
   const isMultiReceiptMode = receiptDrafts.length > 1;
@@ -156,10 +159,29 @@ const ReceiptAdd = ({ navigation, route }) => {
   };
 
   // Fullscreen viewer (separate, top-level modal)
-  const [fullScreenImageIndex, setFullScreenImageIndex] = useState(null);
   const [ocrFrames, setOcrFrames] = useState(null);
   const [detectProgress, setDetectProgress] = useState(0);
   const [detectMode, setDetectMode] = useState("auto");
+
+  useEffect(() => {
+    let active = true;
+    const loadAnnotateImages = () => {
+      getAnnotateImages()
+        .then((enabled) => {
+          if (active) setAnnotateImages(enabled);
+        })
+        .catch(() => {
+          if (active) setAnnotateImages(true);
+        });
+    };
+
+    loadAnnotateImages();
+    const unsubscribeFocus = navigation.addListener("focus", loadAnnotateImages);
+    return () => {
+      active = false;
+      unsubscribeFocus?.();
+    };
+  }, [navigation]);
 
   const buildImageAnnotations = ({ localImages = [], uploadedImageUrls = [], frameData = null }) => {
     if (!frameData || !frameData.imageUri) {
@@ -181,6 +203,10 @@ const ReceiptAdd = ({ navigation, route }) => {
         vat: frameData.vat || null,
       },
     };
+  };
+
+  const openFullScreenImage = (item, annotationData = null) => {
+    setFullScreenImage({ uri: item.uri, annotationData });
   };
 
   const getCanonicalCategoryName = (value) => {
@@ -1396,9 +1422,9 @@ const ReceiptAdd = ({ navigation, route }) => {
   const isCurrentRejected = currentReviewState === "rejected";
   const isCurrentAccepted = currentReviewState === "accepted";
 
-  const buildPercentOverlayForContainer = (frame, containerW, containerH) => {
-    const naturalW = ocrFrames?.imageW;
-    const naturalH = ocrFrames?.imageH;
+  const buildPercentOverlayForContainer = (frame, containerW, containerH, annotationData = ocrFrames) => {
+    const naturalW = annotationData?.imageW;
+    const naturalH = annotationData?.imageH;
     if (!frame || !naturalW || !naturalH || !containerW || !containerH) return null;
 
     const scale = Math.min(containerW / naturalW, containerH / naturalH);
@@ -1432,6 +1458,43 @@ const ReceiptAdd = ({ navigation, route }) => {
       frame,
       imageContainerWidth,
       imageContainerHeight || heroHeight,
+    );
+  };
+
+  const getImageCanvasHeight = (annotationData) => {
+    const containerH = imageContainerHeight || heroHeight;
+    const naturalW = annotationData?.imageW;
+    const naturalH = annotationData?.imageH;
+    if (!imageContainerWidth || !naturalW || !naturalH) return containerH;
+    return Math.max(containerH, imageContainerWidth * (naturalH / naturalW));
+  };
+
+  const renderAnnotatedZoomImage = (props) => {
+    const annotationData = fullScreenImage?.annotationData;
+    const imageStyle = props?.style || {};
+    const width = Number(imageStyle.width) || Dimensions.get("window").width;
+    const height = Number(imageStyle.height) || Dimensions.get("window").height;
+
+    return (
+      <View style={[imageStyle, { position: "relative" }]}> 
+        <Image {...props} style={imageStyle} resizeMode="contain" />
+        {annotationData ? (
+          <View style={localStyles.annotationOverlay} pointerEvents="none">
+            {ANNOTATIONS.filter(({ key }) => annotationData[key]).map(({ key, label, color }) => {
+              const frame = annotationData[key];
+              const overlayBox = buildPercentOverlayForContainer(frame, width, height, annotationData);
+              if (!overlayBox) return null;
+              return (
+                <View key={`zoom-${key}`} style={[localStyles.annBox, { ...overlayBox, borderColor: color }]}> 
+                  <View style={[localStyles.annChip, { backgroundColor: color }]}> 
+                    <Text style={localStyles.annChipText} numberOfLines={1}>{label}</Text>
+                  </View>
+                </View>
+              );
+            })}
+          </View>
+        ) : null}
+      </View>
     );
   };
 
@@ -1483,36 +1546,46 @@ const ReceiptAdd = ({ navigation, route }) => {
             style={{ width: imageContainerWidth }}
           >
             {images.map((item, index) => {
-              const isAnnotated = ocrFrames?.imageUri === item.uri;
+              const isAnnotated = annotateImages && ocrFrames?.imageUri === item.uri;
+              const canvasHeight = getImageCanvasHeight(isAnnotated ? ocrFrames : null);
               return (
                 <View key={String(index)} style={{ position: "relative" }}>
-                  <TouchableOpacity
-                    style={[localStyles.carouselPage, { width: imageContainerWidth }]}
-                    activeOpacity={0.9}
-                    onPress={() => setFullScreenImageIndex(index)}
-                  >
-                    <Image
-                      source={{ uri: item.uri }}
-                      style={[localStyles.carouselImage, { width: imageContainerWidth }]}
-                      resizeMode="contain"
-                    />
-                    {isAnnotated ? (
-                      <View style={localStyles.annotationOverlay} pointerEvents="none">
-                        {ANNOTATIONS.filter(({ key }) => ocrFrames[key]).map(({ key, label, color }) => {
-                          const frame = ocrFrames[key];
-                          const overlayBox = buildPercentOverlay(frame);
-                          if (!overlayBox) return null;
-                          return (
-                            <View key={key} style={[localStyles.annBox, { ...overlayBox, borderColor: color }]}> 
-                              <View style={[localStyles.annChip, { backgroundColor: color }]}> 
-                                <Text style={localStyles.annChipText} numberOfLines={1}>{label}</Text>
-                              </View>
-                            </View>
-                          );
-                        })}
-                      </View>
-                    ) : null}
-                  </TouchableOpacity>
+                  <View style={[localStyles.carouselPage, { width: imageContainerWidth }]}> 
+                    <ScrollView
+                      nestedScrollEnabled
+                      showsVerticalScrollIndicator={false}
+                      style={localStyles.imagePageScroller}
+                      contentContainerStyle={{ minHeight: imageContainerHeight || heroHeight }}
+                    >
+                      <TouchableOpacity
+                        activeOpacity={0.9}
+                        onPress={() => openFullScreenImage(item, isAnnotated ? ocrFrames : null)}
+                        style={{ width: imageContainerWidth, height: canvasHeight, position: "relative" }}
+                      >
+                        <Image
+                          source={{ uri: item.uri }}
+                          style={{ width: imageContainerWidth, height: canvasHeight }}
+                          resizeMode="contain"
+                        />
+                        {isAnnotated ? (
+                          <View style={localStyles.annotationOverlay} pointerEvents="none">
+                            {ANNOTATIONS.filter(({ key }) => ocrFrames[key]).map(({ key, label, color }) => {
+                              const frame = ocrFrames[key];
+                              const overlayBox = buildPercentOverlayForContainer(frame, imageContainerWidth, canvasHeight, ocrFrames);
+                              if (!overlayBox) return null;
+                              return (
+                                <View key={key} style={[localStyles.annBox, { ...overlayBox, borderColor: color }]}> 
+                                  <View style={[localStyles.annChip, { backgroundColor: color }]}> 
+                                    <Text style={localStyles.annChipText} numberOfLines={1}>{label}</Text>
+                                  </View>
+                                </View>
+                              );
+                            })}
+                          </View>
+                        ) : null}
+                      </TouchableOpacity>
+                    </ScrollView>
+                  </View>
                   <TouchableOpacity
                     style={localStyles.carouselRemoveBtn}
                     onPress={() =>
@@ -2439,84 +2512,28 @@ const ReceiptAdd = ({ navigation, route }) => {
 
       {/* Full-screen Image Modal */}
       <Modal
-        visible={fullScreenImageIndex !== null}
+        visible={!!fullScreenImage}
         animationType="fade"
         presentationStyle="overFullScreen"
         transparent
-        onRequestClose={() => setFullScreenImageIndex(null)}
+        statusBarTranslucent
+        onRequestClose={() => setFullScreenImage(null)}
       >
-        {fullScreenImageIndex !== null ? (
-          <View
-            style={localStyles.fullScreenOverlayRoot}
-            onLayout={(event) => {
-              const { width, height } = event.nativeEvent.layout;
-              setFullScreenViewport({ width, height });
-            }}
+        <ImageViewer
+          imageUrls={fullScreenImage ? [{ url: fullScreenImage.uri }] : []}
+          enableSwipeDown
+          onSwipeDown={() => setFullScreenImage(null)}
+          renderImage={renderAnnotatedZoomImage}
+          backgroundColor="black"
+        />
+        <View style={ReceiptStyles.fullScreenCloseButtonWrapper}>
+          <TouchableOpacity
+            style={ReceiptStyles.fullScreenCloseButton}
+            onPress={() => setFullScreenImage(null)}
           >
-            <ScrollView
-              horizontal
-              pagingEnabled
-              showsHorizontalScrollIndicator={false}
-              contentOffset={{
-                x:
-                  fullScreenImageIndex *
-                  (fullScreenViewport.width || Dimensions.get("window").width),
-                y: 0,
-              }}
-              style={{ width: fullScreenViewport.width || Dimensions.get("window").width }}
-            >
-              {images.map((item, index) => {
-                const isAnnotated = ocrFrames?.imageUri === item.uri;
-                return (
-                  <View
-                    key={`fullscreen-${index}`}
-                    style={{
-                      width: fullScreenViewport.width || Dimensions.get("window").width,
-                      height: fullScreenViewport.height || Dimensions.get("window").height,
-                      justifyContent: "center",
-                      alignItems: "center",
-                    }}
-                  >
-                    <Image
-                      source={{ uri: item.uri }}
-                      style={{
-                        width: fullScreenViewport.width || Dimensions.get("window").width,
-                        height: fullScreenViewport.height || Dimensions.get("window").height,
-                      }}
-                      resizeMode="contain"
-                    />
-                    {isAnnotated ? (
-                      <View style={localStyles.annotationOverlay} pointerEvents="none">
-                        {ANNOTATIONS.filter(({ key }) => ocrFrames[key]).map(({ key, label, color }) => {
-                          const frame = ocrFrames[key];
-                          const overlayBox = buildPercentOverlayForContainer(
-                            frame,
-                            fullScreenViewport.width || Dimensions.get("window").width,
-                            fullScreenViewport.height || Dimensions.get("window").height,
-                          );
-                          if (!overlayBox) return null;
-                          return (
-                            <View key={`fullscreen-${key}`} style={[localStyles.annBox, { ...overlayBox, borderColor: color }]}> 
-                              <View style={[localStyles.annChip, { backgroundColor: color }]}> 
-                                <Text style={localStyles.annChipText} numberOfLines={1}>{label}</Text>
-                              </View>
-                            </View>
-                          );
-                        })}
-                      </View>
-                    ) : null}
-                  </View>
-                );
-              })}
-            </ScrollView>
-            <TouchableOpacity
-              style={ReceiptStyles.fullScreenCloseButton}
-              onPress={() => setFullScreenImageIndex(null)}
-            >
-              <Text style={ReceiptStyles.fullScreenCloseText}>✕</Text>
-            </TouchableOpacity>
-          </View>
-        ) : null}
+            <Text style={ReceiptStyles.fullScreenCloseText}>✕</Text>
+          </TouchableOpacity>
+        </View>
       </Modal>
 
 
@@ -3175,6 +3192,10 @@ const localStyles = StyleSheet.create({
   },
   carouselImage: {
     height: IMAGE_HEIGHT,
+  },
+  imagePageScroller: {
+    alignSelf: "stretch",
+    flex: 1,
   },
   carouselAddBtn: {
     flex: 1,

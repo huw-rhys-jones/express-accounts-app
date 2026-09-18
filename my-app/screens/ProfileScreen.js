@@ -9,6 +9,7 @@ import {
   Platform,
   ScrollView,
   StyleSheet,
+  Switch,
   Text,
   TextInput,
   TouchableOpacity,
@@ -35,7 +36,7 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import { Checkbox } from "react-native-paper";
 import { auth, db } from "../firebaseConfig";
 import { useData } from "../contexts/DataContext";
-import { getVehicles } from "../utils/appSettings";
+import { getAnnotateImages, getVehicles, setAnnotateImages } from "../utils/appSettings";
 import { Colors } from "../utils/sharedStyles";
 import YourVehiclesModal from "../components/YourVehiclesModal";
 
@@ -79,6 +80,7 @@ export default function ProfileScreen({ navigation }) {
   const [vatRegistered, setVatRegistered] = useState(userProfile?.taxProfile?.vat?.isRegistered === true);
   const [vatRegistrationNumber, setVatRegistrationNumber] = useState(String(userProfile?.taxProfile?.vat?.registrationNumber || ""));
   const [vehiclesVisible, setVehiclesVisible] = useState(false);
+  const [annotateImages, setAnnotateImagesState] = useState(true);
   const [busy, setBusy] = useState(false);
   const [busyText, setBusyText] = useState("Please wait...");
 
@@ -105,7 +107,14 @@ export default function ProfileScreen({ navigation }) {
 
   useEffect(() => {
     getVehicles().then(setVehicles).catch(() => {});
+    getAnnotateImages().then(setAnnotateImagesState).catch(() => setAnnotateImagesState(true));
   }, []);
+
+  const toggleAnnotateImages = useCallback(async () => {
+    const nextValue = !annotateImages;
+    setAnnotateImagesState(nextValue);
+    await setAnnotateImages(nextValue);
+  }, [annotateImages]);
 
   const runBusy = useCallback(async (text, fn) => {
     setBusyText(text);
@@ -247,6 +256,19 @@ export default function ProfileScreen({ navigation }) {
         </View>
 
         <ProfileRow icon="car-outline" label="Your Vehicles" value={vehicles.length ? `${vehicles.length} registered` : "No vehicles registered"} onPress={() => setVehiclesVisible(true)} />
+        <TouchableOpacity style={styles.row} onPress={toggleAnnotateImages} activeOpacity={0.75}>
+          <Ionicons name="scan-outline" size={21} color={Colors.textPrimary} />
+          <View style={styles.rowText}>
+            <Text style={styles.rowLabel}>Annotate Images</Text>
+            <Text style={styles.rowValue}>{annotateImages ? "On" : "Off"}</Text>
+          </View>
+          <Switch
+            value={annotateImages}
+            onValueChange={toggleAnnotateImages}
+            trackColor={{ false: "#d0d0d8", true: "#f0a7c3" }}
+            thumbColor={annotateImages ? Colors.accent : "#f4f3f4"}
+          />
+        </TouchableOpacity>
         <ProfileRow icon="receipt-outline" label="VAT Registration" value={vatRegistered ? "Registered" : "Not registered"} onPress={() => setVatModalVisible(true)} />
         <ProfileRow icon="id-card-outline" label="Add ID Image" disabled />
         <ProfileRow icon="location-outline" label="Add Address" disabled />
