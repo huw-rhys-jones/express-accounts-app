@@ -2,16 +2,8 @@ apply plugin: "com.android.application"
 apply plugin: "org.jetbrains.kotlin.android"
 apply plugin: "com.facebook.react"
 
+apply from: rootProject.file("env.gradle")
 def projectRoot = rootDir.getAbsoluteFile().getParentFile().getAbsolutePath()
-def localEnv = new Properties()
-[".env", ".env.local"].each { envFileName ->
-    def envFile = file("$projectRoot/$envFileName")
-    if (envFile.exists()) {
-        envFile.withInputStream { localEnv.load(it) }
-    }
-}
-def envValue = { name -> System.getenv(name) ?: localEnv.getProperty(name, "") }
-def buildConfigString = { value -> "\"${String.valueOf(value).replace('\\', '\\\\').replace('"', '\\"')}\"" }
 
 /**
  * This is the configuration block to customize your React Native Android app.
