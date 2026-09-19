@@ -27,6 +27,7 @@ import { Button, Checkbox, ProgressBar } from "react-native-paper";
 import DropDownPicker from "react-native-dropdown-picker";
 import DateTimePickerModal from "react-native-modal-datetime-picker";
 import * as ImagePicker from "react-native-image-picker";
+import { Ionicons } from "@expo/vector-icons";
 import {
   addDoc,
   collection,
@@ -56,7 +57,7 @@ import {
 } from "../utils/documentAttachments";
 import { triggerHaptic } from "../utils/haptics";
 import { categories_meta } from "../constants/arrays";
-import { getIncomeFilterKey, setIncomeFilterKey } from "../utils/appSettings";
+import { getAnnotateImages, getIncomeFilterKey, setAnnotateImages as saveAnnotateImages, setIncomeFilterKey } from "../utils/appSettings";
 import { useData } from "../contexts/DataContext";
 import { calculateCis, isVatRegistered, VAT_TREATMENTS } from "../utils/taxCalculations";
 
@@ -170,8 +171,8 @@ export default function IncomeFormScreen({ navigation, route, mode }) {
   const [ocrProcessing, setOcrProcessing] = useState(false);
   const [imageContainerWidth, setImageContainerWidth] = useState(0);
   const [imageContainerHeight, setImageContainerHeight] = useState(HERO_EXPANDED_HEIGHT);
-  const [fullScreenImageIndex, setFullScreenImageIndex] = useState(null);
   const [ocrFrames, setOcrFrames] = useState(null);
+  const [annotateImages, setAnnotateImages] = useState(true);
   const [showConfirmLeaveModal, setShowConfirmLeaveModal] = useState(false);
 
   // Multi-statement draft mode (when multiple income images are detected)
@@ -206,6 +207,49 @@ export default function IncomeFormScreen({ navigation, route, mode }) {
   const indicatorScrollRef = useRef(null);
   const indicatorLayoutsRef = useRef({});
   const indicatorViewportWidthRef = useRef(0);
+
+  useEffect(() => {
+    let active = true;
+    const loadAnnotateImages = () => {
+      getAnnotateImages()
+        .then((enabled) => {
+          if (active) setAnnotateImages(enabled);
+        })
+        .catch(() => {
+          if (active) setAnnotateImages(true);
+        });
+    };
+
+    loadAnnotateImages();
+    const unsubscribeFocus = navigation.addListener("focus", loadAnnotateImages);
+    return () => {
+      active = false;
+      unsubscribeFocus?.();
+    };
+  }, [navigation]);
+
+  const toggleAnnotateImages = async () => {
+    const nextValue = !annotateImages;
+    setAnnotateImages(nextValue);
+    await saveAnnotateImages(nextValue);
+  };
+
+  const buildImageAnnotations = ({ localAttachments = [], uploadedAttachments = [], frameData = null }) => {
+    if (!frameData || !frameData.imageUri) return null;
+    const frameIndex = localAttachments.findIndex((attachment) => getAttachmentUri(attachment) === frameData.imageUri);
+    if (frameIndex < 0 || !uploadedAttachments[frameIndex]) return null;
+    const imageUrl = getAttachmentUri(uploadedAttachments[frameIndex]);
+    if (!imageUrl) return null;
+    return {
+      [imageUrl]: {
+        imageW: frameData.imageW,
+        imageH: frameData.imageH,
+        amount: frameData.amount || null,
+        date: frameData.date || null,
+        vat: frameData.vat || null,
+      },
+    };
+  };
 
   const scrollIndicatorIntoView = (index) => {
     const attempt = () => {
@@ -475,6 +519,11 @@ export default function IncomeFormScreen({ navigation, route, mode }) {
           label: (draft.label || "").trim(),
           notes: (draft.notes || "").trim(),
           attachments: uploaded,
+          imageAnnotations: buildImageAnnotations({
+            localAttachments: draft.attachments,
+            uploadedAttachments: uploaded,
+            frameData: draft.ocrFrames,
+          }) || null,
           userId: user.uid,
           createdAt: serverTimestamp(),
           updatedAt: serverTimestamp(),
@@ -631,6 +680,9 @@ export default function IncomeFormScreen({ navigation, route, mode }) {
     setNotes(currentIncome?.notes || "");
     setSelectedDate(currentIncome?.date ? new Date(currentIncome.date) : new Date());
     setAttachments(normalizeStoredAttachments(currentIncome?.attachments || []));
+    const imageAnnotations = currentIncome?.imageAnnotations || {};
+    const firstImageAnnotation = Object.entries(imageAnnotations)[0];
+    setOcrFrames(firstImageAnnotation ? { imageUri: firstImageAnnotation[0], ...firstImageAnnotation[1] } : null);
   }, [currentIncome?.id, mode]);
 
   useEffect(() => {
@@ -963,6 +1015,11 @@ export default function IncomeFormScreen({ navigation, route, mode }) {
         label: label.trim(),
         notes: notes.trim(),
         attachments: uploadedAttachments,
+        imageAnnotations: buildImageAnnotations({
+          localAttachments: attachments,
+          uploadedAttachments,
+          frameData: ocrFrames,
+        }) || currentIncome?.imageAnnotations || null,
         userId: user.uid,
         updatedAt: serverTimestamp(),
       };
@@ -1108,11 +1165,9 @@ export default function IncomeFormScreen({ navigation, route, mode }) {
     );
   }, [amount, attachments, cisApplies, cisDeductionRate, cisMaterialsAmount, currentIncome, label, mode, notes, reference, selectedDate, vatAmount, vatRate, vatTreatment]);
 
-  const buildPercentOverlay = (frame) => {
-    const naturalW = ocrFrames?.imageW;
-    const naturalH = ocrFrames?.imageH;
-    const containerW = imageContainerWidth;
-    const containerH = imageContainerHeight || heroHeight;
+  const buildPercentOverlay = (frame, containerW = imageContainerWidth, containerH = imageContainerHeight || heroHeight, annotationData = ocrFrames) => {
+    const naturalW = annotationData?.imageW;
+    const naturalH = annotationData?.imageH;
     if (!frame || !naturalW || !naturalH || !containerW || !containerH) return null;
 
     const scale = Math.min(containerW / naturalW, containerH / naturalH);
@@ -1142,6 +1197,59 @@ export default function IncomeFormScreen({ navigation, route, mode }) {
       height: toPct(height, containerH),
     };
   };
+
+  const getImageCanvasHeight = (annotationData) => {
+    const containerH = imageContainerHeight || heroHeight;
+    const naturalW = annotationData?.imageW;
+    const naturalH = annotationData?.imageH;
+    if (!imageContainerWidth || !naturalW || !naturalH) return containerH;
+    return Math.max(containerH, imageContainerWidth * (naturalH / naturalW));
+  };
+
+  const openFullScreenImage = (uri, annotationData = null) => {
+    setFullScreenImage({ uri, annotationData });
+  };
+
+  const closeFullScreenImage = () => {
+    setFullScreenImage(null);
+    if (returnToOcrAfterFullscreen) {
+      requestAnimationFrame(() => setOcrModalVisible(true));
+      setReturnToOcrAfterFullscreen(false);
+    }
+  };
+
+  const renderAnnotatedZoomImage = (props) => {
+    const annotationData = annotateImages ? fullScreenImage?.annotationData : null;
+    const imageStyle = props?.style || {};
+    const width = Number(imageStyle.width) || Dimensions.get("window").width;
+    const height = Number(imageStyle.height) || Dimensions.get("window").height;
+
+    return (
+      <View style={[imageStyle, { position: "relative" }]}> 
+        <Image {...props} style={imageStyle} resizeMode="contain" />
+        {annotationData ? (
+          <View style={styles.annotationOverlay} pointerEvents="none">
+            {ANNOTATIONS.filter(({ key }) => annotationData[key]).map(({ key, label, color }) => {
+              const frame = annotationData[key];
+              const overlayBox = buildPercentOverlay(frame, width, height, annotationData);
+              if (!overlayBox) return null;
+              return (
+                <View key={`zoom-${key}`} style={[styles.annBox, { ...overlayBox, borderColor: color }]}> 
+                  <View style={[styles.annChip, { backgroundColor: color }]}> 
+                    <Text style={styles.annChipText} numberOfLines={1}>{label}</Text>
+                  </View>
+                </View>
+              );
+            })}
+          </View>
+        ) : null}
+      </View>
+    );
+  };
+
+  const showMainAnnotationToggle = attachments
+    .filter(isImageAttachment)
+    .some((attachment) => getAttachmentUri(attachment) === ocrFrames?.imageUri);
 
   return (
     <SafeAreaView
@@ -1193,45 +1301,58 @@ export default function IncomeFormScreen({ navigation, route, mode }) {
           >
             {attachments.filter(isImageAttachment).map((att, index) => {
               const uri = getAttachmentUri(att);
-              const isAnnotated = ocrFrames?.imageUri === uri;
+              const annotationData = ocrFrames?.imageUri === uri ? ocrFrames : null;
+              const isAnnotated = annotateImages && annotationData;
+              const canvasHeight = getImageCanvasHeight(annotationData);
               return (
                 <View key={att.id || String(index)} style={{ position: "relative" }}>
-                  <TouchableOpacity
-                    style={[styles.carouselPage, { width: imageContainerWidth }]}
-                    activeOpacity={0.9}
-                    onPress={() => setFullScreenImageIndex(index)}
-                  >
-                    <Image
-                      source={{ uri }}
-                      style={[styles.carouselImage, { width: imageContainerWidth }]}
-                      resizeMode="contain"
-                    />
-                  </TouchableOpacity>
-                  {isAnnotated ? (
-                    <View style={styles.annotationOverlay} pointerEvents="none">
-                      {ANNOTATIONS.filter(({ key }) => ocrFrames[key]).map(({ key, label, color }) => {
-                        const frame = ocrFrames[key];
-                        const overlayBox = buildPercentOverlay(frame);
-                        if (!overlayBox) return null;
-                        return (
-                          <View key={key} style={[styles.annBox, { ...overlayBox, borderColor: color }]}> 
-                            <View style={[styles.annChip, { backgroundColor: color }]}> 
-                              <Text style={styles.annChipText} numberOfLines={1}>{label}</Text>
-                            </View>
+                  <View style={[styles.carouselPage, { width: imageContainerWidth }]}> 
+                    <ScrollView
+                      nestedScrollEnabled
+                      showsVerticalScrollIndicator={false}
+                      style={styles.imagePageScroller}
+                      contentContainerStyle={{ minHeight: imageContainerHeight || heroHeight }}
+                    >
+                      <TouchableOpacity
+                        activeOpacity={0.9}
+                        onPress={() => openFullScreenImage(uri, annotationData)}
+                        style={{ width: imageContainerWidth, height: canvasHeight, position: "relative" }}
+                      >
+                        <Image
+                          source={{ uri }}
+                          style={{ width: imageContainerWidth, height: canvasHeight }}
+                          resizeMode="contain"
+                        />
+                        {isAnnotated ? (
+                          <View style={styles.annotationOverlay} pointerEvents="none">
+                            {ANNOTATIONS.filter(({ key }) => ocrFrames[key]).map(({ key, label, color }) => {
+                              const frame = ocrFrames[key];
+                              const overlayBox = buildPercentOverlay(frame, imageContainerWidth, canvasHeight, ocrFrames);
+                              if (!overlayBox) return null;
+                              return (
+                                <View key={key} style={[styles.annBox, { ...overlayBox, borderColor: color }]}> 
+                                  <View style={[styles.annChip, { backgroundColor: color }]}> 
+                                    <Text style={styles.annChipText} numberOfLines={1}>{label}</Text>
+                                  </View>
+                                </View>
+                              );
+                            })}
                           </View>
-                        );
-                      })}
-                    </View>
-                  ) : null}
+                        ) : null}
+                      </TouchableOpacity>
+                    </ScrollView>
+                  </View>
                   <TouchableOpacity
                     style={styles.carouselRemoveBtn}
+                    accessibilityRole="button"
+                    accessibilityLabel="Delete image"
                     onPress={() =>
                       confirmRemoveImage(() => {
                         removeAttachmentByUri(uri);
                       })
                     }
                   >
-                    <Text style={styles.carouselRemoveText}>×</Text>
+                    <Ionicons name="trash-outline" size={17} color="#fff" />
                   </TouchableOpacity>
                 </View>
               );
@@ -1243,6 +1364,20 @@ export default function IncomeFormScreen({ navigation, route, mode }) {
               {tipStatusLoaded && showTip ? <ScannerTooltip onDismiss={dismissTip} text="Tap here to scan an invoice" /> : null}
             </View>
           </ScrollView>
+        ) : null}
+        {showMainAnnotationToggle ? (
+          <TouchableOpacity
+            style={[
+              styles.mainAnnotationToggleButton,
+              !annotateImages ? styles.mainAnnotationToggleButtonOff : null,
+            ]}
+            onPress={toggleAnnotateImages}
+            accessibilityRole="switch"
+            accessibilityState={{ checked: annotateImages }}
+            accessibilityLabel="Toggle annotations"
+          >
+            <Ionicons name={annotateImages ? "scan" : "scan-outline"} size={18} color="#fff" />
+          </TouchableOpacity>
         ) : null}
         {ocrProcessing && (
           <View style={styles.scanningBanner}>
@@ -1647,84 +1782,47 @@ export default function IncomeFormScreen({ navigation, route, mode }) {
         </View>
       </Modal>
 
-      {/* Carousel fullscreen modal */}
-      <Modal
-        visible={fullScreenImageIndex !== null}
-        animationType="fade"
-        presentationStyle="fullScreen"
-        transparent={false}
-        onRequestClose={() => setFullScreenImageIndex(null)}
-      >
-        {fullScreenImageIndex !== null ? (
-          <>
-            <ImageViewer
-              imageUrls={attachments.filter(isImageAttachment).map(att => ({ url: getAttachmentUri(att) }))}
-              index={fullScreenImageIndex}
-              enableSwipeDown
-              onSwipeDown={() => setFullScreenImageIndex(null)}
-              onClick={() => setFullScreenImageIndex(null)}
-              backgroundColor="black"
-              renderIndicator={attachments.filter(isImageAttachment).length > 1 ? undefined : () => null}
-              saveToLocalByLongPress={false}
-            />
-            <TouchableOpacity
-              style={ReceiptStyles.fullScreenCloseButton}
-              onPress={() => setFullScreenImageIndex(null)}
-            >
-              <Text style={ReceiptStyles.fullScreenCloseText}>✕</Text>
-            </TouchableOpacity>
-          </>
-        ) : null}
-      </Modal>
-
       <Modal
         visible={!!fullScreenImage}
         animationType="fade"
-        presentationStyle="fullScreen"
-        transparent={false}
-        onRequestClose={() => {
-          setFullScreenImage(null);
-          if (returnToOcrAfterFullscreen) {
-            requestAnimationFrame(() => setOcrModalVisible(true));
-            setReturnToOcrAfterFullscreen(false);
-          }
-        }}
+        presentationStyle="overFullScreen"
+        transparent
+        statusBarTranslucent
+        onRequestClose={closeFullScreenImage}
       >
         {fullScreenImage ? (
           <>
             <ImageViewer
               imageUrls={[{ url: fullScreenImage.uri }]}
               enableSwipeDown
-              onSwipeDown={() => {
-                setFullScreenImage(null);
-                if (returnToOcrAfterFullscreen) {
-                  requestAnimationFrame(() => setOcrModalVisible(true));
-                  setReturnToOcrAfterFullscreen(false);
-                }
-              }}
-              onClick={() => {
-                setFullScreenImage(null);
-                if (returnToOcrAfterFullscreen) {
-                  requestAnimationFrame(() => setOcrModalVisible(true));
-                  setReturnToOcrAfterFullscreen(false);
-                }
-              }}
+              onSwipeDown={closeFullScreenImage}
+              renderImage={renderAnnotatedZoomImage}
               backgroundColor="black"
               renderIndicator={() => null}
               saveToLocalByLongPress={false}
             />
-            <TouchableOpacity
-              style={ReceiptStyles.fullScreenCloseButton}
-              onPress={() => {
-                setFullScreenImage(null);
-                if (returnToOcrAfterFullscreen) {
-                  requestAnimationFrame(() => setOcrModalVisible(true));
-                  setReturnToOcrAfterFullscreen(false);
-                }
-              }}
-            >
-              <Text style={ReceiptStyles.fullScreenCloseText}>✕</Text>
-            </TouchableOpacity>
+            <View style={ReceiptStyles.fullScreenCloseButtonWrapper}>
+              <TouchableOpacity
+                style={ReceiptStyles.fullScreenCloseButton}
+                onPress={closeFullScreenImage}
+              >
+                <Text style={ReceiptStyles.fullScreenCloseText}>✕</Text>
+              </TouchableOpacity>
+              {fullScreenImage?.annotationData ? (
+                <TouchableOpacity
+                  style={[
+                    ReceiptStyles.fullScreenAnnotationToggleButton,
+                    !annotateImages ? ReceiptStyles.fullScreenAnnotationToggleButtonOff : null,
+                  ]}
+                  onPress={toggleAnnotateImages}
+                  accessibilityRole="switch"
+                  accessibilityState={{ checked: annotateImages }}
+                  accessibilityLabel="Toggle annotations"
+                >
+                  <Ionicons name={annotateImages ? "scan" : "scan-outline"} size={20} color="#fff" />
+                </TouchableOpacity>
+              ) : null}
+            </View>
           </>
         ) : null}
       </Modal>
@@ -2087,6 +2185,28 @@ const styles = StyleSheet.create({
   },
   carouselImage: {
     height: "100%",
+  },
+  imagePageScroller: {
+    alignSelf: "stretch",
+    flex: 1,
+  },
+  mainAnnotationToggleButton: {
+    position: "absolute",
+    top: 10,
+    left: 10,
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: "rgba(166, 13, 73, 0.88)",
+    alignItems: "center",
+    justifyContent: "center",
+    zIndex: 50,
+    elevation: 50,
+  },
+  mainAnnotationToggleButtonOff: {
+    backgroundColor: "rgba(15,15,20,0.72)",
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.45)",
   },
   carouselAddBtn: {
     flex: 1,
