@@ -694,6 +694,8 @@ export default function ReceiptDetailsScreen({ route, navigation }) {
     await saveAnnotateImages(nextValue);
   };
 
+  const showMainAnnotationToggle = images.some((image) => imageAnnotationsByUrl?.[image.uri]);
+
   const renderAnnotatedZoomImage = (props) => {
     const annotationData = annotateImages ? fullScreenImage?.annotationData : null;
     const imageStyle = props?.style || {};
@@ -840,6 +842,20 @@ export default function ReceiptDetailsScreen({ route, navigation }) {
               </TouchableOpacity>
             </View>
           </ScrollView>
+        ) : null}
+        {showMainAnnotationToggle ? (
+          <TouchableOpacity
+            style={[
+              localStyles.mainAnnotationToggleButton,
+              !annotateImages ? localStyles.mainAnnotationToggleButtonOff : null,
+            ]}
+            onPress={toggleAnnotateImages}
+            accessibilityRole="switch"
+            accessibilityState={{ checked: annotateImages }}
+            accessibilityLabel="Toggle annotations"
+          >
+            <Ionicons name={annotateImages ? "scan" : "scan-outline"} size={18} color="#fff" />
+          </TouchableOpacity>
         ) : null}
       </Animated.View>
 
@@ -1525,6 +1541,24 @@ const localStyles = StyleSheet.create({
   imagePageScroller: {
     alignSelf: "stretch",
     flex: 1,
+  },
+  mainAnnotationToggleButton: {
+    position: "absolute",
+    top: 10,
+    left: 10,
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: "rgba(166, 13, 73, 0.88)",
+    alignItems: "center",
+    justifyContent: "center",
+    zIndex: 50,
+    elevation: 50,
+  },
+  mainAnnotationToggleButtonOff: {
+    backgroundColor: "rgba(15,15,20,0.72)",
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.45)",
   },
   carouselAddBtn: {
     flex: 1,
