@@ -110,11 +110,14 @@ export default function ProfileScreen({ navigation }) {
     getAnnotateImages().then(setAnnotateImagesState).catch(() => setAnnotateImagesState(true));
   }, []);
 
-  const toggleAnnotateImages = useCallback(async () => {
-    const nextValue = !annotateImages;
+  const saveAnnotateImages = useCallback(async (nextValue) => {
     setAnnotateImagesState(nextValue);
     await setAnnotateImages(nextValue);
-  }, [annotateImages]);
+  }, []);
+
+  const toggleAnnotateImages = useCallback(() => {
+    saveAnnotateImages(!annotateImages).catch(() => {});
+  }, [annotateImages, saveAnnotateImages]);
 
   const runBusy = useCallback(async (text, fn) => {
     setBusyText(text);
@@ -264,7 +267,7 @@ export default function ProfileScreen({ navigation }) {
           </View>
           <Switch
             value={annotateImages}
-            onValueChange={toggleAnnotateImages}
+            onValueChange={(nextValue) => saveAnnotateImages(nextValue).catch(() => {})}
             trackColor={{ false: "#d0d0d8", true: "#f0a7c3" }}
             thumbColor={annotateImages ? Colors.accent : "#f4f3f4"}
           />

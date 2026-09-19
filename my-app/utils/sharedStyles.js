@@ -507,6 +507,25 @@ export const ReceiptStyles = StyleSheet.create({
   },
   fullScreenCloseText: { color: "#fff", fontWeight: "bold", fontSize: 18, lineHeight: 20 },
 
+  fullScreenAnnotationToggleButton: {
+    position: "absolute",
+    top: 44,
+    right: 16,
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: "rgba(166, 13, 73, 0.88)",
+    alignItems: "center",
+    justifyContent: "center",
+    zIndex: 2001,
+    elevation: 2001,
+  },
+  fullScreenAnnotationToggleButtonOff: {
+    backgroundColor: "rgba(15,15,20,0.72)",
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.45)",
+  },
+
   // hint text
   fullscreenHint: {
     fontSize: 12,

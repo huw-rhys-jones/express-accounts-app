@@ -9,6 +9,30 @@ import { doc, getDoc } from "firebase/firestore";
 
 // ─── Standalone OCR helpers (no hook state) ──────────────────────────────────
 
+const DATE_MONTH_NAMES = [
+  ["01", "Jan", "January"],
+  ["02", "Feb", "February"],
+  ["03", "Mar", "March"],
+  ["04", "Apr", "April"],
+  ["05", "May", "May"],
+  ["06", "Jun", "June"],
+  ["07", "Jul", "July"],
+  ["08", "Aug", "August"],
+  ["09", "Sep", "September"],
+  ["10", "Oct", "October"],
+  ["11", "Nov", "November"],
+  ["12", "Dec", "December"],
+];
+
+function normalizeDateText(value) {
+  return String(value || "")
+    .replace(/\b(\d{1,2})(st|nd|rd|th)\b/gi, "$1")
+    .replace(/,/g, "")
+    .replace(/\s+/g, " ")
+    .trim()
+    .toLowerCase();
+}
+
 export async function ensureFileFromAssetStandalone(asset) {
   const { base64, fileName, uri } = asset || {};
   const ext =
@@ -111,6 +135,9 @@ function findFramesForValues(blocks, structured, imageUri, imageW, imageH) {
     if (parts.length === 3) {
       const [year, month, day] = parts;
       const shortYear = year.slice(2);
+      const dayNoLead = String(Number(day));
+      const monthNames = DATE_MONTH_NAMES.find(([monthNumber]) => monthNumber === month) || [];
+      const [, shortMonth, longMonth] = monthNames;
       const patterns = [
         `${day}/${month}/${year}`,
         `${day}/${month}/${shortYear}`,
@@ -118,10 +145,19 @@ function findFramesForValues(blocks, structured, imageUri, imageW, imageH) {
         `${day}.${month}.${year}`,
         `${day}.${month}.${shortYear}`,
         `${year}-${month}-${day}`,
-      ];
+        shortMonth ? `${dayNoLead} ${shortMonth} ${year}` : null,
+        shortMonth ? `${day} ${shortMonth} ${year}` : null,
+        longMonth ? `${dayNoLead} ${longMonth} ${year}` : null,
+        longMonth ? `${day} ${longMonth} ${year}` : null,
+        shortMonth ? `${shortMonth} ${dayNoLead} ${year}` : null,
+        shortMonth ? `${shortMonth} ${day} ${year}` : null,
+        longMonth ? `${longMonth} ${dayNoLead} ${year}` : null,
+        longMonth ? `${longMonth} ${day} ${year}` : null,
+      ].filter(Boolean).map(normalizeDateText);
       console.log('[Annotation] Date patterns:', patterns);
       for (const line of allLines) {
-        if (patterns.some((p) => line.text.includes(p))) {
+        const lineText = normalizeDateText(line.text);
+        if (patterns.some((p) => lineText.includes(p))) {
           console.log('[Annotation] Date matched line:', line.text, '→ frame:', JSON.stringify(line.frame));
           frames.date = line.frame;
           break;

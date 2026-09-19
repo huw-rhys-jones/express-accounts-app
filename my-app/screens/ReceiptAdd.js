@@ -26,6 +26,7 @@ import { Button, Checkbox, ProgressBar } from "react-native-paper";
 import DateTimePickerModal from "react-native-modal-datetime-picker";
 import * as ImagePicker from "react-native-image-picker";
 import ImageViewer from "react-native-image-zoom-viewer";
+import { Ionicons } from "@expo/vector-icons";
 import { KeyboardAwareScrollView } from "react-native-keyboard-aware-scroll-view";
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import DropDownPicker from "react-native-dropdown-picker";
@@ -60,6 +61,7 @@ import { triggerHaptic } from "../utils/haptics";
 import {
   getReceiptFilterKey,
   getAnnotateImages,
+  setAnnotateImages as saveAnnotateImages,
   setReceiptFilterKey,
 } from "../utils/appSettings";
 import { useData } from "../contexts/DataContext";
@@ -207,6 +209,12 @@ const ReceiptAdd = ({ navigation, route }) => {
 
   const openFullScreenImage = (item, annotationData = null) => {
     setFullScreenImage({ uri: item.uri, annotationData });
+  };
+
+  const toggleAnnotateImages = async () => {
+    const nextValue = !annotateImages;
+    setAnnotateImages(nextValue);
+    await saveAnnotateImages(nextValue);
   };
 
   const getCanonicalCategoryName = (value) => {
@@ -1470,7 +1478,7 @@ const ReceiptAdd = ({ navigation, route }) => {
   };
 
   const renderAnnotatedZoomImage = (props) => {
-    const annotationData = fullScreenImage?.annotationData;
+    const annotationData = annotateImages ? fullScreenImage?.annotationData : null;
     const imageStyle = props?.style || {};
     const width = Number(imageStyle.width) || Dimensions.get("window").width;
     const height = Number(imageStyle.height) || Dimensions.get("window").height;
@@ -1546,8 +1554,9 @@ const ReceiptAdd = ({ navigation, route }) => {
             style={{ width: imageContainerWidth }}
           >
             {images.map((item, index) => {
-              const isAnnotated = annotateImages && ocrFrames?.imageUri === item.uri;
-              const canvasHeight = getImageCanvasHeight(isAnnotated ? ocrFrames : null);
+              const annotationData = ocrFrames?.imageUri === item.uri ? ocrFrames : null;
+              const isAnnotated = annotateImages && annotationData;
+              const canvasHeight = getImageCanvasHeight(annotationData);
               return (
                 <View key={String(index)} style={{ position: "relative" }}>
                   <View style={[localStyles.carouselPage, { width: imageContainerWidth }]}> 
@@ -1559,7 +1568,7 @@ const ReceiptAdd = ({ navigation, route }) => {
                     >
                       <TouchableOpacity
                         activeOpacity={0.9}
-                        onPress={() => openFullScreenImage(item, isAnnotated ? ocrFrames : null)}
+                        onPress={() => openFullScreenImage(item, annotationData)}
                         style={{ width: imageContainerWidth, height: canvasHeight, position: "relative" }}
                       >
                         <Image
@@ -1588,13 +1597,15 @@ const ReceiptAdd = ({ navigation, route }) => {
                   </View>
                   <TouchableOpacity
                     style={localStyles.carouselRemoveBtn}
+                    accessibilityRole="button"
+                    accessibilityLabel="Delete image"
                     onPress={() =>
                       confirmRemoveImage(() => {
                         setImages((prev) => prev.filter((_, imageIndex) => imageIndex !== index));
                       })
                     }
                   >
-                    <Text style={localStyles.carouselRemoveText}>×</Text>
+                    <Ionicons name="trash-outline" size={17} color="#fff" />
                   </TouchableOpacity>
                 </View>
               );
@@ -2533,6 +2544,20 @@ const ReceiptAdd = ({ navigation, route }) => {
           >
             <Text style={ReceiptStyles.fullScreenCloseText}>✕</Text>
           </TouchableOpacity>
+          {fullScreenImage?.annotationData ? (
+            <TouchableOpacity
+              style={[
+                ReceiptStyles.fullScreenAnnotationToggleButton,
+                !annotateImages ? ReceiptStyles.fullScreenAnnotationToggleButtonOff : null,
+              ]}
+              onPress={toggleAnnotateImages}
+              accessibilityRole="switch"
+              accessibilityState={{ checked: annotateImages }}
+              accessibilityLabel="Toggle annotations"
+            >
+              <Ionicons name={annotateImages ? "scan" : "scan-outline"} size={20} color="#fff" />
+            </TouchableOpacity>
+          ) : null}
         </View>
       </Modal>
 
