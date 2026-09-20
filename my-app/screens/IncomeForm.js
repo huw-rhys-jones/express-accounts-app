@@ -174,6 +174,7 @@ export default function IncomeFormScreen({ navigation, route, mode }) {
   const [ocrFrames, setOcrFrames] = useState(null);
   const [annotateImages, setAnnotateImages] = useState(true);
   const [showConfirmLeaveModal, setShowConfirmLeaveModal] = useState(false);
+  const [showSuccess, setShowSuccess] = useState(false);
 
   // Multi-statement draft mode (when multiple income images are detected)
   const [incomeDrafts, setIncomeDrafts] = useState([]);
@@ -473,6 +474,10 @@ export default function IncomeFormScreen({ navigation, route, mode }) {
   useEffect(() => {
     if (mode === "edit") return undefined;
     const backHandler = BackHandler.addEventListener("hardwareBackPress", () => {
+      if (showSuccess) {
+        setShowSuccess(false);
+        return true;
+      }
       if (showConfirmLeaveModal) {
         setShowConfirmLeaveModal(false);
         return true;
@@ -485,7 +490,7 @@ export default function IncomeFormScreen({ navigation, route, mode }) {
       return true;
     });
     return () => backHandler.remove();
-  }, [amount, attachments.length, incomeDrafts.length, mode, navigation, showConfirmLeaveModal]);
+  }, [amount, attachments.length, incomeDrafts.length, mode, navigation, showConfirmLeaveModal, showSuccess]);
 
   const handleSaveReviewedIncomes = async () => {
     if (!allDraftsReviewed) return;
@@ -1037,7 +1042,11 @@ export default function IncomeFormScreen({ navigation, route, mode }) {
       await refreshIncome();
 
       triggerHaptic("success").catch(() => {});
-      navigateBackToIncome(navigation);
+      if (mode === "edit") {
+        navigateBackToIncome(navigation);
+      } else {
+        setShowSuccess(true);
+      }
     } catch (error) {
       console.error("Error saving income", error);
       Alert.alert("Save Failed", "Could not save this income record.");
@@ -1395,7 +1404,10 @@ export default function IncomeFormScreen({ navigation, route, mode }) {
       </Animated.View>
 
       <KeyboardAwareScrollView
-        contentContainerStyle={styles.scrollContent}
+        contentContainerStyle={[
+          styles.scrollContent,
+          isMultiDraftMode && styles.multiDraftScrollContent,
+        ]}
         enableOnAndroid
         keyboardShouldPersistTaps="handled"
         style={{ marginTop: 8 }}
@@ -1883,6 +1895,63 @@ export default function IncomeFormScreen({ navigation, route, mode }) {
         </View>
       </Modal>
 
+      <Modal
+        visible={showSuccess}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setShowSuccess(false)}
+      >
+        <View style={ReceiptStyles.modalOverlay}>
+          <View style={ReceiptStyles.modalContent}>
+            <Text
+              style={[ReceiptStyles.modalTitle, { textAlign: "center" }]}
+            >
+              Income saved 🎉
+            </Text>
+            <Text style={{ textAlign: "center", marginTop: 4, color: "#555" }}>
+              Do you want to add another?
+            </Text>
+            <View
+              style={[ReceiptStyles.modalButtons, { marginTop: 16 }]}
+            >
+              <Button
+                mode="outlined"
+                textColor={Colors.accent}
+                onPress={() => {
+                  setShowSuccess(false);
+                  navigateBackToIncome(navigation);
+                }}
+              >
+                Go to Income
+              </Button>
+              <Button
+                mode="contained"
+                buttonColor={Colors.accent}
+                onPress={() => {
+                  setShowSuccess(false);
+                  setAmount("");
+                  setVatAmount("");
+                  setVatRate("");
+                  setVatAmountEdited(false);
+                  setSelectedDate(new Date());
+                  setAttachments([]);
+                  setReference("");
+                  setLabel("");
+                  setNotes("");
+                  setCisApplies(false);
+                  setCisMaterialsAmount("0");
+                  setCisDeductionRate("20");
+                  setVatTreatment(VAT_TREATMENTS.STANDARD);
+                  setOcrFrames(null);
+                }}
+              >
+                Add another
+              </Button>
+            </View>
+          </View>
+        </View>
+      </Modal>
+
       {/* Detecting overlay */}
       {isDetecting && (
         <View style={styles.detectingOverlay}>
@@ -1927,6 +1996,7 @@ export default function IncomeFormScreen({ navigation, route, mode }) {
         </View>
       )}
 
+      <View style={isMultiDraftMode ? styles.multiDraftActionDock : null}>
       {/* Dark red divider line — top of fixed area */}
       {isMultiDraftMode ? <View style={styles.buttonBarDivider} /> : null}
 
@@ -2085,6 +2155,7 @@ export default function IncomeFormScreen({ navigation, route, mode }) {
           </>
         )}
       </View>
+      </View>
 
       {isSaving || pickerBusy ? (
         <View style={styles.loadingOverlay}>
@@ -2171,6 +2242,16 @@ const styles = StyleSheet.create({
     borderRadius: 12,
   },
   scrollContent: { flexGrow: 1, paddingBottom: 12 },
+  multiDraftScrollContent: { paddingBottom: 170 },
+  multiDraftActionDock: {
+    position: "absolute",
+    left: 0,
+    right: 0,
+    bottom: 0,
+    backgroundColor: "#fff",
+    zIndex: 100,
+    elevation: 100,
+  },
   imageSection: {
     height: HERO_EXPANDED_HEIGHT,
     overflow: "hidden",

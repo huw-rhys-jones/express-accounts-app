@@ -1660,7 +1660,10 @@ const ReceiptAdd = ({ navigation, route }) => {
       </Animated.View>
       <KeyboardAwareScrollView
         ref={scrollRef}
-        contentContainerStyle={{ flexGrow: 1, paddingBottom: 12 }}
+        contentContainerStyle={{
+          flexGrow: 1,
+          paddingBottom: isMultiReceiptMode ? 170 : 12,
+        }}
         enableOnAndroid={true}
         enableAutomaticScroll={false} // Disable auto-scroll so our manual scroll doesn't fight it
         keyboardShouldPersistTaps="always"
@@ -1792,6 +1795,48 @@ const ReceiptAdd = ({ navigation, route }) => {
               </Animated.View>
             </View>
 
+            <Animated.View
+              ref={categoryWrapperRef}
+              collapsable={false}
+              style={[
+                localStyles.fieldGroup,
+                {
+                  zIndex: 1000,
+                  backgroundColor: flashCategory.interpolate({
+                    inputRange: [0, 1],
+                    outputRange: ["transparent", "rgba(253,224,71,0.45)"],
+                  }),
+                },
+              ]}
+            >
+              {/* Category */}
+              <Text
+                style={[ReceiptStyles.label, localStyles.labelAligned]}
+                onLayout={(event) => setCategoryY(event.nativeEvent.layout.y)}
+              >
+                Category:
+              </Text>
+              <TouchableOpacity
+                style={[
+                  ReceiptStyles.dateButton,
+                  { height: 42, marginHorizontal: 0 },
+                  isCategoryValid
+                    ? localStyles.validFieldInput
+                    : localStyles.invalidFieldInput,
+                ]}
+                onPress={() => setCategoryModalVisible(true)}
+              >
+                <Text
+                  style={[
+                    ReceiptStyles.dateText,
+                    !selectedCategory && { color: Colors.textSecondary },
+                  ]}
+                >
+                  {selectedCategory || "Select a category..."}
+                </Text>
+              </TouchableOpacity>
+            </Animated.View>
+
             {/* VAT Section: labels above fields */}
             <Animated.View
               style={[
@@ -1909,48 +1954,6 @@ const ReceiptAdd = ({ navigation, route }) => {
               onCancel={hideDatePicker}
             />
 
-            <Animated.View
-              ref={categoryWrapperRef}
-              collapsable={false}
-              style={[
-                localStyles.fieldGroup,
-                {
-                  zIndex: 1000,
-                  backgroundColor: flashCategory.interpolate({
-                    inputRange: [0, 1],
-                    outputRange: ["transparent", "rgba(253,224,71,0.45)"],
-                  }),
-                },
-              ]}
-            >
-              {/* Category */}
-              <Text
-                style={[ReceiptStyles.label, localStyles.labelAligned]}
-                onLayout={(event) => setCategoryY(event.nativeEvent.layout.y)}
-              >
-                Category:
-              </Text>
-              <TouchableOpacity
-                style={[
-                  ReceiptStyles.dateButton,
-                  { height: 42, marginHorizontal: 0 },
-                  isCategoryValid
-                    ? localStyles.validFieldInput
-                    : localStyles.invalidFieldInput,
-                ]}
-                onPress={() => setCategoryModalVisible(true)}
-              >
-                <Text
-                  style={[
-                    ReceiptStyles.dateText,
-                    !selectedCategory && { color: Colors.textSecondary },
-                  ]}
-                >
-                  {selectedCategory || "Select a category..."}
-                </Text>
-              </TouchableOpacity>
-            </Animated.View>
-
             <View style={[localStyles.fieldGroup, localStyles.fieldTopSpacing]}>
               <Text style={[ReceiptStyles.label, localStyles.labelAligned]}>
                 Label (optional):
@@ -2007,6 +2010,7 @@ const ReceiptAdd = ({ navigation, route }) => {
       </TouchableWithoutFeedback>
       </KeyboardAvoidingView>
 
+      <View style={isMultiReceiptMode ? localStyles.multiReceiptActionDock : null}>
       {/* Dark red divider line — top of fixed area */}
       {isMultiReceiptMode ? <View style={localStyles.buttonBarDivider} /> : null}
 
@@ -2155,6 +2159,7 @@ const ReceiptAdd = ({ navigation, route }) => {
             </Button>
           </>
         )}
+      </View>
       </View>
 
       <Modal
@@ -2773,6 +2778,15 @@ const localStyles = StyleSheet.create({
   },
   stickyActionButton: {
     flex: 1,
+  },
+  multiReceiptActionDock: {
+    position: "absolute",
+    left: 0,
+    right: 0,
+    bottom: 0,
+    backgroundColor: "#fff",
+    zIndex: 100,
+    elevation: 100,
   },
   uploadOverlay: {
     ...StyleSheet.absoluteFillObject,

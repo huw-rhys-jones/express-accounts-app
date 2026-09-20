@@ -968,6 +968,39 @@ export default function ReceiptDetailsScreen({ route, navigation }) {
               </View>
             </View>
 
+            <View
+              ref={categoryWrapperRef}
+              collapsable={false} // CRITICAL for Android measurement
+              style={[localStyles.fieldGroup, { zIndex: 1000 }]}
+            >
+              {/* Category */}
+              <Text
+                style={[ReceiptStyles.label, localStyles.labelAligned]}
+                onLayout={(event) => setCategoryY(event.nativeEvent.layout.y)}
+              >
+                Category:
+              </Text>
+              <TouchableOpacity
+                style={[
+                  ReceiptStyles.dateButton,
+                  { height: 42, marginHorizontal: 0 },
+                  isCategoryValid
+                    ? localStyles.validFieldInput
+                    : localStyles.invalidFieldInput,
+                ]}
+                onPress={() => setCategoryModalVisible(true)}
+              >
+                <Text
+                  style={[
+                    ReceiptStyles.dateText,
+                    !selectedCategory && { color: Colors.textSecondary },
+                  ]}
+                >
+                  {selectedCategory || "Select a category..."}
+                </Text>
+              </TouchableOpacity>
+            </View>
+
             {/* VAT Section: labels above fields */}
             <View style={localStyles.fieldGroup}>
               <View
@@ -1066,39 +1099,6 @@ export default function ReceiptDetailsScreen({ route, navigation }) {
               onConfirm={handleConfirmDate}
               onCancel={hideDatePicker}
             />
-
-            <View
-              ref={categoryWrapperRef}
-              collapsable={false} // CRITICAL for Android measurement
-              style={[localStyles.fieldGroup, { zIndex: 1000 }]}
-            >
-              {/* Category */}
-              <Text
-                style={[ReceiptStyles.label, localStyles.labelAligned]}
-                onLayout={(event) => setCategoryY(event.nativeEvent.layout.y)}
-              >
-                Category:
-              </Text>
-              <TouchableOpacity
-                style={[
-                  ReceiptStyles.dateButton,
-                  { height: 42, marginHorizontal: 0 },
-                  isCategoryValid
-                    ? localStyles.validFieldInput
-                    : localStyles.invalidFieldInput,
-                ]}
-                onPress={() => setCategoryModalVisible(true)}
-              >
-                <Text
-                  style={[
-                    ReceiptStyles.dateText,
-                    !selectedCategory && { color: Colors.textSecondary },
-                  ]}
-                >
-                  {selectedCategory || "Select a category..."}
-                </Text>
-              </TouchableOpacity>
-            </View>
 
             <View style={[localStyles.fieldGroup, localStyles.fieldTopSpacing]}>
               <Text style={[ReceiptStyles.label, localStyles.labelAligned]}>
