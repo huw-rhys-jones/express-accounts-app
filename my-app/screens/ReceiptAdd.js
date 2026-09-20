@@ -31,6 +31,7 @@ import { KeyboardAwareScrollView } from "react-native-keyboard-aware-scroll-view
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import DropDownPicker from "react-native-dropdown-picker";
 import CategorySelector from "../components/CategorySelector";
+import AddReceiptSheet from "../components/AddReceiptSheet";
 import { db, auth } from "../firebaseConfig";
 import {
   doc,
@@ -136,6 +137,7 @@ const ReceiptAdd = ({ navigation, route }) => {
   const [imageContainerHeight, setImageContainerHeight] = useState(HERO_EXPANDED_HEIGHT);
   const [fullScreenImage, setFullScreenImage] = useState(null);
   const [annotateImages, setAnnotateImages] = useState(true);
+  const [showAddMoreSheet, setShowAddMoreSheet] = useState(false);
 
   // isMultiReceiptMode is true when we have multiple detected receipt drafts
   const isMultiReceiptMode = receiptDrafts.length > 1;
@@ -1179,6 +1181,12 @@ const ReceiptAdd = ({ navigation, route }) => {
     if (clearBatch) {
       clearBatchState();
     }
+  };
+
+  const openAddMoreSheet = () => {
+    resetForm({ clearBatch: true });
+    setShowSuccess(false);
+    setShowAddMoreSheet(true);
   };
 
   const uploadReceipt = async ({
@@ -2299,10 +2307,9 @@ const ReceiptAdd = ({ navigation, route }) => {
                 color="#555"
               />
               <RNButton
-                title="Add another"
+                title="Add more"
                 onPress={() => {
-                  setShowBatchSummaryModal(false);
-                  resetForm({ clearBatch: true });
+                  openAddMoreSheet();
                 }}
                 color="#a60d49"
               />
@@ -2351,10 +2358,9 @@ const ReceiptAdd = ({ navigation, route }) => {
                 color="#555"
               />
               <RNButton
-                title="Add another"
+                title="Add more"
                 onPress={() => {
-                  setShowSuccess(false);
-                  // form already reset in handleUploadSingleReceipt()
+                  openAddMoreSheet();
                 }}
                 color="#a60d49"
               />
@@ -2680,6 +2686,14 @@ const ReceiptAdd = ({ navigation, route }) => {
           <Text style={localStyles.toastText}>{toastMessage}</Text>
         </Animated.View>
       ) : null}
+
+      <AddReceiptSheet
+        visible={showAddMoreSheet}
+        onClose={() => setShowAddMoreSheet(false)}
+        navigation={navigation}
+        targetScreen="Receipt"
+        itemLabel="receipt"
+      />
     </SafeAreaView>
   );
 };

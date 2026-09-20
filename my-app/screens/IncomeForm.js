@@ -60,6 +60,7 @@ import { categories_meta } from "../constants/arrays";
 import { getAnnotateImages, getIncomeFilterKey, setAnnotateImages as saveAnnotateImages, setIncomeFilterKey } from "../utils/appSettings";
 import { useData } from "../contexts/DataContext";
 import { calculateCis, isVatRegistered, VAT_TREATMENTS } from "../utils/taxCalculations";
+import AddReceiptSheet from "../components/AddReceiptSheet";
 
 const IMAGE_HEIGHT = Math.round(Dimensions.get("window").height * 0.45);
 
@@ -175,6 +176,8 @@ export default function IncomeFormScreen({ navigation, route, mode }) {
   const [annotateImages, setAnnotateImages] = useState(true);
   const [showConfirmLeaveModal, setShowConfirmLeaveModal] = useState(false);
   const [showSuccess, setShowSuccess] = useState(false);
+  const [showReviewSummaryModal, setShowReviewSummaryModal] = useState(false);
+  const [showAddMoreSheet, setShowAddMoreSheet] = useState(false);
 
   // Multi-statement draft mode (when multiple income images are detected)
   const [incomeDrafts, setIncomeDrafts] = useState([]);
@@ -478,6 +481,10 @@ export default function IncomeFormScreen({ navigation, route, mode }) {
         setShowSuccess(false);
         return true;
       }
+      if (showReviewSummaryModal) {
+        setShowReviewSummaryModal(false);
+        return true;
+      }
       if (showConfirmLeaveModal) {
         setShowConfirmLeaveModal(false);
         return true;
@@ -490,7 +497,13 @@ export default function IncomeFormScreen({ navigation, route, mode }) {
       return true;
     });
     return () => backHandler.remove();
-  }, [amount, attachments.length, incomeDrafts.length, mode, navigation, showConfirmLeaveModal, showSuccess]);
+  }, [amount, attachments.length, incomeDrafts.length, mode, navigation, showConfirmLeaveModal, showReviewSummaryModal, showSuccess]);
+
+  useEffect(() => {
+    if (allDraftsReviewed) {
+      setShowReviewSummaryModal(true);
+    }
+  }, [allDraftsReviewed]);
 
   const handleSaveReviewedIncomes = async () => {
     if (!allDraftsReviewed) return;
@@ -555,6 +568,16 @@ export default function IncomeFormScreen({ navigation, route, mode }) {
     } finally {
       setIsSaving(false);
     }
+  };
+
+  const openAddMoreSheet = () => {
+    setShowBatchSummaryModal(false);
+    setShowSuccess(false);
+    setShowReviewSummaryModal(false);
+    setIncomeDrafts([]);
+    setDraftReviewStates([]);
+    setCurrentDraftIndex(0);
+    setShowAddMoreSheet(true);
   };
 
   // ─── End multi-draft helpers ─────────────────────────────────────────────────
@@ -1878,17 +1901,68 @@ export default function IncomeFormScreen({ navigation, route, mode }) {
               >
                 Go to Income
               </Button>
+
+                <Button
+                mode="contained"
+                buttonColor={Colors.accent}
+                onPress={() => {
+                  openAddMoreSheet();
+                }}
+              >
+                Add more
+              </Button>
+
+            </View>
+          </View>
+        </View>
+      </Modal>
+
+      <Modal
+        visible={showReviewSummaryModal}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setShowReviewSummaryModal(false)}
+      >
+        <View style={ReceiptStyles.modalOverlay}>
+          <View style={ReceiptStyles.modalContent}>
+            <Text style={ReceiptStyles.modalTitle}>Review complete</Text>
+            <Text style={[ReceiptStyles.modalDetailText, styles.summaryHeading]}>
+              Confirmed ({draftReviewStates.filter((state) => state === "confirmed").length}):
+            </Text>
+            {incomeDrafts.filter((_, index) => draftReviewStates[index] === "confirmed").length > 0 ? (
+              <View style={styles.summaryListWrap}>
+                {incomeDrafts
+                  .filter((_, index) => draftReviewStates[index] === "confirmed")
+                  .map((draft, index) => (
+                    <Text key={`${draft.selectedDate}-${draft.amount}-${index}`} style={ReceiptStyles.modalDetailText}>
+                      {formatCurrency(draft.amount)} — {draft.reference || "—"} — {formatDate(new Date(draft.selectedDate))}
+                    </Text>
+                  ))}
+              </View>
+            ) : (
+              <Text style={ReceiptStyles.modalDetailText}>None</Text>
+            )}
+            <Text style={[ReceiptStyles.modalDetailText, styles.summaryHeading]}>
+              Skipped — {draftReviewStates.filter((state) => state === "skipped").length}
+            </Text>
+            <View style={ReceiptStyles.modalButtons}>
+              <Button
+                mode="outlined"
+                textColor={Colors.accent}
+                onPress={() => setShowReviewSummaryModal(false)}
+              >
+                Back
+              </Button>
               <Button
                 mode="contained"
                 buttonColor={Colors.accent}
                 onPress={() => {
-                  setShowBatchSummaryModal(false);
-                  setIncomeDrafts([]);
-                  setDraftReviewStates([]);
-                  setCurrentDraftIndex(0);
+                  setShowReviewSummaryModal(false);
+                  handleSaveReviewedIncomes();
                 }}
+                disabled={isSaving}
               >
-                Add another
+                Confirm and Save
               </Button>
             </View>
           </View>
@@ -1928,21 +2002,7 @@ export default function IncomeFormScreen({ navigation, route, mode }) {
                 mode="contained"
                 buttonColor={Colors.accent}
                 onPress={() => {
-                  setShowSuccess(false);
-                  setAmount("");
-                  setVatAmount("");
-                  setVatRate("");
-                  setVatAmountEdited(false);
-                  setSelectedDate(new Date());
-                  setAttachments([]);
-                  setReference("");
-                  setLabel("");
-                  setNotes("");
-                  setCisApplies(false);
-                  setCisMaterialsAmount("0");
-                  setCisDeductionRate("20");
-                  setVatTreatment(VAT_TREATMENTS.STANDARD);
-                  setOcrFrames(null);
+                  openAddMoreSheet();
                 }}
               >
                 Add another
@@ -2051,7 +2111,7 @@ export default function IncomeFormScreen({ navigation, route, mode }) {
           <Button
             mode="contained"
             buttonColor={Colors.accent}
-            onPress={handleSaveReviewedIncomes}
+            onPress={() => setShowReviewSummaryModal(true)}
             style={styles.submitButtonInner}
             disabled={isSaving}
           >
@@ -2203,6 +2263,14 @@ export default function IncomeFormScreen({ navigation, route, mode }) {
           <Text style={styles.toastText}>{toastMessage}</Text>
         </Animated.View>
       ) : null}
+
+      <AddReceiptSheet
+        visible={showAddMoreSheet}
+        onClose={() => setShowAddMoreSheet(false)}
+        navigation={navigation}
+        targetScreen="IncomeRecord"
+        itemLabel="invoice"
+      />
     </SafeAreaView>
   );
 }

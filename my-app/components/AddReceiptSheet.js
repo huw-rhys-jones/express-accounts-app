@@ -353,14 +353,18 @@ export default function AddReceiptSheet({
                   sub="Select one or more receipt photos from your gallery"
                   onPress={handlePickImage}
                 />
-                <View style={styles.divider} />
-                <Option
-                  icon="🚗"
-                  label="Mileage"
-                  sub="Record a business mileage trip"
-                  onPress={handleMileagePress}
-                  badge={showMileageNewBadge ? "NEW" : null}
-                />
+                {targetScreen !== "IncomeRecord" ? (
+                  <>
+                    <View style={styles.divider} />
+                    <Option
+                      icon="🚗"
+                      label="Mileage"
+                      sub="Record a business mileage trip"
+                      onPress={handleMileagePress}
+                      badge={showMileageNewBadge ? "NEW" : null}
+                    />
+                  </>
+                ) : null}
                 <View style={styles.divider} />
                 <Option
                   icon="✏️"
