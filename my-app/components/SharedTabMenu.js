@@ -46,7 +46,15 @@ const versionLabel = internalBuildLabel ? `${appVersion} (${internalBuildLabel})
 const profileImageStorageKey = (userId) => `express-accounts-profile-image:${userId}`;
 
 export default function SharedTabMenu({ navigation, closeMenu, displayName = "User", open = false, onVehiclesChanged, onFinancialYearScopeChange }) {
-  const { userProfile, displayName: contextDisplayName, receipts, financialYearScope, setFinancialYearScope } = useData();
+  const {
+    userProfile,
+    displayName: contextDisplayName,
+    receipts,
+    incomeItems,
+    bankStatements,
+    financialYearScope,
+    setFinancialYearScope,
+  } = useData();
   const [busy, setBusy] = useState(false);
   const [busyText, setBusyText] = useState("Please wait...");
 
@@ -78,7 +86,12 @@ export default function SharedTabMenu({ navigation, closeMenu, displayName = "Us
   const [financialYearModalVisible, setFinancialYearModalVisible] = useState(false);
 
   const isVerifiedAccount = verificationStatus === "verified";
-  const financialYearOptions = buildFinancialYearOptions(receipts, new Date());
+  const financialYearOptions = buildFinancialYearOptions(
+    receipts,
+    incomeItems,
+    bankStatements,
+    new Date(),
+  );
   const selectedFinancialYearLabel = financialYearScope === "all-time"
     ? "All Time"
     : `Financial Year ${getFinancialYearLabel(Number(financialYearScope))}`;
@@ -196,13 +209,27 @@ export default function SharedTabMenu({ navigation, closeMenu, displayName = "Us
   };
 
   const selectFinancialYear = async (option) => {
-    if (option.count === 0) return;
     const nextValue = option.key === "all-time" ? "all-time" : option.startYear;
     const nextFilterKey = option.key === "all-time" ? "all-time" : `year-${option.startYear}`;
     await setFinancialYearScope(nextValue);
     await setAllFilterKeys(nextFilterKey);
     onFinancialYearScopeChange?.(nextValue, nextFilterKey);
     setFinancialYearModalVisible(false);
+  };
+
+  const formatFinancialYearCounts = (option) => {
+    const counts = option.counts || {};
+    const parts = [];
+    if (counts.expenses > 0) {
+      parts.push(`Expenses ${counts.expenses}`);
+    }
+    if (counts.income > 0) {
+      parts.push(`Income statements ${counts.income}`);
+    }
+    if (counts.bankStatements > 0) {
+      parts.push(`Bank statements ${counts.bankStatements}`);
+    }
+    return parts.join(" - ");
   };
 
   const saveVatSettings = async () => {
@@ -464,12 +491,13 @@ export default function SharedTabMenu({ navigation, closeMenu, displayName = "Us
             {financialYearOptions.map((option) => (
               <TouchableOpacity
                 key={option.key}
-                disabled={option.count === 0}
                 onPress={() => selectFinancialYear(option)}
-                style={[styles.periodOption, option.count === 0 && styles.disabledPeriodOption]}
+                style={styles.periodOption}
               >
-                <Text style={[styles.secondaryMenuButtonText, option.count === 0 && styles.disabledMenuButtonText]}>{option.label}</Text>
-                <Text style={[styles.periodCountText, option.count === 0 && styles.disabledMenuButtonText]}>{option.count} {option.count === 1 ? "receipt" : "receipts"}</Text>
+                <Text style={styles.secondaryMenuButtonText}>{option.label}</Text>
+                {formatFinancialYearCounts(option) ? (
+                  <Text style={styles.periodCountText}>{formatFinancialYearCounts(option)}</Text>
+                ) : null}
               </TouchableOpacity>
             ))}
             <TouchableOpacity onPress={() => setFinancialYearModalVisible(false)} style={[styles.signOutBtn, { width: "100%" }]}>

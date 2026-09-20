@@ -160,19 +160,33 @@ export function buildFinancialFilterOptions(receipts = [], now = new Date()) {
   return options;
 }
 
-export function buildFinancialYearOptions(receipts = [], now = new Date(), count = 5) {
+export function buildFinancialYearOptions(
+  receipts = [],
+  incomeItems = [],
+  bankStatements = [],
+  now = new Date(),
+  count = 5,
+) {
   const currentStartYear = getFinancialYearStartYear(now);
+  const buildOption = (key, label, startYear, period) => {
+    const expenses = getPeriodRecordCount(receipts, period);
+    const income = getPeriodRecordCount(incomeItems, period);
+    const bankStatementsCount = getPeriodRecordCount(bankStatements, period);
+    return {
+      key,
+      label,
+      startYear,
+      count: expenses + income + bankStatementsCount,
+      counts: { expenses, income, bankStatements: bankStatementsCount },
+    };
+  };
+
   return [
-    { key: "all-time", label: "All Time", count: receipts.length, startYear: null },
+    buildOption("all-time", "All Time", null, ALL_TIME_FILTER_OPTION),
     ...Array.from({ length: count }, (_, index) => {
       const startYear = currentStartYear - index;
       const period = getFinancialYearPeriod(startYear);
-      return {
-        key: period.key,
-        label: period.label,
-        count: getPeriodRecordCount(receipts, period),
-        startYear,
-      };
+      return buildOption(period.key, period.label, startYear, period);
     }),
   ];
 }

@@ -435,7 +435,7 @@ export const ReceiptStyles = StyleSheet.create({
   modalOverlay: {
     flex: 1,
     justifyContent: "center",
-    backgroundColor: "rgba(0,0,0,0.5)",
+    backgroundColor: "rgba(0,0,0,0.84)",
     padding: 20,
   },
   modalContent: {
