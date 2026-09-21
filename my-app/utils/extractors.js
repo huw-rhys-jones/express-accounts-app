@@ -908,8 +908,13 @@ const getAllowedVatRates = () => {
 };
 
 // ---------- VAT extraction (snaps to categories_meta rates only) ----------
-export function extractVAT(text, amountInfo, categoryIdx) {
+export function extractVAT(text, amountInfo, categoryIdx, profile = undefined) {
   if (!text) return { value: null, rate: null };
+
+  const isVatRegistered = profile === undefined || profile === null
+    ? true
+    : profile?.taxProfile?.vat?.isRegistered !== false && profile?.isVatRegistered !== false;
+  if (!isVatRegistered) return { value: null, rate: null };
 
   const allowedRates = getAllowedVatRates();
 
@@ -1142,7 +1147,7 @@ export function categoryFinder(text, categories) {
 
 
 // ---------- main ----------
-export function extractData(text) {
+export function extractData(text, profile = undefined) {
   if (!text || typeof text !== 'string') {
     return {
       money: { value: null, currency: 0 },
@@ -1155,12 +1160,15 @@ export function extractData(text) {
   }
 
   const cleaned = text.replace(/\r\n/g, '\n');
+  const isVatRegistered = profile === undefined || profile === null
+    ? true
+    : profile?.taxProfile?.vat?.isRegistered !== false && profile?.isVatRegistered !== false;
 
   const amountInfo = extractAmount(cleaned);
   const dateIso = extractDate(cleaned);
   const reference = extractReference(cleaned);
   const categoryIdx = categoryFinder(cleaned, categories_meta);
-  const vatInfo = extractVAT(cleaned, amountInfo, categoryIdx);
+  const vatInfo = isVatRegistered ? extractVAT(cleaned, amountInfo, categoryIdx, profile) : { value: null, rate: null };
   const cisInfo = extractCIS(cleaned, amountInfo);
 
   return {

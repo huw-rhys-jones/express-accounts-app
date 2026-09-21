@@ -66,6 +66,7 @@ import {
   setReceiptFilterKey,
 } from "../utils/appSettings";
 import { useData } from "../contexts/DataContext";
+import { isVatRegistered } from "../utils/taxCalculations";
 
 function navigateBackToReceipts(navigation, params = {}) {
   navigation.reset({
@@ -85,7 +86,8 @@ const ANNOTATION_MIN_BOX_HEIGHT = 26;
 
 const ReceiptAdd = ({ navigation, route }) => {
   const insets = useSafeAreaInsets();
-  const { refreshReceipts } = useData();
+  const { refreshReceipts, userProfile } = useData();
+  const vatEnabled = userProfile === undefined || userProfile === null ? true : isVatRegistered(userProfile);
   const heroHeightAnim = useRef(new Animated.Value(HERO_EXPANDED_HEIGHT)).current;
   const [heroHeight, setHeroHeight] = useState(HERO_EXPANDED_HEIGHT);
   const [amount, setAmount] = useState("");
@@ -1092,11 +1094,12 @@ const ReceiptAdd = ({ navigation, route }) => {
           date: draft.selectedDate,
           category: draft.selectedCategory,
           label: draft.label,
-          vatAmount:
-            draft.vatAmount && String(draft.vatAmount).trim().length > 0
+          vatAmount: vatEnabled
+            ? (draft.vatAmount && String(draft.vatAmount).trim().length > 0
               ? draft.vatAmount
-              : computeVat(draft.amount, draft.vatRate),
-          vatRate: draft.vatRate,
+              : computeVat(draft.amount, draft.vatRate))
+            : null,
+          vatRate: vatEnabled ? draft.vatRate : null,
           images: draft.images,
           recurrenceConfig: null,
           ocrFrames: draft.ocrFrames,
@@ -1140,8 +1143,8 @@ const ReceiptAdd = ({ navigation, route }) => {
         date: selectedDate,
         category: selectedCategory,
         label,
-        vatAmount: vatAmount ? vatAmount : calculateVatFromRate(),
-        vatRate,
+        vatAmount: vatEnabled ? (vatAmount ? vatAmount : calculateVatFromRate()) : null,
+        vatRate: vatEnabled ? vatRate : null,
         images,
         recurrenceConfig: getRecurrenceConfig(),
         ocrFrames,
@@ -1222,8 +1225,8 @@ const ReceiptAdd = ({ navigation, route }) => {
       date: date.toISOString(),
       category,
       label: String(label || "").trim(),
-      vatAmount: vatAmount ? parseFloat(vatAmount) : null,
-      vatRate: vatRate ? parseFloat(vatRate) : null,
+      vatAmount: vatEnabled ? (vatAmount ? parseFloat(vatAmount) : null) : null,
+      vatRate: vatEnabled ? (vatRate ? parseFloat(vatRate) : null) : null,
       images: imageUrls,
       recurrence: recurrenceConfig,
       userId: user.uid,
@@ -1425,11 +1428,13 @@ const ReceiptAdd = ({ navigation, route }) => {
   const isReceiptFormValid =
     isCategoryValid &&
     amount.trim().length > 0 &&
-    vatAmount.trim().length > 0 &&
-    vatRate.trim().length > 0 &&
-    !Number.isNaN(parseFloat(amount)) &&
-    !Number.isNaN(parseFloat(vatAmount)) &&
-    !Number.isNaN(parseFloat(vatRate));
+    (!vatEnabled || (
+      vatAmount.trim().length > 0 &&
+      vatRate.trim().length > 0 &&
+      !Number.isNaN(parseFloat(vatAmount)) &&
+      !Number.isNaN(parseFloat(vatRate))
+    )) &&
+    !Number.isNaN(parseFloat(amount));
   const acceptedCount = receiptReviewStates.filter(
     (state) => state === "accepted",
   ).length;
@@ -1703,8 +1708,8 @@ const ReceiptAdd = ({ navigation, route }) => {
             ReceiptStyles.container,
             {
               justifyContent: "flex-start",
-              paddingTop: 0,
-              paddingBottom: 12,
+              paddingTop: 10,
+              paddingBottom: 200,
               paddingHorizontal: 12,
             },
           ]}
@@ -1845,18 +1850,18 @@ const ReceiptAdd = ({ navigation, route }) => {
               </TouchableOpacity>
             </Animated.View>
 
-            {/* VAT Section: labels above fields */}
-            <Animated.View
-              style={[
-                localStyles.fieldGroup,
-                {
-                  backgroundColor: flashVat.interpolate({
-                    inputRange: [0, 1],
-                    outputRange: ["transparent", "rgba(253,224,71,0.45)"],
-                  }),
-                },
-              ]}
-            >
+            {vatEnabled ? (
+              <Animated.View
+                style={[
+                  localStyles.fieldGroup,
+                  {
+                    backgroundColor: flashVat.interpolate({
+                      inputRange: [0, 1],
+                      outputRange: ["transparent", "rgba(253,224,71,0.45)"],
+                    }),
+                  },
+                ]}
+              >
               <View
                 style={[
                   ReceiptStyles.vatRow,
@@ -1952,6 +1957,7 @@ const ReceiptAdd = ({ navigation, route }) => {
                 </View>
               </View>
             </Animated.View>
+            ) : null}
 
             <DateTimePickerModal
               isVisible={isDatePickerVisible}

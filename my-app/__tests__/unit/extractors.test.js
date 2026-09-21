@@ -279,6 +279,11 @@ describe('extractData reference selection', () => {
     expect(result).toEqual({ value: 2600, rate: 20 });
   });
 
+  it('returns no VAT output when the profile is not VAT registered', () => {
+    const result = extractData('TOTAL £120.00\nVAT 20%\n£20.00', { isVatRegistered: false });
+    expect(result.vat).toEqual({ value: null, rate: null });
+  });
+
   it('does not treat a following date as the amount under a VAT table header', () => {
     const result = extractVAT('Rate\nVAT\n02/06/2026\nNet\n£3,072.81', { amount: 18436.86 }, 0);
     expect(result.value).not.toBe(2);

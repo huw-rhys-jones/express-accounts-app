@@ -49,6 +49,8 @@ import { useReceiptOcr } from "../utils/ocrHelpers";
 import { getCurrentYearAprilSix } from "../utils/financialPeriods";
 import { triggerHaptic } from "../utils/haptics";
 import { getAnnotateImages, setAnnotateImages as saveAnnotateImages } from "../utils/appSettings";
+import { isVatRegistered } from "../utils/taxCalculations";
+import { useData } from "../contexts/DataContext";
 
 const IMAGE_HEIGHT = Math.round(Dimensions.get("window").height * 0.45);
 const HERO_EXPANDED_HEIGHT = Math.round(Dimensions.get("window").height * 0.45);
@@ -62,8 +64,16 @@ const ANNOTATIONS = [
   { key: "vat", label: "VAT", color: "#E06B6B" },
 ];
 
+const formatMoneyInput = (value) => {
+  if (value === null || value === undefined || value === "") return "";
+  const numericValue = Number(value);
+  return Number.isFinite(numericValue) ? numericValue.toFixed(2) : String(value);
+};
+
 export default function ReceiptDetailsScreen({ route, navigation }) {
   const insets = useSafeAreaInsets();
+  const { userProfile } = useData();
+  const vatEnabled = userProfile === undefined || userProfile === null ? true : isVatRegistered(userProfile);
   const heroHeightAnim = useRef(new Animated.Value(HERO_EXPANDED_HEIGHT)).current;
   const receipt = route?.params?.receipt;
   const initialReceiptList = useMemo(() => {
@@ -84,12 +94,12 @@ export default function ReceiptDetailsScreen({ route, navigation }) {
 
   // --- base form state
   const [amount, setAmount] = useState(
-    receipt?.amount != null ? String(receipt.amount) : ""
+    formatMoneyInput(receipt?.amount)
   );
 
   // VAT state (mirrors ReceiptAdd.js)
   const [vatAmount, setVatAmount] = useState(
-    receipt?.vatAmount != null ? String(receipt.vatAmount) : ""
+    formatMoneyInput(receipt?.vatAmount)
   );
   const [vatRate, setVatRate] = useState(
     receipt?.vatRate != null ? String(receipt.vatRate) : ""
@@ -270,10 +280,10 @@ export default function ReceiptDetailsScreen({ route, navigation }) {
   useEffect(() => {
     if (!currentReceipt) return;
     setAmount(
-      currentReceipt?.amount != null ? String(currentReceipt.amount) : "",
+      formatMoneyInput(currentReceipt?.amount),
     );
     setVatAmount(
-      currentReceipt?.vatAmount != null ? String(currentReceipt.vatAmount) : "",
+      formatMoneyInput(currentReceipt?.vatAmount),
     );
     setVatRate(
       currentReceipt?.vatRate != null ? String(currentReceipt.vatRate) : "",
@@ -559,8 +569,8 @@ export default function ReceiptDetailsScreen({ route, navigation }) {
         date: selectedDate.toISOString(),
         category: selectedCategory,
         label: label.trim(),
-        vatAmount: vatAmount ? parseFloat(vatAmount) : null,
-        vatRate: vatRate ? parseFloat(vatRate) : null,
+        vatAmount: vatEnabled ? (vatAmount ? parseFloat(vatAmount) : null) : null,
+        vatRate: vatEnabled ? (vatRate ? parseFloat(vatRate) : null) : null,
         images: uploadedImageUrls,
         imageAnnotations: hasAnnotations ? nextImageAnnotations : null,
       });
@@ -625,19 +635,21 @@ export default function ReceiptDetailsScreen({ route, navigation }) {
   const isReceiptFormValid =
     selectedCategory &&
     amount.trim().length > 0 &&
-    vatAmount.trim().length > 0 &&
-    vatRate.trim().length > 0 &&
-    !Number.isNaN(parseFloat(amount)) &&
-    !Number.isNaN(parseFloat(vatAmount)) &&
-    !Number.isNaN(parseFloat(vatRate));
+    (!vatEnabled || (
+      vatAmount.trim().length > 0 &&
+      vatRate.trim().length > 0 &&
+      !Number.isNaN(parseFloat(vatAmount)) &&
+      !Number.isNaN(parseFloat(vatRate))
+    )) &&
+    !Number.isNaN(parseFloat(amount));
   const isCategoryValid = Boolean(selectedCategory);
   const isReceiptDirty = useMemo(() => {
     if (!currentReceipt) return false;
     const currentImageUris = images.map((image) => image.uri).join("|");
     const originalImageUris = (currentReceipt.images || []).join("|");
     return (
-      amount !== (currentReceipt.amount != null ? String(currentReceipt.amount) : "") ||
-      vatAmount !== (currentReceipt.vatAmount != null ? String(currentReceipt.vatAmount) : "") ||
+      amount !== formatMoneyInput(currentReceipt.amount) ||
+      vatAmount !== formatMoneyInput(currentReceipt.vatAmount) ||
       vatRate !== (currentReceipt.vatRate != null ? String(currentReceipt.vatRate) : "") ||
       selectedDate.toISOString() !== (currentReceipt.date || "") ||
       selectedCategory !== (currentReceipt.category || "") ||
@@ -893,8 +905,8 @@ export default function ReceiptDetailsScreen({ route, navigation }) {
             ReceiptStyles.container,
             {
               justifyContent: "flex-start",
-              paddingTop: 0,
-              paddingBottom: 12,
+              paddingTop: 10,
+              paddingBottom: 200,
               paddingHorizontal: 12,
             },
           ]}
@@ -1001,8 +1013,8 @@ export default function ReceiptDetailsScreen({ route, navigation }) {
               </TouchableOpacity>
             </View>
 
-            {/* VAT Section: labels above fields */}
-            <View style={localStyles.fieldGroup}>
+            {vatEnabled ? (
+              <View style={localStyles.fieldGroup}>
               <View
                 style={[
                   ReceiptStyles.vatRow,
@@ -1089,7 +1101,8 @@ export default function ReceiptDetailsScreen({ route, navigation }) {
                   />
                 </View>
               </View>
-            </View>
+              </View>
+            ) : null}
 
             <DateTimePickerModal
               isVisible={isDatePickerVisible}
