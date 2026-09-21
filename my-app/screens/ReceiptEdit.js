@@ -74,7 +74,14 @@ export default function ReceiptDetailsScreen({ route, navigation }) {
   const insets = useSafeAreaInsets();
   const { userProfile } = useData();
   const vatEnabled = userProfile === undefined || userProfile === null ? true : isVatRegistered(userProfile);
-  const heroHeightAnim = useRef(new Animated.Value(HERO_EXPANDED_HEIGHT)).current;
+  const vatAnnotationsEnabled = isVatRegistered(userProfile);
+  const heroExpandedHeight = vatEnabled
+    ? HERO_EXPANDED_HEIGHT
+    : Math.round(Dimensions.get("window").height * 0.5);
+  const heroCollapsedHeight = vatEnabled
+    ? HERO_COLLAPSED_HEIGHT
+    : Math.round(Dimensions.get("window").height * 0.38);
+  const heroHeightAnim = useRef(new Animated.Value(heroExpandedHeight)).current;
   const receipt = route?.params?.receipt;
   const initialReceiptList = useMemo(() => {
     if (Array.isArray(route?.params?.receiptList) && route.params.receiptList.length > 0) {
@@ -180,7 +187,7 @@ export default function ReceiptDetailsScreen({ route, navigation }) {
   // ===== Fullscreen viewer =====
   const [fullScreenImage, setFullScreenImage] = useState(null);
   const [imageContainerWidth, setImageContainerWidth] = useState(0);
-  const [imageContainerHeight, setImageContainerHeight] = useState(HERO_EXPANDED_HEIGHT);
+  const [imageContainerHeight, setImageContainerHeight] = useState(heroExpandedHeight);
   const [imageAnnotationsByUrl, setImageAnnotationsByUrl] = useState({});
   const [annotateImages, setAnnotateImages] = useState(true);
 
@@ -383,7 +390,7 @@ export default function ReceiptDetailsScreen({ route, navigation }) {
       setDebugKeyboardState("visible");
       markDebugEvent("keyboard show");
       Animated.timing(heroHeightAnim, {
-        toValue: HERO_COLLAPSED_HEIGHT,
+        toValue: heroCollapsedHeight,
         duration: 220,
         useNativeDriver: false,
       }).start();
@@ -393,7 +400,7 @@ export default function ReceiptDetailsScreen({ route, navigation }) {
       setDebugKeyboardState("hidden");
       markDebugEvent("keyboard hide");
       Animated.timing(heroHeightAnim, {
-        toValue: HERO_EXPANDED_HEIGHT,
+        toValue: heroExpandedHeight,
         duration: 220,
         useNativeDriver: false,
       }).start();
@@ -405,7 +412,16 @@ export default function ReceiptDetailsScreen({ route, navigation }) {
       showSub.remove();
       hideSub.remove();
     };
-  }, [heroHeightAnim]);
+  }, [heroCollapsedHeight, heroExpandedHeight, heroHeightAnim]);
+
+  useEffect(() => {
+    setImageContainerHeight(heroExpandedHeight);
+    Animated.timing(heroHeightAnim, {
+      toValue: heroExpandedHeight,
+      duration: 220,
+      useNativeDriver: false,
+    }).start();
+  }, [heroExpandedHeight, heroHeightAnim]);
 
   // ✅ Safe navigate back
   const safeNavigateToExpenses = () => {
@@ -658,7 +674,7 @@ export default function ReceiptDetailsScreen({ route, navigation }) {
     );
   }, [amount, currentReceipt, images, label, selectedCategory, selectedDate, vatAmount, vatRate]);
 
-  const buildPercentOverlay = (frame, containerW = imageContainerWidth, containerH = imageContainerHeight || HERO_EXPANDED_HEIGHT) => {
+  const buildPercentOverlay = (frame, containerW = imageContainerWidth, containerH = imageContainerHeight || heroExpandedHeight) => {
     const naturalW = frame?.imageW;
     const naturalH = frame?.imageH;
     if (!frame || !naturalW || !naturalH || !containerW || !containerH) return null;
@@ -689,7 +705,7 @@ export default function ReceiptDetailsScreen({ route, navigation }) {
   };
 
   const getImageCanvasHeight = (annotationData) => {
-    const containerH = imageContainerHeight || HERO_EXPANDED_HEIGHT;
+    const containerH = imageContainerHeight || heroExpandedHeight;
     const naturalW = annotationData?.imageW;
     const naturalH = annotationData?.imageH;
     if (!imageContainerWidth || !naturalW || !naturalH) return containerH;
@@ -706,7 +722,12 @@ export default function ReceiptDetailsScreen({ route, navigation }) {
     await saveAnnotateImages(nextValue);
   };
 
-  const showMainAnnotationToggle = images.some((image) => imageAnnotationsByUrl?.[image.uri]);
+  const showMainAnnotationToggle = images.some((image) => {
+    const annotationData = imageAnnotationsByUrl?.[image.uri];
+    return annotationData && ANNOTATIONS.some(
+      ({ key }) => (key !== "vat" || vatAnnotationsEnabled) && annotationData[key],
+    );
+  });
 
   const renderAnnotatedZoomImage = (props) => {
     const annotationData = annotateImages ? fullScreenImage?.annotationData : null;
@@ -719,7 +740,7 @@ export default function ReceiptDetailsScreen({ route, navigation }) {
         <Image {...props} style={imageStyle} resizeMode="contain" />
         {annotationData ? (
           <View style={localStyles.annotationOverlay} pointerEvents="none">
-            {ANNOTATIONS.filter(({ key }) => annotationData[key]).map(({ key, label, color }) => {
+            {ANNOTATIONS.filter(({ key }) => (key !== "vat" || vatAnnotationsEnabled) && annotationData[key]).map(({ key, label, color }) => {
               const frame = annotationData[key];
               const overlayBox = buildPercentOverlay(
                 { ...frame, imageW: annotationData.imageW, imageH: annotationData.imageH },
@@ -798,7 +819,7 @@ export default function ReceiptDetailsScreen({ route, navigation }) {
                     nestedScrollEnabled
                     showsVerticalScrollIndicator={false}
                     style={localStyles.imagePageScroller}
-                    contentContainerStyle={{ minHeight: imageContainerHeight || HERO_EXPANDED_HEIGHT }}
+                    contentContainerStyle={{ minHeight: imageContainerHeight || heroExpandedHeight }}
                   >
                     <TouchableOpacity
                       activeOpacity={0.9}
@@ -812,7 +833,7 @@ export default function ReceiptDetailsScreen({ route, navigation }) {
                       />
                       {annotationData ? (
                         <View style={localStyles.annotationOverlay} pointerEvents="none">
-                          {ANNOTATIONS.filter(({ key }) => annotationData[key]).map(({ key, label, color }) => {
+                          {ANNOTATIONS.filter(({ key }) => (key !== "vat" || vatAnnotationsEnabled) && annotationData[key]).map(({ key, label, color }) => {
                             const frame = annotationData[key];
                             const overlayBox = buildPercentOverlay(
                               { ...frame, imageW: annotationData.imageW, imageH: annotationData.imageH },
@@ -953,7 +974,7 @@ export default function ReceiptDetailsScreen({ route, navigation }) {
                     }}
                     onFocus={() => {
                       Animated.timing(heroHeightAnim, {
-                        toValue: HERO_COLLAPSED_HEIGHT,
+                        toValue: heroCollapsedHeight,
                         duration: 220,
                         useNativeDriver: false,
                       }).start();
@@ -1054,7 +1075,7 @@ export default function ReceiptDetailsScreen({ route, navigation }) {
                       }}
                       onFocus={() => {
                         Animated.timing(heroHeightAnim, {
-                          toValue: HERO_COLLAPSED_HEIGHT,
+                          toValue: heroCollapsedHeight,
                           duration: 220,
                           useNativeDriver: false,
                         }).start();
@@ -1125,7 +1146,7 @@ export default function ReceiptDetailsScreen({ route, navigation }) {
                 placeholderTextColor={Colors.textSecondary}
                 onFocus={() => {
                   Animated.timing(heroHeightAnim, {
-                    toValue: HERO_COLLAPSED_HEIGHT,
+                    toValue: heroCollapsedHeight,
                     duration: 220,
                     useNativeDriver: false,
                   }).start();

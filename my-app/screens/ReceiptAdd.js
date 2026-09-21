@@ -88,6 +88,7 @@ const ReceiptAdd = ({ navigation, route }) => {
   const insets = useSafeAreaInsets();
   const { refreshReceipts, userProfile } = useData();
   const vatEnabled = userProfile === undefined || userProfile === null ? true : isVatRegistered(userProfile);
+  const vatAnnotationsEnabled = isVatRegistered(userProfile);
   const heroHeightAnim = useRef(new Animated.Value(HERO_EXPANDED_HEIGHT)).current;
   const [heroHeight, setHeroHeight] = useState(HERO_EXPANDED_HEIGHT);
   const [amount, setAmount] = useState("");
@@ -222,7 +223,9 @@ const ReceiptAdd = ({ navigation, route }) => {
   };
 
   const showMainAnnotationToggle = Boolean(
-    ocrFrames?.imageUri && images.some((image) => image.uri === ocrFrames.imageUri),
+    ocrFrames?.imageUri &&
+      images.some((image) => image.uri === ocrFrames.imageUri) &&
+      ANNOTATIONS.some(({ key }) => (key !== "vat" || vatAnnotationsEnabled) && ocrFrames[key]),
   );
 
   const getCanonicalCategoryName = (value) => {
@@ -1505,7 +1508,7 @@ const ReceiptAdd = ({ navigation, route }) => {
         <Image {...props} style={imageStyle} resizeMode="contain" />
         {annotationData ? (
           <View style={localStyles.annotationOverlay} pointerEvents="none">
-            {ANNOTATIONS.filter(({ key }) => annotationData[key]).map(({ key, label, color }) => {
+            {ANNOTATIONS.filter(({ key }) => (key !== "vat" || vatAnnotationsEnabled) && annotationData[key]).map(({ key, label, color }) => {
               const frame = annotationData[key];
               const overlayBox = buildPercentOverlayForContainer(frame, width, height, annotationData);
               if (!overlayBox) return null;
@@ -1595,7 +1598,7 @@ const ReceiptAdd = ({ navigation, route }) => {
                         />
                         {isAnnotated ? (
                           <View style={localStyles.annotationOverlay} pointerEvents="none">
-                            {ANNOTATIONS.filter(({ key }) => ocrFrames[key]).map(({ key, label, color }) => {
+                            {ANNOTATIONS.filter(({ key }) => (key !== "vat" || vatAnnotationsEnabled) && ocrFrames[key]).map(({ key, label, color }) => {
                               const frame = ocrFrames[key];
                               const overlayBox = buildPercentOverlayForContainer(frame, imageContainerWidth, canvasHeight, ocrFrames);
                               if (!overlayBox) return null;
@@ -2277,8 +2280,12 @@ const ReceiptAdd = ({ navigation, route }) => {
             {batchSaveSummary.saved.length > 0 ? (
               <View style={localStyles.summaryListWrap}>
                 {batchSaveSummary.saved.map((entry, index) => (
+
+                  // Display each saved receipt entry with amount, VAT amount, date, and category
+                  // display VAT amount only if vatEnabled is true
+                  // Currency is currently hardcoded as £
                   <Text key={`${entry.date}-${entry.amount}-${index}`} style={ReceiptStyles.modalDetailText}>
-                    {entry.amount} - {entry.vatAmount || "0.00"} - {entry.date} - {entry.category}
+                    £{entry.amount} {vatEnabled ? `- ${entry.vatAmount || "0.00"}` : ""} - {entry.date} - {entry.category}
                   </Text>
                 ))}
               </View>

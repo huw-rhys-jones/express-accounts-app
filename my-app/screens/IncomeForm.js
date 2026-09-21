@@ -139,6 +139,7 @@ export default function IncomeFormScreen({ navigation, route, mode }) {
     income?.vat?.treatment || income?.vatTreatment || VAT_TREATMENTS.STANDARD,
   );
   const vatEnabled = isVatRegistered(userProfile) || income?.vatAmount != null || currentIncome?.vatAmount != null;
+  const vatAnnotationsEnabled = isVatRegistered(userProfile);
 
   const deriveVatRateItems = () => {
     const unique = Array.from(
@@ -1261,7 +1262,7 @@ export default function IncomeFormScreen({ navigation, route, mode }) {
         <Image {...props} style={imageStyle} resizeMode="contain" />
         {annotationData ? (
           <View style={styles.annotationOverlay} pointerEvents="none">
-            {ANNOTATIONS.filter(({ key }) => annotationData[key]).map(({ key, label, color }) => {
+            {ANNOTATIONS.filter(({ key }) => (key !== "vat" || vatAnnotationsEnabled) && annotationData[key]).map(({ key, label, color }) => {
               const frame = annotationData[key];
               const overlayBox = buildPercentOverlay(frame, width, height, annotationData);
               if (!overlayBox) return null;
@@ -1281,7 +1282,12 @@ export default function IncomeFormScreen({ navigation, route, mode }) {
 
   const showMainAnnotationToggle = attachments
     .filter(isImageAttachment)
-    .some((attachment) => getAttachmentUri(attachment) === ocrFrames?.imageUri);
+    .some((attachment) => {
+      if (getAttachmentUri(attachment) !== ocrFrames?.imageUri) return false;
+      return ANNOTATIONS.some(
+        ({ key }) => (key !== "vat" || vatAnnotationsEnabled) && ocrFrames[key],
+      );
+    });
 
   return (
     <SafeAreaView
@@ -1357,7 +1363,7 @@ export default function IncomeFormScreen({ navigation, route, mode }) {
                         />
                         {isAnnotated ? (
                           <View style={styles.annotationOverlay} pointerEvents="none">
-                            {ANNOTATIONS.filter(({ key }) => ocrFrames[key]).map(({ key, label, color }) => {
+                            {ANNOTATIONS.filter(({ key }) => (key !== "vat" || vatAnnotationsEnabled) && ocrFrames[key]).map(({ key, label, color }) => {
                               const frame = ocrFrames[key];
                               const overlayBox = buildPercentOverlay(frame, imageContainerWidth, canvasHeight, ocrFrames);
                               if (!overlayBox) return null;
