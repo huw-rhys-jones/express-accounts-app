@@ -905,8 +905,9 @@
         <div id="receiptsDataPanel" class="modal-data-panel active" role="tabpanel"></div>
         <div id="incomeDataPanel" class="modal-data-panel" role="tabpanel"></div>
 
+
         <label class="download-images-option" for="includeImagesInput">
-          <input id="includeImagesInput" type="checkbox" checked />
+          <input id="includeImagesInput" type="checkbox" />
           Include receipt/income images in download
         </label>
 
@@ -2237,6 +2238,10 @@
       return filtered;
     }
 
+    function getBoardPeriodSnapshot(user) {
+      return buildPeriodSnapshot(user, getSelectedBoardPeriod());
+    }
+
     function renderBoardFromCurrentData() {
       const visibleUsers = applyFiltersAndSort(liveUsers);
       if (visibleUsers.length === 0) {
@@ -2247,6 +2252,7 @@
       clientBoard.innerHTML = "";
       visibleUsers.forEach((user, index) => {
         const status = getClientStatus(user, previousLoginDate);
+        const periodSnapshot = getBoardPeriodSnapshot(user);
         const button = document.createElement("button");
         button.type = "button";
         button.className = "client-card " + status.key;
@@ -2259,8 +2265,9 @@
           "<div class='card-title-row'><strong>" + user.name + "</strong>" + verifiedBadge + "</div>" +
           (user.email ? "<small style='opacity:0.8'>" + user.email + "</small>" : "") +
           "<small>" + status.label + "</small>" +
-          "<small>Receipts: " + (getKnownReceiptCount(user) != null ? getKnownReceiptCount(user) : 0) +
-          " • Income: " + (user.income || []).length + " • Statements: " + (user.bankStatements || []).length + "</small>";
+          "<small>Receipts: " + periodSnapshot.filteredReceipts.length +
+          " • Income: " + periodSnapshot.filteredIncome.length +
+          " • Statements: " + periodSnapshot.filteredStatements.length + "</small>";
 
         button.addEventListener("click", () => openDateModal(user));
         clientBoard.appendChild(button);
@@ -2606,7 +2613,7 @@
       periodSummary.textContent = "Loading receipts for " + user.name + "...";
       vatStatusBadge.textContent = user.isVatRegistered === true ? "VAT Registered" : "Not VAT Registered";
       vatStatusBadge.className = "vat-badge " + (user.isVatRegistered === true ? "registered" : "not-registered");
-      includeImagesInput.checked = true;
+      includeImagesInput.checked = false;
       setModalDataTab("receipts");
       confirmDateBtn.disabled = true;
       resetNotifyBtn.style.display = "inline-block";
