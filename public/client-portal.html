@@ -599,6 +599,196 @@
       border-bottom: none;
     }
 
+    .receipt-summary-table tbody tr.data-row {
+      cursor: pointer;
+    }
+
+    .receipt-summary-table tbody tr.data-row:hover {
+      background: #eef6ff;
+    }
+
+    .receipt-summary-table tbody tr.data-row.accountant-checked {
+      background: #e4f5e8;
+    }
+
+    .receipt-summary-table tbody tr.data-row.accountant-checked:hover {
+      background: #d8efde;
+    }
+
+    .checked-cell {
+      width: 28px;
+      min-width: 28px;
+      max-width: 28px;
+      text-align: center !important;
+      padding-left: 4px !important;
+      padding-right: 4px !important;
+    }
+
+    .checked-cell input {
+      width: 16px;
+      height: 16px;
+      accent-color: var(--success-green);
+    }
+
+    .receipt-summary-table thead th.checked-cell {
+      width: 28px !important;
+      min-width: 28px !important;
+      max-width: 28px !important;
+      padding: 8px 4px !important;
+      text-align: center !important;
+    }
+
+    .image-modal .modal-body {
+      min-height: 220px;
+    }
+
+    .image-modal {
+      width: min(900px, 94vw);
+      max-height: 88vh;
+    }
+
+    .image-modal .modal-body {
+      max-height: calc(88vh - 78px);
+      overflow: auto;
+    }
+
+    .image-modal-controls {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      flex-wrap: wrap;
+    }
+
+    .image-gallery {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+      gap: 14px;
+    }
+
+    .image-viewer-card {
+      overflow: hidden;
+      border: 1px solid #d7e2ee;
+      border-radius: 12px;
+      background: #0f2742;
+    }
+
+    .image-viewer-stage {
+      position: relative;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      height: min(52vh, 480px);
+      min-height: 0;
+      background: #0f2742;
+      overflow: hidden;
+    }
+
+    .image-viewer-stage img {
+      display: block;
+      width: auto;
+      max-width: 100%;
+      height: 100%;
+      object-fit: contain;
+      cursor: zoom-in;
+    }
+
+    .image-canvas {
+      position: relative;
+      height: 100%;
+      max-width: 100%;
+      aspect-ratio: 1 / 1;
+    }
+
+    .image-canvas img {
+      width: 100%;
+      height: 100%;
+      object-fit: contain;
+    }
+
+    .image-lightbox {
+      display: none;
+      position: fixed;
+      inset: 0;
+      z-index: 100;
+      align-items: center;
+      justify-content: center;
+      background: rgba(4, 13, 24, 0.92);
+      padding: 24px;
+    }
+
+    .image-lightbox.open { display: flex; }
+
+    .image-lightbox img {
+      max-width: 92vw;
+      max-height: 84vh;
+      object-fit: contain;
+      transform: scale(var(--lightbox-scale, 1));
+      transition: transform 0.15s ease;
+      cursor: zoom-in;
+    }
+
+    .image-lightbox.zoomed img { cursor: zoom-out; }
+
+    .image-lightbox-close {
+      position: absolute;
+      top: 18px;
+      right: 22px;
+      background: #fff;
+      color: #17324d;
+    }
+
+    .image-lightbox-controls {
+      position: absolute;
+      bottom: 18px;
+      display: flex;
+      gap: 8px;
+    }
+
+    .image-record-summary {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+      gap: 8px 14px;
+      padding: 10px 12px;
+      border: 1px solid #d7e2ee;
+      border-radius: 10px;
+      background: #f7fafd;
+      color: #21476d;
+      font-size: 0.88rem;
+    }
+
+    .image-record-summary strong {
+      display: block;
+      color: #17324d;
+      font-size: 0.76rem;
+      text-transform: uppercase;
+    }
+
+    .image-annotation-box {
+      position: absolute;
+      border: 2px solid;
+      border-radius: 3px;
+      pointer-events: none;
+    }
+
+    .image-annotation-label {
+      position: absolute;
+      padding: 2px 5px;
+      color: #fff;
+      font-size: 0.7rem;
+      font-weight: 700;
+      transform: translateY(-100%);
+      pointer-events: none;
+    }
+
+    .image-viewer-caption {
+      padding: 8px 10px;
+      color: #fff;
+      font-size: 0.78rem;
+      background: #17324d;
+      overflow-wrap: anywhere;
+    }
+
     .receipt-summary-table .col-amount,
     .receipt-summary-table .col-vat,
     .receipt-summary-table .col-rate,
@@ -920,6 +1110,45 @@
     </div>
   </div>
 
+  <div id="imageModal" class="modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="imageModalTitle">
+    <div class="modal image-modal">
+      <div class="modal-head">
+        <div class="modal-title-row">
+          <span id="imageModalTitle">Uploaded images</span>
+          <button id="closeImageModalBtn" type="button" class="btn-secondary">Close</button>
+        </div>
+      </div>
+      <div class="modal-body">
+        <div class="image-modal-controls">
+          <span id="imageModalStatus" class="hint" style="margin:0">Images are loaded when requested.</span>
+          <label class="download-images-option" for="showAnnotationsInput">
+            <input id="showAnnotationsInput" type="checkbox" checked />
+            Show annotations
+          </label>
+        </div>
+        <div id="imageRecordSummary" class="image-record-summary"></div>
+        <label class="download-images-option" for="imageModalCheckedInput">
+          <input id="imageModalCheckedInput" type="checkbox" />
+          Accountant checked
+        </label>
+        <div id="imageGallery" class="image-gallery"></div>
+        <div class="modal-actions">
+          <button id="closeImageModalActionBtn" type="button" class="btn-secondary">Close</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div id="imageLightbox" class="image-lightbox" role="dialog" aria-modal="true" aria-label="Full screen image viewer">
+    <button id="closeImageLightboxBtn" class="image-lightbox-close btn-secondary" type="button">Close</button>
+    <img id="imageLightboxImage" alt="Full screen uploaded image" />
+    <div class="image-lightbox-controls">
+      <button id="zoomOutBtn" class="btn-secondary" type="button">-</button>
+      <button id="zoomResetBtn" class="btn-secondary" type="button">Reset</button>
+      <button id="zoomInBtn" class="btn-secondary" type="button">+</button>
+    </div>
+  </div>
+
   <script>
     const ALLOWED_EMAILS = ["info@caistec.com", "info@expressaccounts.biz", "catrin@expressaccounts.biz"];
 
@@ -982,6 +1211,21 @@
     const receiptsDataPanel = document.getElementById("receiptsDataPanel");
     const incomeDataPanel = document.getElementById("incomeDataPanel");
     const includeImagesInput = document.getElementById("includeImagesInput");
+    const imageModal = document.getElementById("imageModal");
+    const imageModalTitle = document.getElementById("imageModalTitle");
+    const imageModalStatus = document.getElementById("imageModalStatus");
+    const imageRecordSummary = document.getElementById("imageRecordSummary");
+    const imageModalCheckedInput = document.getElementById("imageModalCheckedInput");
+    const imageGallery = document.getElementById("imageGallery");
+    const showAnnotationsInput = document.getElementById("showAnnotationsInput");
+    const closeImageModalBtn = document.getElementById("closeImageModalBtn");
+    const closeImageModalActionBtn = document.getElementById("closeImageModalActionBtn");
+    const imageLightbox = document.getElementById("imageLightbox");
+    const imageLightboxImage = document.getElementById("imageLightboxImage");
+    const closeImageLightboxBtn = document.getElementById("closeImageLightboxBtn");
+    const zoomOutBtn = document.getElementById("zoomOutBtn");
+    const zoomResetBtn = document.getElementById("zoomResetBtn");
+    const zoomInBtn = document.getElementById("zoomInBtn");
 
     let currentAccountant = null;
     let previousLoginDate = null;
@@ -991,6 +1235,8 @@
     const activeStatusFilters = new Set();
     let currentTab = "activity";
     let receiptCountLoadRun = 0;
+    let activeImageModalEntry = null;
+    let lightboxScale = 1;
 
     // Inactivity timeout: sign out after 30 minutes of no mouse/keyboard activity
     const INACTIVITY_TIMEOUT_MS = 30 * 60 * 1000;
@@ -1655,6 +1901,8 @@
         date: data.date ? String(data.date).split("T")[0] : "",
         category: data.category || "Uncategorized",
         attachments: mergeAttachmentSources(data.attachments, data.images),
+        imageAnnotations: data.imageAnnotations || {},
+        accountantChecked: data.accountantChecked === true,
         loggedAt: createdDate ? createdDate.toISOString() : (data.date || ""),
       };
     }
@@ -1781,7 +2029,7 @@
             ? "<td class='col-vat'>" + toMoney(computeReceiptVatAmount(receipt)) + "</td>" +
               "<td class='col-rate'>" + (Number(receipt && receipt.vatRate) || 0) + "%</td>"
             : "";
-          return "<tr><td class='col-amount'>" + amount + "</td>" + vatCells +
+          return "<tr class='data-row " + (receipt.accountantChecked ? "accountant-checked" : "") + "' data-entry-kind='receipt' data-entry-id='" + encodeURIComponent(receipt.id) + "'><td class='checked-cell'><input type='checkbox' " + (receipt.accountantChecked ? "checked" : "") + " aria-label='Accountant checked' /></td><td class='col-amount'>" + amount + "</td>" + vatCells +
             "<td class='col-date'>" + dateValue + "</td>" +
             "<td class='col-category'>" + category + "</td></tr>";
         }).join("");
@@ -1793,7 +2041,7 @@
         "<div class='receipt-summary-table-wrap'>" +
         "<table class='receipt-summary-table'>" +
         "<thead><tr>" +
-        "<th class='col-amount'>Amount</th>" +
+        "<th class='checked-cell'><span title='Accountant checked' aria-label='Accountant checked'>✓</span></th><th class='col-amount'>Amount</th>" +
         vatHeaders +
         "<th class='col-date'>Date</th>" +
         "<th class='col-category'>Category</th>" +
@@ -1816,7 +2064,7 @@
           ? "<td class='col-vat'>" + toMoney(Number(entry && entry.vatAmount) || 0) + "</td>" +
             "<td class='col-rate'>" + (Number(entry && entry.vatRate) || 0) + "%</td>"
           : "";
-        return "<tr><td class='col-amount'>" + toMoney(Number(entry && entry.amount) || 0) + "</td>" + vatCells +
+        return "<tr class='data-row " + (entry.accountantChecked ? "accountant-checked" : "") + "' data-entry-kind='income' data-entry-id='" + encodeURIComponent(entry.id) + "'><td class='checked-cell'><input type='checkbox' " + (entry.accountantChecked ? "checked" : "") + " aria-label='Accountant checked' /></td><td class='col-amount'>" + toMoney(Number(entry && entry.amount) || 0) + "</td>" + vatCells +
           "<td class='col-date'>" + escHtml(toDateOnlyString(entry && entry.date)) + "</td>" +
           "<td class='col-category'>" + escHtml(entry && (entry.label || entry.reference) || "Unlabelled") + "</td>" +
           "<td>" + escHtml(entry && entry.notes || "") + "</td></tr>";
@@ -1826,9 +2074,242 @@
         : "";
       return "<div class='receipt-summary-title'>Income</div>" +
         "<div class='receipt-summary-table-wrap'><table class='receipt-summary-table'><thead><tr>" +
-        "<th class='col-amount'>Amount</th>" + vatHeaders +
+        "<th class='checked-cell'><span title='Accountant checked' aria-label='Accountant checked'>✓</span></th><th class='col-amount'>Amount</th>" + vatHeaders +
         "<th class='col-date'>Date</th><th class='col-category'>Source / Category</th><th>Notes</th>" +
         "</tr></thead><tbody>" + rows + "</tbody></table></div>";
+    }
+
+    function findDataEntry(kind, id) {
+      const entries = kind === "income" ? (selectedUser && selectedUser.income) : (selectedUser && selectedUser.receipts);
+      return (entries || []).find((entry) => String(entry.id) === String(id)) || null;
+    }
+
+    async function setAccountantChecked(kind, id, checked) {
+      if (!selectedUser || !currentAccountant) return;
+      const entry = findDataEntry(kind, id);
+      if (!entry) return;
+      const collectionName = kind === "income" ? "income" : "receipts";
+      const previousChecked = entry.accountantChecked === true;
+      entry.accountantChecked = checked;
+      try {
+        const idToken = await auth.currentUser.getIdToken();
+        const response = await fetch("/portal-update-review", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: "Bearer " + idToken,
+          },
+          body: JSON.stringify({
+            kind,
+            recordId: entry.id,
+            checked,
+          }),
+        });
+        if (!response.ok) {
+          const errorPayload = await response.json().catch(() => ({}));
+          throw new Error(errorPayload.error || "Review update failed (HTTP " + response.status + ")");
+        }
+        [receiptsDataPanel, incomeDataPanel].forEach((panel) => {
+          const row = panel.querySelector("tr[data-entry-kind='" + kind + "'][data-entry-id='" + CSS.escape(encodeURIComponent(entry.id)) + "']");
+          if (row) {
+            row.classList.toggle("accountant-checked", checked);
+            const checkbox = row.querySelector("input[type='checkbox']");
+            if (checkbox) checkbox.checked = checked;
+          }
+        });
+        if (activeImageModalEntry === entry) imageModalCheckedInput.checked = checked;
+      } catch (error) {
+        entry.accountantChecked = previousChecked;
+        throw error;
+      }
+    }
+
+    function wireDataRows() {
+      [receiptsDataPanel, incomeDataPanel].forEach((panel) => {
+        panel.querySelectorAll("tr.data-row").forEach((row) => {
+          const kind = row.dataset.entryKind;
+          const id = decodeURIComponent(row.dataset.entryId);
+          const checkbox = row.querySelector("input[type='checkbox']");
+          checkbox.addEventListener("click", (event) => event.stopPropagation());
+          checkbox.addEventListener("change", () => {
+            setAccountantChecked(kind, id, checkbox.checked).catch((error) => {
+              checkbox.checked = !checkbox.checked;
+              console.error("Could not save accountant checked state", error);
+              statusLine.textContent = "Could not save checked state: " + (error && error.message ? error.message : String(error));
+            });
+          });
+          row.addEventListener("click", () => openImageModal(kind, id));
+        });
+      });
+    }
+
+    function getAnnotationEntries(entry, attachment) {
+      const annotations = entry && entry.imageAnnotations ? entry.imageAnnotations : {};
+      const keys = [attachment.url, attachment.gsUrl, attachment.fullPath].filter(Boolean);
+      for (const key of keys) {
+        if (annotations[key]) return annotations[key];
+      }
+      const normalizedKeys = keys.map((key) => {
+        try {
+          return decodeURIComponent(key);
+        } catch (error) {
+          return key;
+        }
+      });
+      const matchingEntry = Object.entries(annotations).find(([key]) => {
+        let normalizedKey = key;
+        try {
+          normalizedKey = decodeURIComponent(key);
+        } catch (error) {
+          // Keep the stored key when it is not URI encoded.
+        }
+        return normalizedKeys.includes(normalizedKey) || normalizedKeys.some((candidate) => normalizedKey.endsWith(candidate));
+      });
+      if (matchingEntry) return matchingEntry[1];
+      const annotationValues = Object.values(annotations);
+      if (annotationValues.length === 1) return annotationValues[0];
+      return null;
+    }
+
+    function normalizeAnnotationFrame(frame) {
+      if (!frame) return null;
+      if (frame.left != null && frame.top != null && frame.width != null && frame.height != null) return frame;
+      const box = frame.bbox || frame.box || frame.boundingBox;
+      if (box && box.x0 != null && box.y0 != null && box.x1 != null && box.y1 != null) {
+        return { left: box.x0, top: box.y0, width: box.x1 - box.x0, height: box.y1 - box.y0 };
+      }
+      if (frame.x != null && frame.y != null && frame.w != null && frame.h != null) {
+        return { left: frame.x, top: frame.y, width: frame.w, height: frame.h };
+      }
+      return null;
+    }
+
+    function renderImageRecordSummary(entry, kind) {
+      const label = kind === "income" ? (entry.label || entry.reference || "Unlabelled") : (entry.category || "Uncategorized");
+      imageRecordSummary.innerHTML =
+        "<div><strong>Amount</strong>" + escHtml(toMoney(entry.amount)) + "</div>" +
+        "<div><strong>Date</strong>" + escHtml(toDateOnlyString(entry.date)) + "</div>" +
+        "<div><strong>Category / Source</strong>" + escHtml(label) + "</div>" +
+        (entry.notes ? "<div><strong>Notes</strong>" + escHtml(entry.notes) + "</div>" : "");
+    }
+
+    async function loadAttachmentBlob(attachment) {
+      const idToken = auth.currentUser ? await auth.currentUser.getIdToken() : "";
+      for (const candidate of buildAttachmentFetchCandidates(attachment)) {
+        try {
+          return await fetchAttachmentBlobWithRetry(candidate, idToken);
+        } catch (error) {
+          // Try the next storage URL candidate, then the authenticated proxy.
+        }
+      }
+      return fetchAttachmentBlobViaProxy(attachment, idToken);
+    }
+
+    function annotationOverlayHtml(annotation) {
+      if (!annotation || !annotation.imageW || !annotation.imageH) return "";
+      const labels = [
+        ["amount", "Amount", "#ff6d00"],
+        ["date", "Date", "#2e86de"],
+        ["vat", "VAT", "#1f7a3f"],
+      ];
+      return labels.filter(([key]) => annotation[key]).map(([key, label, color]) => {
+        const frame = normalizeAnnotationFrame(annotation[key]);
+        if (!frame) return "";
+        const left = Number(frame.left) / annotation.imageW * 100;
+        const top = Number(frame.top) / annotation.imageH * 100;
+        const width = Number(frame.width) / annotation.imageW * 100;
+        const height = Number(frame.height) / annotation.imageH * 100;
+        return "<div class='image-annotation-box' style='left:" + left + "%;top:" + top + "%;width:" + width + "%;height:" + height + "%;border-color:" + color + "><span class='image-annotation-label' style='background:" + color + ">" + label + "</span></div>";
+      }).join("");
+    }
+
+    function openImageLightbox(image) {
+      imageLightboxImage.src = image.src;
+      lightboxScale = 1;
+      imageLightbox.style.setProperty("--lightbox-scale", lightboxScale);
+      imageLightbox.classList.add("open");
+    }
+
+    function closeImageLightbox() {
+      imageLightbox.classList.remove("open");
+      imageLightboxImage.removeAttribute("src");
+    }
+
+    function updateLightboxZoom(delta) {
+      lightboxScale = Math.min(4, Math.max(1, lightboxScale + delta));
+      imageLightbox.style.setProperty("--lightbox-scale", lightboxScale);
+      imageLightbox.classList.toggle("zoomed", lightboxScale > 1);
+    }
+
+    async function openImageModal(kind, id) {
+      const entry = findDataEntry(kind, id);
+      if (!entry) return;
+      activeImageModalEntry = entry;
+      activeImageModalEntry._portalEntryKind = kind;
+      imageModalTitle.textContent = (kind === "income" ? "Income" : "Receipt / Expense") + " images for " + (entry.date || "record");
+      imageModalStatus.textContent = "Loading images...";
+      imageGallery.innerHTML = "";
+      showAnnotationsInput.checked = true;
+      imageModalCheckedInput.checked = entry.accountantChecked === true;
+      renderImageRecordSummary(entry, kind);
+      imageModal.style.display = "flex";
+
+      const attachments = normalizePortalAttachments(entry.attachments).filter(isImageLikeAttachment);
+      if (!attachments.length) {
+        imageModalStatus.textContent = "No uploaded images for this record.";
+        return;
+      }
+
+      if (!Object.keys(entry.imageAnnotations || {}).length) {
+        imageModalStatus.textContent = "No stored annotations for this record.";
+      }
+
+      let loaded = 0;
+      for (const attachment of attachments) {
+        const card = document.createElement("div");
+        card.className = "image-viewer-card";
+        card.innerHTML = "<div class='image-viewer-stage'><span style='color:#fff'>Loading...</span></div><div class='image-viewer-caption'>" + escHtml(attachment.name) + "</div>";
+        imageGallery.appendChild(card);
+        try {
+          const blob = await loadAttachmentBlob(attachment);
+          const objectUrl = URL.createObjectURL(blob);
+          const stage = card.querySelector(".image-viewer-stage");
+          const canvas = document.createElement("div");
+          canvas.className = "image-canvas";
+          const image = document.createElement("img");
+          image.src = objectUrl;
+          image.alt = attachment.name;
+          image.addEventListener("click", () => openImageLightbox(image));
+          canvas.appendChild(image);
+          stage.replaceChildren(canvas);
+          const annotation = getAnnotationEntries(entry, attachment);
+          if (annotation && annotation.imageW && annotation.imageH) {
+            canvas.style.aspectRatio = annotation.imageW + " / " + annotation.imageH;
+            canvas.dataset.annotationHtml = annotationOverlayHtml(annotation);
+            if (showAnnotationsInput.checked) canvas.insertAdjacentHTML("beforeend", canvas.dataset.annotationHtml);
+          }
+          loaded += 1;
+        } catch (error) {
+          card.querySelector(".image-viewer-stage").innerHTML = "<span style='color:#fff;padding:20px'>Could not load this image.</span>";
+        }
+      }
+      imageModalStatus.textContent = loaded + " of " + attachments.length + " image(s) loaded.";
+    }
+
+    function closeImageModal() {
+      imageModal.style.display = "none";
+      imageGallery.replaceChildren();
+      imageRecordSummary.replaceChildren();
+      activeImageModalEntry = null;
+    }
+
+    function refreshImageAnnotations() {
+      imageGallery.querySelectorAll(".image-canvas").forEach((canvas) => {
+        canvas.querySelectorAll(".image-annotation-box").forEach((box) => box.remove());
+        if (showAnnotationsInput.checked && canvas.dataset.annotationHtml) {
+          canvas.insertAdjacentHTML("beforeend", canvas.dataset.annotationHtml);
+        }
+      });
     }
 
     function renderPeriodSummary() {
@@ -1852,6 +2333,7 @@
         "<div style='margin-top:6px; font-size:0.82rem;'>VAT: " + (isVatRegistered ? "Registered" : "Not registered") + "</div>";
       receiptsDataPanel.innerHTML = buildReceiptSummaryHtml(snapshot.filteredReceipts, isVatRegistered);
       incomeDataPanel.innerHTML = buildIncomeSummaryHtml(snapshot.filteredIncome, isVatRegistered);
+      wireDataRows();
     }
 
     function hasNewUploadsSince(user, loginDate) {
@@ -2114,6 +2596,8 @@
             label: data.label || "",
             notes: data.notes || "",
             attachments: normalizePortalAttachments(data.attachments),
+            imageAnnotations: data.imageAnnotations || {},
+            accountantChecked: data.accountantChecked === true,
             attachmentsCount: Array.isArray(data.attachments) ? data.attachments.length : 0,
             loggedAt: createdDate ? createdDate.toISOString() : (data.date || ""),
           });
@@ -2638,6 +3122,7 @@
 
     function closeDateModal() {
       dateModal.style.display = "none";
+      closeImageModal();
       selectedUser = null;
       resetNotifyBtn.style.display = "none";
       vatStatusBadge.textContent = "";
@@ -3232,6 +3717,32 @@
 
     receiptsDataTabBtn.addEventListener("click", () => setModalDataTab("receipts"));
     incomeDataTabBtn.addEventListener("click", () => setModalDataTab("income"));
+    closeImageModalBtn.addEventListener("click", closeImageModal);
+    closeImageModalActionBtn.addEventListener("click", closeImageModal);
+    showAnnotationsInput.addEventListener("change", refreshImageAnnotations);
+    imageModalCheckedInput.addEventListener("change", () => {
+      if (!activeImageModalEntry) return;
+      const kind = activeImageModalEntry._portalEntryKind || "receipt";
+      setAccountantChecked(kind, activeImageModalEntry.id, imageModalCheckedInput.checked).catch((error) => {
+        imageModalCheckedInput.checked = !imageModalCheckedInput.checked;
+        console.error("Could not save accountant checked state", error);
+      });
+    });
+    closeImageLightboxBtn.addEventListener("click", closeImageLightbox);
+    zoomOutBtn.addEventListener("click", () => updateLightboxZoom(-0.5));
+    zoomResetBtn.addEventListener("click", () => {
+      lightboxScale = 1;
+      imageLightbox.style.setProperty("--lightbox-scale", lightboxScale);
+      imageLightbox.classList.remove("zoomed");
+    });
+    zoomInBtn.addEventListener("click", () => updateLightboxZoom(0.5));
+    imageLightboxImage.addEventListener("click", () => updateLightboxZoom(lightboxScale > 1 ? -0.5 : 1));
+    imageLightbox.addEventListener("click", (event) => {
+      if (event.target === imageLightbox) closeImageLightbox();
+    });
+    imageModal.addEventListener("click", (event) => {
+      if (event.target === imageModal) closeImageModal();
+    });
 
     cancelDateBtn.addEventListener("click", closeDateModal);
     periodSelect.addEventListener("change", renderPeriodSummary);

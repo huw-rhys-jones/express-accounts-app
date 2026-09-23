@@ -577,6 +577,39 @@ exports.fetchPortalAttachment = onRequest({region: OCR_FUNCTION_REGION, timeoutS
   });
 });
 
+exports.updatePortalRecordReview = onRequest({region: OCR_FUNCTION_REGION, timeoutSeconds: 60}, (req, res) => {
+  cors(req, res, async () => {
+    if (req.method === "OPTIONS") return res.status(204).send("");
+    if (req.method !== "POST") return res.status(405).json({error: "Method Not Allowed"});
+
+    try {
+      const decodedToken = await verifyAuthenticatedUser(req);
+      if (!isAccountantEmail(decodedToken.email)) {
+        return res.status(403).json({error: "Only accountant users may update review state."});
+      }
+
+      const payload = req.body || {};
+      const collectionName = payload.kind === "income" ? "income" : payload.kind === "receipt" ? "receipts" : "";
+      const recordId = String(payload.recordId || "").trim();
+      if (!collectionName || !recordId || typeof payload.checked !== "boolean") {
+        return res.status(400).json({error: "Missing or invalid review update fields."});
+      }
+
+      await admin.firestore().collection(collectionName).doc(recordId).set({
+        accountantChecked: payload.checked,
+        accountantCheckedAt: payload.checked ? admin.firestore.FieldValue.serverTimestamp() : null,
+        accountantCheckedBy: payload.checked ? decodedToken.email : null,
+      }, {merge: true});
+
+      return res.status(200).json({ok: true, checked: payload.checked});
+    } catch (error) {
+      console.error("Portal review update failed", error);
+      const statusCode = error && error.statusCode ? error.statusCode : 500;
+      return res.status(statusCode).json({error: statusCode === 401 ? error.message : "Could not update review state."});
+    }
+  });
+});
+
 exports.exportClientZip = onRequest(
   {
     region: OCR_FUNCTION_REGION,

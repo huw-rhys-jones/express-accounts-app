@@ -79,6 +79,13 @@
         }
       },
       {
+        "source": "/portal-update-review",
+        "function": {
+          "functionId": "updatePortalRecordReview",
+          "region": "europe-west2"
+        }
+      },
+      {
         "source": "/export-client-zip",
         "function": {
           "functionId": "exportClientZip",
