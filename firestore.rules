@@ -3,7 +3,7 @@ service cloud.firestore {
   match /databases/{database}/documents {
 
     // Accountant emails that can read all data in this project.
-    // Keep this list in sync with ALLOWED_EMAILS in client-portal-mock.html.
+    // Keep this list in sync with ALLOWED_EMAILS in client-portal.html.
     function isAccountant() {
       return request.auth != null &&
              request.auth.token.email in ["info@caistec.com", "info@expressaccounts.biz", "catrin@expressaccounts.biz"];

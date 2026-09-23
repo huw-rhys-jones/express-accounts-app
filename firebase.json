@@ -13,6 +13,13 @@
       "**/.*",
       "**/node_modules/**"
     ],
+    "redirects": [
+      {
+        "source": "/client-portal-mock.html",
+        "destination": "/client-portal.html",
+        "type": 301
+      }
+    ],
     "rewrites": [
       {
         "source": "/submit-deletion-request",
