@@ -445,6 +445,33 @@
       font-weight: 700;
     }
 
+    .modal-title-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      flex-wrap: wrap;
+    }
+
+    .vat-badge {
+      border-radius: 999px;
+      padding: 5px 10px;
+      font-family: "DM Sans", sans-serif;
+      font-size: 0.78rem;
+      font-weight: 700;
+      white-space: nowrap;
+    }
+
+    .vat-badge.registered {
+      background: #dff3e5;
+      color: #176332;
+    }
+
+    .vat-badge.not-registered {
+      background: #fff0d6;
+      color: #7a4a00;
+    }
+
     .modal-body {
       padding: 18px 20px 20px;
       display: grid;
@@ -456,6 +483,52 @@
       justify-content: flex-end;
       gap: 8px;
       margin-top: 4px;
+    }
+
+    .modal-tabs {
+      display: flex;
+      gap: 8px;
+      border-bottom: 1px solid #d7e2ee;
+    }
+
+    .modal-tab {
+      border-radius: 8px 8px 0 0;
+      padding: 8px 12px;
+      background: #eef4fb;
+      color: #36597c;
+      border: 1px solid #d4e2f0;
+      border-bottom: 0;
+      font-size: 0.88rem;
+      font-weight: 700;
+    }
+
+    .modal-tab.active {
+      background: #153453;
+      color: #fff;
+      border-color: #153453;
+    }
+
+    .modal-data-panel {
+      display: none;
+    }
+
+    .modal-data-panel.active {
+      display: block;
+    }
+
+    .download-images-option {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      color: #21476d;
+      font-size: 0.92rem;
+      font-weight: 600;
+    }
+
+    .download-images-option input {
+      width: 16px;
+      height: 16px;
+      accent-color: var(--accent);
     }
 
     .period-summary {
@@ -814,11 +887,28 @@
 
   <div id="dateModal" class="modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="modalTitle">
     <div class="modal">
-      <div id="modalTitle" class="modal-head">Choose export period</div>
+      <div class="modal-head">
+        <div class="modal-title-row">
+          <span id="modalTitle">Choose export period</span>
+          <span id="vatStatusBadge" class="vat-badge"></span>
+        </div>
+      </div>
       <div class="modal-body">
         <label for="periodSelect">Financial period</label>
         <select id="periodSelect"></select>
         <div id="periodSummary" class="period-summary">Select a period to see record totals.</div>
+
+        <div class="modal-tabs" role="tablist" aria-label="Client data">
+          <button id="receiptsDataTabBtn" class="modal-tab active" type="button" role="tab" aria-selected="true">Receipts / Expenses</button>
+          <button id="incomeDataTabBtn" class="modal-tab" type="button" role="tab" aria-selected="false">Income</button>
+        </div>
+        <div id="receiptsDataPanel" class="modal-data-panel active" role="tabpanel"></div>
+        <div id="incomeDataPanel" class="modal-data-panel" role="tabpanel"></div>
+
+        <label class="download-images-option" for="includeImagesInput">
+          <input id="includeImagesInput" type="checkbox" checked />
+          Include receipt/income images in download
+        </label>
 
         <div class="modal-actions">
           <button id="resetNotifyBtn" type="button" class="btn-success" style="display:none">Mark As Processed</button>
@@ -885,6 +975,12 @@
     const cancelDateBtn = document.getElementById("cancelDateBtn");
     const confirmDateBtn = document.getElementById("confirmDateBtn");
     const resetNotifyBtn = document.getElementById("resetNotifyBtn");
+    const vatStatusBadge = document.getElementById("vatStatusBadge");
+    const receiptsDataTabBtn = document.getElementById("receiptsDataTabBtn");
+    const incomeDataTabBtn = document.getElementById("incomeDataTabBtn");
+    const receiptsDataPanel = document.getElementById("receiptsDataPanel");
+    const incomeDataPanel = document.getElementById("incomeDataPanel");
+    const includeImagesInput = document.getElementById("includeImagesInput");
 
     let currentAccountant = null;
     let previousLoginDate = null;
@@ -1667,7 +1763,7 @@
       return Number.isFinite(n) ? n : null;
     }
 
-    function buildReceiptSummaryHtml(receipts) {
+    function buildReceiptSummaryHtml(receipts, isVatRegistered) {
       if (!Array.isArray(receipts) || receipts.length === 0) {
         return "<div style='margin-top:8px; color:#4f6780;'>No receipts in this period.</div>";
       }
@@ -1678,32 +1774,60 @@
 
       const rows = sortedReceipts.map((receipt) => {
           const amount = toMoney(Number(receipt && receipt.amount) || 0);
-          const vatAmount = toMoney(computeReceiptVatAmount(receipt));
-          const vatRate = Number(receipt && receipt.vatRate) || 0;
           const dateValue = escHtml(toDateOnlyString(receipt && receipt.date));
           const category = escHtml((receipt && receipt.category) || "Uncategorized");
-          return "<tr>" +
-            "<td class='col-amount'>" + amount + "</td>" +
-            "<td class='col-vat'>" + vatAmount + "</td>" +
-            "<td class='col-rate'>" + vatRate + "%</td>" +
+          const vatCells = isVatRegistered
+            ? "<td class='col-vat'>" + toMoney(computeReceiptVatAmount(receipt)) + "</td>" +
+              "<td class='col-rate'>" + (Number(receipt && receipt.vatRate) || 0) + "%</td>"
+            : "";
+          return "<tr><td class='col-amount'>" + amount + "</td>" + vatCells +
             "<td class='col-date'>" + dateValue + "</td>" +
-            "<td class='col-category'>" + category + "</td>" +
-            "</tr>";
+            "<td class='col-category'>" + category + "</td></tr>";
         }).join("");
 
-      return "<div class='receipt-summary-title'>Receipts</div>" +
+      const vatHeaders = isVatRegistered
+        ? "<th class='col-vat'>VAT Amount</th><th class='col-rate'>VAT %</th>"
+        : "";
+      return "<div class='receipt-summary-title'>Receipts / Expenses</div>" +
         "<div class='receipt-summary-table-wrap'>" +
         "<table class='receipt-summary-table'>" +
         "<thead><tr>" +
         "<th class='col-amount'>Amount</th>" +
-        "<th class='col-vat'>VAT Amount</th>" +
-        "<th class='col-rate'>VAT %</th>" +
+        vatHeaders +
         "<th class='col-date'>Date</th>" +
         "<th class='col-category'>Category</th>" +
         "</tr></thead>" +
         "<tbody>" + rows + "</tbody>" +
         "</table>" +
         "</div>";
+    }
+
+    function buildIncomeSummaryHtml(income, isVatRegistered) {
+      if (!Array.isArray(income) || income.length === 0) {
+        return "<div style='margin-top:8px; color:#4f6780;'>No income records in this period.</div>";
+      }
+
+      const sortedIncome = [...income].sort((a, b) =>
+        String(a && a.date ? a.date : "").localeCompare(String(b && b.date ? b.date : ""))
+      );
+      const rows = sortedIncome.map((entry) => {
+        const vatCells = isVatRegistered
+          ? "<td class='col-vat'>" + toMoney(Number(entry && entry.vatAmount) || 0) + "</td>" +
+            "<td class='col-rate'>" + (Number(entry && entry.vatRate) || 0) + "%</td>"
+          : "";
+        return "<tr><td class='col-amount'>" + toMoney(Number(entry && entry.amount) || 0) + "</td>" + vatCells +
+          "<td class='col-date'>" + escHtml(toDateOnlyString(entry && entry.date)) + "</td>" +
+          "<td class='col-category'>" + escHtml(entry && (entry.label || entry.reference) || "Unlabelled") + "</td>" +
+          "<td>" + escHtml(entry && entry.notes || "") + "</td></tr>";
+      }).join("");
+      const vatHeaders = isVatRegistered
+        ? "<th class='col-vat'>VAT Amount</th><th class='col-rate'>VAT %</th>"
+        : "";
+      return "<div class='receipt-summary-title'>Income</div>" +
+        "<div class='receipt-summary-table-wrap'><table class='receipt-summary-table'><thead><tr>" +
+        "<th class='col-amount'>Amount</th>" + vatHeaders +
+        "<th class='col-date'>Date</th><th class='col-category'>Source / Category</th><th>Notes</th>" +
+        "</tr></thead><tbody>" + rows + "</tbody></table></div>";
     }
 
     function renderPeriodSummary() {
@@ -1720,10 +1844,13 @@
       }
 
       const snapshot = buildPeriodSnapshot(selectedUser, selectedPeriod);
+      const isVatRegistered = selectedUser.isVatRegistered === true;
       periodSummary.innerHTML =
         "<div class='summary-headline'>" + escHtml(selectedPeriod.label) + "</div>" +
         "<div>" + escHtml(formatSnapshotSummary(snapshot)) + "</div>" +
-        buildReceiptSummaryHtml(snapshot.filteredReceipts);
+        "<div style='margin-top:6px; font-size:0.82rem;'>VAT: " + (isVatRegistered ? "Registered" : "Not registered") + "</div>";
+      receiptsDataPanel.innerHTML = buildReceiptSummaryHtml(snapshot.filteredReceipts, isVatRegistered);
+      incomeDataPanel.innerHTML = buildIncomeSummaryHtml(snapshot.filteredIncome, isVatRegistered);
     }
 
     function hasNewUploadsSince(user, loginDate) {
@@ -2045,6 +2172,8 @@
             originalName: baseName,
             verifiedName,
             isVerified,
+            isVatRegistered: profile.isVatRegistered === true ||
+              profile.taxProfile?.vat?.isRegistered === true,
             email: profile.email || null,
             verificationCode: profile.verificationCode || null,
             notifyAccountant: profile.notifyAccountant || false,
@@ -2475,6 +2604,10 @@
         ? "current-financial-year"
         : (periods[0] ? periods[0].key : "");
       periodSummary.textContent = "Loading receipts for " + user.name + "...";
+      vatStatusBadge.textContent = user.isVatRegistered === true ? "VAT Registered" : "Not VAT Registered";
+      vatStatusBadge.className = "vat-badge " + (user.isVatRegistered === true ? "registered" : "not-registered");
+      includeImagesInput.checked = true;
+      setModalDataTab("receipts");
       confirmDateBtn.disabled = true;
       resetNotifyBtn.style.display = "inline-block";
       refreshProcessedButtonState();
@@ -2500,6 +2633,10 @@
       dateModal.style.display = "none";
       selectedUser = null;
       resetNotifyBtn.style.display = "none";
+      vatStatusBadge.textContent = "";
+      vatStatusBadge.className = "vat-badge";
+      receiptsDataPanel.innerHTML = "";
+      incomeDataPanel.innerHTML = "";
       if (periodSummary) {
         periodSummary.textContent = "Select a period to see record totals.";
       }
@@ -2857,7 +2994,7 @@
       return aoa;
     }
 
-    async function downloadUserData(user, selectedPeriod) {
+    async function downloadUserData(user, selectedPeriod, includeImages) {
       await ensureUserReceiptsLoaded(user);
       const startDate = selectedPeriod && selectedPeriod.startDate ? toLocalYmd(selectedPeriod.startDate) : null;
       const endDate = selectedPeriod && selectedPeriod.endDate ? toLocalYmd(selectedPeriod.endDate) : null;
@@ -2894,6 +3031,7 @@
             startDate,
             endDate,
             periodLabel: selectedPeriod ? selectedPeriod.label : "All time",
+            includeImages: includeImages === true,
           }),
           signal: controller.signal,
         });
@@ -3075,6 +3213,19 @@
       adminStatus.textContent = "Select a client to edit their details.";
     });
 
+    function setModalDataTab(tabName) {
+      const showingReceipts = tabName === "receipts";
+      receiptsDataTabBtn.classList.toggle("active", showingReceipts);
+      incomeDataTabBtn.classList.toggle("active", !showingReceipts);
+      receiptsDataTabBtn.setAttribute("aria-selected", String(showingReceipts));
+      incomeDataTabBtn.setAttribute("aria-selected", String(!showingReceipts));
+      receiptsDataPanel.classList.toggle("active", showingReceipts);
+      incomeDataPanel.classList.toggle("active", !showingReceipts);
+    }
+
+    receiptsDataTabBtn.addEventListener("click", () => setModalDataTab("receipts"));
+    incomeDataTabBtn.addEventListener("click", () => setModalDataTab("income"));
+
     cancelDateBtn.addEventListener("click", closeDateModal);
     periodSelect.addEventListener("change", renderPeriodSummary);
     resetNotifyBtn.addEventListener("click", async () => {
@@ -3101,7 +3252,7 @@
       statusLine.textContent = "Preparing ZIP export for " + targetUser.name + "...";
 
       try {
-        await downloadUserData(targetUser, selectedPeriod);
+        await downloadUserData(targetUser, selectedPeriod, includeImagesInput.checked);
         closeDateModal();
       } catch (error) {
         console.error("ZIP export failed", error);

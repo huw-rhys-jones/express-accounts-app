@@ -772,17 +772,19 @@ exports.exportClientZip = onRequest(
         });
       }
 
-      function calculateReceiptTotalsByCategory(receipts) {
+      function calculateReceiptTotalsByCategory(receipts, isVatRegistered) {
         return receipts.reduce(
           (acc, item) => {
             const category = (item.category || "Uncategorized").trim() || "Uncategorized";
             const amountPence = Math.round((Number(item.amount) || 0) * 100);
-            const vatAmount = Number.isFinite(Number(item.vatAmount))
-              ? Number(item.vatAmount)
-              : ((Number(item.amount) || 0) * (Number(item.vatRate) || 0)) /
-                (100 + (Number(item.vatRate) || 0) || 1);
             acc.overallPence += amountPence;
-            acc.totalVatPence += Math.round((Number(vatAmount) || 0) * 100);
+            if (isVatRegistered) {
+              const vatAmount = Number.isFinite(Number(item.vatAmount))
+                ? Number(item.vatAmount)
+                : ((Number(item.amount) || 0) * (Number(item.vatRate) || 0)) /
+                  (100 + (Number(item.vatRate) || 0) || 1);
+              acc.totalVatPence += Math.round((Number(vatAmount) || 0) * 100);
+            }
             acc.byCategoryPence[category] = (acc.byCategoryPence[category] || 0) + amountPence;
             return acc;
           },
@@ -790,12 +792,14 @@ exports.exportClientZip = onRequest(
         );
       }
 
-      function calculateIncomeTotals(entries) {
+      function calculateIncomeTotals(entries, isVatRegistered) {
         return entries.reduce(
           (acc, item) => {
             const label = (item.label || "Unlabelled").trim() || "Unlabelled";
             acc.totalAmountPence += Math.round((Number(item.amount) || 0) * 100);
-            acc.totalVatPence += Math.round((Number(item.vatAmount) || 0) * 100);
+            if (isVatRegistered) {
+              acc.totalVatPence += Math.round((Number(item.vatAmount) || 0) * 100);
+            }
             acc.byLabelPence[label] = (acc.byLabelPence[label] || 0) + Math.round((Number(item.amount) || 0) * 100);
             return acc;
           },
@@ -803,38 +807,46 @@ exports.exportClientZip = onRequest(
         );
       }
 
-      function buildReceiptWorkbookRows(receiptExportItems) {
+      function buildReceiptWorkbookRows(receiptExportItems, isVatRegistered, includeImages) {
         const rows = receiptExportItems.map((exportItem) => {
           const receipt = exportItem.entry;
-          const vatAmount = Number.isFinite(Number(receipt.vatAmount))
-            ? Number(receipt.vatAmount)
-            : ((Number(receipt.amount) || 0) * (Number(receipt.vatRate) || 0)) /
-              (100 + (Number(receipt.vatRate) || 0) || 1);
-          return [
+          const row = [
             exportItem.exportId,
             toMoney(receipt.amount),
-            toMoney(vatAmount),
-            `${receipt.vatRate || 0}%`,
             receipt.date,
             receipt.category,
-            exportItem.imageAttachments.map((attachment) => attachment.exportAttachmentId).join(", "),
-            String(exportItem.imageAttachments.length),
             toDateOnlyString(receipt.loggedAt),
           ];
+          if (isVatRegistered) {
+            row.splice(2, 0,
+              toMoney(Number.isFinite(Number(receipt.vatAmount)) ? receipt.vatAmount :
+                ((Number(receipt.amount) || 0) * (Number(receipt.vatRate) || 0)) /
+                (100 + (Number(receipt.vatRate) || 0) || 1)),
+              `${receipt.vatRate || 0}%`,
+            );
+          }
+          row.splice(row.length - 1, 0,
+            includeImages ? exportItem.imageAttachments.map((attachment) => attachment.exportAttachmentId).join(", ") : "",
+            includeImages ? String(exportItem.imageAttachments.length) : "0",
+          );
+          return row;
         });
 
-        const totals = calculateReceiptTotalsByCategory(receiptExportItems.map((item) => item.entry));
+        const totals = calculateReceiptTotalsByCategory(receiptExportItems.map((item) => item.entry), isVatRegistered);
         const categorySummaryRows = Object.entries(totals.byCategoryPence)
           .sort(([a], [b]) => a.localeCompare(b, undefined, {sensitivity: "base"}))
           .map(([categoryName, amountPence]) => [categoryName, toMoney(amountPence / 100)]);
 
+        const header = ["Item ID", "Amount"];
+        if (isVatRegistered) header.push("VAT Amount", "VAT Rate");
+        header.push("Date", "Category", "Image IDs", "Image Count", "Logged At");
         const aoa = [
-          ["Item ID", "Amount", "VAT Amount", "VAT Rate", "Date", "Category", "Image IDs", "Image Count", "Logged At"],
+          header,
           ...rows,
           [],
           ["Summary", ""],
           ["Total Amount", toMoney(totals.overallPence / 100)],
-          ["Total VAT Amount", toMoney(totals.totalVatPence / 100)],
+          ...(isVatRegistered ? [["Total VAT Amount", toMoney(totals.totalVatPence / 100)]] : []),
           ["", ""],
           ["Totals by Category", ""],
           ...categorySummaryRows,
@@ -847,36 +859,41 @@ exports.exportClientZip = onRequest(
         return aoa;
       }
 
-      function buildIncomeWorkbookRows(incomeExportItems) {
+      function buildIncomeWorkbookRows(incomeExportItems, isVatRegistered, includeImages) {
         const rows = incomeExportItems.map((exportItem) => {
           const entry = exportItem.entry;
-          return [
+          const row = [
             exportItem.exportId,
             toMoney(entry.amount),
-            toMoney(entry.vatAmount),
-            `${entry.vatRate || 0}%`,
             entry.date,
             entry.reference || "",
             entry.label || "",
             entry.notes || "",
-            exportItem.imageAttachments.map((attachment) => attachment.exportAttachmentId).join(", "),
-            String(exportItem.imageAttachments.length),
             toDateOnlyString(entry.loggedAt),
           ];
+          if (isVatRegistered) row.splice(2, 0, toMoney(entry.vatAmount), `${entry.vatRate || 0}%`);
+          row.splice(row.length - 1, 0,
+            includeImages ? exportItem.imageAttachments.map((attachment) => attachment.exportAttachmentId).join(", ") : "",
+            includeImages ? String(exportItem.imageAttachments.length) : "0",
+          );
+          return row;
         });
 
-        const totals = calculateIncomeTotals(incomeExportItems.map((item) => item.entry));
+        const totals = calculateIncomeTotals(incomeExportItems.map((item) => item.entry), isVatRegistered);
         const labelSummaryRows = Object.entries(totals.byLabelPence)
           .sort(([a], [b]) => a.localeCompare(b, undefined, {sensitivity: "base"}))
           .map(([label, amountPence]) => [label, toMoney(amountPence / 100)]);
 
+        const header = ["Item ID", "Amount"];
+        if (isVatRegistered) header.push("VAT Amount", "VAT Rate");
+        header.push("Date", "Reference", "Label", "Notes", "Image IDs", "Image Count", "Logged At");
         const aoa = [
-          ["Item ID", "Amount", "VAT Amount", "VAT Rate", "Date", "Reference", "Label", "Notes", "Image IDs", "Image Count", "Logged At"],
+          header,
           ...rows,
           [],
           ["Summary", ""],
           ["Total Amount", toMoney(totals.totalAmountPence / 100)],
-          ["Total VAT Amount", toMoney(totals.totalVatPence / 100)],
+          ...(isVatRegistered ? [["Total VAT Amount", toMoney(totals.totalVatPence / 100)]] : []),
           ["", ""],
           ["Totals by Label", ""],
           ...labelSummaryRows,
@@ -979,15 +996,22 @@ exports.exportClientZip = onRequest(
 
         const startDate = payload.startDate ? String(payload.startDate) : null;
         const endDate = payload.endDate ? String(payload.endDate) : null;
+        const includeImages = payload.includeImages !== false;
         debugState.request.startDate = startDate;
         debugState.request.endDate = endDate;
+        debugState.request.includeImages = includeImages;
 
         setStage("query-firestore");
-        const [receiptsSnapshot, incomeSnapshot, bankStatementsSnapshot] = await Promise.all([
+        const [receiptsSnapshot, incomeSnapshot, bankStatementsSnapshot, userSnapshot] = await Promise.all([
           admin.firestore().collection("receipts").where("userId", "==", targetUserId).get(),
           admin.firestore().collection("income").where("userId", "==", targetUserId).get(),
           admin.firestore().collection("bankStatements").where("userId", "==", targetUserId).get(),
+          admin.firestore().collection("users").doc(targetUserId).get(),
         ]);
+
+        const userProfile = userSnapshot.exists ? userSnapshot.data() || {} : {};
+        const isVatRegistered = userProfile.isVatRegistered === true ||
+          userProfile.taxProfile?.vat?.isRegistered === true;
 
         const receipts = receiptsSnapshot.docs.map((snap) => {
           const data = snap.data() || {};
@@ -1072,12 +1096,12 @@ exports.exportClientZip = onRequest(
         const workbook = XLSX.utils.book_new();
         XLSX.utils.book_append_sheet(
           workbook,
-          XLSX.utils.aoa_to_sheet(sanitizeWorksheetAoa(buildReceiptWorkbookRows(receiptExportItems))),
+          XLSX.utils.aoa_to_sheet(sanitizeWorksheetAoa(buildReceiptWorkbookRows(receiptExportItems, isVatRegistered, includeImages))),
           "Receipts",
         );
         XLSX.utils.book_append_sheet(
           workbook,
-          XLSX.utils.aoa_to_sheet(sanitizeWorksheetAoa(buildIncomeWorkbookRows(incomeExportItems))),
+          XLSX.utils.aoa_to_sheet(sanitizeWorksheetAoa(buildIncomeWorkbookRows(incomeExportItems, isVatRegistered, includeImages))),
           "Income",
         );
         XLSX.utils.book_append_sheet(
@@ -1117,28 +1141,30 @@ exports.exportClientZip = onRequest(
         const imageErrors = [];
         archive.append(workbookBuffer, {name: workbookFileName});
 
-        setStage("append-receipt-images");
-        for (const exportItem of receiptExportItems) {
-          for (const attachment of exportItem.imageAttachments) {
-            try {
-              const fileBuffer = await downloadAttachmentBuffer(attachment);
-              const ext = inferAttachmentExtension(attachment);
-              archive.append(fileBuffer, {name: `images/expenses/${sanitizeFileSegment(exportItem.exportId, "E")}-${attachment.exportAttachmentId.split("-")[1] || "1"}${ext}`});
-            } catch (error) {
-              imageErrors.push(`expense ${attachment.exportAttachmentId} failed: ${error.message || error}`);
+        if (includeImages) {
+          setStage("append-receipt-images");
+          for (const exportItem of receiptExportItems) {
+            for (const attachment of exportItem.imageAttachments) {
+              try {
+                const fileBuffer = await downloadAttachmentBuffer(attachment);
+                const ext = inferAttachmentExtension(attachment);
+                archive.append(fileBuffer, {name: `images/expenses/${sanitizeFileSegment(exportItem.exportId, "E")}-${attachment.exportAttachmentId.split("-")[1] || "1"}${ext}`});
+              } catch (error) {
+                imageErrors.push(`expense ${attachment.exportAttachmentId} failed: ${error.message || error}`);
+              }
             }
           }
-        }
 
-        setStage("append-income-images");
-        for (const exportItem of incomeExportItems) {
-          for (const attachment of exportItem.imageAttachments) {
-            try {
-              const fileBuffer = await downloadAttachmentBuffer(attachment);
-              const ext = inferAttachmentExtension(attachment);
-              archive.append(fileBuffer, {name: `images/income/${sanitizeFileSegment(exportItem.exportId, "I")}-${attachment.exportAttachmentId.split("-")[1] || "1"}${ext}`});
-            } catch (error) {
-              imageErrors.push(`income ${attachment.exportAttachmentId} failed: ${error.message || error}`);
+          setStage("append-income-images");
+          for (const exportItem of incomeExportItems) {
+            for (const attachment of exportItem.imageAttachments) {
+              try {
+                const fileBuffer = await downloadAttachmentBuffer(attachment);
+                const ext = inferAttachmentExtension(attachment);
+                archive.append(fileBuffer, {name: `images/income/${sanitizeFileSegment(exportItem.exportId, "I")}-${attachment.exportAttachmentId.split("-")[1] || "1"}${ext}`});
+              } catch (error) {
+                imageErrors.push(`income ${attachment.exportAttachmentId} failed: ${error.message || error}`);
+              }
             }
           }
         }
