@@ -808,7 +808,7 @@
     }
 
     .receipt-summary-table .col-category {
-      width: 36%;
+      width: auto;
     }
 
     @keyframes rise {
@@ -855,8 +855,7 @@
       .receipt-summary-table .col-amount,
       .receipt-summary-table .col-vat,
       .receipt-summary-table .col-rate,
-      .receipt-summary-table .col-date,
-      .receipt-summary-table .col-category {
+      .receipt-summary-table .col-date {
         width: auto;
       }
     }
@@ -2219,7 +2218,7 @@
         const top = Number(frame.top) / annotation.imageH * 100;
         const width = Number(frame.width) / annotation.imageW * 100;
         const height = Number(frame.height) / annotation.imageH * 100;
-        return "<div class='image-annotation-box' style='left:" + left + "%;top:" + top + "%;width:" + width + "%;height:" + height + "%;border-color:" + color + "><span class='image-annotation-label' style='background:" + color + ">" + label + "</span></div>";
+        return "<div class='image-annotation-box' style='left:" + left + "%;top:" + top + "%;width:" + width + "%;height:" + height + "%;border-color:" + color + "'><span class='image-annotation-label' style='background:" + color + "'>" + label + "</span></div>";
       }).join("");
     }
 
