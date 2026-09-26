@@ -925,7 +925,10 @@
           <h2>Client Activity Board</h2>
           <div id="loginInfo" class="subtext"></div>
         </div>
-        <button id="logOutBtn" type="button" class="btn-secondary">Log out</button>
+        <div class="actions" style="margin:0">
+          <button id="notifyAllUsersBtn" type="button" class="btn-secondary">Notify All Users</button>
+          <button id="logOutBtn" type="button" class="btn-secondary">Log out</button>
+        </div>
       </div>
 
       <div class="tabbar">
@@ -1102,6 +1105,7 @@
 
         <div class="modal-actions">
           <button id="resetNotifyBtn" type="button" class="btn-success" style="display:none">Mark As Processed</button>
+          <button id="notifySelectedUserBtn" type="button" class="btn-secondary">Send Notification</button>
           <button id="cancelDateBtn" type="button" class="btn-secondary">Cancel</button>
           <button id="confirmDateBtn" type="button" class="btn-primary">Download ZIP</button>
         </div>
@@ -1148,6 +1152,29 @@
     </div>
   </div>
 
+  <div id="notificationModal" class="modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="notificationModalTitle">
+    <div class="modal" style="width:min(560px, 96vw)">
+      <div class="modal-head">
+        <div class="modal-title-row">
+          <span id="notificationModalTitle">Send notification</span>
+          <button id="closeNotificationModalBtn" type="button" class="btn-secondary">Close</button>
+        </div>
+      </div>
+      <div class="modal-body">
+        <div id="notificationRecipient" class="period-summary"></div>
+        <label for="notificationTitleInput">Title</label>
+        <input id="notificationTitleInput" type="text" maxlength="80" value="Express Accounts" />
+        <label for="notificationBodyInput">Message</label>
+        <textarea id="notificationBodyInput" maxlength="240" placeholder="Write your notification message"></textarea>
+        <div id="notificationStatus" class="error" role="status"></div>
+        <div class="modal-actions">
+          <button id="cancelNotificationBtn" type="button" class="btn-secondary">Cancel</button>
+          <button id="sendNotificationBtn" type="button" class="btn-primary">Send Notification</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
   <script>
     const ALLOWED_EMAILS = ["info@caistec.com", "info@expressaccounts.biz", "catrin@expressaccounts.biz"];
 
@@ -1167,6 +1194,17 @@
     const loginInfo = document.getElementById("loginInfo");
     const statusLine = document.getElementById("statusLine");
     const logOutBtn = document.getElementById("logOutBtn");
+    const notifyAllUsersBtn = document.getElementById("notifyAllUsersBtn");
+    const notifySelectedUserBtn = document.getElementById("notifySelectedUserBtn");
+    const notificationModal = document.getElementById("notificationModal");
+    const notificationModalTitle = document.getElementById("notificationModalTitle");
+    const notificationRecipient = document.getElementById("notificationRecipient");
+    const notificationTitleInput = document.getElementById("notificationTitleInput");
+    const notificationBodyInput = document.getElementById("notificationBodyInput");
+    const notificationStatus = document.getElementById("notificationStatus");
+    const sendNotificationBtn = document.getElementById("sendNotificationBtn");
+    const closeNotificationModalBtn = document.getElementById("closeNotificationModalBtn");
+    const cancelNotificationBtn = document.getElementById("cancelNotificationBtn");
     const activityTabBtn = document.getElementById("activityTabBtn");
     const managementTabBtn = document.getElementById("managementTabBtn");
     const adminTabBtn = document.getElementById("adminTabBtn");
@@ -1236,6 +1274,7 @@
     let receiptCountLoadRun = 0;
     let activeImageModalEntry = null;
     let lightboxScale = 1;
+    let notificationTargetUserIds = [];
 
     // Inactivity timeout: sign out after 30 minutes of no mouse/keyboard activity
     const INACTIVITY_TIMEOUT_MS = 30 * 60 * 1000;
@@ -3084,6 +3123,78 @@
       }
     }
 
+    function openNotificationComposer(user) {
+      const targetIds = user ? [user.id] : Array.from(new Set(liveUsers.map((entry) => entry.id).filter(Boolean)));
+      if (!targetIds.length) {
+        statusLine.textContent = "No users are available to notify.";
+        return;
+      }
+
+      notificationTargetUserIds = targetIds;
+      notificationModalTitle.textContent = user ? "Notify " + user.name : "Notify all users";
+      notificationRecipient.textContent = user
+        ? "This notification will be sent to " + user.name + "."
+        : "This notification will be sent to all " + targetIds.length + " users.";
+      notificationStatus.textContent = "";
+      notificationBodyInput.value = "";
+      sendNotificationBtn.disabled = false;
+      sendNotificationBtn.textContent = "Send Notification";
+      notificationModal.style.display = "flex";
+      notificationTitleInput.focus();
+    }
+
+    function closeNotificationComposer() {
+      notificationModal.style.display = "none";
+      notificationTargetUserIds = [];
+      notificationStatus.textContent = "";
+    }
+
+    async function sendPortalNotification() {
+      if (!currentAccountant || notificationTargetUserIds.length === 0) {
+        notificationStatus.textContent = "Sign in and select at least one recipient.";
+        return;
+      }
+
+      const title = notificationTitleInput.value.trim();
+      const body = notificationBodyInput.value.trim();
+      if (!title || !body) {
+        notificationStatus.textContent = "Enter both a title and message.";
+        return;
+      }
+
+      sendNotificationBtn.disabled = true;
+      sendNotificationBtn.textContent = "Sending...";
+      notificationStatus.textContent = "Sending notification...";
+      try {
+        const idToken = await auth.currentUser.getIdToken();
+        const response = await fetch("/portal-send-test-notification", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: "Bearer " + idToken,
+          },
+          body: JSON.stringify({
+            userIds: notificationTargetUserIds,
+            title,
+            body,
+            action: "open-summary",
+          }),
+        });
+        const result = await response.json().catch(() => ({}));
+        if (!response.ok) {
+          throw new Error(result.error || "Notification send failed (HTTP " + response.status + ")");
+        }
+
+        notificationStatus.textContent = "Sent to " + Number(result.sent || 0) +
+          " device(s) across " + Number(result.targetedUsers || notificationTargetUserIds.length) + " user(s).";
+      } catch (error) {
+        notificationStatus.textContent = "Could not send notification: " + (error && error.message ? error.message : String(error));
+      } finally {
+        sendNotificationBtn.disabled = false;
+        sendNotificationBtn.textContent = "Send Notification";
+      }
+    }
+
     async function openDateModal(user) {
       selectedUser = user;
       const periods = buildExportPeriodOptions(new Date());
@@ -3666,6 +3777,7 @@
       passwordInput.value = "";
       statusLine.textContent = "Select a client tile to export receipt, income, and bank statement data.";
       closeDateModal();
+      closeNotificationComposer();
       liveUsers = [];
       currentAccountant = null;
       previousLoginDate = null;
@@ -3693,6 +3805,16 @@
     activityTabBtn.addEventListener("click", () => setActiveTab("activity"));
     managementTabBtn.addEventListener("click", () => setActiveTab("management"));
     adminTabBtn.addEventListener("click", () => setActiveTab("admin"));
+    notifyAllUsersBtn.addEventListener("click", () => openNotificationComposer(null));
+    notifySelectedUserBtn.addEventListener("click", () => {
+      if (selectedUser) openNotificationComposer(selectedUser);
+    });
+    sendNotificationBtn.addEventListener("click", sendPortalNotification);
+    closeNotificationModalBtn.addEventListener("click", closeNotificationComposer);
+    cancelNotificationBtn.addEventListener("click", closeNotificationComposer);
+    notificationModal.addEventListener("click", (event) => {
+      if (event.target === notificationModal) closeNotificationComposer();
+    });
     generateCodesBtn.addEventListener("click", generateVerificationCodes);
     sendAllEmailsBtn.addEventListener("click", () => sendAllEmails(sendAllEmailsBtn._rows || []));
     clearManagementBtn.addEventListener("click", clearManagementInputs);
