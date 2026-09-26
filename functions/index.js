@@ -610,6 +610,47 @@ exports.updatePortalRecordReview = onRequest({region: OCR_FUNCTION_REGION, timeo
   });
 });
 
+exports.updatePortalReceipt = onRequest({region: OCR_FUNCTION_REGION, timeoutSeconds: 60}, (req, res) => {
+  cors(req, res, async () => {
+    if (req.method === "OPTIONS") return res.status(204).send("");
+    if (req.method !== "POST") return res.status(405).json({error: "Method Not Allowed"});
+
+    try {
+      const decodedToken = await verifyAuthenticatedUser(req);
+      if (!isAccountantEmail(decodedToken.email)) {
+        return res.status(403).json({error: "Only accountant users may edit receipt records."});
+      }
+
+      const payload = req.body || {};
+      const recordId = String(payload.recordId || "").trim();
+      const amount = Number(payload.amount);
+      const date = String(payload.date || "").trim();
+      const category = String(payload.category || "").trim();
+      if (!recordId || !Number.isFinite(amount) || amount < 0 || !/^\d{4}-\d{2}-\d{2}$/.test(date) || !category) {
+        return res.status(400).json({error: "Enter a valid receipt ID, amount, date, and category."});
+      }
+
+      const normalizedDate = new Date(`${date}T12:00:00.000Z`);
+      if (Number.isNaN(normalizedDate.getTime()) || normalizedDate.toISOString().slice(0, 10) !== date) {
+        return res.status(400).json({error: "Receipt date is invalid."});
+      }
+
+      await admin.firestore().collection("receipts").doc(recordId).set({
+        amount,
+        date: normalizedDate.toISOString(),
+        category,
+        updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+      }, {merge: true});
+
+      return res.status(200).json({ok: true});
+    } catch (error) {
+      console.error("Portal receipt update failed", error);
+      const statusCode = error && error.statusCode ? error.statusCode : 500;
+      return res.status(statusCode).json({error: statusCode === 401 ? error.message : "Could not update receipt."});
+    }
+  });
+});
+
 exports.exportClientZip = onRequest(
   {
     region: OCR_FUNCTION_REGION,
@@ -1030,9 +1071,11 @@ exports.exportClientZip = onRequest(
         const startDate = payload.startDate ? String(payload.startDate) : null;
         const endDate = payload.endDate ? String(payload.endDate) : null;
         const includeImages = payload.includeImages !== false;
+        const includeOnlyChecked = payload.includeOnlyChecked === true;
         debugState.request.startDate = startDate;
         debugState.request.endDate = endDate;
         debugState.request.includeImages = includeImages;
+        debugState.request.includeOnlyChecked = includeOnlyChecked;
 
         setStage("query-firestore");
         const [receiptsSnapshot, incomeSnapshot, bankStatementsSnapshot, userSnapshot] = await Promise.all([
@@ -1057,6 +1100,7 @@ exports.exportClientZip = onRequest(
             date: data.date ? String(data.date).split("T")[0] : "",
             category: data.category || "Uncategorized",
             attachments: mergeAttachmentSources(data.attachments, data.images),
+            accountantChecked: data.accountantChecked === true,
             loggedAt: createdDate ? createdDate.toISOString() : (data.date || ""),
           };
         });
@@ -1074,6 +1118,7 @@ exports.exportClientZip = onRequest(
             label: data.label || "",
             notes: data.notes || "",
             attachments: normalizeAttachments(data.attachments),
+            accountantChecked: data.accountantChecked === true,
             loggedAt: createdDate ? createdDate.toISOString() : (data.date || ""),
           };
         });
@@ -1104,8 +1149,10 @@ exports.exportClientZip = onRequest(
           };
         });
 
-        const filteredReceipts = filterEntriesByPeriod(receipts, startDate, endDate, (receipt) => receipt.date);
-        const filteredIncome = filterEntriesByPeriod(income, startDate, endDate, (entry) => entry.date);
+        const periodReceipts = filterEntriesByPeriod(receipts, startDate, endDate, (receipt) => receipt.date);
+        const periodIncome = filterEntriesByPeriod(income, startDate, endDate, (entry) => entry.date);
+        const filteredReceipts = includeOnlyChecked ? periodReceipts.filter((entry) => entry.accountantChecked) : periodReceipts;
+        const filteredIncome = includeOnlyChecked ? periodIncome.filter((entry) => entry.accountantChecked) : periodIncome;
         const filteredStatements = filterEntriesByPeriod(
           bankStatements,
           startDate,

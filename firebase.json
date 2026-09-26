@@ -86,6 +86,13 @@
         }
       },
       {
+        "source": "/portal-update-receipt",
+        "function": {
+          "functionId": "updatePortalReceipt",
+          "region": "europe-west2"
+        }
+      },
+      {
         "source": "/export-client-zip",
         "function": {
           "functionId": "exportClientZip",

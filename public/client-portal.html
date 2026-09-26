@@ -660,6 +660,44 @@
       flex-wrap: wrap;
     }
 
+    .image-modal-title-actions {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+
+    .image-record-summary.receipt-edit-grid {
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+    }
+
+    .image-record-summary label {
+      display: block;
+      color: #17324d;
+      font-size: 0.76rem;
+      text-transform: uppercase;
+    }
+
+    .image-record-summary input,
+    .image-record-summary select {
+      width: 100%;
+      min-width: 0;
+      margin-top: 4px;
+      padding: 7px 8px;
+      border: 1px solid #cbd9e8;
+      border-radius: 6px;
+      background: #fff;
+      color: #17324d;
+      font: inherit;
+      font-size: 0.9rem;
+    }
+
+    @media (max-width: 640px) {
+      .image-record-summary.receipt-edit-grid {
+        grid-template-columns: 1fr;
+      }
+    }
+
     .image-gallery {
       display: grid;
       grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
@@ -1114,6 +1152,10 @@
           <input id="includeImagesInput" type="checkbox" />
           Include receipt/income images in download
         </label>
+        <label class="download-images-option" for="includeOnlyCheckedInput">
+          <input id="includeOnlyCheckedInput" type="checkbox" />
+          Include only checked items in download
+        </label>
 
         <div class="modal-actions">
           <button id="resetNotifyBtn" type="button" class="btn-success" style="display:none">Mark As Processed</button>
@@ -1130,7 +1172,11 @@
       <div class="modal-head">
         <div class="modal-title-row">
           <span id="imageModalTitle">Uploaded images</span>
-          <button id="closeImageModalBtn" type="button" class="btn-secondary">Close</button>
+          <div class="image-modal-title-actions">
+            <button id="previousReceiptBtn" type="button" class="btn-secondary" style="display:none">Previous</button>
+            <button id="nextReceiptBtn" type="button" class="btn-secondary" style="display:none">Next</button>
+            <button id="closeImageModalBtn" type="button" class="btn-secondary">Close</button>
+          </div>
         </div>
       </div>
       <div class="modal-body">
@@ -1148,6 +1194,8 @@
         </label>
         <div id="imageGallery" class="image-gallery"></div>
         <div class="modal-actions">
+          <button id="receiptResetBtn" type="button" class="btn-secondary" style="display:none">Reset</button>
+          <button id="receiptSaveBtn" type="button" class="btn-primary" style="display:none" disabled>Save Changes</button>
           <button id="closeImageModalActionBtn" type="button" class="btn-secondary">Close</button>
         </div>
       </div>
@@ -1266,11 +1314,16 @@
     const receiptsDataPanel = document.getElementById("receiptsDataPanel");
     const incomeDataPanel = document.getElementById("incomeDataPanel");
     const includeImagesInput = document.getElementById("includeImagesInput");
+    const includeOnlyCheckedInput = document.getElementById("includeOnlyCheckedInput");
     const imageModal = document.getElementById("imageModal");
     const imageModalTitle = document.getElementById("imageModalTitle");
     const imageModalStatus = document.getElementById("imageModalStatus");
     const imageRecordSummary = document.getElementById("imageRecordSummary");
     const imageModalCheckedInput = document.getElementById("imageModalCheckedInput");
+    const previousReceiptBtn = document.getElementById("previousReceiptBtn");
+    const nextReceiptBtn = document.getElementById("nextReceiptBtn");
+    const receiptResetBtn = document.getElementById("receiptResetBtn");
+    const receiptSaveBtn = document.getElementById("receiptSaveBtn");
     const imageGallery = document.getElementById("imageGallery");
     const showAnnotationsInput = document.getElementById("showAnnotationsInput");
     const closeImageModalBtn = document.getElementById("closeImageModalBtn");
@@ -1295,6 +1348,35 @@
     let activeImageModalEntry = null;
     let lightboxScale = 1;
     let lightboxAnnotation = null;
+    let receiptEditOriginal = null;
+    let receiptEditSaving = false;
+    const RECEIPT_CATEGORIES = [
+      "Fuel",
+      "Vehicle Costs and Maintenance",
+      "Vehicle Hire",
+      "Travel (bus, train, taxi)",
+      "Accommodation",
+      "Subsistence",
+      "Parking",
+      "Plant & Machinery Hire",
+      "Materials",
+      "Tools and Equipment",
+      "Client Entertaining",
+      "Business Rental",
+      "Waste Disposal",
+      "Telephone",
+      "Software",
+      "Business Insurance",
+      "Training costs",
+      "Professional Fees",
+      "Trade Subscriptions",
+      "Utilities",
+      "Cleaning and Upkeep",
+      "Sundry items",
+      "Postage",
+      "Stationary",
+      "Uncategorized",
+    ];
     let notificationTargetUserIds = [];
 
     // Inactivity timeout: sign out after 30 minutes of no mouse/keyboard activity
@@ -2243,13 +2325,139 @@
       return null;
     }
 
+    function getReceiptEditValues() {
+      return {
+        amount: document.getElementById("receiptEditAmount")?.value.trim() || "",
+        date: document.getElementById("receiptEditDate")?.value || "",
+        category: document.getElementById("receiptEditCategory")?.value || "",
+      };
+    }
+
+    function updateReceiptEditButtons() {
+      if (!receiptEditOriginal) return;
+      const current = getReceiptEditValues();
+      const isDirty = current.amount !== receiptEditOriginal.amount ||
+        current.date !== receiptEditOriginal.date || current.category !== receiptEditOriginal.category;
+      receiptSaveBtn.disabled = !isDirty || receiptEditSaving;
+      receiptResetBtn.disabled = !isDirty || receiptEditSaving;
+    }
+
     function renderImageRecordSummary(entry, kind) {
-      const label = kind === "income" ? (entry.label || entry.reference || "Unlabelled") : (entry.category || "Uncategorized");
-      imageRecordSummary.innerHTML =
-        "<div><strong>Amount</strong>" + escHtml(toMoney(entry.amount)) + "</div>" +
-        "<div><strong>Date</strong>" + escHtml(toDateOnlyString(entry.date)) + "</div>" +
-        "<div><strong>Category / Source</strong>" + escHtml(label) + "</div>" +
-        (entry.notes ? "<div><strong>Notes</strong>" + escHtml(entry.notes) + "</div>" : "");
+      if (kind === "receipt") {
+        const selectedDate = String(entry.date || "").slice(0, 10);
+        receiptEditOriginal = {
+          amount: String(Number(entry.amount) || 0),
+          date: selectedDate,
+          category: entry.category || "Uncategorized",
+        };
+        const categories = Array.from(new Set([...RECEIPT_CATEGORIES, receiptEditOriginal.category]));
+        imageRecordSummary.classList.add("receipt-edit-grid");
+        imageRecordSummary.innerHTML =
+          "<label>Amount<input id='receiptEditAmount' type='number' min='0' step='0.01' value='" + escHtml(receiptEditOriginal.amount) + "'></label>" +
+          "<label>Date<input id='receiptEditDate' type='date' value='" + escHtml(receiptEditOriginal.date) + "'></label>" +
+          "<label>Category<select id='receiptEditCategory'>" + categories.map((category) =>
+            "<option value='" + escHtml(category) + "'" + (category === receiptEditOriginal.category ? " selected" : "") + ">" + escHtml(category) + "</option>"
+          ).join("") + "</select></label>";
+        imageRecordSummary.querySelectorAll("input, select").forEach((field) => {
+          field.addEventListener("input", updateReceiptEditButtons);
+          field.addEventListener("change", updateReceiptEditButtons);
+        });
+        receiptResetBtn.style.display = "inline-flex";
+        receiptSaveBtn.style.display = "inline-flex";
+        updateReceiptEditButtons();
+      } else {
+        receiptEditOriginal = null;
+        receiptResetBtn.style.display = "none";
+        receiptSaveBtn.style.display = "none";
+        imageRecordSummary.classList.remove("receipt-edit-grid");
+        const label = entry.label || entry.reference || "Unlabelled";
+        imageRecordSummary.innerHTML =
+          "<div><strong>Amount</strong>" + escHtml(toMoney(entry.amount)) + "</div>" +
+          "<div><strong>Date</strong>" + escHtml(toDateOnlyString(entry.date)) + "</div>" +
+          "<div><strong>Category / Source</strong>" + escHtml(label) + "</div>" +
+          (entry.notes ? "<div><strong>Notes</strong>" + escHtml(entry.notes) + "</div>" : "");
+      }
+    }
+
+    function getReceiptNavigationEntries() {
+      if (!selectedUser) return [];
+      const period = getSelectedExportPeriod();
+      return buildPeriodSnapshot(selectedUser, period).filteredReceipts;
+    }
+
+    function updateReceiptNavigationButtons(kind, entry) {
+      const isReceipt = kind === "receipt";
+      previousReceiptBtn.style.display = isReceipt ? "inline-flex" : "none";
+      nextReceiptBtn.style.display = isReceipt ? "inline-flex" : "none";
+      if (!isReceipt) return;
+      const receipts = getReceiptNavigationEntries();
+      const index = receipts.findIndex((receipt) => receipt.id === entry.id);
+      previousReceiptBtn.disabled = receiptEditSaving || index <= 0;
+      nextReceiptBtn.disabled = receiptEditSaving || index < 0 || index >= receipts.length - 1;
+    }
+
+    function navigateReceipt(offset) {
+      if (!activeImageModalEntry || activeImageModalEntry._portalEntryKind !== "receipt") return;
+      if (receiptSaveBtn.disabled === false && !confirm("Discard unsaved receipt changes?")) return;
+      const receipts = getReceiptNavigationEntries();
+      const index = receipts.findIndex((receipt) => receipt.id === activeImageModalEntry.id);
+      const nextReceipt = receipts[index + offset];
+      if (nextReceipt) openImageModal("receipt", nextReceipt.id);
+    }
+
+    async function resetReceiptEdits() {
+      if (!activeImageModalEntry || !receiptEditOriginal) return;
+      document.getElementById("receiptEditAmount").value = receiptEditOriginal.amount;
+      document.getElementById("receiptEditDate").value = receiptEditOriginal.date;
+      document.getElementById("receiptEditCategory").value = receiptEditOriginal.category;
+      updateReceiptEditButtons();
+    }
+
+    async function saveReceiptEdits() {
+      if (!activeImageModalEntry || !receiptEditOriginal) return;
+      const values = getReceiptEditValues();
+      const amount = Number(values.amount);
+      if (!values.amount || !Number.isFinite(amount) || amount < 0 || !values.date || !values.category) {
+        imageModalStatus.textContent = "Enter a valid amount, date, and category before saving.";
+        return;
+      }
+
+      receiptEditSaving = true;
+      updateReceiptEditButtons();
+      imageModalStatus.textContent = "Saving receipt changes...";
+      try {
+        const idToken = await auth.currentUser.getIdToken();
+        const response = await fetch("/portal-update-receipt", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: "Bearer " + idToken,
+          },
+          body: JSON.stringify({
+            recordId: activeImageModalEntry.id,
+            amount,
+            date: values.date,
+            category: values.category,
+          }),
+        });
+        if (!response.ok) {
+          const errorPayload = await response.json().catch(() => ({}));
+          throw new Error(errorPayload.error || "Receipt update failed (HTTP " + response.status + ")");
+        }
+
+        activeImageModalEntry.amount = amount;
+        activeImageModalEntry.date = values.date;
+        activeImageModalEntry.category = values.category;
+        renderImageRecordSummary(activeImageModalEntry, "receipt");
+        document.getElementById("modalTitle").textContent = "Export data for " + selectedUser.name;
+        renderPeriodSummary();
+        imageModalStatus.textContent = "Receipt changes saved.";
+      } catch (error) {
+        imageModalStatus.textContent = "Could not save receipt: " + (error && error.message ? error.message : String(error));
+      } finally {
+        receiptEditSaving = false;
+        updateReceiptEditButtons();
+      }
     }
 
     async function loadAttachmentBlob(attachment) {
@@ -2351,6 +2559,8 @@
       if (!entry) return;
       activeImageModalEntry = entry;
       activeImageModalEntry._portalEntryKind = kind;
+      receiptEditSaving = false;
+      updateReceiptNavigationButtons(kind, entry);
       imageModalTitle.textContent = (kind === "income" ? "Income" : "Receipt / Expense") + " images for " + (entry.date || "record");
       imageModalStatus.textContent = "Loading images...";
       imageGallery.innerHTML = "";
@@ -2407,6 +2617,9 @@
       imageGallery.replaceChildren();
       imageRecordSummary.replaceChildren();
       activeImageModalEntry = null;
+      receiptEditOriginal = null;
+      receiptSaveBtn.style.display = "none";
+      receiptResetBtn.style.display = "none";
     }
 
     function refreshImageAnnotations() {
@@ -3280,6 +3493,7 @@
       vatStatusBadge.textContent = user.isVatRegistered === true ? "VAT Registered" : "Not VAT Registered";
       vatStatusBadge.className = "vat-badge " + (user.isVatRegistered === true ? "registered" : "not-registered");
       includeImagesInput.checked = false;
+      includeOnlyCheckedInput.checked = false;
       setModalDataTab("receipts");
       confirmDateBtn.disabled = true;
       resetNotifyBtn.style.display = "inline-block";
@@ -3668,11 +3882,17 @@
       return aoa;
     }
 
-    async function downloadUserData(user, selectedPeriod, includeImages) {
+    async function downloadUserData(user, selectedPeriod, includeImages, includeOnlyChecked) {
       await ensureUserReceiptsLoaded(user);
       const startDate = selectedPeriod && selectedPeriod.startDate ? toLocalYmd(selectedPeriod.startDate) : null;
       const endDate = selectedPeriod && selectedPeriod.endDate ? toLocalYmd(selectedPeriod.endDate) : null;
       const snapshot = buildPeriodSnapshot(user, selectedPeriod);
+      if (includeOnlyChecked) {
+        snapshot.filteredReceipts = snapshot.filteredReceipts.filter((entry) => entry.accountantChecked === true);
+        snapshot.filteredIncome = snapshot.filteredIncome.filter((entry) => entry.accountantChecked === true);
+        snapshot.receiptImages = countImageAttachments(snapshot.filteredReceipts);
+        snapshot.incomeImages = countImageAttachments(snapshot.filteredIncome);
+      }
       const filteredReceipts = snapshot.filteredReceipts;
       const filteredIncome = snapshot.filteredIncome;
       const filteredStatements = snapshot.filteredStatements;
@@ -3706,6 +3926,7 @@
             endDate,
             periodLabel: selectedPeriod ? selectedPeriod.label : "All time",
             includeImages: includeImages === true,
+            includeOnlyChecked: includeOnlyChecked === true,
           }),
           signal: controller.signal,
         });
@@ -3910,6 +4131,10 @@
 
     receiptsDataTabBtn.addEventListener("click", () => setModalDataTab("receipts"));
     incomeDataTabBtn.addEventListener("click", () => setModalDataTab("income"));
+    previousReceiptBtn.addEventListener("click", () => navigateReceipt(-1));
+    nextReceiptBtn.addEventListener("click", () => navigateReceipt(1));
+    receiptResetBtn.addEventListener("click", resetReceiptEdits);
+    receiptSaveBtn.addEventListener("click", saveReceiptEdits);
     closeImageModalBtn.addEventListener("click", closeImageModal);
     closeImageModalActionBtn.addEventListener("click", closeImageModal);
     showAnnotationsInput.addEventListener("change", () => syncAnnotationToggles(showAnnotationsInput.checked));
@@ -3964,7 +4189,7 @@
       statusLine.textContent = "Preparing ZIP export for " + targetUser.name + "...";
 
       try {
-        await downloadUserData(targetUser, selectedPeriod, includeImagesInput.checked);
+        await downloadUserData(targetUser, selectedPeriod, includeImagesInput.checked, includeOnlyCheckedInput.checked);
         closeDateModal();
       } catch (error) {
         console.error("ZIP export failed", error);
