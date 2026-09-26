@@ -695,12 +695,11 @@
 
     .image-canvas {
       position: relative;
-      height: 100%;
-      max-width: 100%;
-      aspect-ratio: 1 / 1;
+      flex: 0 0 auto;
     }
 
     .image-canvas img {
+      display: block;
       width: 100%;
       height: 100%;
       object-fit: contain;
@@ -720,15 +719,22 @@
     .image-lightbox.open { display: flex; }
 
     .image-lightbox img {
-      max-width: 92vw;
-      max-height: 84vh;
+      display: block;
+      width: 100%;
+      height: 100%;
       object-fit: contain;
-      transform: scale(var(--lightbox-scale, 1));
-      transition: transform 0.15s ease;
       cursor: zoom-in;
     }
 
-    .image-lightbox.zoomed img { cursor: zoom-out; }
+    .image-lightbox-canvas {
+      position: relative;
+      flex: 0 0 auto;
+      transform: scale(var(--lightbox-scale, 1));
+      transition: transform 0.15s ease;
+    }
+
+    .image-lightbox-canvas img { cursor: zoom-in; }
+    .image-lightbox.zoomed .image-lightbox-canvas img { cursor: zoom-out; }
 
     .image-lightbox-close {
       position: absolute;
@@ -742,7 +748,13 @@
       position: absolute;
       bottom: 18px;
       display: flex;
+      align-items: center;
       gap: 8px;
+    }
+
+    .image-lightbox-controls .download-images-option {
+      color: #fff;
+      margin: 0 8px;
     }
 
     .image-record-summary {
@@ -1144,11 +1156,17 @@
 
   <div id="imageLightbox" class="image-lightbox" role="dialog" aria-modal="true" aria-label="Full screen image viewer">
     <button id="closeImageLightboxBtn" class="image-lightbox-close btn-secondary" type="button">Close</button>
-    <img id="imageLightboxImage" alt="Full screen uploaded image" />
+    <div id="imageLightboxCanvas" class="image-lightbox-canvas">
+      <img id="imageLightboxImage" alt="Full screen uploaded image" />
+    </div>
     <div class="image-lightbox-controls">
       <button id="zoomOutBtn" class="btn-secondary" type="button">-</button>
       <button id="zoomResetBtn" class="btn-secondary" type="button">Reset</button>
       <button id="zoomInBtn" class="btn-secondary" type="button">+</button>
+      <label class="download-images-option" for="lightboxAnnotationsInput">
+        <input id="lightboxAnnotationsInput" type="checkbox" checked />
+        Show annotations
+      </label>
     </div>
   </div>
 
@@ -1258,7 +1276,9 @@
     const closeImageModalBtn = document.getElementById("closeImageModalBtn");
     const closeImageModalActionBtn = document.getElementById("closeImageModalActionBtn");
     const imageLightbox = document.getElementById("imageLightbox");
+    const imageLightboxCanvas = document.getElementById("imageLightboxCanvas");
     const imageLightboxImage = document.getElementById("imageLightboxImage");
+    const lightboxAnnotationsInput = document.getElementById("lightboxAnnotationsInput");
     const closeImageLightboxBtn = document.getElementById("closeImageLightboxBtn");
     const zoomOutBtn = document.getElementById("zoomOutBtn");
     const zoomResetBtn = document.getElementById("zoomResetBtn");
@@ -1274,6 +1294,7 @@
     let receiptCountLoadRun = 0;
     let activeImageModalEntry = null;
     let lightboxScale = 1;
+    let lightboxAnnotation = null;
     let notificationTargetUserIds = [];
 
     // Inactivity timeout: sign out after 30 minutes of no mouse/keyboard activity
@@ -2243,40 +2264,86 @@
       return fetchAttachmentBlobViaProxy(attachment, idToken);
     }
 
-    function annotationOverlayHtml(annotation) {
+    function annotationOverlayHtml(annotation, canvasWidth, canvasHeight) {
       if (!annotation || !annotation.imageW || !annotation.imageH) return "";
+      if (!canvasWidth || !canvasHeight) return "";
       const labels = [
-        ["amount", "Amount", "#ff6d00"],
-        ["date", "Date", "#2e86de"],
-        ["vat", "VAT", "#1f7a3f"],
+        ["amount", "Amount", "#2E9F46"],
+        ["date", "Date", "#1A73E8"],
+        ["vat", "VAT", "#E06B6B"],
       ];
-      return labels.filter(([key]) => annotation[key]).map(([key, label, color]) => {
+      return labels.filter(([key]) => annotation[key] && (key !== "vat" || selectedUser?.isVatRegistered === true)).map(([key, label, color]) => {
         const frame = normalizeAnnotationFrame(annotation[key]);
         if (!frame) return "";
-        const left = Number(frame.left) / annotation.imageW * 100;
-        const top = Number(frame.top) / annotation.imageH * 100;
-        const width = Number(frame.width) / annotation.imageW * 100;
-        const height = Number(frame.height) / annotation.imageH * 100;
-        return "<div class='image-annotation-box' style='left:" + left + "%;top:" + top + "%;width:" + width + "%;height:" + height + "%;border-color:" + color + "'><span class='image-annotation-label' style='background:" + color + "'>" + label + "</span></div>";
+        const scale = Math.min(canvasWidth / annotation.imageW, canvasHeight / annotation.imageH);
+        const renderedWidth = annotation.imageW * scale;
+        const renderedHeight = annotation.imageH * scale;
+        const offsetX = (canvasWidth - renderedWidth) / 2;
+        const offsetY = (canvasHeight - renderedHeight) / 2;
+        const padding = 8;
+        const width = Math.min(Math.max(frame.width * scale + padding * 2, 64), canvasWidth);
+        const height = Math.min(Math.max(frame.height * scale + padding * 2, 26), canvasHeight);
+        const left = Math.max(0, Math.min(frame.left * scale + offsetX - padding, canvasWidth - width));
+        const top = Math.max(0, Math.min(frame.top * scale + offsetY - padding, canvasHeight - height));
+        const toPercent = (value, total) => (Math.max(0, value / total * 100)).toFixed(4) + "%";
+        return "<div class='image-annotation-box' style='left:" + toPercent(left, canvasWidth) + ";top:" + toPercent(top, canvasHeight) + ";width:" + toPercent(width, canvasWidth) + ";height:" + toPercent(height, canvasHeight) + ";border-color:" + color + "'><span class='image-annotation-label' style='background:" + color + "'>" + label + "</span></div>";
       }).join("");
     }
 
-    function openImageLightbox(image) {
+    function fitImageCanvas(canvas, image, annotation, maxWidth, maxHeight) {
+      const sourceWidth = Number(annotation && annotation.imageW) || image.naturalWidth;
+      const sourceHeight = Number(annotation && annotation.imageH) || image.naturalHeight;
+      if (!sourceWidth || !sourceHeight || !maxWidth || !maxHeight) return;
+      const scale = Math.min(maxWidth / sourceWidth, maxHeight / sourceHeight);
+      const width = sourceWidth * scale;
+      const height = sourceHeight * scale;
+      canvas.style.width = width + "px";
+      canvas.style.height = height + "px";
+      canvas.dataset.annotationHtml = annotationOverlayHtml(annotation, width, height);
+      if (showAnnotationsInput.checked && canvas.dataset.annotationHtml) {
+        canvas.insertAdjacentHTML("beforeend", canvas.dataset.annotationHtml);
+      }
+    }
+
+    async function openImageLightbox(image, annotation) {
       imageLightboxImage.src = image.src;
+      imageLightboxCanvas.querySelectorAll(".image-annotation-box").forEach((box) => box.remove());
       lightboxScale = 1;
+      lightboxAnnotation = annotation || null;
+      lightboxAnnotationsInput.checked = showAnnotationsInput.checked;
       imageLightbox.style.setProperty("--lightbox-scale", lightboxScale);
       imageLightbox.classList.add("open");
+      try {
+        await imageLightboxImage.decode();
+      } catch (error) {
+        // The image can still render even when decode() is unavailable or rejects.
+      }
+      fitImageCanvas(
+        imageLightboxCanvas,
+        imageLightboxImage,
+        lightboxAnnotation,
+        window.innerWidth * 0.92,
+        window.innerHeight * 0.84,
+      );
     }
 
     function closeImageLightbox() {
       imageLightbox.classList.remove("open");
       imageLightboxImage.removeAttribute("src");
+      imageLightboxCanvas.querySelectorAll(".image-annotation-box").forEach((box) => box.remove());
+      lightboxAnnotation = null;
     }
 
     function updateLightboxZoom(delta) {
       lightboxScale = Math.min(4, Math.max(1, lightboxScale + delta));
       imageLightbox.style.setProperty("--lightbox-scale", lightboxScale);
       imageLightbox.classList.toggle("zoomed", lightboxScale > 1);
+    }
+
+    function syncAnnotationToggles(show) {
+      showAnnotationsInput.checked = show;
+      lightboxAnnotationsInput.checked = show;
+      refreshImageAnnotations();
     }
 
     async function openImageModal(kind, id) {
@@ -2317,15 +2384,16 @@
           const image = document.createElement("img");
           image.src = objectUrl;
           image.alt = attachment.name;
-          image.addEventListener("click", () => openImageLightbox(image));
+          const annotation = getAnnotationEntries(entry, attachment);
+          image.addEventListener("click", () => openImageLightbox(image, annotation));
           canvas.appendChild(image);
           stage.replaceChildren(canvas);
-          const annotation = getAnnotationEntries(entry, attachment);
-          if (annotation && annotation.imageW && annotation.imageH) {
-            canvas.style.aspectRatio = annotation.imageW + " / " + annotation.imageH;
-            canvas.dataset.annotationHtml = annotationOverlayHtml(annotation);
-            if (showAnnotationsInput.checked) canvas.insertAdjacentHTML("beforeend", canvas.dataset.annotationHtml);
+          try {
+            await image.decode();
+          } catch (error) {
+            // The image dimensions may still be available from the load event.
           }
+          fitImageCanvas(canvas, image, annotation, stage.clientWidth, stage.clientHeight);
           loaded += 1;
         } catch (error) {
           card.querySelector(".image-viewer-stage").innerHTML = "<span style='color:#fff;padding:20px'>Could not load this image.</span>";
@@ -2348,6 +2416,10 @@
           canvas.insertAdjacentHTML("beforeend", canvas.dataset.annotationHtml);
         }
       });
+      imageLightboxCanvas.querySelectorAll(".image-annotation-box").forEach((box) => box.remove());
+      if (showAnnotationsInput.checked && lightboxAnnotation && imageLightboxCanvas.dataset.annotationHtml) {
+        imageLightboxCanvas.insertAdjacentHTML("beforeend", imageLightboxCanvas.dataset.annotationHtml);
+      }
     }
 
     function renderPeriodSummary() {
@@ -3840,7 +3912,8 @@
     incomeDataTabBtn.addEventListener("click", () => setModalDataTab("income"));
     closeImageModalBtn.addEventListener("click", closeImageModal);
     closeImageModalActionBtn.addEventListener("click", closeImageModal);
-    showAnnotationsInput.addEventListener("change", refreshImageAnnotations);
+    showAnnotationsInput.addEventListener("change", () => syncAnnotationToggles(showAnnotationsInput.checked));
+    lightboxAnnotationsInput.addEventListener("change", () => syncAnnotationToggles(lightboxAnnotationsInput.checked));
     imageModalCheckedInput.addEventListener("change", () => {
       if (!activeImageModalEntry) return;
       const kind = activeImageModalEntry._portalEntryKind || "receipt";
