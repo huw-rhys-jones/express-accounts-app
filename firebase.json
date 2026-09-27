@@ -86,9 +86,9 @@
         }
       },
       {
-        "source": "/portal-update-receipt",
+        "source": "/portal-update-record",
         "function": {
-          "functionId": "updatePortalReceipt",
+          "functionId": "updatePortalRecord",
           "region": "europe-west2"
         }
       },

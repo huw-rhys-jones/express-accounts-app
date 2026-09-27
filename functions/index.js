@@ -610,7 +610,7 @@ exports.updatePortalRecordReview = onRequest({region: OCR_FUNCTION_REGION, timeo
   });
 });
 
-exports.updatePortalReceipt = onRequest({region: OCR_FUNCTION_REGION, timeoutSeconds: 60}, (req, res) => {
+exports.updatePortalRecord = onRequest({region: OCR_FUNCTION_REGION, timeoutSeconds: 60}, (req, res) => {
   cors(req, res, async () => {
     if (req.method === "OPTIONS") return res.status(204).send("");
     if (req.method !== "POST") return res.status(405).json({error: "Method Not Allowed"});
@@ -622,12 +622,13 @@ exports.updatePortalReceipt = onRequest({region: OCR_FUNCTION_REGION, timeoutSec
       }
 
       const payload = req.body || {};
+      const kind = payload.kind === "income" ? "income" : payload.kind === "receipt" ? "receipt" : "";
       const recordId = String(payload.recordId || "").trim();
       const amount = Number(payload.amount);
       const date = String(payload.date || "").trim();
       const category = String(payload.category || "").trim();
-      if (!recordId || !Number.isFinite(amount) || amount < 0 || !/^\d{4}-\d{2}-\d{2}$/.test(date) || !category) {
-        return res.status(400).json({error: "Enter a valid receipt ID, amount, date, and category."});
+      if (!kind || !recordId || !Number.isFinite(amount) || amount < 0 || !/^\d{4}-\d{2}-\d{2}$/.test(date) || (kind === "receipt" && !category)) {
+        return res.status(400).json({error: "Enter valid record details before saving."});
       }
 
       const normalizedDate = new Date(`${date}T12:00:00.000Z`);
@@ -635,12 +636,31 @@ exports.updatePortalReceipt = onRequest({region: OCR_FUNCTION_REGION, timeoutSec
         return res.status(400).json({error: "Receipt date is invalid."});
       }
 
-      await admin.firestore().collection("receipts").doc(recordId).set({
+      const updates = {
         amount,
         date: normalizedDate.toISOString(),
-        category,
         updatedAt: admin.firestore.FieldValue.serverTimestamp(),
-      }, {merge: true});
+      };
+      if (kind === "receipt") {
+        updates.category = category;
+        updates.label = String(payload.label || "").trim();
+      } else {
+        updates.reference = String(payload.reference || "").trim();
+        updates.label = String(payload.label || "").trim();
+        updates.notes = String(payload.notes || "").trim();
+        if (payload.vatAmount != null || payload.vatRate != null) {
+          const vatAmount = Number(payload.vatAmount);
+          const vatRate = Number(payload.vatRate);
+          if (!Number.isFinite(vatAmount) || vatAmount < 0 || !Number.isFinite(vatRate) || vatRate < 0) {
+            return res.status(400).json({error: "VAT amount and rate must be valid non-negative numbers."});
+          }
+          updates.vatAmount = vatAmount;
+          updates.vatRate = vatRate;
+        }
+      }
+
+      const collectionName = kind === "income" ? "income" : "receipts";
+      await admin.firestore().collection(collectionName).doc(recordId).set(updates, {merge: true});
 
       return res.status(200).json({ok: true});
     } catch (error) {

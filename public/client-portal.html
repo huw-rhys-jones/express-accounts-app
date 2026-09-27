@@ -861,6 +861,12 @@
       width: auto;
     }
 
+    .receipt-summary-table .col-image-count {
+      width: 56px;
+      text-align: center;
+      font-variant-numeric: tabular-nums;
+    }
+
     @keyframes rise {
       from { opacity: 0; transform: translateY(10px); }
       to { opacity: 1; transform: translateY(0); }
@@ -905,7 +911,8 @@
       .receipt-summary-table .col-amount,
       .receipt-summary-table .col-vat,
       .receipt-summary-table .col-rate,
-      .receipt-summary-table .col-date {
+      .receipt-summary-table .col-date,
+      .receipt-summary-table .col-image-count {
         width: auto;
       }
     }
@@ -2041,6 +2048,7 @@
         vatAmount: data.vatAmount != null ? Number(data.vatAmount) : null,
         date: data.date ? String(data.date).split("T")[0] : "",
         category: data.category || "Uncategorized",
+        label: data.label || "",
         attachments: mergeAttachmentSources(data.attachments, data.images),
         imageAnnotations: data.imageAnnotations || {},
         accountantChecked: data.accountantChecked === true,
@@ -2166,13 +2174,16 @@
           const amount = toMoney(Number(receipt && receipt.amount) || 0);
           const dateValue = escHtml(toDateOnlyString(receipt && receipt.date));
           const category = escHtml((receipt && receipt.category) || "Uncategorized");
+          const label = escHtml(receipt && receipt.label || "");
+          const imageCount = countImageAttachments([receipt]);
           const vatCells = isVatRegistered
             ? "<td class='col-vat'>" + toMoney(computeReceiptVatAmount(receipt)) + "</td>" +
               "<td class='col-rate'>" + (Number(receipt && receipt.vatRate) || 0) + "%</td>"
             : "";
           return "<tr class='data-row " + (receipt.accountantChecked ? "accountant-checked" : "") + "' data-entry-kind='receipt' data-entry-id='" + encodeURIComponent(receipt.id) + "'><td class='checked-cell'><input type='checkbox' " + (receipt.accountantChecked ? "checked" : "") + " aria-label='Accountant checked' /></td><td class='col-amount'>" + amount + "</td>" + vatCells +
             "<td class='col-date'>" + dateValue + "</td>" +
-            "<td class='col-category'>" + category + "</td></tr>";
+            "<td class='col-category'>" + category + "</td>" +
+            "<td>" + label + "</td><td class='col-image-count'>" + imageCount + "</td></tr>";
         }).join("");
 
       const vatHeaders = isVatRegistered
@@ -2186,6 +2197,7 @@
         vatHeaders +
         "<th class='col-date'>Date</th>" +
         "<th class='col-category'>Category</th>" +
+        "<th>Label</th><th class='col-image-count'>Images</th>" +
         "</tr></thead>" +
         "<tbody>" + rows + "</tbody>" +
         "</table>" +
@@ -2205,10 +2217,13 @@
           ? "<td class='col-vat'>" + toMoney(Number(entry && entry.vatAmount) || 0) + "</td>" +
             "<td class='col-rate'>" + (Number(entry && entry.vatRate) || 0) + "%</td>"
           : "";
+        const imageCount = countImageAttachments([entry]);
         return "<tr class='data-row " + (entry.accountantChecked ? "accountant-checked" : "") + "' data-entry-kind='income' data-entry-id='" + encodeURIComponent(entry.id) + "'><td class='checked-cell'><input type='checkbox' " + (entry.accountantChecked ? "checked" : "") + " aria-label='Accountant checked' /></td><td class='col-amount'>" + toMoney(Number(entry && entry.amount) || 0) + "</td>" + vatCells +
           "<td class='col-date'>" + escHtml(toDateOnlyString(entry && entry.date)) + "</td>" +
-          "<td class='col-category'>" + escHtml(entry && (entry.label || entry.reference) || "Unlabelled") + "</td>" +
-          "<td>" + escHtml(entry && entry.notes || "") + "</td></tr>";
+          "<td class='col-category'>" + escHtml(entry && entry.reference || "") + "</td>" +
+          "<td>" + escHtml(entry && entry.label || "") + "</td>" +
+          "<td>" + escHtml(entry && entry.notes || "") + "</td>" +
+          "<td class='col-image-count'>" + imageCount + "</td></tr>";
       }).join("");
       const vatHeaders = isVatRegistered
         ? "<th class='col-vat'>VAT Amount</th><th class='col-rate'>VAT %</th>"
@@ -2216,7 +2231,7 @@
       return "<div class='receipt-summary-title'>Income</div>" +
         "<div class='receipt-summary-table-wrap'><table class='receipt-summary-table'><thead><tr>" +
         "<th class='checked-cell'><span title='Accountant checked' aria-label='Accountant checked'>✓</span></th><th class='col-amount'>Amount</th>" + vatHeaders +
-        "<th class='col-date'>Date</th><th class='col-category'>Source / Category</th><th>Notes</th>" +
+        "<th class='col-date'>Date</th><th class='col-category'>Reference</th><th>Label</th><th>Notes</th><th class='col-image-count'>Images</th>" +
         "</tr></thead><tbody>" + rows + "</tbody></table></div>";
     }
 
@@ -2326,18 +2341,29 @@
     }
 
     function getReceiptEditValues() {
-      return {
+      const values = {
         amount: document.getElementById("receiptEditAmount")?.value.trim() || "",
         date: document.getElementById("receiptEditDate")?.value || "",
-        category: document.getElementById("receiptEditCategory")?.value || "",
       };
+      if (activeImageModalEntry?._portalEntryKind === "receipt") {
+        values.category = document.getElementById("receiptEditCategory")?.value || "";
+        values.label = document.getElementById("receiptEditLabel")?.value.trim() || "";
+      } else {
+        values.reference = document.getElementById("incomeEditReference")?.value.trim() || "";
+        values.label = document.getElementById("incomeEditLabel")?.value.trim() || "";
+        values.notes = document.getElementById("incomeEditNotes")?.value.trim() || "";
+        if (document.getElementById("incomeEditVatAmount")) {
+          values.vatAmount = document.getElementById("incomeEditVatAmount").value.trim();
+          values.vatRate = document.getElementById("incomeEditVatRate").value.trim();
+        }
+      }
+      return values;
     }
 
     function updateReceiptEditButtons() {
       if (!receiptEditOriginal) return;
       const current = getReceiptEditValues();
-      const isDirty = current.amount !== receiptEditOriginal.amount ||
-        current.date !== receiptEditOriginal.date || current.category !== receiptEditOriginal.category;
+      const isDirty = Object.keys(receiptEditOriginal.values).some((key) => current[key] !== receiptEditOriginal.values[key]);
       receiptSaveBtn.disabled = !isDirty || receiptEditSaving;
       receiptResetBtn.disabled = !isDirty || receiptEditSaving;
     }
@@ -2346,18 +2372,23 @@
       if (kind === "receipt") {
         const selectedDate = String(entry.date || "").slice(0, 10);
         receiptEditOriginal = {
-          amount: String(Number(entry.amount) || 0),
-          date: selectedDate,
-          category: entry.category || "Uncategorized",
+          kind,
+          values: {
+            amount: String(Number(entry.amount) || 0),
+            date: selectedDate,
+            category: entry.category || "Uncategorized",
+            label: entry.label || "",
+          },
         };
-        const categories = Array.from(new Set([...RECEIPT_CATEGORIES, receiptEditOriginal.category]));
+        const categories = Array.from(new Set([...RECEIPT_CATEGORIES, receiptEditOriginal.values.category]));
         imageRecordSummary.classList.add("receipt-edit-grid");
         imageRecordSummary.innerHTML =
-          "<label>Amount<input id='receiptEditAmount' type='number' min='0' step='0.01' value='" + escHtml(receiptEditOriginal.amount) + "'></label>" +
-          "<label>Date<input id='receiptEditDate' type='date' value='" + escHtml(receiptEditOriginal.date) + "'></label>" +
+          "<label>Amount<input id='receiptEditAmount' type='number' min='0' step='0.01' value='" + escHtml(receiptEditOriginal.values.amount) + "'></label>" +
+          "<label>Date<input id='receiptEditDate' type='date' value='" + escHtml(receiptEditOriginal.values.date) + "'></label>" +
           "<label>Category<select id='receiptEditCategory'>" + categories.map((category) =>
-            "<option value='" + escHtml(category) + "'" + (category === receiptEditOriginal.category ? " selected" : "") + ">" + escHtml(category) + "</option>"
-          ).join("") + "</select></label>";
+            "<option value='" + escHtml(category) + "'" + (category === receiptEditOriginal.values.category ? " selected" : "") + ">" + escHtml(category) + "</option>"
+          ).join("") + "</select></label>" +
+          "<label>Label<input id='receiptEditLabel' type='text' value='" + escHtml(receiptEditOriginal.values.label) + "'></label>";
         imageRecordSummary.querySelectorAll("input, select").forEach((field) => {
           field.addEventListener("input", updateReceiptEditButtons);
           field.addEventListener("change", updateReceiptEditButtons);
@@ -2366,50 +2397,84 @@
         receiptSaveBtn.style.display = "inline-flex";
         updateReceiptEditButtons();
       } else {
-        receiptEditOriginal = null;
-        receiptResetBtn.style.display = "none";
-        receiptSaveBtn.style.display = "none";
-        imageRecordSummary.classList.remove("receipt-edit-grid");
-        const label = entry.label || entry.reference || "Unlabelled";
+        const values = {
+          amount: String(Number(entry.amount) || 0),
+          date: String(entry.date || "").slice(0, 10),
+          reference: entry.reference || "",
+          label: entry.label || "",
+          notes: entry.notes || "",
+        };
+        if (selectedUser?.isVatRegistered === true) {
+          values.vatAmount = String(Number(entry.vatAmount) || 0);
+          values.vatRate = String(Number(entry.vatRate) || 0);
+        }
+        receiptEditOriginal = { kind, values };
+        imageRecordSummary.classList.add("receipt-edit-grid");
         imageRecordSummary.innerHTML =
-          "<div><strong>Amount</strong>" + escHtml(toMoney(entry.amount)) + "</div>" +
-          "<div><strong>Date</strong>" + escHtml(toDateOnlyString(entry.date)) + "</div>" +
-          "<div><strong>Category / Source</strong>" + escHtml(label) + "</div>" +
-          (entry.notes ? "<div><strong>Notes</strong>" + escHtml(entry.notes) + "</div>" : "");
+          "<label>Amount<input id='receiptEditAmount' type='number' min='0' step='0.01' value='" + escHtml(values.amount) + "'></label>" +
+          "<label>Date<input id='receiptEditDate' type='date' value='" + escHtml(values.date) + "'></label>" +
+          "<label>Reference<input id='incomeEditReference' type='text' value='" + escHtml(values.reference) + "'></label>" +
+          "<label>Label<input id='incomeEditLabel' type='text' value='" + escHtml(values.label) + "'></label>" +
+          "<label>Notes<input id='incomeEditNotes' type='text' value='" + escHtml(values.notes) + "'></label>" +
+          (values.vatAmount != null
+            ? "<label>VAT Amount<input id='incomeEditVatAmount' type='number' min='0' step='0.01' value='" + escHtml(values.vatAmount) + "'></label>" +
+              "<label>VAT Rate (%)<input id='incomeEditVatRate' type='number' min='0' step='0.01' value='" + escHtml(values.vatRate) + "'></label>"
+            : "");
+        imageRecordSummary.querySelectorAll("input, select").forEach((field) => {
+          field.addEventListener("input", updateReceiptEditButtons);
+          field.addEventListener("change", updateReceiptEditButtons);
+        });
+        receiptResetBtn.style.display = "inline-flex";
+        receiptSaveBtn.style.display = "inline-flex";
+        updateReceiptEditButtons();
       }
     }
 
-    function getReceiptNavigationEntries() {
+    function getDataNavigationEntries(kind) {
       if (!selectedUser) return [];
       const period = getSelectedExportPeriod();
-      return buildPeriodSnapshot(selectedUser, period).filteredReceipts;
+      const snapshot = buildPeriodSnapshot(selectedUser, period);
+      return [...(kind === "income" ? snapshot.filteredIncome : snapshot.filteredReceipts)]
+        .sort((a, b) => String(a.date || "").localeCompare(String(b.date || "")));
     }
 
     function updateReceiptNavigationButtons(kind, entry) {
-      const isReceipt = kind === "receipt";
-      previousReceiptBtn.style.display = isReceipt ? "inline-flex" : "none";
-      nextReceiptBtn.style.display = isReceipt ? "inline-flex" : "none";
-      if (!isReceipt) return;
-      const receipts = getReceiptNavigationEntries();
-      const index = receipts.findIndex((receipt) => receipt.id === entry.id);
+      previousReceiptBtn.textContent = kind === "income" ? "Previous Income" : "Previous";
+      nextReceiptBtn.textContent = kind === "income" ? "Next Income" : "Next";
+      previousReceiptBtn.style.display = "inline-flex";
+      nextReceiptBtn.style.display = "inline-flex";
+      const entries = getDataNavigationEntries(kind);
+      const index = entries.findIndex((record) => record.id === entry.id);
       previousReceiptBtn.disabled = receiptEditSaving || index <= 0;
-      nextReceiptBtn.disabled = receiptEditSaving || index < 0 || index >= receipts.length - 1;
+      nextReceiptBtn.disabled = receiptEditSaving || index < 0 || index >= entries.length - 1;
     }
 
     function navigateReceipt(offset) {
-      if (!activeImageModalEntry || activeImageModalEntry._portalEntryKind !== "receipt") return;
+      if (!activeImageModalEntry) return;
       if (receiptSaveBtn.disabled === false && !confirm("Discard unsaved receipt changes?")) return;
-      const receipts = getReceiptNavigationEntries();
-      const index = receipts.findIndex((receipt) => receipt.id === activeImageModalEntry.id);
-      const nextReceipt = receipts[index + offset];
-      if (nextReceipt) openImageModal("receipt", nextReceipt.id);
+      const kind = activeImageModalEntry._portalEntryKind || "receipt";
+      const entries = getDataNavigationEntries(kind);
+      const index = entries.findIndex((entry) => entry.id === activeImageModalEntry.id);
+      const nextEntry = entries[index + offset];
+      if (nextEntry) openImageModal(kind, nextEntry.id);
     }
 
     async function resetReceiptEdits() {
       if (!activeImageModalEntry || !receiptEditOriginal) return;
-      document.getElementById("receiptEditAmount").value = receiptEditOriginal.amount;
-      document.getElementById("receiptEditDate").value = receiptEditOriginal.date;
-      document.getElementById("receiptEditCategory").value = receiptEditOriginal.category;
+      const values = receiptEditOriginal.values;
+      document.getElementById("receiptEditAmount").value = values.amount;
+      document.getElementById("receiptEditDate").value = values.date;
+      if (values.category != null) document.getElementById("receiptEditCategory").value = values.category;
+      if (values.label != null) {
+        const labelInput = document.getElementById(receiptEditOriginal.kind === "receipt" ? "receiptEditLabel" : "incomeEditLabel");
+        if (labelInput) labelInput.value = values.label;
+      }
+      if (values.reference != null) document.getElementById("incomeEditReference").value = values.reference;
+      if (values.notes != null) document.getElementById("incomeEditNotes").value = values.notes;
+      if (values.vatAmount != null) {
+        document.getElementById("incomeEditVatAmount").value = values.vatAmount;
+        document.getElementById("incomeEditVatRate").value = values.vatRate;
+      }
       updateReceiptEditButtons();
     }
 
@@ -2417,46 +2482,65 @@
       if (!activeImageModalEntry || !receiptEditOriginal) return;
       const values = getReceiptEditValues();
       const amount = Number(values.amount);
-      if (!values.amount || !Number.isFinite(amount) || amount < 0 || !values.date || !values.category) {
-        imageModalStatus.textContent = "Enter a valid amount, date, and category before saving.";
+      const kind = receiptEditOriginal.kind;
+      if (!values.amount || !Number.isFinite(amount) || amount < 0 || !values.date || (kind === "receipt" && !values.category)) {
+        imageModalStatus.textContent = "Enter a valid amount, date, and required details before saving.";
         return;
       }
 
       receiptEditSaving = true;
       updateReceiptEditButtons();
-      imageModalStatus.textContent = "Saving receipt changes...";
+      updateReceiptNavigationButtons(kind, activeImageModalEntry);
+      imageModalStatus.textContent = "Saving changes...";
       try {
         const idToken = await auth.currentUser.getIdToken();
-        const response = await fetch("/portal-update-receipt", {
+        const response = await fetch("/portal-update-record", {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
             Authorization: "Bearer " + idToken,
           },
           body: JSON.stringify({
+            kind,
             recordId: activeImageModalEntry.id,
             amount,
             date: values.date,
             category: values.category,
+            reference: values.reference,
+            label: values.label,
+            notes: values.notes,
+            ...(values.vatAmount != null ? { vatAmount: values.vatAmount, vatRate: values.vatRate } : {}),
           }),
         });
         if (!response.ok) {
           const errorPayload = await response.json().catch(() => ({}));
-          throw new Error(errorPayload.error || "Receipt update failed (HTTP " + response.status + ")");
+          throw new Error(errorPayload.error || "Record update failed (HTTP " + response.status + ")");
         }
 
         activeImageModalEntry.amount = amount;
         activeImageModalEntry.date = values.date;
-        activeImageModalEntry.category = values.category;
-        renderImageRecordSummary(activeImageModalEntry, "receipt");
+        if (kind === "receipt") {
+          activeImageModalEntry.category = values.category;
+          activeImageModalEntry.label = values.label;
+        } else {
+          activeImageModalEntry.reference = values.reference;
+          activeImageModalEntry.label = values.label;
+          activeImageModalEntry.notes = values.notes;
+          if (values.vatAmount != null) {
+            activeImageModalEntry.vatAmount = Number(values.vatAmount) || 0;
+            activeImageModalEntry.vatRate = Number(values.vatRate) || 0;
+          }
+        }
+        renderImageRecordSummary(activeImageModalEntry, kind);
         document.getElementById("modalTitle").textContent = "Export data for " + selectedUser.name;
         renderPeriodSummary();
-        imageModalStatus.textContent = "Receipt changes saved.";
+        imageModalStatus.textContent = "Changes saved.";
       } catch (error) {
-        imageModalStatus.textContent = "Could not save receipt: " + (error && error.message ? error.message : String(error));
+        imageModalStatus.textContent = "Could not save changes: " + (error && error.message ? error.message : String(error));
       } finally {
         receiptEditSaving = false;
         updateReceiptEditButtons();
+        updateReceiptNavigationButtons(kind, activeImageModalEntry);
       }
     }
 
