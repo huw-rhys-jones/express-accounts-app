@@ -3,6 +3,7 @@ import {
   ActivityIndicator,
   Alert,
   Image,
+  KeyboardAvoidingView,
   Linking,
   Modal,
   Pressable,
@@ -316,7 +317,7 @@ export default function SharedTabMenu({ navigation, closeMenu, displayName = "Us
       })
       .catch((error) => {
         console.error("Feedback Error:", error);
-        Alert.alert("Connection Error", "Could not reach the server. Please try again.");
+        Alert.alert("Couldn't send feedback", "Something went wrong sending your feedback. Please try again later.");
       });
   };
 
@@ -474,7 +475,8 @@ export default function SharedTabMenu({ navigation, closeMenu, displayName = "Us
 
           <TouchableOpacity
             onPress={() => {
-              closeMenu();
+              // Keep the menu open: this modal is rendered inside the side menu's Modal,
+              // so closing the menu would unmount it immediately.
               setFeedbackModalVisible(true);
             }}
             style={[styles.signOutLink, { marginTop: 12, marginBottom: 0 }]}
@@ -515,8 +517,8 @@ export default function SharedTabMenu({ navigation, closeMenu, displayName = "Us
         </View>
       </Modal>
 
-      <Modal visible={feedbackModalVisible} transparent animationType="slide" onRequestClose={() => setFeedbackModalVisible(false)}>
-        <View style={styles.modalOverlay}>
+      <Modal visible={feedbackModalVisible} transparent animationType="slide" statusBarTranslucent onRequestClose={() => setFeedbackModalVisible(false)}>
+        <KeyboardAvoidingView style={styles.modalOverlay} behavior="padding">
           <View style={styles.loadingCard}>
             <Text style={styles.title}>Send Feedback</Text>
             <Text style={{ textAlign: "center", marginVertical: 10, color: Colors.textPrimary }}>
@@ -548,7 +550,7 @@ export default function SharedTabMenu({ navigation, closeMenu, displayName = "Us
               </TouchableOpacity>
             </View>
           </View>
-        </View>
+        </KeyboardAvoidingView>
       </Modal>
 
       <Modal
