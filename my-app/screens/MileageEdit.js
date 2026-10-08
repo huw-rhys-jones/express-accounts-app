@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
+  Keyboard,
   KeyboardAvoidingView,
   Platform,
   ScrollView,
@@ -9,6 +10,7 @@ import {
   Text,
   TextInput,
   TouchableOpacity,
+  TouchableWithoutFeedback,
   View,
 } from "react-native";
 import DropDownPicker from "react-native-dropdown-picker";
@@ -84,6 +86,33 @@ export default function MileageEdit({ navigation, route }) {
   const [endSuggestions, setEndSuggestions] = useState([]);
   const startDebounce = useRef(null);
   const endDebounce = useRef(null);
+
+  // Only one dropdown ('vehicle' | 'start_location' | 'end_location') is open at a time
+  const [activeDropdown, setActiveDropdown] = useState(null);
+  const blurTimer = useRef(null);
+
+  const activateDropdown = (name) => {
+    clearTimeout(blurTimer.current);
+    setActiveDropdown(name);
+    setVehicleOpen(name === "vehicle");
+  };
+
+  // Delay so a tap on a suggestion row registers before the list unmounts
+  const deactivateDropdown = (name) => {
+    clearTimeout(blurTimer.current);
+    blurTimer.current = setTimeout(() => {
+      setActiveDropdown((current) => (current === name ? null : current));
+    }, 200);
+  };
+
+  const dismissAll = () => {
+    clearTimeout(blurTimer.current);
+    setActiveDropdown(null);
+    setVehicleOpen(false);
+    Keyboard.dismiss();
+  };
+
+  useEffect(() => () => clearTimeout(blurTimer.current), []);
 
   // ── Saving / deleting ──────────────────────────────────────────────────────
   const [saving, setSaving] = useState(false);
@@ -283,6 +312,8 @@ export default function MileageEdit({ navigation, route }) {
 
       <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === "ios" ? "padding" : undefined}>
         <ScrollView contentContainerStyle={styles.scrollContent} keyboardShouldPersistTaps="handled" nestedScrollEnabled>
+          <TouchableWithoutFeedback onPress={dismissAll} accessible={false}>
+          <View>
 
           {/* Vehicle */}
           <Text style={styles.fieldLabel}>Vehicle <Text style={styles.required}>*</Text></Text>
@@ -291,7 +322,10 @@ export default function MileageEdit({ navigation, route }) {
           ) : (
             <DropDownPicker
               open={vehicleOpen} value={vehicleId} items={vehicleItems}
-              setOpen={setVehicleOpen} setValue={setVehicleId} setItems={setVehicleItems}
+              setOpen={(open) => {
+                const next = typeof open === "function" ? open(vehicleOpen) : open;
+                activateDropdown(next ? "vehicle" : null);
+              }} setValue={setVehicleId} setItems={setVehicleItems}
               style={styles.dropdown} dropDownContainerStyle={styles.dropdownContainer}
               zIndex={5000} listMode="SCROLLVIEW"
             />
@@ -313,13 +347,15 @@ export default function MileageEdit({ navigation, route }) {
 
           {/* Purpose */}
           <Text style={styles.fieldLabel}>Purpose <Text style={styles.optional}>(optional)</Text></Text>
-          <TextInput style={styles.input} value={purpose} onChangeText={setPurpose} placeholder="e.g. Client meeting" placeholderTextColor="#999" />
+          <TextInput style={styles.input} value={purpose} onChangeText={setPurpose} onFocus={() => activateDropdown(null)} placeholder="e.g. Client meeting" placeholderTextColor="#999" />
 
           {/* Start Location */}
           <Text style={styles.fieldLabel}>Start Location <Text style={styles.optional}>(optional)</Text></Text>
-          <View style={styles.autocompleteWrap}>
-            <TextInput style={styles.input} value={startAddress} onChangeText={handleStartChange} placeholder="e.g. Home" placeholderTextColor="#999" />
-            {startSuggestions.length > 0 && (
+          <View style={[styles.autocompleteWrap, activeDropdown === "start_location" && styles.autocompleteWrapActive]}>
+            <TextInput style={styles.input} value={startAddress} onChangeText={handleStartChange}
+              onFocus={() => activateDropdown("start_location")}
+              onBlur={() => deactivateDropdown("start_location")} placeholder="e.g. Home" placeholderTextColor="#999" />
+            {activeDropdown === "start_location" && startSuggestions.length > 0 && (
               <View style={styles.suggestionList}>
                 {startSuggestions.map((item, i) => (
                   <TouchableOpacity key={`start-${i}`} style={styles.suggestionRow} onPress={() => handleStartSelect(item)}>
@@ -332,9 +368,11 @@ export default function MileageEdit({ navigation, route }) {
 
           {/* End Location */}
           <Text style={styles.fieldLabel}>End Location <Text style={styles.optional}>(optional)</Text></Text>
-          <View style={styles.autocompleteWrap}>
-            <TextInput style={styles.input} value={endAddress} onChangeText={handleEndChange} placeholder="e.g. Client office" placeholderTextColor="#999" />
-            {endSuggestions.length > 0 && (
+          <View style={[styles.autocompleteWrap, activeDropdown === "end_location" && styles.autocompleteWrapActive]}>
+            <TextInput style={styles.input} value={endAddress} onChangeText={handleEndChange}
+              onFocus={() => activateDropdown("end_location")}
+              onBlur={() => deactivateDropdown("end_location")} placeholder="e.g. Client office" placeholderTextColor="#999" />
+            {activeDropdown === "end_location" && endSuggestions.length > 0 && (
               <View style={styles.suggestionList}>
                 {endSuggestions.map((item, i) => (
                   <TouchableOpacity key={`end-${i}`} style={styles.suggestionRow} onPress={() => handleEndSelect(item)}>
@@ -350,7 +388,7 @@ export default function MileageEdit({ navigation, route }) {
             Distance (miles) <Text style={styles.required}>*</Text>
             {loadingRoute && <ActivityIndicator size="small" color={Colors.accent} style={{ marginLeft: 6 }} />}
           </Text>
-          <TextInput style={styles.input} value={distance} onChangeText={setDistance} placeholder="0.0" placeholderTextColor="#999" keyboardType="decimal-pad" />
+          <TextInput style={styles.input} value={distance} onChangeText={setDistance} onFocus={() => activateDropdown(null)} placeholder="0.0" placeholderTextColor="#999" keyboardType="decimal-pad" />
           <TouchableOpacity style={styles.returnTripRow} onPress={() => setReturnTrip((current) => !current)}>
             <Checkbox status={returnTrip ? "checked" : "unchecked"} color={Colors.accent} />
             <Text style={styles.returnTripText}>Return trip</Text>
@@ -376,6 +414,8 @@ export default function MileageEdit({ navigation, route }) {
             end={routeEndpoints?.end}
             encodedPath={routeEndpoints?.encodedPath}
           />
+          </View>
+          </TouchableWithoutFeedback>
         </ScrollView>
 
         {/* Bottom action bar */}
@@ -425,10 +465,11 @@ const styles = StyleSheet.create({
   dropdownContainer: { borderColor: Colors.border, backgroundColor: "#fff" },
   noVehicleHint: { fontSize: 14, color: "#888", marginTop: 4 },
   autocompleteWrap: { position: "relative", zIndex: 10 },
+  autocompleteWrapActive: { zIndex: 1000 },
   suggestionList: {
     position: "absolute", top: "100%", left: 0, right: 0,
     backgroundColor: "#fff", borderWidth: 1, borderColor: Colors.border,
-    borderRadius: 10, zIndex: 100, elevation: 4,
+    borderRadius: 10, zIndex: 1001, elevation: 12,
   },
   suggestionRow: { paddingHorizontal: 14, paddingVertical: 11, borderBottomWidth: 1, borderBottomColor: "#f0f0f0" },
   suggestionText: { fontSize: 14, color: Colors.textPrimary },

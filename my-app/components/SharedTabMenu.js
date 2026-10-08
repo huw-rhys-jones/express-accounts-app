@@ -5,6 +5,7 @@ import {
   Image,
   Linking,
   Modal,
+  Pressable,
   StyleSheet,
   Text,
   TextInput,
@@ -410,14 +411,15 @@ export default function SharedTabMenu({ navigation, closeMenu, displayName = "Us
     <>
       <View style={{ flex: 1 }}>
         <View style={styles.userInfo}>
-          <TouchableOpacity
+          <Pressable
             onPress={() => {
               closeMenu();
               navigation.navigate("Profile");
             }}
             accessibilityRole="button"
             accessibilityLabel="Open profile"
-            style={styles.profileMenuButton}
+            android_ripple={{ color: "rgba(0,0,0,0.08)" }}
+            style={({ pressed }) => [styles.profileMenuButton, pressed && styles.profileMenuButtonPressed]}
           >
             <View style={styles.menuAvatar}>
               {profileImageUrl ? (
@@ -434,7 +436,13 @@ export default function SharedTabMenu({ navigation, closeMenu, displayName = "Us
             {verificationStatus === "verified" && verifiedName ? (
               <Text style={styles.verifiedAsText}>Verified as {verifiedName}</Text>
             ) : null}
-          </TouchableOpacity>
+            <Ionicons
+              name="chevron-forward"
+              size={22}
+              color={Colors.textPrimary}
+              style={styles.profileChevron}
+            />
+          </Pressable>
         </View>
 
         <Image
@@ -698,11 +706,31 @@ export default function SharedTabMenu({ navigation, closeMenu, displayName = "Us
 const styles = StyleSheet.create({
   userInfo: {
     marginBottom: 20,
-    alignItems: "center",
+    alignSelf: "stretch",
   },
   profileMenuButton: {
+    alignSelf: "stretch",
     alignItems: "center",
-    paddingVertical: 4,
+    paddingVertical: 14,
+    paddingLeft: 16,
+    paddingRight: 40,
+    backgroundColor: "#F8FAFC",
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: Colors.border,
+    overflow: "hidden",
+    shadowColor: "#000",
+    shadowOpacity: 0.06,
+    shadowRadius: 4,
+    shadowOffset: { width: 0, height: 1 },
+    elevation: 1,
+  },
+  profileMenuButtonPressed: { opacity: 0.7 },
+  profileChevron: {
+    position: "absolute",
+    right: 10,
+    top: "50%",
+    marginTop: -11,
   },
   menuAvatar: {
     width: 56,

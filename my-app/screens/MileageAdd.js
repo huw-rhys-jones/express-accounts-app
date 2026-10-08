@@ -2,6 +2,7 @@ import React, { useEffect, useRef, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
+  Keyboard,
   KeyboardAvoidingView,
   Platform,
   ScrollView,
@@ -9,6 +10,7 @@ import {
   Text,
   TextInput,
   TouchableOpacity,
+  TouchableWithoutFeedback,
   View,
 } from "react-native";
 import DropDownPicker from "react-native-dropdown-picker";
@@ -72,6 +74,33 @@ export default function MileageAdd({ navigation }) {
   const [endSuggestions, setEndSuggestions] = useState([]);
   const startDebounce = useRef(null);
   const endDebounce = useRef(null);
+
+  // Only one dropdown ('vehicle' | 'start_location' | 'end_location') is open at a time
+  const [activeDropdown, setActiveDropdown] = useState(null);
+  const blurTimer = useRef(null);
+
+  const activateDropdown = (name) => {
+    clearTimeout(blurTimer.current);
+    setActiveDropdown(name);
+    setVehicleOpen(name === "vehicle");
+  };
+
+  // Delay so a tap on a suggestion row registers before the list unmounts
+  const deactivateDropdown = (name) => {
+    clearTimeout(blurTimer.current);
+    blurTimer.current = setTimeout(() => {
+      setActiveDropdown((current) => (current === name ? null : current));
+    }, 200);
+  };
+
+  const dismissAll = () => {
+    clearTimeout(blurTimer.current);
+    setActiveDropdown(null);
+    setVehicleOpen(false);
+    Keyboard.dismiss();
+  };
+
+  useEffect(() => () => clearTimeout(blurTimer.current), []);
 
   // ── Saving ─────────────────────────────────────────────────────────────────
   const [saving, setSaving] = useState(false);
@@ -262,6 +291,8 @@ export default function MileageAdd({ navigation }) {
           keyboardShouldPersistTaps="handled"
           nestedScrollEnabled
         >
+          <TouchableWithoutFeedback onPress={dismissAll} accessible={false}>
+          <View>
           {/* Vehicle */}
           <Text style={styles.fieldLabel}>Vehicle <Text style={styles.required}>*</Text></Text>
           {vehicles.length === 0 ? (
@@ -271,7 +302,10 @@ export default function MileageAdd({ navigation }) {
               open={vehicleOpen}
               value={vehicleId}
               items={vehicleItems}
-              setOpen={setVehicleOpen}
+              setOpen={(open) => {
+                const next = typeof open === "function" ? open(vehicleOpen) : open;
+                activateDropdown(next ? "vehicle" : null);
+              }}
               setValue={setVehicleId}
               setItems={setVehicleItems}
               style={styles.dropdown}
@@ -305,21 +339,24 @@ export default function MileageAdd({ navigation }) {
             style={styles.input}
             value={purpose}
             onChangeText={setPurpose}
+            onFocus={() => activateDropdown(null)}
             placeholder="e.g. Client meeting"
             placeholderTextColor="#999"
           />
 
           {/* Start Location */}
           <Text style={styles.fieldLabel}>Start Location <Text style={styles.optional}>(optional)</Text></Text>
-          <View style={styles.autocompleteWrap}>
+          <View style={[styles.autocompleteWrap, activeDropdown === "start_location" && styles.autocompleteWrapActive]}>
             <TextInput
               style={styles.input}
               value={startAddress}
               onChangeText={handleStartChange}
+              onFocus={() => activateDropdown("start_location")}
+              onBlur={() => deactivateDropdown("start_location")}
               placeholder="e.g. Home"
               placeholderTextColor="#999"
             />
-            {startSuggestions.length > 0 && (
+            {activeDropdown === "start_location" && startSuggestions.length > 0 && (
               <View style={styles.suggestionList}>
                 {startSuggestions.map((item, i) => (
                   <TouchableOpacity key={`start-${i}`} style={styles.suggestionRow} onPress={() => handleStartSelect(item)}>
@@ -332,15 +369,17 @@ export default function MileageAdd({ navigation }) {
 
           {/* End Location */}
           <Text style={styles.fieldLabel}>End Location <Text style={styles.optional}>(optional)</Text></Text>
-          <View style={styles.autocompleteWrap}>
+          <View style={[styles.autocompleteWrap, activeDropdown === "end_location" && styles.autocompleteWrapActive]}>
             <TextInput
               style={styles.input}
               value={endAddress}
               onChangeText={handleEndChange}
+              onFocus={() => activateDropdown("end_location")}
+              onBlur={() => deactivateDropdown("end_location")}
               placeholder="e.g. Client office"
               placeholderTextColor="#999"
             />
-            {endSuggestions.length > 0 && (
+            {activeDropdown === "end_location" && endSuggestions.length > 0 && (
               <View style={styles.suggestionList}>
                 {endSuggestions.map((item, i) => (
                   <TouchableOpacity key={`end-${i}`} style={styles.suggestionRow} onPress={() => handleEndSelect(item)}>
@@ -360,6 +399,7 @@ export default function MileageAdd({ navigation }) {
             style={styles.input}
             value={distance}
             onChangeText={setDistance}
+            onFocus={() => activateDropdown(null)}
             placeholder="0.0"
             placeholderTextColor="#999"
             keyboardType="decimal-pad"
@@ -391,6 +431,8 @@ export default function MileageAdd({ navigation }) {
             end={routeEndpoints?.end}
             encodedPath={routeEndpoints?.encodedPath}
           />
+          </View>
+          </TouchableWithoutFeedback>
         </ScrollView>
 
         {/* Bottom action bar */}
@@ -493,6 +535,7 @@ const styles = StyleSheet.create({
   saveBtnDisabled: { backgroundColor: "#b0b0c0" },
   saveBtnText: { color: "#fff", fontWeight: "700", fontSize: 16 },
   autocompleteWrap: { position: "relative", zIndex: 10 },
+  autocompleteWrapActive: { zIndex: 1000 },
   suggestionList: {
     position: "absolute",
     top: "100%",
@@ -502,8 +545,8 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: Colors.border,
     borderRadius: 10,
-    zIndex: 100,
-    elevation: 4,
+    zIndex: 1001,
+    elevation: 12,
   },
   suggestionRow: {
     paddingHorizontal: 14,
