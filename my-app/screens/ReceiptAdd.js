@@ -3,6 +3,9 @@ import {
   Animated,
   PanResponder,
   PermissionsAndroid,
+  KeyboardAvoidingView,
+  TouchableWithoutFeedback,
+  Keyboard,
   View,
   Text,
   TextInput,
@@ -22,10 +25,13 @@ import {
 import { Button, Checkbox, ProgressBar } from "react-native-paper";
 import DateTimePickerModal from "react-native-modal-datetime-picker";
 import * as ImagePicker from "react-native-image-picker";
+import ImageViewer from "react-native-image-zoom-viewer";
+import { Ionicons } from "@expo/vector-icons";
 import { KeyboardAwareScrollView } from "react-native-keyboard-aware-scroll-view";
-import { SafeAreaView } from "react-native-safe-area-context";
+import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import DropDownPicker from "react-native-dropdown-picker";
 import CategorySelector from "../components/CategorySelector";
+import AddReceiptSheet from "../components/AddReceiptSheet";
 import { db, auth } from "../firebaseConfig";
 import {
   doc,
@@ -40,21 +46,51 @@ import {
 } from "firebase/firestore";
 import { getStorage, ref, uploadBytes, getDownloadURL } from "firebase/storage";
 import { categories_meta } from "../constants/arrays";
-import { formatDate } from "../utils/format_style";
+import { formatDate, formatCurrency } from "../utils/format_style";
 import {
   runOcrOnAssets,
   detectReceiptGroupsFromAssets,
 } from "../utils/ocrHelpers";
-import ImageViewer from "react-native-image-zoom-viewer";
 
 import { Colors, ReceiptStyles } from "../utils/sharedStyles";
 import {
   getCurrentYearAprilSix,
+  getCurrentFinancialQuarter,
   startOfDayLocal,
 } from "../utils/financialPeriods";
 import { triggerHaptic } from "../utils/haptics";
+import {
+  getReceiptFilterKey,
+  getAnnotateImages,
+  setAnnotateImages as saveAnnotateImages,
+  setReceiptFilterKey,
+} from "../utils/appSettings";
+import { useData } from "../contexts/DataContext";
+import { isVatRegistered } from "../utils/taxCalculations";
+
+function navigateBackToReceipts(navigation, params = {}) {
+  navigation.reset({
+    index: 0,
+    routes: [
+      {
+        name: "MainTabs",
+        state: { routes: [{ name: "Receipts", params }] },
+      },
+    ],
+  });
+}
+
+const DEBUG_DISABLE_KEYBOARD_DISMISS_WRAPPER = true;
+const ANNOTATION_MIN_BOX_WIDTH = 64;
+const ANNOTATION_MIN_BOX_HEIGHT = 26;
 
 const ReceiptAdd = ({ navigation, route }) => {
+  const insets = useSafeAreaInsets();
+  const { refreshReceipts, userProfile } = useData();
+  const vatEnabled = userProfile === undefined || userProfile === null ? true : isVatRegistered(userProfile);
+  const vatAnnotationsEnabled = isVatRegistered(userProfile);
+  const heroHeightAnim = useRef(new Animated.Value(HERO_EXPANDED_HEIGHT)).current;
+  const [heroHeight, setHeroHeight] = useState(HERO_EXPANDED_HEIGHT);
   const [amount, setAmount] = useState("");
   const [vatAmount, setVatAmount] = useState("");
   const [vatRate, setVatRate] = useState(""); // string
@@ -101,6 +137,10 @@ const ReceiptAdd = ({ navigation, route }) => {
     skippedCount: 0,
   });
   const [successMode, setSuccessMode] = useState("single");
+  const [imageContainerHeight, setImageContainerHeight] = useState(HERO_EXPANDED_HEIGHT);
+  const [fullScreenImage, setFullScreenImage] = useState(null);
+  const [annotateImages, setAnnotateImages] = useState(true);
+  const [showAddMoreSheet, setShowAddMoreSheet] = useState(false);
 
   // isMultiReceiptMode is true when we have multiple detected receipt drafts
   const isMultiReceiptMode = receiptDrafts.length > 1;
@@ -126,9 +166,67 @@ const ReceiptAdd = ({ navigation, route }) => {
   };
 
   // Fullscreen viewer (separate, top-level modal)
-  const [fullScreenImageIndex, setFullScreenImageIndex] = useState(null);
   const [ocrFrames, setOcrFrames] = useState(null);
   const [detectProgress, setDetectProgress] = useState(0);
+  const [detectMode, setDetectMode] = useState("auto");
+
+  useEffect(() => {
+    let active = true;
+    const loadAnnotateImages = () => {
+      getAnnotateImages()
+        .then((enabled) => {
+          if (active) setAnnotateImages(enabled);
+        })
+        .catch(() => {
+          if (active) setAnnotateImages(true);
+        });
+    };
+
+    loadAnnotateImages();
+    const unsubscribeFocus = navigation.addListener("focus", loadAnnotateImages);
+    return () => {
+      active = false;
+      unsubscribeFocus?.();
+    };
+  }, [navigation]);
+
+  const buildImageAnnotations = ({ localImages = [], uploadedImageUrls = [], frameData = null }) => {
+    if (!frameData || !frameData.imageUri) {
+      return null;
+    }
+
+    const frameIndex = localImages.findIndex((img) => img?.uri === frameData.imageUri);
+    if (frameIndex < 0 || !uploadedImageUrls[frameIndex]) {
+      return null;
+    }
+
+    const imageUrl = uploadedImageUrls[frameIndex];
+    return {
+      [imageUrl]: {
+        imageW: frameData.imageW,
+        imageH: frameData.imageH,
+        amount: frameData.amount || null,
+        date: frameData.date || null,
+        vat: frameData.vat || null,
+      },
+    };
+  };
+
+  const openFullScreenImage = (item, annotationData = null) => {
+    setFullScreenImage({ uri: item.uri, annotationData });
+  };
+
+  const toggleAnnotateImages = async () => {
+    const nextValue = !annotateImages;
+    setAnnotateImages(nextValue);
+    await saveAnnotateImages(nextValue);
+  };
+
+  const showMainAnnotationToggle = Boolean(
+    ocrFrames?.imageUri &&
+      images.some((image) => image.uri === ocrFrames.imageUri) &&
+      ANNOTATIONS.some(({ key }) => (key !== "vat" || vatAnnotationsEnabled) && ocrFrames[key]),
+  );
 
   const getCanonicalCategoryName = (value) => {
     const normalized = String(value || "").trim().toLowerCase();
@@ -154,11 +252,18 @@ const ReceiptAdd = ({ navigation, route }) => {
   };
   const [vatRateOpen, setVatRateOpen] = useState(false);
   const [vatRateItems, setVatRateItems] = useState(deriveVatRateItems());
+  const [debugScrollState, setDebugScrollState] = useState("idle");
+  const [debugPanState, setDebugPanState] = useState("idle");
+  const [debugKeyboardState, setDebugKeyboardState] = useState("hidden");
+  const [debugLastEvent, setDebugLastEvent] = useState("init");
 
   const flatListRef = useRef(null);
 
   const scrollRef = useRef(null);
+  const isFormScrollActiveRef = useRef(false);
   const processedInitialImagesKeyRef = useRef(null);
+  const pendingDetectionAssetsRef = useRef([]);
+  const detectRequestIdRef = useRef(0);
   const draftSlideX = useRef(new Animated.Value(0)).current;
   const draftFade = useRef(new Animated.Value(1)).current;
 
@@ -172,6 +277,30 @@ const ReceiptAdd = ({ navigation, route }) => {
   receiptDraftsRef.current = receiptDrafts;
   currentReceiptIndexRef.current = currentReceiptIndex;
 
+  const indicatorScrollRef = useRef(null);
+  const indicatorLayoutsRef = useRef({});
+  const indicatorViewportWidthRef = useRef(0);
+
+  const scrollIndicatorIntoView = (index) => {
+    const attempt = () => {
+      const layout = indicatorLayoutsRef.current[index];
+      const viewportWidth = indicatorViewportWidthRef.current;
+      if (!layout || !viewportWidth || !indicatorScrollRef.current) return;
+      const targetX = Math.max(
+        0,
+        layout.x + layout.width / 2 - viewportWidth / 2,
+      );
+      indicatorScrollRef.current.scrollTo({ x: targetX, animated: true });
+    };
+    attempt();
+    requestAnimationFrame(attempt);
+  };
+
+  useEffect(() => {
+    if (!isMultiReceiptMode) return;
+    scrollIndicatorIntoView(currentReceiptIndex);
+  }, [currentReceiptIndex, receiptDrafts.length, isMultiReceiptMode]);
+
   const scrollToTop = () => {
     requestAnimationFrame(() => {
       scrollRef.current?.scrollToPosition?.(0, 0, true);
@@ -181,6 +310,10 @@ const ReceiptAdd = ({ navigation, route }) => {
   const categoryWrapperRef = useRef(null);
 
   const [categoryY, setCategoryY] = useState(0);
+
+  const markDebugEvent = (label) => {
+    setDebugLastEvent(`${new Date().toLocaleTimeString()} ${label}`);
+  };
 
   const beginPickerHold = (text = "Opening image options…") => {
     setPickerBusyText(text);
@@ -383,17 +516,37 @@ const ReceiptAdd = ({ navigation, route }) => {
   const draftSwipeResponder = React.useMemo(
     () =>
       PanResponder.create({
+        onStartShouldSetPanResponder: () => false,
+        onPanResponderTerminationRequest: () => true,
+        onShouldBlockNativeResponder: () => false,
+        onPanResponderGrant: () => {
+          setDebugPanState("active");
+          markDebugEvent("pan grant");
+        },
+        onPanResponderTerminate: () => {
+          setDebugPanState("terminated");
+          markDebugEvent("pan terminate");
+        },
         onMoveShouldSetPanResponder: (_, gestureState) => {
+          if (isFormScrollActiveRef.current) return false;
+          if (vatRateOpen || categoryModalVisible) return false;
           const { dx, dy } = gestureState;
-          return (
+          const shouldSet = (
             isMultiReceiptMode &&
-            Math.abs(dx) > 18 &&
-            Math.abs(dx) > Math.abs(dy) * 1.4
+            Math.abs(dx) > 30 &&
+            Math.abs(dx) > Math.abs(dy) * 1.8
           );
+          if (shouldSet) {
+            setDebugPanState("captured");
+            markDebugEvent(`pan capture dx=${Math.round(dx)} dy=${Math.round(dy)}`);
+          }
+          return shouldSet;
         },
         onPanResponderRelease: (_, gestureState) => {
           if (!isMultiReceiptMode) return;
           const { dx, dy } = gestureState;
+          setDebugPanState("released");
+          markDebugEvent(`pan release dx=${Math.round(dx)} dy=${Math.round(dy)}`);
           if (Math.abs(dx) < 72 || Math.abs(dx) < Math.abs(dy) * 1.2) {
             return;
           }
@@ -405,7 +558,7 @@ const ReceiptAdd = ({ navigation, route }) => {
           }
         },
       }),
-    [isMultiReceiptMode, currentReceiptIndex, receiptDrafts],
+    [isMultiReceiptMode, currentReceiptIndex, receiptDrafts, vatRateOpen, categoryModalVisible],
   );
 
   const clearBatchState = () => {
@@ -415,6 +568,100 @@ const ReceiptAdd = ({ navigation, route }) => {
     setShowBatchSummaryModal(false);
     setBatchSaveSummary({ saved: [], skippedCount: 0 });
     processedInitialImagesKeyRef.current = null;
+  };
+
+  const processInitialImages = React.useCallback(
+    async (initialImages, { preferLocal = false } = {}) => {
+      const requestId = detectRequestIdRef.current + 1;
+      detectRequestIdRef.current = requestId;
+      setDetectMode("auto");
+      setIsDetecting(true);
+      setDetectProgress(0);
+
+      if (preferLocal) {
+        setDetectMode("local");
+      } else {
+        try {
+          const user = auth.currentUser;
+          if (!user) {
+            setDetectMode("local");
+          } else {
+            const userSnap = await getDoc(doc(db, "users", user.uid));
+            const isVerified = userSnap.exists() && userSnap.data()?.verificationStatus === "verified";
+            setDetectMode(isVerified ? "cloud" : "local");
+          }
+        } catch {
+          setDetectMode("local");
+        }
+      }
+
+      try {
+        const groups = await detectReceiptGroupsFromAssets(
+          initialImages,
+          (p) => {
+            if (detectRequestIdRef.current === requestId) {
+              setDetectProgress(p);
+            }
+          },
+          { preferLocal },
+        );
+
+        if (detectRequestIdRef.current !== requestId) return;
+
+        const effectiveGroups =
+          groups.length > 0
+            ? groups
+            : [{ assets: initialImages, analysis: {} }];
+
+        if (effectiveGroups.length === 1) {
+          const draft = createDraftFromAnalysis(effectiveGroups[0]);
+          applyDraftToForm(draft);
+          setReceiptDrafts([]);
+          setReceiptReviewStates([]);
+          scrollToTop();
+        } else {
+          const nextDrafts = effectiveGroups.map((group) =>
+            createDraftFromAnalysis(group),
+          );
+          setReceiptDrafts(nextDrafts);
+          setReceiptReviewStates(Array(nextDrafts.length).fill("pending"));
+          setCurrentReceiptIndex(0);
+          applyDraftToForm(nextDrafts[0]);
+          scrollToTop();
+          showToast(`${nextDrafts.length} receipts detected`);
+        }
+      } catch (error) {
+        if (detectRequestIdRef.current !== requestId) return;
+        console.error("❌ OCR error:", error);
+        const fallbackDraft = createDraftFromAnalysis({
+          analysis: {},
+          assets: initialImages,
+        });
+        applyDraftToForm(fallbackDraft);
+        setReceiptDrafts([]);
+        setReceiptReviewStates([]);
+        scrollToTop();
+      } finally {
+        if (detectRequestIdRef.current === requestId) {
+          setIsDetecting(false);
+          setDetectProgress(0);
+        }
+      }
+    },
+    [],
+  );
+
+  const cancelDetectionAndExit = () => {
+    detectRequestIdRef.current += 1;
+    setIsDetecting(false);
+    setDetectProgress(0);
+    navigateBackToReceipts(navigation, { refreshReceiptFilterAt: Date.now() });
+  };
+
+  const processDetectionLocally = () => {
+    const assets = pendingDetectionAssetsRef.current;
+    if (!assets?.length) return;
+    processInitialImages(assets, { preferLocal: true });
   };
 
   // ------- effects -------
@@ -430,48 +677,8 @@ const ReceiptAdd = ({ navigation, route }) => {
     }
     processedInitialImagesKeyRef.current = modeKey;
 
-    setIsDetecting(true);
-    setDetectProgress(0);
-
-    detectReceiptGroupsFromAssets(initialImages, (p) => setDetectProgress(p))
-      .then((groups) => {
-        const effectiveGroups =
-          groups.length > 0
-            ? groups
-            : [{ assets: initialImages, analysis: {} }];
-
-        if (effectiveGroups.length === 1) {
-          // Single receipt — just populate the form directly
-          const draft = createDraftFromAnalysis(effectiveGroups[0]);
-          applyDraftToForm(draft);
-          setReceiptDrafts([]);
-          setReceiptReviewStates([]);
-          scrollToTop();
-        } else {
-          // Multiple receipts detected
-          const nextDrafts = effectiveGroups.map((group) =>
-            createDraftFromAnalysis(group),
-          );
-          setReceiptDrafts(nextDrafts);
-          setReceiptReviewStates(Array(nextDrafts.length).fill("pending"));
-          setCurrentReceiptIndex(0);
-          applyDraftToForm(nextDrafts[0]);
-          scrollToTop();
-          showToast(`${nextDrafts.length} receipts detected`);
-        }
-      })
-      .catch((error) => {
-        console.error("❌ OCR error:", error);
-        const fallbackDraft = createDraftFromAnalysis({
-          analysis: {},
-          assets: initialImages,
-        });
-        applyDraftToForm(fallbackDraft);
-        setReceiptDrafts([]);
-        setReceiptReviewStates([]);
-        scrollToTop();
-      })
-      .finally(() => { setIsDetecting(false); setDetectProgress(0); });
+    pendingDetectionAssetsRef.current = initialImages;
+    processInitialImages(initialImages, { preferLocal: false });
   }, [route?.params?.initialImages]);
 
   useEffect(() => {
@@ -482,6 +689,43 @@ const ReceiptAdd = ({ navigation, route }) => {
       });
     }
   }, [images]);
+
+  useEffect(() => {
+    const id = heroHeightAnim.addListener(({ value }) => {
+      setHeroHeight(value);
+      setImageContainerHeight(value);
+    });
+    return () => heroHeightAnim.removeListener(id);
+  }, [heroHeightAnim]);
+
+  useEffect(() => {
+    const shrinkHero = () => {
+      setDebugKeyboardState("visible");
+      markDebugEvent("keyboard show");
+      Animated.timing(heroHeightAnim, {
+        toValue: HERO_COLLAPSED_HEIGHT,
+        duration: 220,
+        useNativeDriver: false,
+      }).start();
+    };
+
+    const expandHero = () => {
+      setDebugKeyboardState("hidden");
+      markDebugEvent("keyboard hide");
+      Animated.timing(heroHeightAnim, {
+        toValue: HERO_EXPANDED_HEIGHT,
+        duration: 220,
+        useNativeDriver: false,
+      }).start();
+    };
+
+    const showSub = Keyboard.addListener("keyboardDidShow", shrinkHero);
+    const hideSub = Keyboard.addListener("keyboardDidHide", expandHero);
+    return () => {
+      showSub.remove();
+      hideSub.remove();
+    };
+  }, [heroHeightAnim]);
 
   useEffect(() => {
     const sub = navigation.addListener("blur", () => {
@@ -596,6 +840,43 @@ const ReceiptAdd = ({ navigation, route }) => {
     const net = gross / (1 + rate / 100);
     const vat = gross - net;
     return vat.toFixed(2);
+  };
+
+  const isSavedDateOutsideCurrentQuarter = (savedDates = []) => {
+    const quarter = getCurrentFinancialQuarter(new Date());
+    const start = startOfDayLocal(quarter.startDate).getTime();
+    const end = startOfDayLocal(quarter.endDate).getTime();
+
+    return (savedDates || []).some((value) => {
+      const d = value instanceof Date ? value : new Date(value);
+      if (Number.isNaN(d.getTime())) return false;
+      const t = startOfDayLocal(d).getTime();
+      return t < start || t > end;
+    });
+  };
+
+  const maybeSwitchReceiptFilterToAllTime = async (savedDates) => {
+    try {
+      const activeKey = await getReceiptFilterKey();
+      if (activeKey !== "current-quarter") return false;
+
+      const shouldSwitch = isSavedDateOutsideCurrentQuarter(savedDates);
+      if (shouldSwitch) {
+        await setReceiptFilterKey("all-time");
+      }
+      return shouldSwitch;
+    } catch {
+      // Non-blocking filter adjustment
+      return false;
+    }
+  };
+
+  const maybeRefreshReceiptsAfterSave = async () => {
+    try {
+      await refreshReceipts();
+    } catch {
+      // Non-blocking refresh adjustment
+    }
   };
 
   const toMoneyKey = (value) => {
@@ -738,8 +1019,14 @@ const ReceiptAdd = ({ navigation, route }) => {
     handleUploadSingleReceipt();
   };
 
-  const handleResetPress = () => setConfirmReset(true);
   const handleLeavePress = () => setShowConfirmLeaveModal(true);
+
+  const confirmRemoveImage = (onConfirm) => {
+    Alert.alert("Remove Image", "Are you sure you want to remove this image?", [
+      { text: "Cancel", style: "cancel" },
+      { text: "Remove", style: "destructive", onPress: onConfirm },
+    ]);
+  };
 
   const handleRejectCurrentReceipt = () => {
     if (!isMultiReceiptMode || receiptDrafts.length === 0) return;
@@ -810,13 +1097,15 @@ const ReceiptAdd = ({ navigation, route }) => {
           date: draft.selectedDate,
           category: draft.selectedCategory,
           label: draft.label,
-          vatAmount:
-            draft.vatAmount && String(draft.vatAmount).trim().length > 0
+          vatAmount: vatEnabled
+            ? (draft.vatAmount && String(draft.vatAmount).trim().length > 0
               ? draft.vatAmount
-              : computeVat(draft.amount, draft.vatRate),
-          vatRate: draft.vatRate,
+              : computeVat(draft.amount, draft.vatRate))
+            : null,
+          vatRate: vatEnabled ? draft.vatRate : null,
           images: draft.images,
           recurrenceConfig: null,
+          ocrFrames: draft.ocrFrames,
         });
 
         savedRows.push({
@@ -832,6 +1121,11 @@ const ReceiptAdd = ({ navigation, route }) => {
         skippedCount: receiptReviewStates.filter((state) => state === "rejected")
           .length,
       });
+      const acceptedDates = syncedDrafts
+        .filter((_, i) => receiptReviewStates[i] === "accepted")
+        .map((draft) => draft.selectedDate);
+      await maybeSwitchReceiptFilterToAllTime(acceptedDates);
+      await maybeRefreshReceiptsAfterSave();
       setShowBatchSummaryModal(true);
       setIsUploading(false);
       triggerHaptic("success").catch(() => {});
@@ -852,11 +1146,15 @@ const ReceiptAdd = ({ navigation, route }) => {
         date: selectedDate,
         category: selectedCategory,
         label,
-        vatAmount: vatAmount ? vatAmount : calculateVatFromRate(),
-        vatRate,
+        vatAmount: vatEnabled ? (vatAmount ? vatAmount : calculateVatFromRate()) : null,
+        vatRate: vatEnabled ? vatRate : null,
         images,
         recurrenceConfig: getRecurrenceConfig(),
+        ocrFrames,
       });
+
+      await maybeSwitchReceiptFilterToAllTime([selectedDate]);
+      await maybeRefreshReceiptsAfterSave();
 
       setIsUploading(false);
 
@@ -891,6 +1189,12 @@ const ReceiptAdd = ({ navigation, route }) => {
     }
   };
 
+  const openAddMoreSheet = () => {
+    resetForm({ clearBatch: true });
+    setShowSuccess(false);
+    setShowAddMoreSheet(true);
+  };
+
   const uploadReceipt = async ({
     amount,
     date,
@@ -900,6 +1204,7 @@ const ReceiptAdd = ({ navigation, route }) => {
     vatRate,
     images,
     recurrenceConfig,
+    ocrFrames: frameData,
   }) => {
     const user = auth.currentUser;
     const storage = getStorage();
@@ -923,15 +1228,32 @@ const ReceiptAdd = ({ navigation, route }) => {
       date: date.toISOString(),
       category,
       label: String(label || "").trim(),
-      vatAmount: vatAmount ? parseFloat(vatAmount) : null,
-      vatRate: vatRate ? parseFloat(vatRate) : null,
+      vatAmount: vatEnabled ? (vatAmount ? parseFloat(vatAmount) : null) : null,
+      vatRate: vatEnabled ? (vatRate ? parseFloat(vatRate) : null) : null,
       images: imageUrls,
       recurrence: recurrenceConfig,
       userId: user.uid,
       createdAt: serverTimestamp(),
     };
 
+    const imageAnnotations = buildImageAnnotations({
+      localImages: images,
+      uploadedImageUrls: imageUrls,
+      frameData,
+    });
+
+    if (imageAnnotations) {
+      basePayload.imageAnnotations = imageAnnotations;
+    }
+
     const baseDoc = await addDoc(collection(db, "receipts"), basePayload);
+    console.log("Receipt saved", {
+      id: baseDoc.id,
+      userId: user.uid,
+      date: basePayload.date,
+      category: basePayload.category,
+      imageCount: imageUrls.length,
+    });
 
     if (recurrenceConfig) {
       const recurringDates = buildRecurringDates(date, recurrenceConfig);
@@ -1109,11 +1431,13 @@ const ReceiptAdd = ({ navigation, route }) => {
   const isReceiptFormValid =
     isCategoryValid &&
     amount.trim().length > 0 &&
-    vatAmount.trim().length > 0 &&
-    vatRate.trim().length > 0 &&
-    !Number.isNaN(parseFloat(amount)) &&
-    !Number.isNaN(parseFloat(vatAmount)) &&
-    !Number.isNaN(parseFloat(vatRate));
+    (!vatEnabled || (
+      vatAmount.trim().length > 0 &&
+      vatRate.trim().length > 0 &&
+      !Number.isNaN(parseFloat(vatAmount)) &&
+      !Number.isNaN(parseFloat(vatRate))
+    )) &&
+    !Number.isNaN(parseFloat(amount));
   const acceptedCount = receiptReviewStates.filter(
     (state) => state === "accepted",
   ).length;
@@ -1126,13 +1450,120 @@ const ReceiptAdd = ({ navigation, route }) => {
   const isCurrentRejected = currentReviewState === "rejected";
   const isCurrentAccepted = currentReviewState === "accepted";
 
+  const buildPercentOverlayForContainer = (frame, containerW, containerH, annotationData = ocrFrames) => {
+    const naturalW = annotationData?.imageW;
+    const naturalH = annotationData?.imageH;
+    if (!frame || !naturalW || !naturalH || !containerW || !containerH) return null;
+
+    const scale = Math.min(containerW / naturalW, containerH / naturalH);
+    const renderedW = naturalW * scale;
+    const renderedH = naturalH * scale;
+    const offsetX = (containerW - renderedW) / 2;
+    const offsetY = (containerH - renderedH) / 2;
+    const PAD = 8;
+
+    const left = frame.left * scale + offsetX - PAD;
+    const top = frame.top * scale + offsetY - PAD;
+    const rawWidth = frame.width * scale + PAD * 2;
+    const width = Math.max(rawWidth, ANNOTATION_MIN_BOX_WIDTH);
+    const height = Math.max(frame.height * scale + PAD * 2, ANNOTATION_MIN_BOX_HEIGHT);
+
+    const clampedLeft = Math.max(0, Math.min(left, containerW - width));
+    const clampedTop = Math.max(0, Math.min(top, containerH - height));
+
+    const toPct = (value, total) => `${Math.max(0, (value / total) * 100).toFixed(4)}%`;
+
+    return {
+      left: toPct(clampedLeft, containerW),
+      top: toPct(clampedTop, containerH),
+      width: toPct(width, containerW),
+      height: toPct(height, containerH),
+    };
+  };
+
+  const buildPercentOverlay = (frame) => {
+    return buildPercentOverlayForContainer(
+      frame,
+      imageContainerWidth,
+      imageContainerHeight || heroHeight,
+    );
+  };
+
+  const getImageCanvasHeight = (annotationData) => {
+    const containerH = imageContainerHeight || heroHeight;
+    const naturalW = annotationData?.imageW;
+    const naturalH = annotationData?.imageH;
+    if (!imageContainerWidth || !naturalW || !naturalH) return containerH;
+    return Math.max(containerH, imageContainerWidth * (naturalH / naturalW));
+  };
+
+  const renderAnnotatedZoomImage = (props) => {
+    const annotationData = annotateImages ? fullScreenImage?.annotationData : null;
+    const imageStyle = props?.style || {};
+    const width = Number(imageStyle.width) || Dimensions.get("window").width;
+    const height = Number(imageStyle.height) || Dimensions.get("window").height;
+
+    return (
+      <View style={[imageStyle, { position: "relative" }]}> 
+        <Image {...props} style={imageStyle} resizeMode="contain" />
+        {annotationData ? (
+          <View style={localStyles.annotationOverlay} pointerEvents="none">
+            {ANNOTATIONS.filter(({ key }) => (key !== "vat" || vatAnnotationsEnabled) && annotationData[key]).map(({ key, label, color }) => {
+              const frame = annotationData[key];
+              const overlayBox = buildPercentOverlayForContainer(frame, width, height, annotationData);
+              if (!overlayBox) return null;
+              return (
+                <View key={`zoom-${key}`} style={[localStyles.annBox, { ...overlayBox, borderColor: color }]}> 
+                  <View style={[localStyles.annChip, { backgroundColor: color }]}> 
+                    <Text style={localStyles.annChipText} numberOfLines={1}>{label}</Text>
+                  </View>
+                </View>
+              );
+            })}
+          </View>
+        ) : null}
+      </View>
+    );
+  };
+
   // ------- render -------
   return (
-    <SafeAreaView style={ReceiptStyles.safeArea}>
+    <SafeAreaView
+      style={[ReceiptStyles.safeArea, localStyles.safeAreaLight]}
+      edges={["left", "right"]}
+    >
+      <View style={[localStyles.header, { paddingTop: Math.max(insets.top, 0) }]}> 
+        <TouchableOpacity
+          onPress={handleLeavePress}
+          style={localStyles.headerBtn}
+          activeOpacity={0.8}
+        >
+          <Text style={localStyles.headerBtnText}>‹</Text>
+        </TouchableOpacity>
+        <Text style={localStyles.headerTitle}>
+          {isMultiReceiptMode ? "Review Receipts" : "Record Receipt"}
+        </Text>
+        <View style={localStyles.headerBtn} />
+      </View>
+
+      <KeyboardAvoidingView
+        style={{ flex: 1 }}
+        behavior={Platform.OS === "ios" ? "padding" : "height"}
+      >
+      <TouchableWithoutFeedback
+        onPress={Keyboard.dismiss}
+        accessible={false}
+        disabled={DEBUG_DISABLE_KEYBOARD_DISMISS_WRAPPER}
+      >
+      <View style={{ flex: 1 }}>
       {/* IMAGE SECTION — large fixed panel at top with inline annotation boxes */}
-      <View
-        style={localStyles.imageSection}
-        onLayout={(e) => setImageContainerWidth(e.nativeEvent.layout.width)}
+      <Animated.View
+        style={[localStyles.imageSection, { height: heroHeightAnim }]}
+        onLayout={(e) => {
+          setImageContainerWidth(e.nativeEvent.layout.width);
+          setImageContainerHeight(e.nativeEvent.layout.height);
+        }}
+        {...(isMultiReceiptMode ? draftSwipeResponder.panHandlers : {})}
       >
         {imageContainerWidth > 0 ? (
           <ScrollView
@@ -1143,52 +1574,60 @@ const ReceiptAdd = ({ navigation, route }) => {
             style={{ width: imageContainerWidth }}
           >
             {images.map((item, index) => {
-              const isAnnotated = ocrFrames?.imageUri === item.uri;
+              const annotationData = ocrFrames?.imageUri === item.uri ? ocrFrames : null;
+              const isAnnotated = annotateImages && annotationData;
+              const canvasHeight = getImageCanvasHeight(annotationData);
               return (
-                <TouchableOpacity
-                  key={String(index)}
-                  style={[localStyles.carouselPage, { width: imageContainerWidth }]}
-                  activeOpacity={0.9}
-                  onPress={() => setFullScreenImageIndex(index)}
-                >
-                  <Image
-                    source={{ uri: item.uri }}
-                    style={[localStyles.carouselImage, { width: imageContainerWidth }]}
-                    resizeMode="contain"
-                  />
-                  {isAnnotated && ANNOTATIONS.filter(({ key }) => ocrFrames[key]).map(({ key, label, color }) => {
-                    const naturalW = ocrFrames.imageW;
-                    const naturalH = ocrFrames.imageH;
-                    if (!naturalW) return null;
-                    const scale = Math.min(imageContainerWidth / naturalW, IMAGE_HEIGHT / naturalH);
-                    const renderedW = naturalW * scale;
-                    const renderedH = naturalH * scale;
-                    const offsetX = (imageContainerWidth - renderedW) / 2;
-                    const offsetY = (IMAGE_HEIGHT - renderedH) / 2;
-                    const frame = ocrFrames[key];
-                    const box = {
-                      left: frame.left * scale + offsetX,
-                      top: frame.top * scale + offsetY,
-                      width: frame.width * scale,
-                      height: frame.height * scale,
-                    };
-                    const PAD = 8;
-                    const padded = {
-                      left: box.left - PAD,
-                      top: box.top - PAD,
-                      width: box.width + PAD * 2,
-                      height: box.height + PAD * 2,
-                    };
-                    return (
-                      <React.Fragment key={key}>
-                        <View style={[localStyles.annBox, { ...padded, borderColor: color }]} />
-                        <View style={[localStyles.annChip, { backgroundColor: color, top: padded.top - 18, left: padded.left - 1 }]}>
-                          <Text style={localStyles.annChipText}>{label}</Text>
-                        </View>
-                      </React.Fragment>
-                    );
-                  })}
-                </TouchableOpacity>
+                <View key={String(index)} style={{ position: "relative" }}>
+                  <View style={[localStyles.carouselPage, { width: imageContainerWidth }]}> 
+                    <ScrollView
+                      nestedScrollEnabled
+                      showsVerticalScrollIndicator={false}
+                      style={localStyles.imagePageScroller}
+                      contentContainerStyle={{ minHeight: imageContainerHeight || heroHeight }}
+                    >
+                      <TouchableOpacity
+                        activeOpacity={0.9}
+                        onPress={() => openFullScreenImage(item, annotationData)}
+                        style={{ width: imageContainerWidth, height: canvasHeight, position: "relative" }}
+                      >
+                        <Image
+                          source={{ uri: item.uri }}
+                          style={{ width: imageContainerWidth, height: canvasHeight }}
+                          resizeMode="contain"
+                        />
+                        {isAnnotated ? (
+                          <View style={localStyles.annotationOverlay} pointerEvents="none">
+                            {ANNOTATIONS.filter(({ key }) => (key !== "vat" || vatAnnotationsEnabled) && ocrFrames[key]).map(({ key, label, color }) => {
+                              const frame = ocrFrames[key];
+                              const overlayBox = buildPercentOverlayForContainer(frame, imageContainerWidth, canvasHeight, ocrFrames);
+                              if (!overlayBox) return null;
+                              return (
+                                <View key={key} style={[localStyles.annBox, { ...overlayBox, borderColor: color }]}> 
+                                  <View style={[localStyles.annChip, { backgroundColor: color }]}> 
+                                    <Text style={localStyles.annChipText} numberOfLines={1}>{label}</Text>
+                                  </View>
+                                </View>
+                              );
+                            })}
+                          </View>
+                        ) : null}
+                      </TouchableOpacity>
+                    </ScrollView>
+                  </View>
+                  <TouchableOpacity
+                    style={localStyles.carouselRemoveBtn}
+                    accessibilityRole="button"
+                    accessibilityLabel="Delete image"
+                    onPress={() =>
+                      confirmRemoveImage(() => {
+                        setImages((prev) => prev.filter((_, imageIndex) => imageIndex !== index));
+                      })
+                    }
+                  >
+                    <Ionicons name="trash-outline" size={17} color="#fff" />
+                  </TouchableOpacity>
+                </View>
               );
             })}
             {ocrProcessing ? (
@@ -1207,6 +1646,20 @@ const ReceiptAdd = ({ navigation, route }) => {
             </View>
           </ScrollView>
         ) : null}
+        {showMainAnnotationToggle ? (
+          <TouchableOpacity
+            style={[
+              localStyles.mainAnnotationToggleButton,
+              !annotateImages ? localStyles.mainAnnotationToggleButtonOff : null,
+            ]}
+            onPress={toggleAnnotateImages}
+            accessibilityRole="switch"
+            accessibilityState={{ checked: annotateImages }}
+            accessibilityLabel="Toggle annotations"
+          >
+            <Ionicons name={annotateImages ? "scan" : "scan-outline"} size={18} color="#fff" />
+          </TouchableOpacity>
+        ) : null}
         {ocrProcessing && (
           <View style={localStyles.scanningBanner}>
             <View style={localStyles.scanningBannerRow}>
@@ -1220,42 +1673,63 @@ const ReceiptAdd = ({ navigation, route }) => {
             />
           </View>
         )}
-      </View>
-      {/* Floating X close button — top-left of screen */}
-      <TouchableOpacity
-        style={localStyles.floatingCloseBtn}
-        onPress={!isMultiReceiptMode ? handleResetPress : handleLeavePress}
-        activeOpacity={0.8}
-      >
-        <Text style={localStyles.floatingCloseBtnText}>✕</Text>
-      </TouchableOpacity>
+      </Animated.View>
       <KeyboardAwareScrollView
         ref={scrollRef}
-        contentContainerStyle={{ flexGrow: 1, paddingBottom: 20 }}
+        contentContainerStyle={{
+          flexGrow: 1,
+          paddingBottom: isMultiReceiptMode ? 170 : 12,
+        }}
         enableOnAndroid={true}
         enableAutomaticScroll={false} // Disable auto-scroll so our manual scroll doesn't fight it
         keyboardShouldPersistTaps="always"
         extraScrollHeight={0}
-        style={{ flex: 1 }}
+        style={{ flex: 1, marginTop: 8 }}
+        onScrollBeginDrag={() => {
+          isFormScrollActiveRef.current = true;
+          setDebugScrollState("dragging");
+          markDebugEvent("scroll begin drag");
+        }}
+        onScrollEndDrag={() => {
+          isFormScrollActiveRef.current = false;
+          setDebugScrollState("idle");
+          markDebugEvent("scroll end drag");
+        }}
+        onMomentumScrollBegin={() => {
+          isFormScrollActiveRef.current = true;
+          setDebugScrollState("momentum");
+          markDebugEvent("scroll momentum begin");
+        }}
+        onMomentumScrollEnd={() => {
+          isFormScrollActiveRef.current = false;
+          setDebugScrollState("idle");
+          markDebugEvent("scroll momentum end");
+        }}
       >
-        <View style={[ReceiptStyles.container, { justifyContent: "flex-start", paddingTop: 4 }]}>
+        <View
+          style={[
+            ReceiptStyles.container,
+            {
+              justifyContent: "flex-start",
+              paddingTop: 10,
+              paddingBottom: 200,
+              paddingHorizontal: 12,
+            },
+          ]}
+        >
           <Animated.View
             style={[
               ReceiptStyles.borderContainer,
               {
                 transform: [{ translateX: draftSlideX }],
                 opacity: draftFade,
-                paddingVertical: 14,
+                paddingVertical: 12,
+                paddingHorizontal: 12,
                 borderRadius: 16,
                 borderWidth: 3,
               },
             ]}
-            {...(isMultiReceiptMode ? draftSwipeResponder.panHandlers : {})}
           >
-            {!isMultiReceiptMode ? (
-              <Text style={ReceiptStyles.header}>Your Receipt</Text>
-            ) : null}
-
             {/* Amount + Date row */}
             <View style={localStyles.amountDateRow}>
               <Animated.View
@@ -1294,6 +1768,13 @@ const ReceiptAdd = ({ navigation, route }) => {
                         setVatAmount(computeVat(v, vatRate));
                       }
                     }}
+                    onFocus={() => {
+                      Animated.timing(heroHeightAnim, {
+                        toValue: HERO_COLLAPSED_HEIGHT,
+                        duration: 220,
+                        useNativeDriver: false,
+                      }).start();
+                    }}
                   />
                 </View>
               </Animated.View>
@@ -1329,116 +1810,6 @@ const ReceiptAdd = ({ navigation, route }) => {
                 </TouchableOpacity>
               </Animated.View>
             </View>
-
-            {/* VAT Section: labels above fields */}
-            <Animated.View
-              style={[
-                localStyles.fieldGroup,
-                {
-                  backgroundColor: flashVat.interpolate({
-                    inputRange: [0, 1],
-                    outputRange: ["transparent", "rgba(253,224,71,0.45)"],
-                  }),
-                },
-              ]}
-            >
-              <View
-                style={[
-                  ReceiptStyles.vatRow,
-                  localStyles.vatRowAligned,
-                  { zIndex: 2000, elevation: 5 },
-                ]}
-              >
-                {/* VAT Amount Column */}
-                <View style={ReceiptStyles.vatColLeft}>
-                  <Text style={[ReceiptStyles.label, { fontSize: 13 }]}>VAT Amount:</Text>
-                  <View
-                    style={[
-                      ReceiptStyles.inputRow,
-                      localStyles.currencyField,
-                    ]}
-                  >
-                    <View style={localStyles.currencyWrapper}>
-                      <Text style={localStyles.currencyInside}>£</Text>
-                    </View>
-                    <TextInput
-                      style={[
-                        ReceiptStyles.vatInput,
-                        localStyles.vatInputWithCurrency,
-                        { height: 42 },
-                        isVatAmountValid
-                          ? localStyles.validFieldInput
-                          : localStyles.invalidFieldInput,
-                      ]}
-                      keyboardType="decimal-pad"
-                      placeholder="0.00"
-                      placeholderTextColor={Colors.textSecondary}
-                      value={vatAmount}
-                      onChangeText={(v) => {
-                        setVatAmount(v);
-                        const edited = v.trim().length > 0;
-                        setVatAmountEdited(edited);
-                        // if cleared, return to auto mode immediately
-                        if (!edited && amount && vatRate) {
-                          setVatAmount(computeVat(amount, vatRate));
-                        }
-                      }}
-                      onBlur={() => {
-                        if (!vatAmount.trim()) setVatAmountEdited(false);
-                      }}
-                    />
-                  </View>
-                </View>
-
-                {/* Rate Column */}
-                <View style={ReceiptStyles.vatColRight}>
-                  <Text style={[ReceiptStyles.label, { fontSize: 13 }]}>Rate (%):</Text>
-                  <DropDownPicker
-                    open={vatRateOpen}
-                    value={vatRate}
-                    items={vatRateItems}
-                    setOpen={setVatRateOpen}
-                    setValue={(set) => setVatRate(set(vatRate))}
-                    setItems={setVatRateItems}
-                    placeholder="Select"
-                    style={{
-                      backgroundColor: Colors.surface,
-                      borderColor: isVatRateValid ? "#2E9F46" : "#E06B6B",
-                      borderWidth: 1,
-                      borderRadius: 5,
-                      height: 42,
-                      minHeight: 42,
-                      paddingHorizontal: 8,
-                    }}
-                    dropDownContainerStyle={ReceiptStyles.vatRateDropdown}
-                    containerStyle={{ marginTop: 0, height: 42 }}
-                    zIndex={3000}
-                    zIndexInverse={1000}
-                    dropDownDirection="TOP"
-                    listMode="SCROLLVIEW"
-                    scrollViewProps={{ keyboardShouldPersistTaps: "always" }}
-                    onChangeValue={(val) => {
-                      const next = val ?? "";
-                      setVatRate(next);
-                      // changing rate => return to auto mode & recalc if possible
-                      setVatAmountEdited(false);
-                      if (next && amount) {
-                        setVatAmount(computeVat(amount, next));
-                      }
-                    }}
-                  />
-                </View>
-              </View>
-            </Animated.View>
-
-            <DateTimePickerModal
-              isVisible={isDatePickerVisible}
-              mode="date"
-              date={selectedDate}
-              maximumDate={new Date()}
-              onConfirm={handleConfirmDate}
-              onCancel={hideDatePicker}
-            />
 
             <Animated.View
               ref={categoryWrapperRef}
@@ -1482,7 +1853,125 @@ const ReceiptAdd = ({ navigation, route }) => {
               </TouchableOpacity>
             </Animated.View>
 
-            <View style={localStyles.fieldGroup}>
+            {vatEnabled ? (
+              <Animated.View
+                style={[
+                  localStyles.fieldGroup,
+                  {
+                    backgroundColor: flashVat.interpolate({
+                      inputRange: [0, 1],
+                      outputRange: ["transparent", "rgba(253,224,71,0.45)"],
+                    }),
+                  },
+                ]}
+              >
+              <View
+                style={[
+                  ReceiptStyles.vatRow,
+                  localStyles.vatRowAligned,
+                  { zIndex: 2000, elevation: 5 },
+                ]}
+              >
+                {/* VAT Amount Column */}
+                <View style={ReceiptStyles.vatColLeft}>
+                  <Text style={[ReceiptStyles.label, localStyles.labelAligned, { fontSize: 13 }]}>VAT Amount:</Text>
+                  <View
+                    style={[
+                      ReceiptStyles.inputRow,
+                      localStyles.currencyField,
+                    ]}
+                  >
+                    <View style={localStyles.currencyWrapper}>
+                      <Text style={localStyles.currencyInside}>£</Text>
+                    </View>
+                    <TextInput
+                      style={[
+                        ReceiptStyles.vatInput,
+                        localStyles.vatInputWithCurrency,
+                        { height: 42 },
+                        isVatAmountValid
+                          ? localStyles.validFieldInput
+                          : localStyles.invalidFieldInput,
+                      ]}
+                      keyboardType="decimal-pad"
+                      placeholder="0.00"
+                      placeholderTextColor={Colors.textSecondary}
+                      value={vatAmount}
+                      onChangeText={(v) => {
+                        setVatAmount(v);
+                        const edited = v.trim().length > 0;
+                        setVatAmountEdited(edited);
+                        // if cleared, return to auto mode immediately
+                        if (!edited && amount && vatRate) {
+                          setVatAmount(computeVat(amount, vatRate));
+                        }
+                      }}
+                      onBlur={() => {
+                        if (!vatAmount.trim()) setVatAmountEdited(false);
+                      }}
+                      onFocus={() => {
+                        Animated.timing(heroHeightAnim, {
+                          toValue: HERO_COLLAPSED_HEIGHT,
+                          duration: 220,
+                          useNativeDriver: false,
+                        }).start();
+                      }}
+                    />
+                  </View>
+                </View>
+
+                {/* Rate Column */}
+                <View style={ReceiptStyles.vatColRight}>
+                  <Text style={[ReceiptStyles.label, localStyles.labelAligned, { fontSize: 13 }]}>Rate (%):</Text>
+                  <DropDownPicker
+                    open={vatRateOpen}
+                    value={vatRate}
+                    items={vatRateItems}
+                    setOpen={setVatRateOpen}
+                    setValue={(set) => setVatRate(set(vatRate))}
+                    setItems={setVatRateItems}
+                    placeholder="Select"
+                    style={{
+                      backgroundColor: Colors.surface,
+                      borderColor: isVatRateValid ? "#2E9F46" : "#E06B6B",
+                      borderWidth: 1,
+                      borderRadius: 5,
+                      height: 42,
+                      minHeight: 42,
+                      paddingHorizontal: 8,
+                    }}
+                    dropDownContainerStyle={ReceiptStyles.vatRateDropdown}
+                    containerStyle={{ marginTop: 0, height: 42 }}
+                    zIndex={3000}
+                    zIndexInverse={1000}
+                    dropDownDirection="TOP"
+                    listMode="SCROLLVIEW"
+                    scrollViewProps={{ keyboardShouldPersistTaps: "always" }}
+                    onChangeValue={(val) => {
+                      const next = val ?? "";
+                      setVatRate(next);
+                      // changing rate => return to auto mode & recalc if possible
+                      setVatAmountEdited(false);
+                      if (next && amount) {
+                        setVatAmount(computeVat(amount, next));
+                      }
+                    }}
+                  />
+                </View>
+              </View>
+            </Animated.View>
+            ) : null}
+
+            <DateTimePickerModal
+              isVisible={isDatePickerVisible}
+              mode="date"
+              date={selectedDate}
+              maximumDate={new Date()}
+              onConfirm={handleConfirmDate}
+              onCancel={hideDatePicker}
+            />
+
+            <View style={[localStyles.fieldGroup, localStyles.fieldTopSpacing]}>
               <Text style={[ReceiptStyles.label, localStyles.labelAligned]}>
                 Label (optional):
               </Text>
@@ -1492,6 +1981,13 @@ const ReceiptAdd = ({ navigation, route }) => {
                 onChangeText={setLabel}
                 placeholder="An optional label"
                 placeholderTextColor={Colors.textSecondary}
+                onFocus={() => {
+                  Animated.timing(heroHeightAnim, {
+                    toValue: HERO_COLLAPSED_HEIGHT,
+                    duration: 220,
+                    useNativeDriver: false,
+                  }).start();
+                }}
               />
             </View>
 
@@ -1527,13 +2023,26 @@ const ReceiptAdd = ({ navigation, route }) => {
           </Animated.View>
         </View>
       </KeyboardAwareScrollView>
+      </View>
+      </TouchableWithoutFeedback>
+      </KeyboardAvoidingView>
 
+      <View style={isMultiReceiptMode ? localStyles.multiReceiptActionDock : null}>
       {/* Dark red divider line — top of fixed area */}
       {isMultiReceiptMode ? <View style={localStyles.buttonBarDivider} /> : null}
 
       {/* Receipt indicator dots */}
       {isMultiReceiptMode && receiptDrafts.length > 0 ? (
-        <View style={localStyles.receiptIndicatorRow}>
+        <ScrollView
+          ref={indicatorScrollRef}
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          style={localStyles.receiptIndicatorRow}
+          contentContainerStyle={localStyles.receiptIndicatorRowContent}
+          onLayout={(e) => {
+            indicatorViewportWidthRef.current = e.nativeEvent.layout.width;
+          }}
+        >
           {receiptDrafts.map((draft, index) => {
             const isActive = index === currentReceiptIndex;
             const state = receiptReviewStates[index];
@@ -1552,6 +2061,10 @@ const ReceiptAdd = ({ navigation, route }) => {
                 key={String(index)}
                 style={localStyles.indicatorDotWrapper}
                 onPress={() => navigateToDraftIndex(index)}
+                onLayout={(e) => {
+                  indicatorLayoutsRef.current[index] = e.nativeEvent.layout;
+                }}
+                hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
               >
                 <View
                   style={
@@ -1566,12 +2079,22 @@ const ReceiptAdd = ({ navigation, route }) => {
               </TouchableOpacity>
             );
           })}
-        </View>
+        </ScrollView>
       ) : null}
 
       {/* Submit & Save — shown after all receipts reviewed */}
       {isMultiReceiptMode && allReceiptsReviewed ? (
-        <View style={localStyles.submitButtonContainer}>
+        <View
+          style={[
+            localStyles.submitButtonContainer,
+            {
+              paddingBottom:
+                Platform.OS === "android"
+                  ? Math.max(insets.bottom, 24)
+                  : 10,
+            },
+          ]}
+        >
           <Button
             mode="contained"
             buttonColor={Colors.accent}
@@ -1584,13 +2107,24 @@ const ReceiptAdd = ({ navigation, route }) => {
       ) : null}
 
       {/* Sticky action bar — always visible above keyboard */}
-      <View style={[localStyles.stickyButtonBar, isMultiReceiptMode && { borderTopWidth: 0 }]}>
+      <View
+        style={[
+          localStyles.stickyButtonBar,
+          {
+            paddingBottom:
+              Platform.OS === "android"
+                ? Math.max(insets.bottom, 24)
+                : 10,
+          },
+          isMultiReceiptMode && { borderTopWidth: 0 },
+        ]}
+      >
         {isMultiReceiptMode ? (
           <>
             <Button
               mode={isCurrentRejected ? "contained" : "outlined"}
               buttonColor={isCurrentRejected ? "#555" : undefined}
-              textColor={isCurrentRejected ? "#fff" : "#a60d49"}
+              textColor={isCurrentRejected ? "#fff" : Colors.accent}
               style={[
                 localStyles.stickyActionButton,
                 !isCurrentRejected && !isCurrentAccepted
@@ -1606,8 +2140,8 @@ const ReceiptAdd = ({ navigation, route }) => {
             <Button
               mode={isCurrentAccepted ? "contained" : "outlined"}
               onPress={handleSavePress}
-              buttonColor={isCurrentAccepted ? "#a60d49" : undefined}
-              textColor={isCurrentAccepted ? "#fff" : "#a60d49"}
+              buttonColor={isCurrentAccepted ? Colors.accent : undefined}
+              textColor={isCurrentAccepted ? "#fff" : Colors.accent}
               disabled={!isReceiptFormValid && !isCurrentAccepted}
               style={[
                 localStyles.stickyActionButton,
@@ -1624,7 +2158,7 @@ const ReceiptAdd = ({ navigation, route }) => {
           <>
             <Button
               mode="contained"
-              buttonColor="#a60d49"
+              buttonColor={Colors.accent}
               style={localStyles.stickyActionButton}
               onPress={handleLeavePress}
             >
@@ -1634,7 +2168,7 @@ const ReceiptAdd = ({ navigation, route }) => {
             <Button
               mode="contained"
               onPress={handleSavePress}
-              buttonColor="#a60d49"
+              buttonColor={Colors.accent}
               style={localStyles.stickyActionButton}
               disabled={!isReceiptFormValid}
             >
@@ -1642,6 +2176,7 @@ const ReceiptAdd = ({ navigation, route }) => {
             </Button>
           </>
         )}
+      </View>
       </View>
 
       <Modal
@@ -1663,7 +2198,7 @@ const ReceiptAdd = ({ navigation, route }) => {
                   .filter((_, i) => receiptReviewStates[i] === "accepted")
                   .map((draft, idx) => (
                     <Text key={idx} style={ReceiptStyles.modalDetailText}>
-                      £{draft.amount} · {formatDate(new Date(draft.selectedDate))} · {draft.selectedCategory || "—"}
+                      {formatCurrency(draft.amount)} · {formatDate(new Date(draft.selectedDate))} · {draft.selectedCategory || "—"}
                     </Text>
                   ))}
               </View>
@@ -1745,8 +2280,12 @@ const ReceiptAdd = ({ navigation, route }) => {
             {batchSaveSummary.saved.length > 0 ? (
               <View style={localStyles.summaryListWrap}>
                 {batchSaveSummary.saved.map((entry, index) => (
+
+                  // Display each saved receipt entry with amount, VAT amount, date, and category
+                  // display VAT amount only if vatEnabled is true
+                  // Currency is currently hardcoded as £
                   <Text key={`${entry.date}-${entry.amount}-${index}`} style={ReceiptStyles.modalDetailText}>
-                    {entry.amount} - {entry.vatAmount || "0.00"} - {entry.date} - {entry.category}
+                    £{entry.amount} {vatEnabled ? `- ${entry.vatAmount || "0.00"}` : ""} - {entry.date} - {entry.category}
                   </Text>
                 ))}
               </View>
@@ -1769,7 +2308,11 @@ const ReceiptAdd = ({ navigation, route }) => {
                     routes: [
                       {
                         name: "MainTabs",
-                        state: { routes: [{ name: "Receipts" }] },
+                        state: {
+                          routes: [
+                            { name: "Receipts", params: { refreshReceiptFilterAt: Date.now() } },
+                          ],
+                        },
                       },
                     ],
                   });
@@ -1777,10 +2320,9 @@ const ReceiptAdd = ({ navigation, route }) => {
                 color="#555"
               />
               <RNButton
-                title="Add another"
+                title="Add more"
                 onPress={() => {
-                  setShowBatchSummaryModal(false);
-                  resetForm({ clearBatch: true });
+                  openAddMoreSheet();
                 }}
                 color="#a60d49"
               />
@@ -1817,7 +2359,11 @@ const ReceiptAdd = ({ navigation, route }) => {
                     routes: [
                       {
                         name: "MainTabs",
-                        state: { routes: [{ name: "Receipts" }] },
+                        state: {
+                          routes: [
+                            { name: "Receipts", params: { refreshReceiptFilterAt: Date.now() } },
+                          ],
+                        },
                       },
                     ],
                   });
@@ -1825,10 +2371,9 @@ const ReceiptAdd = ({ navigation, route }) => {
                 color="#555"
               />
               <RNButton
-                title="Add another"
+                title="Add more"
                 onPress={() => {
-                  setShowSuccess(false);
-                  // form already reset in handleUploadSingleReceipt()
+                  openAddMoreSheet();
                 }}
                 color="#a60d49"
               />
@@ -1886,7 +2431,11 @@ const ReceiptAdd = ({ navigation, route }) => {
                     routes: [
                       {
                         name: "MainTabs",
-                        state: { routes: [{ name: "Receipts" }] },
+                        state: {
+                          routes: [
+                            { name: "Receipts", params: { refreshReceiptFilterAt: Date.now() } },
+                          ],
+                        },
                       },
                     ],
                   });
@@ -2016,32 +2565,42 @@ const ReceiptAdd = ({ navigation, route }) => {
 
       {/* Full-screen Image Modal */}
       <Modal
-        visible={fullScreenImageIndex !== null}
+        visible={!!fullScreenImage}
         animationType="fade"
-        presentationStyle="fullScreen"
-        transparent={false}
-        onRequestClose={() => setFullScreenImageIndex(null)}
+        presentationStyle="overFullScreen"
+        transparent
+        statusBarTranslucent
+        onRequestClose={() => setFullScreenImage(null)}
       >
-        {fullScreenImageIndex !== null ? (
-          <>
-            <ImageViewer
-              imageUrls={images.map(img => ({ url: img.uri }))}
-              index={fullScreenImageIndex}
-              enableSwipeDown
-              onSwipeDown={() => setFullScreenImageIndex(null)}
-              onClick={() => setFullScreenImageIndex(null)}
-              backgroundColor="black"
-              renderIndicator={images.length > 1 ? undefined : () => null}
-              saveToLocalByLongPress={false}
-            />
+        <ImageViewer
+          imageUrls={fullScreenImage ? [{ url: fullScreenImage.uri }] : []}
+          enableSwipeDown
+          onSwipeDown={() => setFullScreenImage(null)}
+          renderImage={renderAnnotatedZoomImage}
+          backgroundColor="black"
+        />
+        <View style={ReceiptStyles.fullScreenCloseButtonWrapper}>
+          <TouchableOpacity
+            style={ReceiptStyles.fullScreenCloseButton}
+            onPress={() => setFullScreenImage(null)}
+          >
+            <Text style={ReceiptStyles.fullScreenCloseText}>✕</Text>
+          </TouchableOpacity>
+          {fullScreenImage?.annotationData ? (
             <TouchableOpacity
-              style={ReceiptStyles.fullScreenCloseButton}
-              onPress={() => setFullScreenImageIndex(null)}
+              style={[
+                ReceiptStyles.fullScreenAnnotationToggleButton,
+                !annotateImages ? ReceiptStyles.fullScreenAnnotationToggleButtonOff : null,
+              ]}
+              onPress={toggleAnnotateImages}
+              accessibilityRole="switch"
+              accessibilityState={{ checked: annotateImages }}
+              accessibilityLabel="Toggle annotations"
             >
-              <Text style={ReceiptStyles.fullScreenCloseText}>✕</Text>
+              <Ionicons name={annotateImages ? "scan" : "scan-outline"} size={20} color="#fff" />
             </TouchableOpacity>
-          </>
-        ) : null}
+          ) : null}
+        </View>
       </Modal>
 
 
@@ -2064,14 +2623,40 @@ const ReceiptAdd = ({ navigation, route }) => {
           <View style={ReceiptStyles.uploadCard}>
             <ActivityIndicator size="large" color="#a60d49" />
             <Text style={{ marginTop: 12, fontWeight: "700", fontSize: 15 }}>
-              Detecting receipts…
+              {detectMode === "local"
+                ? "Processing receipts locally…"
+                : detectMode === "cloud"
+                ? "Processing receipts in the cloud…"
+                : "Processing receipts…"}
             </Text>
             <Text style={{ marginTop: 4, color: "#666", fontSize: 12, textAlign: "center" }}>
-              Please wait while we analyse your images
+              {detectMode === "local"
+                ? "This may be faster, but results can be less accurate."
+                : detectMode === "cloud"
+                ? "Please wait while we process your images in the cloud."
+                : "Selecting the best processing mode for your account."}
             </Text>
             <View style={{ alignSelf: "stretch", marginTop: 16 }}>
               <ProgressBar progress={detectProgress} color="#a60d49" style={{ borderRadius: 4 }} />
             </View>
+            <View style={localStyles.detectingActions}>
+              <Button mode="outlined" onPress={cancelDetectionAndExit}>
+                Cancel
+              </Button>
+              <Button
+                mode="contained"
+                buttonColor={Colors.accent}
+                onPress={processDetectionLocally}
+                disabled={detectMode === "local"}
+              >
+                Process locally
+              </Button>
+            </View>
+            {detectMode === "cloud" ? (
+              <Text style={localStyles.detectingHint}>
+                Local processing can be quicker, but is usually less accurate.
+              </Text>
+            ) : null}
           </View>
         </View>
       )}
@@ -2114,11 +2699,26 @@ const ReceiptAdd = ({ navigation, route }) => {
           <Text style={localStyles.toastText}>{toastMessage}</Text>
         </Animated.View>
       ) : null}
+
+      <AddReceiptSheet
+        visible={showAddMoreSheet}
+        onClose={() => setShowAddMoreSheet(false)}
+        navigation={navigation}
+        targetScreen="Receipt"
+        itemLabel="receipt"
+      />
     </SafeAreaView>
   );
 };
 
 const IMAGE_HEIGHT = Math.round(Dimensions.get("window").height * 0.55);
+const HERO_SECTION_SCALE = 0.9;
+const HERO_EXPANDED_HEIGHT = Math.round(
+  Dimensions.get("window").height * 0.52 * HERO_SECTION_SCALE,
+);
+const HERO_COLLAPSED_HEIGHT = Math.round(
+  Dimensions.get("window").height * 0.37 * HERO_SECTION_SCALE,
+);
 
 const ANNOTATIONS = [
   { key: "amount", label: "Amount", color: "#2E9F46" },
@@ -2127,6 +2727,20 @@ const ANNOTATIONS = [
 ];
 
 const localStyles = StyleSheet.create({
+  safeAreaLight: {
+    backgroundColor: "#fff",
+  },
+  header: {
+    backgroundColor: "#1C1C4E",
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    paddingHorizontal: 16,
+    paddingBottom: 10,
+  },
+  headerTitle: { color: "#fff", fontSize: 17, fontWeight: "700" },
+  headerBtn: { width: 40, alignItems: "center" },
+  headerBtnText: { color: "#fff", fontWeight: "600", fontSize: 22 },
   imageSection: {
     height: IMAGE_HEIGHT,
     overflow: "hidden",
@@ -2157,36 +2771,27 @@ const localStyles = StyleSheet.create({
     position: "absolute",
     borderWidth: 2,
     borderRadius: 4,
+    overflow: "visible",
+    minWidth: ANNOTATION_MIN_BOX_WIDTH,
+    minHeight: ANNOTATION_MIN_BOX_HEIGHT,
   },
   annChip: {
     position: "absolute",
+    top: -18,
+    left: 0,
     paddingHorizontal: 5,
     paddingVertical: 1,
     borderRadius: 3,
+    minWidth: 52,
+  },
+  annotationOverlay: {
+    ...StyleSheet.absoluteFillObject,
   },
   annChipText: {
     color: "#fff",
     fontSize: 11,
     fontWeight: "700",
-  },
-  floatingCloseBtn: {
-    position: "absolute",
-    top: 12,
-    left: 12,
-    width: 36,
-    height: 36,
-    borderRadius: 18,
-    backgroundColor: "#a60d49",
-    justifyContent: "center",
-    alignItems: "center",
-    zIndex: 200,
-    elevation: 6,
-  },
-  floatingCloseBtnText: {
-    color: "#fff",
-    fontSize: 18,
-    lineHeight: 20,
-    fontWeight: "bold",
+    flexShrink: 0,
   },
   stickyButtonBar: {
     flexDirection: "row",
@@ -2201,6 +2806,15 @@ const localStyles = StyleSheet.create({
   stickyActionButton: {
     flex: 1,
   },
+  multiReceiptActionDock: {
+    position: "absolute",
+    left: 0,
+    right: 0,
+    bottom: 0,
+    backgroundColor: "#fff",
+    zIndex: 100,
+    elevation: 100,
+  },
   uploadOverlay: {
     ...StyleSheet.absoluteFillObject,
     backgroundColor: "rgba(0,0,0,0.35)",
@@ -2214,6 +2828,19 @@ const localStyles = StyleSheet.create({
     justifyContent: "center",
     alignItems: "center",
     zIndex: 1200,
+  },
+  detectingActions: {
+    marginTop: 16,
+    width: "100%",
+    flexDirection: "row",
+    justifyContent: "space-between",
+    gap: 10,
+  },
+  detectingHint: {
+    marginTop: 8,
+    color: "#666",
+    fontSize: 11,
+    textAlign: "center",
   },
   labelAligned: {
     marginLeft: 10,
@@ -2240,7 +2867,7 @@ const localStyles = StyleSheet.create({
     marginHorizontal: 0,
   },
   fieldGroup: {
-    marginBottom: 8,
+    marginBottom: 6,
   },
   multiReceiptHeader: {
     marginTop: 6,
@@ -2418,9 +3045,10 @@ const localStyles = StyleSheet.create({
   },
   sideTipBox: {
     backgroundColor: "#F0D1FF",
-    padding: 10,
+    paddingVertical: 10,
+    paddingHorizontal: 12,
     borderRadius: 12,
-    maxWidth: 160,
+    maxWidth: 260,
     elevation: 4,
     shadowColor: "#000",
     shadowOpacity: 0.1,
@@ -2429,8 +3057,9 @@ const localStyles = StyleSheet.create({
   },
   sideTipText: {
     color: "#4A148C",
-    fontSize: 11,
-    lineHeight: 15,
+    fontSize: 12,
+    lineHeight: 16,
+    textAlign: "center",
   },
   sideGotIt: {
     color: "#4A148C",
@@ -2440,10 +3069,25 @@ const localStyles = StyleSheet.create({
     textAlign: "right",
   },
   sideTipWrapper: {
-    flexDirection: "row",
+    position: "absolute",
+    left: 14,
+    right: 14,
+    bottom: 42,
+    flexDirection: "column",
     alignItems: "center",
-    marginLeft: 5, // Pulls the triangle right up to the box edge
     zIndex: 5000,
+    elevation: 5000,
+  },
+  sideTopTriangle: {
+    width: 0,
+    height: 0,
+    borderLeftWidth: 8,
+    borderRightWidth: 8,
+    borderBottomWidth: 10,
+    borderLeftColor: "transparent",
+    borderRightColor: "transparent",
+    borderBottomColor: "#F0D1FF",
+    marginBottom: -1,
   },
   skipButton: {
     marginTop: 2,
@@ -2560,21 +3204,27 @@ const localStyles = StyleSheet.create({
   },
   // Receipt indicator dots
   receiptIndicatorRow: {
+    flexGrow: 0,
+    backgroundColor: "#fff",
+  },
+  receiptIndicatorRowContent: {
     flexDirection: "row",
-    justifyContent: "center",
     alignItems: "flex-end",
-    paddingVertical: 8,
+    justifyContent: "center",
+    flexGrow: 1,
+    paddingVertical: 2,
     paddingHorizontal: 12,
     gap: 14,
-    backgroundColor: "#fff",
   },
   indicatorDotWrapper: {
     alignItems: "center",
+    paddingHorizontal: 2,
+    paddingVertical: 2,
   },
   indicatorDot: {
-    width: 14,
-    height: 14,
-    borderRadius: 7,
+    width: 16,
+    height: 16,
+    borderRadius: 8,
   },
   indicatorTriangle: {
     width: 0,
@@ -2627,6 +3277,28 @@ const localStyles = StyleSheet.create({
   carouselImage: {
     height: IMAGE_HEIGHT,
   },
+  imagePageScroller: {
+    alignSelf: "stretch",
+    flex: 1,
+  },
+  mainAnnotationToggleButton: {
+    position: "absolute",
+    top: 10,
+    left: 10,
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: "rgba(166, 13, 73, 0.88)",
+    alignItems: "center",
+    justifyContent: "center",
+    zIndex: 50,
+    elevation: 50,
+  },
+  mainAnnotationToggleButtonOff: {
+    backgroundColor: "rgba(15,15,20,0.72)",
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.45)",
+  },
   carouselAddBtn: {
     flex: 1,
     width: "100%",
@@ -2637,10 +3309,88 @@ const localStyles = StyleSheet.create({
     borderRadius: 8,
     backgroundColor: "#f9f9f9",
   },
+  carouselRemoveBtn: {
+    position: "absolute",
+    top: 8,
+    right: 8,
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    backgroundColor: "rgba(0,0,0,0.65)",
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  carouselRemoveText: {
+    color: "#fff",
+    fontSize: 20,
+    lineHeight: 20,
+    fontWeight: "bold",
+  },
   scanningText: {
     fontSize: 11,
     color: "#999",
     marginTop: 6,
+  },
+  debugOverlayWrap: {
+    position: "absolute",
+    top: 110,
+    right: 10,
+    zIndex: 9000,
+    elevation: 9000,
+  },
+  debugOverlayCard: {
+    minWidth: 210,
+    maxWidth: 260,
+    backgroundColor: "rgba(15,15,20,0.9)",
+    borderRadius: 10,
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.2)",
+  },
+  debugOverlayHeader: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    marginBottom: 4,
+  },
+  debugOverlayTitle: {
+    color: "#fff",
+    fontSize: 12,
+    fontWeight: "700",
+  },
+  debugOverlayHide: {
+    color: "#b8d5ff",
+    fontSize: 12,
+    fontWeight: "600",
+  },
+  debugOverlayText: {
+    color: "#fff",
+    fontSize: 11,
+    marginTop: 2,
+  },
+  debugOverlayLast: {
+    color: "#d0d0d0",
+    fontSize: 10,
+    marginTop: 6,
+  },
+  debugOverlayToggle: {
+    position: "absolute",
+    right: 10,
+    top: 110,
+    zIndex: 9000,
+    elevation: 9000,
+    backgroundColor: "rgba(15,15,20,0.9)",
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.2)",
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+  },
+  debugOverlayToggleText: {
+    color: "#fff",
+    fontSize: 11,
+    fontWeight: "700",
   },
   // Toast
   toastContainer: {
@@ -2661,13 +3411,17 @@ const localStyles = StyleSheet.create({
     fontSize: 14,
     fontWeight: "600",
   },
+  fullScreenOverlayRoot: {
+    flex: 1,
+    backgroundColor: "#000",
+  },
 });
 
 export default ReceiptAdd;
 
 const ScannerTooltip = ({ onDismiss }) => (
   <View style={localStyles.sideTipWrapper}>
-    <View style={localStyles.leftTriangle} />
+    <View style={localStyles.sideTopTriangle} />
     <View style={localStyles.sideTipBox}>
       <Text style={localStyles.sideTipText}>
         Tap to scan your receipt. We'll auto-fill the details! ✨

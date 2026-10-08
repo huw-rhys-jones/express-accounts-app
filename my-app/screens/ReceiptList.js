@@ -1,7 +1,8 @@
-import React, { useState, useEffect, useCallback, useMemo } from "react";
+import React, { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import {
   View,
   Text,
+  Pressable,
   TouchableOpacity,
   StyleSheet,
   FlatList,
@@ -28,7 +29,7 @@ import {
   writeBatch,
 } from "firebase/firestore";
 import { db, auth } from "../firebaseConfig";
-import { formatDate } from "../utils/format_style";
+import { formatDate, formatCurrency } from "../utils/format_style";
 import SideMenu from "../components/SideMenu";
 import { StatusBar, Platform } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
@@ -43,19 +44,23 @@ import {
   deleteObject,
 } from "firebase/storage";
 import {
-  buildFinancialFilterOptions,
+  buildYearScopedFilterOptions,
+  buildAllTimeScopedFilterOptions,
   filterReceiptsByDateRange,
+  getPeriodRecordCount,
+  formatPeriodLabelWithCount,
 } from "../utils/financialPeriods";
 import {
   getHapticsEnabled,
   setHapticsEnabled,
   triggerHaptic,
 } from "../utils/haptics";
-import { getReceiptFilterKey, setReceiptFilterKey, setAllFilterKeys, getVehicles } from "../utils/appSettings";
+import { getReceiptFilterKey, setReceiptFilterKey, setAllFilterKeys, getVehicles, getHiddenPeriodTooltipDismissed, setHiddenPeriodTooltipDismissed } from "../utils/appSettings";
 import { verifyClientCode } from "../utils/verificationCodes";
 import AddReceiptSheet from "../components/AddReceiptSheet";
 import RegisterVehicleModal from "../components/RegisterVehicleModal";
 import YourVehiclesModal from "../components/YourVehiclesModal";
+import SharedTabMenu from "../components/SharedTabMenu";
 import { useData } from "../contexts/DataContext";
 
 // Inside your component
@@ -64,7 +69,7 @@ const internalBuildLabel = Constants.expoConfig?.extra?.internalBuildLabel || ""
 const versionLabel = internalBuildLabel ? `${appVersion} (${internalBuildLabel})` : appVersion;
 
 const ExpensesScreen = ({ navigation, route }) => {
-  const { receipts, initialLoading: dataLoading } = useData();
+  const { receipts, incomeItems, bankStatements, financialYearScope, setFinancialYearScope, initialLoading: dataLoading } = useData();
   const [displayName, setDisplayName] = useState("User");
   const [verifiedName, setVerifiedName] = useState("");
   const [verificationStatus, setVerificationStatus] = useState("");
@@ -76,6 +81,8 @@ const ExpensesScreen = ({ navigation, route }) => {
   const [vehicles, setVehicles] = useState([]);
   const [registerVehicleOpen, setRegisterVehicleOpen] = useState(false);
   const [yourVehiclesOpen, setYourVehiclesOpen] = useState(false);
+  const [isSelectionMode, setIsSelectionMode] = useState(false);
+  const [selectedIds, setSelectedIds] = useState(new Set());
 
   // --- sorting state ---
   const [sortKey, setSortKey] = useState("date"); // "date" | "amount" | "category"
@@ -94,11 +101,15 @@ const ExpensesScreen = ({ navigation, route }) => {
   const [filterOpen, setFilterOpen] = useState(false);
   const [activeFilterKey, setActiveFilterKey] = useState("current-quarter");
   const [filterItems, setFilterItems] = useState([]);
+  const [showHiddenRecordsTip, setShowHiddenRecordsTip] = useState(false);
+  const [hiddenPeriodTipDismissed, setHiddenPeriodTipDismissed] = useState(false);
+  const [hiddenPeriodTipTemporarilyDismissed, setHiddenPeriodTipTemporarilyDismissed] = useState(false);
   const [referralCodeModalVisible, setReferralCodeModalVisible] = useState(false);
   const [referralCode, setReferralCode] = useState("");
   const [nameChangeModalVisible, setNameChangeModalVisible] = useState(false);
   const [newName, setNewName] = useState(displayName);
   const [federatedPromptMode, setFederatedPromptMode] = useState(false);
+  const menuToModalTimerRef = useRef(null);
 
   const handleSendFeedback = async () => {
   // 1. Validation
@@ -221,14 +232,24 @@ const ExpensesScreen = ({ navigation, route }) => {
   };
 
   const filterOptions = useMemo(
-    () => buildFinancialFilterOptions(receipts, new Date()),
-    [receipts]
+    () => (financialYearScope === "all-time"
+      ? buildAllTimeScopedFilterOptions([...receipts, ...incomeItems, ...bankStatements], new Date())
+      : buildYearScopedFilterOptions(financialYearScope)),
+    [financialYearScope, receipts, incomeItems, bankStatements]
   );
 
   const activeFilter = useMemo(
     () => filterOptions.find((option) => option.key === activeFilterKey) || filterOptions[0],
     [activeFilterKey, filterOptions]
   );
+
+  const filterCountsByKey = useMemo(() => {
+    const counts = {};
+    for (const option of filterOptions) {
+      counts[option.key] = getPeriodRecordCount(receipts, option);
+    }
+    return counts;
+  }, [filterOptions, receipts]);
 
   useEffect(() => {
     if (!activeFilter && filterOptions[0]) {
@@ -238,9 +259,15 @@ const ExpensesScreen = ({ navigation, route }) => {
 
   useEffect(() => {
     setFilterItems(
-      filterOptions.map((option) => ({ label: option.label, value: option.key }))
+      filterOptions.map((option) => {
+        const count = filterCountsByKey[option.key] ?? 0;
+        return {
+          label: formatPeriodLabelWithCount(option.label, count, "Receipt"),
+          value: option.key,
+        };
+      })
     );
-  }, [filterOptions]);
+  }, [filterCountsByKey, filterOptions]);
 
   useEffect(() => {
     if (filterOptions.length === 0) {
@@ -257,6 +284,54 @@ const ExpensesScreen = ({ navigation, route }) => {
       setReceiptFilterKey(fallbackKey).catch(() => {});
     }
   }, [activeFilterKey, filterOptions]);
+
+  useEffect(() => {
+    if (
+      dataLoading ||
+      loading ||
+      filterOpen ||
+      isSelectionMode ||
+      hiddenPeriodTipDismissed ||
+      hiddenPeriodTipTemporarilyDismissed ||
+      filterOptions.length === 0
+    ) {
+      setShowHiddenRecordsTip(false);
+      return;
+    }
+
+    const activeCount = filterCountsByKey[activeFilterKey] ?? 0;
+    const hasRecordsInOtherPeriods = filterOptions.some(
+      (option) => option.key !== activeFilterKey && (filterCountsByKey[option.key] ?? 0) > 0
+    );
+    setShowHiddenRecordsTip(activeCount === 0 && hasRecordsInOtherPeriods);
+  }, [
+    activeFilterKey,
+    dataLoading,
+    filterCountsByKey,
+    filterOpen,
+    filterOptions,
+    hiddenPeriodTipDismissed,
+    hiddenPeriodTipTemporarilyDismissed,
+    isSelectionMode,
+    loading,
+  ]);
+
+  const dismissHiddenRecordsTip = useCallback(async () => {
+    setShowHiddenRecordsTip(false);
+    setHiddenPeriodTipDismissed(true);
+    await setHiddenPeriodTooltipDismissed();
+  }, []);
+
+  const handleSetFilterOpen = useCallback((nextOpen) => {
+    setFilterOpen((previous) => {
+      const resolvedOpen = typeof nextOpen === "function" ? nextOpen(previous) : nextOpen;
+      if (resolvedOpen) {
+        setShowHiddenRecordsTip(false);
+        setHiddenPeriodTipTemporarilyDismissed(true);
+      }
+      return resolvedOpen;
+    });
+  }, []);
 
   const filteredReceipts = useMemo(() => {
     if (!activeFilter) return receipts;
@@ -293,10 +368,69 @@ const ExpensesScreen = ({ navigation, route }) => {
     return data;
   }, [filteredReceipts, sortKey, sortDir]);
 
+  const clearSelectionMode = useCallback(() => {
+    setIsSelectionMode(false);
+    setSelectedIds(new Set());
+  }, []);
+
+  const toggleSelectedId = useCallback((id) => {
+    setSelectedIds((previous) => {
+      const next = new Set(previous);
+      if (next.has(id)) {
+        next.delete(id);
+      } else {
+        next.add(id);
+      }
+      if (next.size === 0) {
+        setIsSelectionMode(false);
+      }
+      return next;
+    });
+  }, []);
+
+  const beginSelectionWithId = useCallback((id) => {
+    setIsSelectionMode(true);
+    setSelectedIds(new Set([id]));
+  }, []);
+
+  const handleBatchDeleteReceipts = useCallback(() => {
+    if (selectedIds.size === 0) {
+      return;
+    }
+
+    const idsToDelete = Array.from(selectedIds);
+    Alert.alert(
+      "Delete Receipts",
+      `Are you sure you want to delete ${idsToDelete.length} items?`,
+      [
+        { text: "Cancel", style: "cancel" },
+        {
+          text: "Delete",
+          style: "destructive",
+          onPress: async () => {
+            await runWithLoading("Deleting receipts…", async () => {
+              const batch = writeBatch(db);
+              idsToDelete.forEach((id) => {
+                batch.delete(doc(db, "receipts", id));
+              });
+              await batch.commit();
+            });
+            triggerHaptic("success").catch(() => {});
+            clearSelectionMode();
+          },
+        },
+      ],
+    );
+  }, [clearSelectionMode, selectedIds]);
+
   useEffect(() => {
     getHapticsEnabled()
       .then(setHapticsEnabledState)
       .catch(() => setHapticsEnabledState(true));
+
+    getHiddenPeriodTooltipDismissed()
+      .then(setHiddenPeriodTipDismissed)
+      .catch(() => setHiddenPeriodTipDismissed(false));
 
     getReceiptFilterKey()
       .then(setActiveFilterKey)
@@ -386,6 +520,26 @@ const ExpensesScreen = ({ navigation, route }) => {
     }
     setMenuOpen(false);
   }, [dismissNotifyTip, showNotifyTip]);
+
+  const openAfterMenuClose = useCallback((openFn) => {
+    closeMenu();
+    if (menuToModalTimerRef.current) {
+      clearTimeout(menuToModalTimerRef.current);
+    }
+    // iOS can drop modal presentations if a second modal opens during the first modal's close animation.
+    menuToModalTimerRef.current = setTimeout(() => {
+      openFn(true);
+      menuToModalTimerRef.current = null;
+    }, 260);
+  }, [closeMenu]);
+
+  useEffect(() => {
+    return () => {
+      if (menuToModalTimerRef.current) {
+        clearTimeout(menuToModalTimerRef.current);
+      }
+    };
+  }, []);
 
   useEffect(() => {
     if (!menuOpen) {
@@ -539,6 +693,7 @@ const ExpensesScreen = ({ navigation, route }) => {
 
   const handleFilterSelection = useCallback(
     async (nextKey) => {
+      setHiddenPeriodTipTemporarilyDismissed(false);
       setActiveFilterKey(nextKey);
       await setAllFilterKeys(nextKey);
     },
@@ -649,6 +804,7 @@ const ExpensesScreen = ({ navigation, route }) => {
 
   const renderReceiptItem = ({ item, index }) => {
     const isFirst = index === 0;
+    const isSelected = selectedIds.has(item.id);
 
     return (
       <View style={{ width: "100%", alignItems: "center" }}>
@@ -660,13 +816,30 @@ const ExpensesScreen = ({ navigation, route }) => {
           ]}
         >
           <TouchableOpacity
-            onPress={() =>
-              item.type === "mileage"
-                ? navigation.navigate("MileageDetails", { item })
-                : navigation.navigate("ReceiptDetails", { receipt: item })
-            }
-            style={[styles.receiptItem, { width: "100%", marginBottom: 0 }]}
+            onPress={() => {
+              if (isSelectionMode) {
+                toggleSelectedId(item.id);
+                return;
+              }
+              if (item.type === "mileage") {
+                navigation.navigate("MileageDetails", { item });
+                return;
+              }
+              navigation.navigate("ReceiptDetails", { receipt: item });
+            }}
+            onLongPress={() => beginSelectionWithId(item.id)}
+            delayLongPress={220}
+            style={[
+              styles.receiptItem,
+              { width: "100%", marginBottom: 0 },
+              isSelected && styles.selectedReceiptItem,
+            ]}
           >
+            {isSelectionMode ? (
+              <View style={[styles.selectionBadge, isSelected && styles.selectionBadgeActive]}>
+                <Text style={styles.selectionBadgeText}>{isSelected ? "✓" : ""}</Text>
+              </View>
+            ) : null}
             <Text style={styles.receiptDate}>
               {formatDate(new Date(item.date))}
             </Text>
@@ -696,13 +869,13 @@ const ExpensesScreen = ({ navigation, route }) => {
             </View>
 
             <Text style={styles.receiptAmount}>
-              £{Number(item.amount).toFixed(2)}
+              {formatCurrency(item.amount)}
             </Text>
           </TouchableOpacity>
         </View>
 
         {/* 2. The Tooltip (Sibling to the blue box) */}
-        {isFirst && showItemTip && sortedReceipts.length === 1 && (
+        {isFirst && !isSelectionMode && showItemTip && sortedReceipts.length === 1 && (
           <ItemTooltip onDismiss={dismissItemTip} />
         )}
       </View>
@@ -728,23 +901,43 @@ const ExpensesScreen = ({ navigation, route }) => {
       <StatusBar backgroundColor="#1C1C4E" barStyle="light-content" />
       {/* Top App Bar */}
       <View style={[styles.topBar, { paddingTop: 5 }]}>
-        <TouchableOpacity
-          style={styles.topBarButton}
-          onPress={() => setMenuOpen(true)}
-        >
-          <Text style={styles.topBarButtonText}>≡</Text>
-        </TouchableOpacity>
+        {isSelectionMode ? (
+          <>
+            <TouchableOpacity style={styles.topBarButton} onPress={clearSelectionMode}>
+              <Text style={styles.topBarButtonText}>✕</Text>
+            </TouchableOpacity>
 
-        <Text style={styles.topBarTitle}>Expenses</Text>
+            <Text style={styles.topBarTitle}>{selectedIds.size} selected</Text>
 
-        {/* Right spacer to balance the layout (same width as the button) */}
-        <View style={{ width: 44 }} />
+            <TouchableOpacity
+              style={[styles.topBarButton, selectedIds.size === 0 && { opacity: 0.4 }]}
+              disabled={selectedIds.size === 0}
+              onPress={handleBatchDeleteReceipts}
+            >
+              <Text style={styles.topBarButtonText}>🗑</Text>
+            </TouchableOpacity>
+          </>
+        ) : (
+          <>
+            <TouchableOpacity
+              style={styles.topBarButton}
+              onPress={() => setMenuOpen(true)}
+            >
+              <Text style={styles.topBarButtonText}>≡</Text>
+            </TouchableOpacity>
+
+            <Text style={styles.topBarTitle}>Expenses</Text>
+
+            {/* Right spacer to balance the layout (same width as the button) */}
+            <View style={{ width: 44 }} />
+          </>
+        )}
       </View>
 
       <View style={styles.content}>
 
         {/* Header row OUTSIDE the FlatList to avoid Android sticky bug */}
-        {hasReceipts ? (
+        {hasReceipts && !isSelectionMode ? (
           <View style={{ marginTop: 12, marginBottom: 8 }}>
             {renderHeaderRow()}
           </View>
@@ -755,6 +948,7 @@ const ExpensesScreen = ({ navigation, route }) => {
           data={(loading || dataLoading) ? [] : sortedReceipts}
           keyExtractor={(item) => item.id}
           renderItem={renderReceiptItem}
+          extraData={{ isSelectionMode, selectedIds: Array.from(selectedIds).join("|") }}
           contentContainerStyle={[
             { paddingVertical: 10 },
             !hasReceipts ? { flexGrow: 1, justifyContent: "center" } : { paddingBottom: 110 },
@@ -766,14 +960,37 @@ const ExpensesScreen = ({ navigation, route }) => {
 
       </View>
 
+      {filterOpen ? (
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel="Close period selector"
+          onPress={() => setFilterOpen(false)}
+          style={styles.filterDismissLayer}
+        />
+      ) : null}
+
+      {!isSelectionMode && !dataLoading && !loading && !filterOpen && showHiddenRecordsTip ? (
+        <View style={styles.hiddenPeriodTipWrapper} pointerEvents="box-none">
+          <View style={styles.hiddenPeriodTipBox}>
+            <Text style={styles.hiddenPeriodTipText}>
+              You may have records in other periods which are currently not displaying.
+            </Text>
+            <TouchableOpacity onPress={dismissHiddenRecordsTip}>
+              <Text style={styles.hiddenPeriodTipOk}>OK</Text>
+            </TouchableOpacity>
+          </View>
+          <View style={styles.hiddenPeriodTipTriangleDown} />
+        </View>
+      ) : null}
+
       {/* Period filter bar — sits just above the bottom tab bar */}
-      {!dataLoading && !loading && filterOptions.length > 0 ? (
+      {!isSelectionMode && !dataLoading && !loading && filterOptions.length > 0 ? (
         <View style={styles.filterBar}>
           <DropDownPicker
             open={filterOpen}
             value={activeFilterKey}
             items={filterItems}
-            setOpen={setFilterOpen}
+            setOpen={handleSetFilterOpen}
             setValue={(callback) => {
               const nextKey = callback(activeFilterKey);
               handleFilterSelection(nextKey).catch(() => {});
@@ -782,6 +999,8 @@ const ExpensesScreen = ({ navigation, route }) => {
             setItems={setFilterItems}
             listMode="SCROLLVIEW"
             dropDownDirection="TOP"
+            closeOnClickOutside={true}
+            maxHeight={filterItems.length * 48 + 12}
             style={styles.filterDropdown}
             dropDownContainerStyle={styles.filterDropdownContainer}
             zIndex={3000}
@@ -791,7 +1010,7 @@ const ExpensesScreen = ({ navigation, route }) => {
       ) : null}
 
       {/* Floating Add Expenses Button */}
-      {!addSheetVisible && (
+      {!isSelectionMode && !addSheetVisible && (
         <TouchableOpacity
           style={styles.floatingButton}
           onPress={() => setAddSheetVisible(true)}
@@ -822,154 +1041,17 @@ const ExpensesScreen = ({ navigation, route }) => {
 
       {/* Slide-in side menu */}
       <SideMenu open={menuOpen} onClose={closeMenu}>
-        <View style={{ flex: 1 }}>
-          {/* Top Section: Name, Email, Settings Button */}
-          <View style={styles.userInfo}>
-            <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}>
-              <Text style={styles.userEmail}>{displayName}</Text>
-              <TouchableOpacity
-                onPress={() => {
-                  setNewName(displayName);
-                  setNameChangeModalVisible(true);
-                }}
-                style={{ paddingLeft: 8 }}
-              >
-                <Text style={{ fontSize: 14 }}>✏️</Text>
-              </TouchableOpacity>
-            </View>
-            <Text style={styles.userEmail}>{auth.currentUser?.email}</Text>
-            {verificationStatus === "verified" && verifiedName ? (
-              <>
-                <Text style={styles.userEmail}>{verifiedName}</Text>
-                <Text style={styles.userEmail}>(verified user)</Text>
-              </>
-            ) : null}
-          </View>
-
-          {/* Settings Button */}
-          <Image
-            source={require("../assets/images/logo.png")}
-            style={styles.menuLogo}
-            resizeMode="contain"
-          />
-
-          {/* Middle Section: Notify Accountant */}
-          <View style={{ marginTop: 20 }}>
-            <TouchableOpacity
-              onPress={handleNotifyAccountant}
-              style={styles.notifyBtnFilled}
-            >
-              <Text style={styles.filledBtnText}>Notify Accountant</Text>
-            </TouchableOpacity>
-
-            {showNotifyTip ? (
-              <View style={styles.notifyTipBox}>
-                <Text style={styles.notifyTipText}>
-                  Notify your accountant that your receipts are ready for processing
-                </Text>
-                <TouchableOpacity onPress={dismissNotifyTip}>
-                  <Text style={styles.notifyTipOkay}>Okay</Text>
-                </TouchableOpacity>
-              </View>
-            ) : null}
-          </View>
-
-          <View style={{ marginTop: 6 }}>
-            <TouchableOpacity
-              onPress={() => { closeMenu(); setRegisterVehicleOpen(true); }}
-              style={styles.secondaryMenuButton}
-            >
-              <Text style={styles.secondaryMenuButtonText}>🚗  Register Vehicle</Text>
-            </TouchableOpacity>
-
-            {vehicles.length > 0 && (
-              <TouchableOpacity
-                onPress={() => { closeMenu(); setYourVehiclesOpen(true); }}
-                style={[styles.secondaryMenuButton, { marginTop: 10 }]}
-              >
-                <Text style={styles.secondaryMenuButtonText}>📋  Your Vehicles</Text>
-              </TouchableOpacity>
-            )}
-
-            <TouchableOpacity disabled style={[styles.secondaryMenuButton, styles.disabledMenuButton, { marginTop: 10 }]}>
-              <Text style={[styles.secondaryMenuButtonText, styles.disabledMenuButtonText]}>Add ID Image</Text>
-            </TouchableOpacity>
-
-            <TouchableOpacity
-              disabled
-              style={[styles.secondaryMenuButton, styles.disabledMenuButton, { marginTop: 10 }]}
-            >
-              <Text style={[styles.secondaryMenuButtonText, styles.disabledMenuButtonText]}>Add Address</Text>
-            </TouchableOpacity>
-          </View>
-
-          {/* Bottom Section */}
-          <View style={styles.footerContainer}>
-            {/* Enter Client Code Button - Green */}
-            <TouchableOpacity
-              onPress={() => {
-                setReferralCode("");
-                setReferralCodeModalVisible(true);
-              }}
-              style={[
-                styles.referralBtn,
-                verificationStatus === "verified" ? styles.disabledActionButton : null,
-              ]}
-            >
-              <Text
-                style={[
-                  styles.filledBtnText,
-                  verificationStatus === "verified" ? styles.disabledActionButtonText : null,
-                ]}
-              >
-                Enter Client Code
-              </Text>
-            </TouchableOpacity>
-
-            {/* Sign Out Button - Red */}
-            <TouchableOpacity
-              onPress={async () => {
-                closeMenu();
-                await handleLogout();
-              }}
-              style={[styles.redButton, { marginTop: 10 }]}
-            >
-              <Text style={styles.redButtonText}>Sign Out</Text>
-            </TouchableOpacity>
-
-            {/* Delete Account Button - Red */}
-            <TouchableOpacity
-              onPress={handleDeleteAccount}
-              style={[styles.redButton, { marginTop: 10 }]}
-            >
-              <Text style={styles.redButtonText}>Delete Account</Text>
-            </TouchableOpacity>
-
-            {/* Leave Feedback */}
-            <TouchableOpacity
-              onPress={() => {
-                closeMenu();
-                setFeedbackModalVisible(true);
-              }}
-              style={[styles.signOutLink, { marginTop: 12, marginBottom: 0 }]}
-            >
-              <Text style={[styles.linkBtnText, { textDecorationLine: 'none' }]}>
-                Leave Feedback
-              </Text>
-            </TouchableOpacity>
-
-            {/* Version and Privacy Policy */}
-            <View style={styles.versionContainer}>
-              <Text style={styles.versionText}>Version {versionLabel}</Text>
-              <Text style={styles.versionText}> · </Text>
-              <TouchableOpacity onPress={handleOpenPrivacyPolicy}>
-                <Text style={[styles.versionText, { textDecorationLine: "underline", color: Colors.accent }]}>
-                  Privacy Policy
-                </Text>
-              </TouchableOpacity>
-            </View>
-          </View>
-        </View>
+        <SharedTabMenu
+          navigation={navigation}
+          closeMenu={closeMenu}
+          displayName={displayName}
+          open={menuOpen}
+          onVehiclesChanged={setVehicles}
+          onFinancialYearScopeChange={(scope, filterKey) => {
+            setFinancialYearScope(scope);
+            setActiveFilterKey(filterKey);
+          }}
+        />
       </SideMenu>
 
       {/* Feedback Modal */}
@@ -1204,11 +1286,13 @@ const ExpensesScreen = ({ navigation, route }) => {
         onClose={() => setRegisterVehicleOpen(false)}
         onSaved={(updated) => setVehicles(updated)}
         vehicle={null}
+        onRecordMileage={() => navigation.navigate("MileageRecord", {})}
       />
       <YourVehiclesModal
         visible={yourVehiclesOpen}
         onClose={() => setYourVehiclesOpen(false)}
         vehicles={vehicles}
+        onRecordMileage={() => navigation.navigate("MileageRecord", {})}
         onChanged={(updated) => setVehicles(updated)}
       />
 
@@ -1245,7 +1329,13 @@ const styles = StyleSheet.create({
     backgroundColor: "#1C1C4E",
     paddingHorizontal: 12,
     paddingVertical: 6,
-    zIndex: 1000,
+    zIndex: 3000,
+    elevation: 30,
+  },
+  filterDismissLayer: {
+    ...StyleSheet.absoluteFillObject,
+    zIndex: 2000,
+    elevation: 20,
   },
   filterDropdown: {
     borderColor: Colors.border,
@@ -1255,6 +1345,50 @@ const styles = StyleSheet.create({
   filterDropdownContainer: {
     borderColor: Colors.border,
     backgroundColor: Colors.card,
+  },
+  hiddenPeriodTipWrapper: {
+    position: "absolute",
+    left: 14,
+    right: 14,
+    bottom: 60,
+    alignItems: "center",
+    zIndex: 1400,
+  },
+  hiddenPeriodTipBox: {
+    backgroundColor: "#F0D1FF",
+    borderRadius: 12,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    width: "100%",
+    elevation: 5,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.3,
+    shadowRadius: 4,
+  },
+  hiddenPeriodTipText: {
+    color: "#4A148C",
+    fontSize: 14,
+    lineHeight: 20,
+  },
+  hiddenPeriodTipOk: {
+    marginTop: 8,
+    color: "#4A148C",
+    fontWeight: "700",
+    textAlign: "right",
+    textDecorationLine: "underline",
+  },
+  hiddenPeriodTipTriangleDown: {
+    width: 0,
+    height: 0,
+    backgroundColor: "transparent",
+    borderStyle: "solid",
+    borderLeftWidth: 10,
+    borderRightWidth: 10,
+    borderTopWidth: 15,
+    borderLeftColor: "transparent",
+    borderRightColor: "transparent",
+    borderTopColor: "#F0D1FF",
   },
   description: {
     fontSize: 16,
@@ -1343,6 +1477,34 @@ const styles = StyleSheet.create({
     justifyContent: "space-between",
     alignItems: "flex-end",
     minHeight: 60,
+  },
+  selectedReceiptItem: {
+    borderWidth: 2,
+    borderColor: Colors.accent,
+    backgroundColor: "#fef3f8",
+    position: "relative",
+  },
+  selectionBadge: {
+    position: "absolute",
+    left: 10,
+    top: 8,
+    width: 18,
+    height: 18,
+    borderRadius: 9,
+    borderWidth: 1,
+    borderColor: Colors.accent,
+    backgroundColor: "#fff",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  selectionBadgeActive: {
+    backgroundColor: Colors.accent,
+  },
+  selectionBadgeText: {
+    color: "#fff",
+    fontSize: 12,
+    fontWeight: "700",
+    lineHeight: 12,
   },
   receiptDate: { fontSize: 14, color: Colors.textMuted, minWidth: 90 },
   receiptLabel: {

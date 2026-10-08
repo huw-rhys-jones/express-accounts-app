@@ -292,10 +292,10 @@ export const ReceiptStyles = StyleSheet.create({
     justifyContent: "center",
   },
   borderContainer: {
-    borderWidth: 5,
+    // borderWidth: 5,
     borderColor: Colors.background,
     borderRadius: 35,
-    padding: 20,
+    padding: 5,
     width: "95%",
     backgroundColor: Colors.surface,
   },
@@ -328,7 +328,7 @@ export const ReceiptStyles = StyleSheet.create({
     padding: 10,
     flex: 1,
     fontSize: 16,
-    height: 50,
+    height: 44,
     margin: 0,
     color: Colors.textSecondary,
     backgroundColor: Colors.surface,
@@ -359,7 +359,7 @@ export const ReceiptStyles = StyleSheet.create({
     borderWidth: 1,
     borderColor: Colors.border,
     borderRadius: 5,
-    height: 50,             // Increased from 44 to 50 for a better touch target
+    height: 44,
     paddingHorizontal: 12,
     fontSize: 16,
     backgroundColor: Colors.surface,
@@ -369,7 +369,7 @@ export const ReceiptStyles = StyleSheet.create({
   vatRatePicker: {
     backgroundColor: Colors.surface,
     borderColor: Colors.border,
-    height: 50,             // MUST match vatInput height exactly
+    height: 44,
     justifyContent: 'center',
     paddingHorizontal: 8,
     // Do NOT put marginTop here
@@ -389,7 +389,7 @@ export const ReceiptStyles = StyleSheet.create({
     borderColor: Colors.border,
     borderRadius: 5,
     padding: 10,
-    height: 50,
+    height: 44,
     justifyContent: "center",
     marginHorizontal: 10,
   },
@@ -398,7 +398,7 @@ export const ReceiptStyles = StyleSheet.create({
   dropdown: {
     backgroundColor: Colors.surface,
     borderColor: Colors.border,
-    height: 50,
+    height: 44,
   },
   dropdownContainer: {
     backgroundColor: Colors.surface,
@@ -435,7 +435,7 @@ export const ReceiptStyles = StyleSheet.create({
   modalOverlay: {
     flex: 1,
     justifyContent: "center",
-    backgroundColor: "rgba(0,0,0,0.5)",
+    backgroundColor: "rgba(0,0,0,0.84)",
     padding: 20,
   },
   modalContent: {
@@ -480,6 +480,17 @@ export const ReceiptStyles = StyleSheet.create({
     minWidth: 180,
   },
 
+  fullScreenCloseButtonWrapper: {
+    position: "absolute",
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    zIndex: 2000,
+    elevation: 2000,
+    pointerEvents: "box-none",
+  },
+
   // Fullscreen close button (top-left X circle)
   fullScreenCloseButton: {
     position: "absolute",
@@ -491,9 +502,29 @@ export const ReceiptStyles = StyleSheet.create({
     backgroundColor: "rgba(166, 13, 73, 0.88)",
     alignItems: "center",
     justifyContent: "center",
-    zIndex: 999,
+    zIndex: 2001,
+    elevation: 2001,
   },
   fullScreenCloseText: { color: "#fff", fontWeight: "bold", fontSize: 18, lineHeight: 20 },
+
+  fullScreenAnnotationToggleButton: {
+    position: "absolute",
+    top: 44,
+    right: 16,
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: "rgba(166, 13, 73, 0.88)",
+    alignItems: "center",
+    justifyContent: "center",
+    zIndex: 2001,
+    elevation: 2001,
+  },
+  fullScreenAnnotationToggleButtonOff: {
+    backgroundColor: "rgba(15,15,20,0.72)",
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.45)",
+  },
 
   // hint text
   fullscreenHint: {

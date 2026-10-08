@@ -1,9 +1,13 @@
 import React, { useRef, useMemo, useState, useEffect } from "react";
 import {
+  Animated,
+  PanResponder,
   View,
   Text,
   TextInput,
   TouchableOpacity,
+  TouchableWithoutFeedback,
+  Pressable,
   Image,
   ScrollView,
   findNodeHandle,
@@ -15,17 +19,20 @@ import {
   ActivityIndicator,
   Platform,
   PermissionsAndroid,
+  KeyboardAvoidingView,
   StyleSheet,
   Dimensions,
 } from "react-native";
 import { KeyboardAwareScrollView } from "react-native-keyboard-aware-scroll-view";
-import { SafeAreaView } from "react-native-safe-area-context";
+import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import { Button, Checkbox } from "react-native-paper";
 import DateTimePickerModal from "react-native-modal-datetime-picker";
 import DropDownPicker from "react-native-dropdown-picker";
 import * as ImagePicker from "react-native-image-picker";
+import { Ionicons } from "@expo/vector-icons";
 import { db, auth } from "../firebaseConfig";
 import { doc, updateDoc, deleteDoc, getDoc, setDoc } from "firebase/firestore";
+import CategorySelector from "../components/CategorySelector";
 import {
   getStorage,
   ref,
@@ -34,27 +41,72 @@ import {
   deleteObject,
 } from "firebase/storage";
 import { categories_meta } from "../constants/arrays";
-import { formatDate } from "../utils/format_style";
+import { formatDate, formatCurrency } from "../utils/format_style";
 import { extractData } from "../utils/extractors";
 import ImageViewer from "react-native-image-zoom-viewer";
 import { Colors, ReceiptStyles } from "../utils/sharedStyles";
 import { useReceiptOcr } from "../utils/ocrHelpers";
 import { getCurrentYearAprilSix } from "../utils/financialPeriods";
 import { triggerHaptic } from "../utils/haptics";
+import { getAnnotateImages, setAnnotateImages as saveAnnotateImages } from "../utils/appSettings";
+import { isVatRegistered } from "../utils/taxCalculations";
+import { useData } from "../contexts/DataContext";
 
 const IMAGE_HEIGHT = Math.round(Dimensions.get("window").height * 0.45);
+const HERO_EXPANDED_HEIGHT = Math.round(Dimensions.get("window").height * 0.45);
+const HERO_COLLAPSED_HEIGHT = Math.round(Dimensions.get("window").height * 0.35);
+const DEBUG_DISABLE_KEYBOARD_DISMISS_WRAPPER = true;
+const ANNOTATION_MIN_BOX_WIDTH = 64;
+const ANNOTATION_MIN_BOX_HEIGHT = 26;
+const ANNOTATIONS = [
+  { key: "amount", label: "Amount", color: "#2E9F46" },
+  { key: "date", label: "Date", color: "#1A73E8" },
+  { key: "vat", label: "VAT", color: "#E06B6B" },
+];
+
+const formatMoneyInput = (value) => {
+  if (value === null || value === undefined || value === "") return "";
+  const numericValue = Number(value);
+  return Number.isFinite(numericValue) ? numericValue.toFixed(2) : String(value);
+};
 
 export default function ReceiptDetailsScreen({ route, navigation }) {
-  const { receipt } = route.params;
+  const insets = useSafeAreaInsets();
+  const { userProfile } = useData();
+  const vatEnabled = userProfile === undefined || userProfile === null ? true : isVatRegistered(userProfile);
+  const vatAnnotationsEnabled = isVatRegistered(userProfile);
+  const heroExpandedHeight = vatEnabled
+    ? HERO_EXPANDED_HEIGHT
+    : Math.round(Dimensions.get("window").height * 0.5);
+  const heroCollapsedHeight = vatEnabled
+    ? HERO_COLLAPSED_HEIGHT
+    : Math.round(Dimensions.get("window").height * 0.38);
+  const heroHeightAnim = useRef(new Animated.Value(heroExpandedHeight)).current;
+  const receipt = route?.params?.receipt;
+  const initialReceiptList = useMemo(() => {
+    if (Array.isArray(route?.params?.receiptList) && route.params.receiptList.length > 0) {
+      return route.params.receiptList;
+    }
+    return receipt ? [receipt] : [];
+  }, [receipt, route?.params?.receiptList]);
+  const [editableReceiptList, setEditableReceiptList] = useState(initialReceiptList);
+  const [currentIndex, setCurrentIndex] = useState(route?.params?.initialIndex || 0);
+
+  useEffect(() => {
+    setEditableReceiptList(initialReceiptList);
+    setCurrentIndex(route?.params?.initialIndex || 0);
+  }, [initialReceiptList, route?.params?.initialIndex]);
+
+  const currentReceipt = editableReceiptList[currentIndex] || receipt;
 
   // --- base form state
   const [amount, setAmount] = useState(
-    receipt?.amount != null ? String(receipt.amount) : ""
+    formatMoneyInput(receipt?.amount)
   );
 
   // VAT state (mirrors ReceiptAdd.js)
   const [vatAmount, setVatAmount] = useState(
-    receipt?.vatAmount != null ? String(receipt.vatAmount) : ""
+    formatMoneyInput(receipt?.vatAmount)
   );
   const [vatRate, setVatRate] = useState(
     receipt?.vatRate != null ? String(receipt.vatRate) : ""
@@ -70,19 +122,20 @@ export default function ReceiptDetailsScreen({ route, navigation }) {
     receipt?.category || ""
   );
   const [label, setLabel] = useState(receipt?.label || "");
+  const [categoryModalVisible, setCategoryModalVisible] = useState(false);
   const [images, setImages] = useState(
     (receipt?.images || []).map((url) => ({ uri: url }))
   );
 
   const originalUrls = useMemo(
-    () => new Set(receipt?.images || []),
-    [receipt?.id]
+    () => new Set(currentReceipt?.images || []),
+    [currentReceipt?.id],
   );
 
-  const [open, setOpen] = useState(false);
-  const [items, setItems] = useState(
-    categories_meta.map((cat) => ({ label: cat.name, value: cat.name }))
-  );
+  const [debugScrollState, setDebugScrollState] = useState("idle");
+  const [debugPanState, setDebugPanState] = useState("idle");
+  const [debugKeyboardState, setDebugKeyboardState] = useState("hidden");
+  const [debugLastEvent, setDebugLastEvent] = useState("init");
   const [isDatePickerVisible, setDatePickerVisibility] = useState(false);
 
   const [isUploading, setIsUploading] = useState(false);
@@ -134,12 +187,29 @@ export default function ReceiptDetailsScreen({ route, navigation }) {
   // ===== Fullscreen viewer =====
   const [fullScreenImage, setFullScreenImage] = useState(null);
   const [imageContainerWidth, setImageContainerWidth] = useState(0);
-  const [fullScreenImageIndex, setFullScreenImageIndex] = useState(null);
+  const [imageContainerHeight, setImageContainerHeight] = useState(heroExpandedHeight);
+  const [imageAnnotationsByUrl, setImageAnnotationsByUrl] = useState({});
+  const [annotateImages, setAnnotateImages] = useState(true);
 
-  const allCategoryItems = categories_meta.map((cat) => ({
-    label: cat.name,
-    value: cat.name,
-  }));
+  useEffect(() => {
+    let active = true;
+    const loadAnnotateImages = () => {
+      getAnnotateImages()
+        .then((enabled) => {
+          if (active) setAnnotateImages(enabled);
+        })
+        .catch(() => {
+          if (active) setAnnotateImages(true);
+        });
+    };
+
+    loadAnnotateImages();
+    const unsubscribeFocus = navigation.addListener("focus", loadAnnotateImages);
+    return () => {
+      active = false;
+      unsubscribeFocus?.();
+    };
+  }, [navigation]);
 
   // ===== VAT rate options from categories_meta =====
   const deriveVatRateItems = () => {
@@ -158,10 +228,84 @@ export default function ReceiptDetailsScreen({ route, navigation }) {
   const flatListRef = useRef(null);
 
   const scrollRef = useRef(null);
+  const isFormScrollActiveRef = useRef(false);
 
   const categoryWrapperRef = useRef(null);
 
   const [categoryY, setCategoryY] = useState(0);
+  const markDebugEvent = (label) => {
+    setDebugLastEvent(`${new Date().toLocaleTimeString()} ${label}`);
+  };
+
+  const detailSwipeResponder = useMemo(
+    () =>
+      PanResponder.create({
+        onStartShouldSetPanResponder: () => false,
+        onPanResponderTerminationRequest: () => true,
+        onShouldBlockNativeResponder: () => false,
+        onPanResponderGrant: () => {
+          setDebugPanState("active");
+          markDebugEvent("pan grant");
+        },
+        onPanResponderTerminate: () => {
+          setDebugPanState("terminated");
+          markDebugEvent("pan terminate");
+        },
+        onMoveShouldSetPanResponder: (_, gestureState) => {
+          if (editableReceiptList.length <= 1) return false;
+          if (isFormScrollActiveRef.current) return false;
+          if (categoryModalVisible || vatRateOpen) return false;
+          const { dx, dy } = gestureState;
+          const shouldSet = Math.abs(dx) > 30 && Math.abs(dx) > Math.abs(dy) * 1.8;
+          if (shouldSet) {
+            setDebugPanState("captured");
+            markDebugEvent(`pan capture dx=${Math.round(dx)} dy=${Math.round(dy)}`);
+          }
+          return shouldSet;
+        },
+        onPanResponderRelease: (_, gestureState) => {
+          const { dx, dy } = gestureState;
+          setDebugPanState("released");
+          markDebugEvent(`pan release dx=${Math.round(dx)} dy=${Math.round(dy)}`);
+          if (editableReceiptList.length <= 1) return;
+          if (Math.abs(dx) < 72 || Math.abs(dx) < Math.abs(dy) * 1.2) return;
+
+          Keyboard.dismiss();
+          setCategoryModalVisible(false);
+          setVatRateOpen(false);
+
+          if (dx < 0) {
+            setCurrentIndex((prev) => Math.min(prev + 1, editableReceiptList.length - 1));
+          } else {
+            setCurrentIndex((prev) => Math.max(prev - 1, 0));
+          }
+        },
+      }),
+    [editableReceiptList.length, categoryModalVisible, vatRateOpen],
+  );
+
+  useEffect(() => {
+    if (!currentReceipt) return;
+    setAmount(
+      formatMoneyInput(currentReceipt?.amount),
+    );
+    setVatAmount(
+      formatMoneyInput(currentReceipt?.vatAmount),
+    );
+    setVatRate(
+      currentReceipt?.vatRate != null ? String(currentReceipt.vatRate) : "",
+    );
+    setVatAmountEdited(
+      currentReceipt?.vatAmount != null && currentReceipt?.vatAmount !== "",
+    );
+    setSelectedDate(
+      currentReceipt?.date ? new Date(currentReceipt.date) : new Date(),
+    );
+    setSelectedCategory(currentReceipt?.category || "");
+    setLabel(currentReceipt?.label || "");
+    setImages((currentReceipt?.images || []).map((url) => ({ uri: url })));
+    setImageAnnotationsByUrl(currentReceipt?.imageAnnotations || {});
+  }, [currentReceipt?.id]);
 
   // ===== helpers =====
   // computeVat defined earlier to satisfy hook dependency
@@ -241,10 +385,48 @@ export default function ReceiptDetailsScreen({ route, navigation }) {
     };
   }, [ocrModalVisible, ocrLoading]);
 
+  useEffect(() => {
+    const shrinkHero = () => {
+      setDebugKeyboardState("visible");
+      markDebugEvent("keyboard show");
+      Animated.timing(heroHeightAnim, {
+        toValue: heroCollapsedHeight,
+        duration: 220,
+        useNativeDriver: false,
+      }).start();
+    };
+
+    const expandHero = () => {
+      setDebugKeyboardState("hidden");
+      markDebugEvent("keyboard hide");
+      Animated.timing(heroHeightAnim, {
+        toValue: heroExpandedHeight,
+        duration: 220,
+        useNativeDriver: false,
+      }).start();
+    };
+
+    const showSub = Keyboard.addListener("keyboardDidShow", shrinkHero);
+    const hideSub = Keyboard.addListener("keyboardDidHide", expandHero);
+    return () => {
+      showSub.remove();
+      hideSub.remove();
+    };
+  }, [heroCollapsedHeight, heroExpandedHeight, heroHeightAnim]);
+
+  useEffect(() => {
+    setImageContainerHeight(heroExpandedHeight);
+    Animated.timing(heroHeightAnim, {
+      toValue: heroExpandedHeight,
+      duration: 220,
+      useNativeDriver: false,
+    }).start();
+  }, [heroExpandedHeight, heroHeightAnim]);
+
   // ✅ Safe navigate back
   const safeNavigateToExpenses = () => {
     Keyboard.dismiss();
-    setOpen(false);
+    setCategoryModalVisible(false);
     setDatePickerVisibility(false);
     requestAnimationFrame(() => {
       InteractionManager.runAfterInteractions(() => {
@@ -373,14 +555,18 @@ export default function ReceiptDetailsScreen({ route, navigation }) {
       }
 
       const uploadedImageUrls = [];
+      const nextImageAnnotations = {};
 
       for (let img of images) {
         if (img.uri.startsWith("http")) {
           uploadedImageUrls.push(img.uri);
+          if (imageAnnotationsByUrl?.[img.uri]) {
+            nextImageAnnotations[img.uri] = imageAnnotationsByUrl[img.uri];
+          }
         } else {
           const storageRef = ref(
             storage,
-            `receipts/${receipt.userId}/${Date.now()}-${Math.random()
+            `receipts/${currentReceipt.userId}/${Date.now()}-${Math.random()
               .toString(36)
               .substring(7)}.jpg`
           );
@@ -392,14 +578,17 @@ export default function ReceiptDetailsScreen({ route, navigation }) {
         }
       }
 
-      await updateDoc(doc(db, "receipts", receipt.id), {
+      const hasAnnotations = Object.keys(nextImageAnnotations).length > 0;
+
+      await updateDoc(doc(db, "receipts", currentReceipt.id), {
         amount: parseFloat(amount),
         date: selectedDate.toISOString(),
         category: selectedCategory,
         label: label.trim(),
-        vatAmount: vatAmount ? parseFloat(vatAmount) : null,
-        vatRate: vatRate ? parseFloat(vatRate) : null,
+        vatAmount: vatEnabled ? (vatAmount ? parseFloat(vatAmount) : null) : null,
+        vatRate: vatEnabled ? (vatRate ? parseFloat(vatRate) : null) : null,
         images: uploadedImageUrls,
+        imageAnnotations: hasAnnotations ? nextImageAnnotations : null,
       });
 
       triggerHaptic("success").catch(() => {});
@@ -452,21 +641,165 @@ export default function ReceiptDetailsScreen({ route, navigation }) {
     ]);
   };
 
+  const confirmRemoveImage = (onConfirm) => {
+    Alert.alert("Remove Image", "Are you sure you want to remove this image?", [
+      { text: "Cancel", style: "cancel" },
+      { text: "Remove", style: "destructive", onPress: onConfirm },
+    ]);
+  };
+
   const isReceiptFormValid =
     selectedCategory &&
     amount.trim().length > 0 &&
-    vatAmount.trim().length > 0 &&
-    vatRate.trim().length > 0 &&
-    !Number.isNaN(parseFloat(amount)) &&
-    !Number.isNaN(parseFloat(vatAmount)) &&
-    !Number.isNaN(parseFloat(vatRate));
+    (!vatEnabled || (
+      vatAmount.trim().length > 0 &&
+      vatRate.trim().length > 0 &&
+      !Number.isNaN(parseFloat(vatAmount)) &&
+      !Number.isNaN(parseFloat(vatRate))
+    )) &&
+    !Number.isNaN(parseFloat(amount));
+  const isCategoryValid = Boolean(selectedCategory);
+  const isReceiptDirty = useMemo(() => {
+    if (!currentReceipt) return false;
+    const currentImageUris = images.map((image) => image.uri).join("|");
+    const originalImageUris = (currentReceipt.images || []).join("|");
+    return (
+      amount !== formatMoneyInput(currentReceipt.amount) ||
+      vatAmount !== formatMoneyInput(currentReceipt.vatAmount) ||
+      vatRate !== (currentReceipt.vatRate != null ? String(currentReceipt.vatRate) : "") ||
+      selectedDate.toISOString() !== (currentReceipt.date || "") ||
+      selectedCategory !== (currentReceipt.category || "") ||
+      label !== (currentReceipt.label || "") ||
+      currentImageUris !== originalImageUris
+    );
+  }, [amount, currentReceipt, images, label, selectedCategory, selectedDate, vatAmount, vatRate]);
+
+  const buildPercentOverlay = (frame, containerW = imageContainerWidth, containerH = imageContainerHeight || heroExpandedHeight) => {
+    const naturalW = frame?.imageW;
+    const naturalH = frame?.imageH;
+    if (!frame || !naturalW || !naturalH || !containerW || !containerH) return null;
+
+    const scale = Math.min(containerW / naturalW, containerH / naturalH);
+    const renderedW = naturalW * scale;
+    const renderedH = naturalH * scale;
+    const offsetX = (containerW - renderedW) / 2;
+    const offsetY = (containerH - renderedH) / 2;
+    const PAD = 8;
+
+    const left = frame.left * scale + offsetX - PAD;
+    const top = frame.top * scale + offsetY - PAD;
+    const rawWidth = frame.width * scale + PAD * 2;
+    const width = Math.max(rawWidth, ANNOTATION_MIN_BOX_WIDTH);
+    const height = Math.max(frame.height * scale + PAD * 2, ANNOTATION_MIN_BOX_HEIGHT);
+
+    const clampedLeft = Math.max(0, Math.min(left, containerW - width));
+    const clampedTop = Math.max(0, Math.min(top, containerH - height));
+    const toPct = (value, total) => `${Math.max(0, (value / total) * 100).toFixed(4)}%`;
+
+    return {
+      left: toPct(clampedLeft, containerW),
+      top: toPct(clampedTop, containerH),
+      width: toPct(width, containerW),
+      height: toPct(height, containerH),
+    };
+  };
+
+  const getImageCanvasHeight = (annotationData) => {
+    const containerH = imageContainerHeight || heroExpandedHeight;
+    const naturalW = annotationData?.imageW;
+    const naturalH = annotationData?.imageH;
+    if (!imageContainerWidth || !naturalW || !naturalH) return containerH;
+    return Math.max(containerH, imageContainerWidth * (naturalH / naturalW));
+  };
+
+  const openFullScreenImage = (item, annotationData = null) => {
+    setFullScreenImage({ uri: item.uri, annotationData });
+  };
+
+  const toggleAnnotateImages = async () => {
+    const nextValue = !annotateImages;
+    setAnnotateImages(nextValue);
+    await saveAnnotateImages(nextValue);
+  };
+
+  const showMainAnnotationToggle = images.some((image) => {
+    const annotationData = imageAnnotationsByUrl?.[image.uri];
+    return annotationData && ANNOTATIONS.some(
+      ({ key }) => (key !== "vat" || vatAnnotationsEnabled) && annotationData[key],
+    );
+  });
+
+  const renderAnnotatedZoomImage = (props) => {
+    const annotationData = annotateImages ? fullScreenImage?.annotationData : null;
+    const imageStyle = props?.style || {};
+    const width = Number(imageStyle.width) || Dimensions.get("window").width;
+    const height = Number(imageStyle.height) || Dimensions.get("window").height;
+
+    return (
+      <View style={[imageStyle, { position: "relative" }]}> 
+        <Image {...props} style={imageStyle} resizeMode="contain" />
+        {annotationData ? (
+          <View style={localStyles.annotationOverlay} pointerEvents="none">
+            {ANNOTATIONS.filter(({ key }) => (key !== "vat" || vatAnnotationsEnabled) && annotationData[key]).map(({ key, label, color }) => {
+              const frame = annotationData[key];
+              const overlayBox = buildPercentOverlay(
+                { ...frame, imageW: annotationData.imageW, imageH: annotationData.imageH },
+                width,
+                height,
+              );
+              if (!overlayBox) return null;
+              return (
+                <View key={`zoom-${key}`} style={[localStyles.annBox, { ...overlayBox, borderColor: color }]}> 
+                  <View style={[localStyles.annChip, { backgroundColor: color }]}> 
+                    <Text style={localStyles.annChipText} numberOfLines={1}>{label}</Text>
+                  </View>
+                </View>
+              );
+            })}
+          </View>
+        ) : null}
+      </View>
+    );
+  };
 
   return (
-    <SafeAreaView style={ReceiptStyles.safeArea}>
+    <SafeAreaView
+      style={[ReceiptStyles.safeArea, localStyles.safeAreaLight]}
+      edges={["left", "right"]}
+    >
+      <View style={[localStyles.header, { paddingTop: Math.max(insets.top + 10, 24) }]}>
+        <TouchableOpacity
+          onPress={safeNavigateToExpenses}
+          style={localStyles.headerBtn}
+          activeOpacity={0.8}
+        >
+          <Text style={localStyles.headerBtnText}>‹ Back</Text>
+        </TouchableOpacity>
+        <Text style={localStyles.headerTitle}>Edit Receipt</Text>
+        {editableReceiptList.length > 1 ? (
+          <Text style={localStyles.indexPill}>{`${currentIndex + 1}/${editableReceiptList.length}`}</Text>
+        ) : null}
+        <View style={localStyles.headerBtn} />
+      </View>
+
+      <KeyboardAvoidingView
+        style={{ flex: 1 }}
+        behavior={Platform.OS === "ios" ? "padding" : "height"}
+      >
+      <TouchableWithoutFeedback
+        onPress={Keyboard.dismiss}
+        accessible={false}
+        disabled={DEBUG_DISABLE_KEYBOARD_DISMISS_WRAPPER}
+      >
+      <View style={{ flex: 1 }}>
       {/* Fixed image panel */}
-      <View
-        style={localStyles.imageSection}
-        onLayout={(e) => setImageContainerWidth(e.nativeEvent.layout.width)}
+      <Animated.View
+        style={[localStyles.imageSection, { height: heroHeightAnim }]}
+        onLayout={(e) => {
+          setImageContainerWidth(e.nativeEvent.layout.width);
+          setImageContainerHeight(e.nativeEvent.layout.height);
+        }}
+        {...(editableReceiptList.length > 1 ? detailSwipeResponder.panHandlers : {})}
       >
         {imageContainerWidth > 0 ? (
           <ScrollView
@@ -476,20 +809,66 @@ export default function ReceiptDetailsScreen({ route, navigation }) {
             showsHorizontalScrollIndicator={false}
             style={{ width: imageContainerWidth }}
           >
-            {images.map((item, index) => (
-              <TouchableOpacity
-                key={String(index)}
-                style={[localStyles.carouselPage, { width: imageContainerWidth }]}
-                activeOpacity={0.9}
-                onPress={() => setFullScreenImageIndex(index)}
-              >
-                <Image
-                  source={{ uri: item.uri }}
-                  style={[localStyles.carouselImage, { width: imageContainerWidth }]}
-                  resizeMode="contain"
-                />
-              </TouchableOpacity>
-            ))}
+            {images.map((item, index) => {
+              const annotationData = annotateImages ? imageAnnotationsByUrl?.[item.uri] : null;
+              const canvasHeight = getImageCanvasHeight(annotationData);
+              return (
+              <View key={String(index)} style={{ position: "relative" }}>
+                <View style={[localStyles.carouselPage, { width: imageContainerWidth }]}> 
+                  <ScrollView
+                    nestedScrollEnabled
+                    showsVerticalScrollIndicator={false}
+                    style={localStyles.imagePageScroller}
+                    contentContainerStyle={{ minHeight: imageContainerHeight || heroExpandedHeight }}
+                  >
+                    <TouchableOpacity
+                      activeOpacity={0.9}
+                      onPress={() => openFullScreenImage(item, annotationData)}
+                      style={{ width: imageContainerWidth, height: canvasHeight, position: "relative" }}
+                    >
+                      <Image
+                        source={{ uri: item.uri }}
+                        style={{ width: imageContainerWidth, height: canvasHeight }}
+                        resizeMode="contain"
+                      />
+                      {annotationData ? (
+                        <View style={localStyles.annotationOverlay} pointerEvents="none">
+                          {ANNOTATIONS.filter(({ key }) => (key !== "vat" || vatAnnotationsEnabled) && annotationData[key]).map(({ key, label, color }) => {
+                            const frame = annotationData[key];
+                            const overlayBox = buildPercentOverlay(
+                              { ...frame, imageW: annotationData.imageW, imageH: annotationData.imageH },
+                              imageContainerWidth,
+                              canvasHeight,
+                            );
+                            if (!overlayBox) return null;
+                            return (
+                              <View key={`${item.uri}-${key}`} style={[localStyles.annBox, { ...overlayBox, borderColor: color }]}> 
+                                <View style={[localStyles.annChip, { backgroundColor: color }]}> 
+                                  <Text style={localStyles.annChipText} numberOfLines={1}>{label}</Text>
+                                </View>
+                              </View>
+                            );
+                          })}
+                        </View>
+                      ) : null}
+                    </TouchableOpacity>
+                  </ScrollView>
+                </View>
+                <TouchableOpacity
+                  style={localStyles.carouselRemoveBtn}
+                  accessibilityRole="button"
+                  accessibilityLabel="Delete image"
+                  onPress={() =>
+                    confirmRemoveImage(() => {
+                      setImages((prev) => prev.filter((_, imageIndex) => imageIndex !== index));
+                    })
+                  }
+                >
+                  <Ionicons name="trash-outline" size={17} color="#fff" />
+                </TouchableOpacity>
+              </View>
+              );
+            })}
             <View style={[localStyles.carouselPage, { width: imageContainerWidth }]}>
               <TouchableOpacity style={localStyles.carouselAddBtn} onPress={pickImageOption}>
                 <Text style={ReceiptStyles.plus}>+</Text>
@@ -497,64 +876,166 @@ export default function ReceiptDetailsScreen({ route, navigation }) {
             </View>
           </ScrollView>
         ) : null}
-      </View>
-
-      {/* Floating X close button */}
-      <TouchableOpacity
-        style={localStyles.floatingCloseBtn}
-        onPress={safeNavigateToExpenses}
-        activeOpacity={0.8}
-      >
-        <Text style={localStyles.floatingCloseBtnText}>✕</Text>
-      </TouchableOpacity>
+        {showMainAnnotationToggle ? (
+          <TouchableOpacity
+            style={[
+              localStyles.mainAnnotationToggleButton,
+              !annotateImages ? localStyles.mainAnnotationToggleButtonOff : null,
+            ]}
+            onPress={toggleAnnotateImages}
+            accessibilityRole="switch"
+            accessibilityState={{ checked: annotateImages }}
+            accessibilityLabel="Toggle annotations"
+          >
+            <Ionicons name={annotateImages ? "scan" : "scan-outline"} size={18} color="#fff" />
+          </TouchableOpacity>
+        ) : null}
+      </Animated.View>
 
       <KeyboardAwareScrollView
         ref={scrollRef}
-        contentContainerStyle={{ flexGrow: 1, paddingBottom: 80 }}
+        contentContainerStyle={{ flexGrow: 1, paddingBottom: 160 }}
         enableOnAndroid={true}
         enableAutomaticScroll={false}
         keyboardShouldPersistTaps="always"
         extraScrollHeight={0}
+        style={{ marginTop: 8 }}
+        onScrollBeginDrag={() => {
+          isFormScrollActiveRef.current = true;
+          setDebugScrollState("dragging");
+          markDebugEvent("scroll begin drag");
+        }}
+        onScrollEndDrag={() => {
+          isFormScrollActiveRef.current = false;
+          setDebugScrollState("idle");
+          markDebugEvent("scroll end drag");
+        }}
+        onMomentumScrollBegin={() => {
+          isFormScrollActiveRef.current = true;
+          setDebugScrollState("momentum");
+          markDebugEvent("scroll momentum begin");
+        }}
+        onMomentumScrollEnd={() => {
+          isFormScrollActiveRef.current = false;
+          setDebugScrollState("idle");
+          markDebugEvent("scroll momentum end");
+        }}
       >
-        <View style={ReceiptStyles.container}>
-          <View style={ReceiptStyles.borderContainer}>
-            <Text style={ReceiptStyles.header}>Edit Receipt</Text>
-
-            {/* Amount */}
-            <View style={localStyles.fieldGroup}>
-              <Text style={[ReceiptStyles.label, localStyles.labelAligned]}>
-                Amount:
-              </Text>
-              <View
-                style={[
-                  ReceiptStyles.inputRow,
-                  localStyles.fieldRow,
-                  localStyles.currencyField,
-                ]}
-              >
-                <View style={localStyles.currencyWrapper}>
-                  <Text style={localStyles.currencyInside}>£</Text>
-                </View>
-                <TextInput
+        <View
+          style={[
+            ReceiptStyles.container,
+            {
+              justifyContent: "flex-start",
+              paddingTop: 10,
+              paddingBottom: 200,
+              paddingHorizontal: 12,
+            },
+          ]}
+        >
+          <View
+            style={[
+              ReceiptStyles.borderContainer,
+              {
+                paddingVertical: 12,
+                paddingHorizontal: 12,
+                borderRadius: 16,
+                borderWidth: 3,
+              },
+            ]}
+          >
+            <View style={localStyles.amountDateRow}>
+              <View style={localStyles.amountDateField}>
+                <Text style={[ReceiptStyles.label, localStyles.labelAligned]}>
+                  Amount:
+                </Text>
+                <View
                   style={[
-                    ReceiptStyles.input,
-                    localStyles.inputAligned,
-                    localStyles.inputWithCurrency,
+                    ReceiptStyles.inputRow,
+                    localStyles.currencyField,
                   ]}
-                  keyboardType="decimal-pad"
-                  value={amount}
-                  onChangeText={(v) => {
-                    setAmount(v);
-                    if (!vatAmountEdited && v && vatRate) {
-                      setVatAmount(computeVat(v, vatRate));
-                    }
-                  }}
-                />
+                >
+                  <View style={localStyles.currencyWrapper}>
+                    <Text style={localStyles.currencyInside}>£</Text>
+                  </View>
+                  <TextInput
+                    style={[
+                      ReceiptStyles.input,
+                      localStyles.inputAligned,
+                      localStyles.inputWithCurrency,
+                      { height: 42 },
+                    ]}
+                    keyboardType="decimal-pad"
+                    value={amount}
+                    onChangeText={(v) => {
+                      setAmount(v);
+                      if (!vatAmountEdited && v && vatRate) {
+                        setVatAmount(computeVat(v, vatRate));
+                      }
+                    }}
+                    onFocus={() => {
+                      Animated.timing(heroHeightAnim, {
+                        toValue: heroCollapsedHeight,
+                        duration: 220,
+                        useNativeDriver: false,
+                      }).start();
+                    }}
+                  />
+                </View>
+              </View>
+
+              <View
+                style={localStyles.amountDateField}
+                pointerEvents={vatRateOpen ? "none" : "auto"}
+              >
+                <Text style={[ReceiptStyles.label, localStyles.labelAligned]}>
+                  Date:
+                </Text>
+                <TouchableOpacity
+                  style={[ReceiptStyles.dateButton, { height: 42, marginHorizontal: 0 }]}
+                  onPress={showDatePicker}
+                >
+                  <Text style={ReceiptStyles.dateText}>
+                    {formatDate(selectedDate)}
+                  </Text>
+                </TouchableOpacity>
               </View>
             </View>
 
-            {/* VAT Section: labels above fields */}
-            <View style={localStyles.fieldGroup}>
+            <View
+              ref={categoryWrapperRef}
+              collapsable={false} // CRITICAL for Android measurement
+              style={[localStyles.fieldGroup, { zIndex: 1000 }]}
+            >
+              {/* Category */}
+              <Text
+                style={[ReceiptStyles.label, localStyles.labelAligned]}
+                onLayout={(event) => setCategoryY(event.nativeEvent.layout.y)}
+              >
+                Category:
+              </Text>
+              <TouchableOpacity
+                style={[
+                  ReceiptStyles.dateButton,
+                  { height: 42, marginHorizontal: 0 },
+                  isCategoryValid
+                    ? localStyles.validFieldInput
+                    : localStyles.invalidFieldInput,
+                ]}
+                onPress={() => setCategoryModalVisible(true)}
+              >
+                <Text
+                  style={[
+                    ReceiptStyles.dateText,
+                    !selectedCategory && { color: Colors.textSecondary },
+                  ]}
+                >
+                  {selectedCategory || "Select a category..."}
+                </Text>
+              </TouchableOpacity>
+            </View>
+
+            {vatEnabled ? (
+              <View style={localStyles.fieldGroup}>
               <View
                 style={[
                   ReceiptStyles.vatRow,
@@ -564,7 +1045,7 @@ export default function ReceiptDetailsScreen({ route, navigation }) {
               >
                 {/* VAT Amount Column */}
                 <View style={ReceiptStyles.vatColLeft}>
-                  <Text style={ReceiptStyles.label}>VAT Amount:</Text>
+                  <Text style={[ReceiptStyles.label, localStyles.labelAligned, { fontSize: 13 }]}>VAT Amount:</Text>
                   <View
                     style={[ReceiptStyles.inputRow, localStyles.currencyField]}
                   >
@@ -575,6 +1056,7 @@ export default function ReceiptDetailsScreen({ route, navigation }) {
                       style={[
                         ReceiptStyles.vatInput,
                         localStyles.vatInputWithCurrency,
+                        { height: 42 },
                       ]}
                       keyboardType="decimal-pad"
                       placeholder="0.00"
@@ -591,13 +1073,20 @@ export default function ReceiptDetailsScreen({ route, navigation }) {
                       onBlur={() => {
                         if (!vatAmount.trim()) setVatAmountEdited(false);
                       }}
+                      onFocus={() => {
+                        Animated.timing(heroHeightAnim, {
+                          toValue: heroCollapsedHeight,
+                          duration: 220,
+                          useNativeDriver: false,
+                        }).start();
+                      }}
                     />
                   </View>
                 </View>
 
                 {/* Rate Column */}
                 <View style={ReceiptStyles.vatColRight}>
-                  <Text style={ReceiptStyles.label}>Rate (%):</Text>
+                  <Text style={[ReceiptStyles.label, localStyles.labelAligned, { fontSize: 13 }]}>Rate (%):</Text>
                   <DropDownPicker
                     open={vatRateOpen}
                     value={vatRate}
@@ -606,11 +1095,20 @@ export default function ReceiptDetailsScreen({ route, navigation }) {
                     setValue={(set) => setVatRate(set(vatRate))}
                     setItems={setVatRateItems}
                     placeholder="Select"
-                    style={ReceiptStyles.vatRatePicker}
+                    style={{
+                      backgroundColor: Colors.surface,
+                      borderColor: "#2E9F46",
+                      borderWidth: 1,
+                      borderRadius: 5,
+                      height: 42,
+                      minHeight: 42,
+                      paddingHorizontal: 8,
+                    }}
                     dropDownContainerStyle={ReceiptStyles.vatRateDropdown}
-                    containerStyle={localStyles.fieldTopSpacingTight}
+                    containerStyle={{ marginTop: 0, height: 42 }}
                     zIndex={3000}
                     zIndexInverse={1000}
+                    dropDownDirection="TOP"
                     listMode="SCROLLVIEW"
                     scrollViewProps={{ keyboardShouldPersistTaps: "always" }}
                     onChangeValue={(val) => {
@@ -624,25 +1122,9 @@ export default function ReceiptDetailsScreen({ route, navigation }) {
                   />
                 </View>
               </View>
-            </View>
+              </View>
+            ) : null}
 
-            {/* Date */}
-            <View
-              style={localStyles.fieldGroup}
-              pointerEvents={vatRateOpen ? "none" : "auto"}
-            >
-              <Text style={[ReceiptStyles.label, localStyles.labelAligned]}>
-                Date:
-              </Text>
-              <TouchableOpacity
-                style={ReceiptStyles.dateButton}
-                onPress={showDatePicker}
-              >
-                <Text style={ReceiptStyles.dateText}>
-                  {formatDate(selectedDate)}
-                </Text>
-              </TouchableOpacity>
-            </View>
             <DateTimePickerModal
               isVisible={isDatePickerVisible}
               mode="date"
@@ -652,167 +1134,92 @@ export default function ReceiptDetailsScreen({ route, navigation }) {
               onCancel={hideDatePicker}
             />
 
-            <View
-              ref={categoryWrapperRef}
-              collapsable={false} // CRITICAL for Android measurement
-              style={[localStyles.fieldGroup, { zIndex: 1000 }]}
-            >
-              {/* Category */}
-              <Text
-                style={[ReceiptStyles.label, localStyles.labelAligned]}
-                onLayout={(event) => setCategoryY(event.nativeEvent.layout.y)}
-              >
-                Category:
-              </Text>
-              <DropDownPicker
-                open={open}
-                value={selectedCategory}
-                items={items}
-                setOpen={setOpen}
-                setItems={setItems}
-                searchable={true}
-                disableLocalSearch={true} // We are taking the wheel
-                // 1. Make the placeholder look like a search instruction
-                placeholder="Search categories..."
-                searchPlaceholder="Type to filter..."
-                // 2. Add an icon to the right side (optional but looks great)
-                // You can use a library like FontAwesome or a simple emoji/Text
-                ArrowDownIconComponent={() => (
-                  <Text style={{ marginRight: 10 }}>🔍</Text>
-                )}
-                ArrowUpIconComponent={() => (
-                  <Text style={{ marginRight: 10 }}>🔍</Text>
-                )}
-                showArrowIcon={true}
-                // 3. Ensure the keyboard is ready immediately
-                searchTextInputProps={{
-                  autoFocus: true,
-                  clearButtonMode: "while-editing", // iOS only, adds a 'X' to clear
-                }}
-                onChangeSearchText={(text) => {
-                  categoryWrapperRef.current.measureLayout(
-                    findNodeHandle(scrollRef.current),
-                    (x, y) =>
-                      scrollRef.current?.scrollToPosition(0, y - 50, true)
-                  );
-
-                  // ... your existing filter logic ...
-                  const query = text.toLowerCase().trim();
-                  if (!query) {
-                    setItems(allCategoryItems);
-                    return;
-                  }
-                  const filtered = allCategoryItems.filter((item) => {
-                    const categoryData = categories_meta.find(
-                      (c) => c.name === item.value
-                    );
-                    return (
-                      item.label.toLowerCase().includes(query) ||
-                      categoryData?.meta?.some((kw) =>
-                        kw.toLowerCase().includes(query)
-                      )
-                    );
-                  });
-                  setItems(filtered);
-                }}
-                // 3. Return to SCROLLVIEW mode for stability
-                listMode="SCROLLVIEW"
-                scrollViewProps={{ keyboardShouldPersistTaps: "always" }}
-                nestedScrollEnabled={true}
-                // 4. Force a Height to fix the scrolling
-                // This ensures the picker has a defined boundary so the phone knows when to scroll
-                dropDownContainerStyle={[
-                  ReceiptStyles.dropdownContainer,
-                  { position: "relative", top: 0, maxHeight: 250 },
-                ]}
-                setValue={(callback) => {
-                  // 1. Get the next value by calling the callback with the current state
-                  const next = callback(selectedCategory);
-
-                  // 2. Update your state variable
-                  setSelectedCategory(next);
-
-                  // 3. Trigger your VAT logic
-                  if (next) {
-                    const cat = categories_meta.find((c) => c.name === next);
-                    const r = cat?.vatRate;
-                    if (r !== undefined && r !== null && !Number.isNaN(r)) {
-                      const rStr = String(r);
-                      setVatRate(rStr);
-                      setVatRateItems((prev) => {
-                        const has = prev.some((it) => it.value === rStr);
-                        return has
-                          ? prev
-                          : [...prev, { label: `${r}%`, value: rStr }].sort(
-                              (a, b) => Number(a.value) - Number(b.value)
-                            );
-                      });
-                      if (!vatAmountEdited && amount) {
-                        setVatAmount(computeVat(amount, rStr));
-                      }
-                    }
-                  }
-                }}
-                onOpen={() => {
-                  setItems(allCategoryItems); // Reset to show everything when opened
-
-                  // Use measureLayout to find exactly where this view is inside the ScrollView
-                  categoryWrapperRef.current.measureLayout(
-                    findNodeHandle(scrollRef.current),
-                    (x, y) => {
-                      // Now 'y' is the absolute distance from the top of the list
-                      scrollRef.current?.scrollToPosition(0, y - 50, true);
-                    },
-                    (error) => console.log("Measurement failed", error)
-                  );
-                }}
-                style={[ReceiptStyles.dropdown, localStyles.dropdownAligned]}
-                zIndex={1000}
-                zIndexInverse={3000}
-              />
-            </View>
-
-            <View style={localStyles.fieldGroup}>
+            <View style={[localStyles.fieldGroup, localStyles.fieldTopSpacing]}>
               <Text style={[ReceiptStyles.label, localStyles.labelAligned]}>
                 Label (optional):
               </Text>
               <TextInput
-                style={[ReceiptStyles.input, localStyles.labelInputAligned]}
+                style={[ReceiptStyles.input, localStyles.labelInputAligned, { height: 42 }]}
                 value={label}
                 onChangeText={setLabel}
                 placeholder="An optional label"
                 placeholderTextColor={Colors.textSecondary}
+                onFocus={() => {
+                  Animated.timing(heroHeightAnim, {
+                    toValue: heroCollapsedHeight,
+                    duration: 220,
+                    useNativeDriver: false,
+                  }).start();
+                }}
               />
             </View>
 
-            {/* Bottom actions */}
-            <View style={ReceiptStyles.bottomButtons}>
-              <View style={ReceiptStyles.primaryRow}>
-                <Button
-                  mode="contained"
-                  onPress={saveChanges}
-                  buttonColor="#a60d49"
-                  style={ReceiptStyles.actionBtn}
-                  disabled={!isReceiptFormValid}
-                >
-                  Save
-                </Button>
-              </View>
-
-              <View style={ReceiptStyles.deleteRow}>
-                <Button
-                  mode="outlined"
-                  onPress={deleteReceipt}
-                  textColor="#a60d49"
-                  style={ReceiptStyles.deleteBtn}
-                >
-                  Delete Receipt
-                </Button>
-              </View>
-            </View>
           </View>
         </View>
       </KeyboardAwareScrollView>
+      </View>
+      </TouchableWithoutFeedback>
+      </KeyboardAvoidingView>
+
+      <CategorySelector
+        visible={categoryModalVisible}
+        onClose={() => setCategoryModalVisible(false)}
+        onSelect={(categoryName) => {
+          setSelectedCategory(categoryName);
+          setCategoryModalVisible(false);
+
+          const cat = categories_meta.find((c) => c.name === categoryName);
+          const r = cat?.vatRate;
+          if (r !== undefined && r !== null && !Number.isNaN(r)) {
+            const rStr = String(r);
+            if (rStr !== vatRate) {
+              setVatRate(rStr);
+            }
+            setVatRateItems((prev) => {
+              const has = prev.some((it) => it.value === rStr);
+              return has
+                ? prev
+                : [...prev, { label: `${r}%`, value: rStr }].sort(
+                    (a, b) => Number(a.value) - Number(b.value),
+                  );
+            });
+            if (!vatAmountEdited && amount) {
+              setVatAmount(computeVat(amount, rStr));
+            }
+          }
+        }}
+        selectedCategory={selectedCategory}
+      />
+
+      <View
+        style={[
+          localStyles.bottomBar,
+          {
+            paddingBottom:
+              Platform.OS === "android"
+                ? Math.max(insets.bottom, 24)
+                : Math.max(insets.bottom, 16),
+          },
+        ]}
+      >
+        <Button
+          mode="outlined"
+          onPress={deleteReceipt}
+          textColor={Colors.accent}
+          style={localStyles.bottomActionBtn}
+        >
+          Delete
+        </Button>
+        <Button
+          mode="contained"
+          onPress={isReceiptDirty ? saveChanges : safeNavigateToExpenses}
+          buttonColor={Colors.accent}
+          style={localStyles.bottomActionBtn}
+          disabled={isReceiptDirty && !isReceiptFormValid}
+        >
+          {isReceiptDirty ? "Save" : "Close"}
+        </Button>
+      </View>
 
       {/* OCR Preview + Accept Modal */}
       <Modal
@@ -898,7 +1305,7 @@ export default function ReceiptDetailsScreen({ route, navigation }) {
                     ]}
                   >
                     {ocrResult?.amount != null
-                      ? `£${Number(ocrResult.amount).toFixed(2)}`
+                      ? formatCurrency(ocrResult.amount)
                       : "Not detected"}
                   </Text>
                 </View>
@@ -982,7 +1389,7 @@ export default function ReceiptDetailsScreen({ route, navigation }) {
                       ]}
                     >
                       {ocrResult?.vat?.value != null
-                        ? `£${ocrResult.vat.value}`
+                        ? formatCurrency(ocrResult.vat.value)
                         : "—"}{" "}
                       (Rate {ocrResult?.vat?.rate ?? "Not detected"}%)
                     </Text>
@@ -993,7 +1400,11 @@ export default function ReceiptDetailsScreen({ route, navigation }) {
                   {!isNewImageSession && (
                     <Button
                       mode="outlined"
-                      onPress={() => deleteCurrentImage(setImages)}
+                      onPress={() =>
+                        confirmRemoveImage(() => {
+                          deleteCurrentImage(setImages);
+                        })
+                      }
                       textColor="#a60d49"
                     >
                       Delete Image
@@ -1050,36 +1461,6 @@ export default function ReceiptDetailsScreen({ route, navigation }) {
         </View>
       </Modal>
 
-      {/* Carousel fullscreen modal */}
-      <Modal
-        visible={fullScreenImageIndex !== null}
-        animationType="fade"
-        presentationStyle="fullScreen"
-        transparent={false}
-        onRequestClose={() => setFullScreenImageIndex(null)}
-      >
-        {fullScreenImageIndex !== null ? (
-          <>
-            <ImageViewer
-              imageUrls={images.map(img => ({ url: img.uri }))}
-              index={fullScreenImageIndex}
-              enableSwipeDown
-              onSwipeDown={() => setFullScreenImageIndex(null)}
-              onClick={() => setFullScreenImageIndex(null)}
-              backgroundColor="black"
-              renderIndicator={images.length > 1 ? undefined : () => null}
-              saveToLocalByLongPress={false}
-            />
-            <TouchableOpacity
-              style={ReceiptStyles.fullScreenCloseButton}
-              onPress={() => setFullScreenImageIndex(null)}
-            >
-              <Text style={ReceiptStyles.fullScreenCloseText}>✕</Text>
-            </TouchableOpacity>
-          </>
-        ) : null}
-      </Modal>
-
       {/* Full-screen Image Modal */}
       <Modal
         visible={!!fullScreenImage}
@@ -1092,6 +1473,7 @@ export default function ReceiptDetailsScreen({ route, navigation }) {
           imageUrls={[{ url: fullScreenImage?.uri }]}
           enableSwipeDown
           onSwipeDown={() => setFullScreenImage(null)}
+          renderImage={renderAnnotatedZoomImage}
           backgroundColor="black"
         />
 
@@ -1100,8 +1482,22 @@ export default function ReceiptDetailsScreen({ route, navigation }) {
             style={ReceiptStyles.fullScreenCloseButton}
             onPress={() => setFullScreenImage(null)}
           >
-            <Text style={ReceiptStyles.fullScreenCloseText}>Close</Text>
+            <Text style={ReceiptStyles.fullScreenCloseText}>✕</Text>
           </TouchableOpacity>
+          {fullScreenImage?.annotationData ? (
+            <TouchableOpacity
+              style={[
+                ReceiptStyles.fullScreenAnnotationToggleButton,
+                !annotateImages ? ReceiptStyles.fullScreenAnnotationToggleButtonOff : null,
+              ]}
+              onPress={toggleAnnotateImages}
+              accessibilityRole="switch"
+              accessibilityState={{ checked: annotateImages }}
+              accessibilityLabel="Toggle annotations"
+            >
+              <Ionicons name={annotateImages ? "scan" : "scan-outline"} size={20} color="#fff" />
+            </TouchableOpacity>
+          ) : null}
         </View>
       </Modal>
     </SafeAreaView>
@@ -1109,20 +1505,94 @@ export default function ReceiptDetailsScreen({ route, navigation }) {
 }
 
 const localStyles = StyleSheet.create({
+  safeAreaLight: {
+    backgroundColor: "#fff",
+  },
+  header: {
+    backgroundColor: "#1C1C4E",
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    paddingHorizontal: 16,
+    paddingBottom: 14,
+  },
+  headerTitle: { color: "#fff", fontSize: 17, fontWeight: "700" },
+  headerBtn: { width: 82, alignItems: "flex-start" },
+  headerBtnText: { color: "#fff", fontWeight: "600", fontSize: 18 },
+  indexPill: {
+    position: "absolute",
+    right: 54,
+    top: 12,
+    color: "#fff",
+    fontSize: 12,
+    fontWeight: "700",
+    backgroundColor: "rgba(255,255,255,0.18)",
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 12,
+  },
   imageSection: {
-    height: IMAGE_HEIGHT,
+    height: HERO_EXPANDED_HEIGHT,
     overflow: "hidden",
     backgroundColor: "#000",
     borderBottomWidth: 1,
     borderBottomColor: "#333",
   },
+  annotationOverlay: {
+    ...StyleSheet.absoluteFillObject,
+  },
+  annBox: {
+    position: "absolute",
+    borderWidth: 2,
+    borderRadius: 4,
+    overflow: "visible",
+    minWidth: ANNOTATION_MIN_BOX_WIDTH,
+    minHeight: ANNOTATION_MIN_BOX_HEIGHT,
+  },
+  annChip: {
+    position: "absolute",
+    top: -18,
+    left: 0,
+    paddingHorizontal: 5,
+    paddingVertical: 1,
+    borderRadius: 3,
+    minWidth: 52,
+  },
+  annChipText: {
+    color: "#fff",
+    fontSize: 11,
+    fontWeight: "700",
+    flexShrink: 0,
+  },
   carouselPage: {
-    height: IMAGE_HEIGHT,
+    height: "100%",
     justifyContent: "center",
     alignItems: "center",
   },
   carouselImage: {
-    height: IMAGE_HEIGHT,
+    height: "100%",
+  },
+  imagePageScroller: {
+    alignSelf: "stretch",
+    flex: 1,
+  },
+  mainAnnotationToggleButton: {
+    position: "absolute",
+    top: 10,
+    left: 10,
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: "rgba(166, 13, 73, 0.88)",
+    alignItems: "center",
+    justifyContent: "center",
+    zIndex: 50,
+    elevation: 50,
+  },
+  mainAnnotationToggleButtonOff: {
+    backgroundColor: "rgba(15,15,20,0.72)",
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.45)",
   },
   carouselAddBtn: {
     flex: 1,
@@ -1130,27 +1600,59 @@ const localStyles = StyleSheet.create({
     justifyContent: "center",
     alignItems: "center",
   },
-  floatingCloseBtn: {
+  carouselRemoveBtn: {
     position: "absolute",
-    top: 12,
-    left: 12,
-    width: 36,
-    height: 36,
-    borderRadius: 18,
-    backgroundColor: "#a60d49",
+    top: 8,
+    right: 8,
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    backgroundColor: "rgba(0,0,0,0.65)",
     justifyContent: "center",
     alignItems: "center",
-    zIndex: 200,
-    elevation: 6,
   },
-  floatingCloseBtnText: {
+  carouselRemoveText: {
     color: "#fff",
-    fontSize: 18,
+    fontSize: 20,
     lineHeight: 20,
     fontWeight: "bold",
   },
+  validFieldInput: {
+    backgroundColor: "#fff",
+    borderColor: "#2E9F46",
+    borderWidth: 1,
+  },
+  invalidFieldInput: {
+    backgroundColor: "#fff",
+    borderColor: "#E06B6B",
+    borderWidth: 1,
+  },
+  bottomBar: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    gap: 12,
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    backgroundColor: "#fff",
+    borderTopWidth: 1,
+    borderTopColor: "#e8e8e8",
+  },
+  bottomActionBtn: {
+    flex: 1,
+  },
+  amountDateRow: {
+    flexDirection: "row",
+    gap: 8,
+    marginBottom: 8,
+  },
+  amountDateField: {
+    flex: 1,
+  },
   labelAligned: {
     marginLeft: 10,
+    fontSize: 13,
+    marginBottom: 1,
   },
   fieldRow: {
     marginHorizontal: 10,
@@ -1159,16 +1661,19 @@ const localStyles = StyleSheet.create({
     margin: 0,
   },
   labelInputAligned: {
-    marginHorizontal: 10,
+    marginHorizontal: 0,
   },
   dropdownAligned: {
-    marginHorizontal: 10,
+    marginHorizontal: 0,
   },
   vatRowAligned: {
-    marginHorizontal: 10,
+    marginHorizontal: 0,
   },
   fieldGroup: {
-    marginBottom: 16,
+    marginBottom: 6,
+  },
+  fieldTopSpacing: {
+    marginTop: 4,
   },
   fieldTopSpacingTight: {
     marginTop: 0,
@@ -1233,5 +1738,70 @@ const localStyles = StyleSheet.create({
     borderLeftColor: "transparent",
     borderRightColor: "transparent",
     borderTopColor: "#F0D1FF",
+  },
+  debugOverlayWrap: {
+    position: "absolute",
+    top: 110,
+    right: 10,
+    zIndex: 9000,
+    elevation: 9000,
+  },
+  debugOverlayCard: {
+    minWidth: 210,
+    maxWidth: 260,
+    backgroundColor: "rgba(15,15,20,0.9)",
+    borderRadius: 10,
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.2)",
+  },
+  debugOverlayHeader: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    marginBottom: 4,
+  },
+  debugOverlayTitle: {
+    color: "#fff",
+    fontSize: 12,
+    fontWeight: "700",
+  },
+  debugOverlayHide: {
+    color: "#b8d5ff",
+    fontSize: 12,
+    fontWeight: "600",
+  },
+  debugOverlayText: {
+    color: "#fff",
+    fontSize: 11,
+    marginTop: 2,
+  },
+  debugOverlayLast: {
+    color: "#d0d0d0",
+    fontSize: 10,
+    marginTop: 6,
+  },
+  debugOverlayToggle: {
+    position: "absolute",
+    right: 10,
+    top: 110,
+    zIndex: 9000,
+    elevation: 9000,
+    backgroundColor: "rgba(15,15,20,0.9)",
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.2)",
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+  },
+  debugOverlayToggleText: {
+    color: "#fff",
+    fontSize: 11,
+    fontWeight: "700",
+  },
+  fullScreenOverlayRoot: {
+    flex: 1,
+    backgroundColor: "#000",
   },
 });

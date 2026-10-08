@@ -9,6 +9,30 @@ import { doc, getDoc } from "firebase/firestore";
 
 // ─── Standalone OCR helpers (no hook state) ──────────────────────────────────
 
+const DATE_MONTH_NAMES = [
+  ["01", "Jan", "January"],
+  ["02", "Feb", "February"],
+  ["03", "Mar", "March"],
+  ["04", "Apr", "April"],
+  ["05", "May", "May"],
+  ["06", "Jun", "June"],
+  ["07", "Jul", "July"],
+  ["08", "Aug", "August"],
+  ["09", "Sep", "September"],
+  ["10", "Oct", "October"],
+  ["11", "Nov", "November"],
+  ["12", "Dec", "December"],
+];
+
+function normalizeDateText(value) {
+  return String(value || "")
+    .replace(/\b(\d{1,2})(st|nd|rd|th)\b/gi, "$1")
+    .replace(/,/g, "")
+    .replace(/\s+/g, " ")
+    .trim()
+    .toLowerCase();
+}
+
 export async function ensureFileFromAssetStandalone(asset) {
   const { base64, fileName, uri } = asset || {};
   const ext =
@@ -111,6 +135,9 @@ function findFramesForValues(blocks, structured, imageUri, imageW, imageH) {
     if (parts.length === 3) {
       const [year, month, day] = parts;
       const shortYear = year.slice(2);
+      const dayNoLead = String(Number(day));
+      const monthNames = DATE_MONTH_NAMES.find(([monthNumber]) => monthNumber === month) || [];
+      const [, shortMonth, longMonth] = monthNames;
       const patterns = [
         `${day}/${month}/${year}`,
         `${day}/${month}/${shortYear}`,
@@ -118,10 +145,19 @@ function findFramesForValues(blocks, structured, imageUri, imageW, imageH) {
         `${day}.${month}.${year}`,
         `${day}.${month}.${shortYear}`,
         `${year}-${month}-${day}`,
-      ];
+        shortMonth ? `${dayNoLead} ${shortMonth} ${year}` : null,
+        shortMonth ? `${day} ${shortMonth} ${year}` : null,
+        longMonth ? `${dayNoLead} ${longMonth} ${year}` : null,
+        longMonth ? `${day} ${longMonth} ${year}` : null,
+        shortMonth ? `${shortMonth} ${dayNoLead} ${year}` : null,
+        shortMonth ? `${shortMonth} ${day} ${year}` : null,
+        longMonth ? `${longMonth} ${dayNoLead} ${year}` : null,
+        longMonth ? `${longMonth} ${day} ${year}` : null,
+      ].filter(Boolean).map(normalizeDateText);
       console.log('[Annotation] Date patterns:', patterns);
       for (const line of allLines) {
-        if (patterns.some((p) => line.text.includes(p))) {
+        const lineText = normalizeDateText(line.text);
+        if (patterns.some((p) => lineText.includes(p))) {
           console.log('[Annotation] Date matched line:', line.text, '→ frame:', JSON.stringify(line.frame));
           frames.date = line.frame;
           break;
@@ -171,6 +207,7 @@ function toStructuredOcrResult(res, raw) {
     date: res?.date ?? null,
     reference: res?.reference ?? null,
     vat: res?.vat ?? null,
+    cis: res?.cis ?? { applies: false, materialsAmount: 0, deductionRate: 0, taxWithheld: 0 },
     categoryIndex,
     categoryName,
     raw: raw || "",
@@ -269,12 +306,16 @@ function mergeStructuredResults(primary, fallback) {
       value: primary.vat?.value ?? fallback.vat?.value ?? null,
       rate: primary.vat?.rate ?? fallback.vat?.rate ?? null,
     },
+    cis: primary.cis?.applies ? primary.cis : fallback.cis,
     categoryIndex:
       primary.categoryIndex != null && primary.categoryIndex >= 0
         ? primary.categoryIndex
         : (fallback.categoryIndex ?? -1),
     categoryName: primary.categoryName || fallback.categoryName || null,
     raw: primary.raw || fallback.raw || "",
+    ocrSource: primary.ocrSource || fallback.ocrSource || null,
+    ocrProvider: primary.ocrProvider || fallback.ocrProvider || null,
+    ocrFrames: primary.ocrFrames || fallback.ocrFrames || null,
   };
 }
 
@@ -305,10 +346,11 @@ async function isUserVerified() {
   }
 }
 
-async function analyzeAssetsCloudFirst(assets, onProgress) {
+async function analyzeAssetsCloudFirst(assets, onProgress, options = {}) {
   const n = assets.length || 1;
+  const { preferLocal = false } = options;
   const verified = await isUserVerified();
-  if (verified) {
+  if (verified && !preferLocal) {
     try {
       const response = await extractReceiptImagesInCloud(assets);
       const cloudImages = Array.isArray(response?.images) ? response.images : [];
@@ -358,8 +400,10 @@ async function analyzeAssetsCloudFirst(assets, onProgress) {
     } catch (error) {
       console.warn("Cloud receipt OCR unavailable, falling back to on-device OCR.", error);
     }
-  } else {
+  } else if (!verified) {
     console.log("Receipt OCR source: local (ml-kit) — user not verified");
+  } else if (preferLocal) {
+    console.log("Receipt OCR source: local (ml-kit) — forced by user");
   }
 
   console.log("Receipt OCR source: local (ml-kit)");
@@ -383,14 +427,22 @@ async function analyzeAssetsCloudFirst(assets, onProgress) {
  * into one block, then run data extraction once on the combined text.
  * Returns a structured result object (same shape as ocrResult in the hook).
  */
-export async function runOcrOnAssets(assets) {
-  const analyses = await analyzeAssetsCloudFirst(assets || []);
+export async function runOcrOnAssets(assets, options = {}) {
+  const analyses = await analyzeAssetsCloudFirst(assets || [], undefined, options);
   const combined = analyses.map((entry) => entry.raw).filter(Boolean).join("\n\n");
-  return toStructuredOcrResult(extractData(combined), combined);
+  const structured = toStructuredOcrResult(extractData(combined), combined);
+  if (analyses.length === 1) {
+    return mergeStructuredResults(structured, analyses[0]);
+  }
+  return {
+    ...structured,
+    ocrSource: analyses.some((entry) => entry.ocrSource === "cloud") ? "cloud" : "local",
+    ocrProvider: analyses.find((entry) => entry.ocrProvider)?.ocrProvider || null,
+  };
 }
 
-export async function detectReceiptGroupsFromAssets(assets, onProgress) {
-  const analyses = await analyzeAssetsCloudFirst(assets || [], onProgress);
+export async function detectReceiptGroupsFromAssets(assets, onProgress, options = {}) {
+  const analyses = await analyzeAssetsCloudFirst(assets || [], onProgress, options);
   if (!analyses.length) return [];
 
   const groups = [];

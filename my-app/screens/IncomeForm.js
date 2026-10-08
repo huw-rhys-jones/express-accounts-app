@@ -3,7 +3,10 @@ import {
   ActivityIndicator,
   Alert,
   Animated,
+  BackHandler,
   Dimensions,
+  Keyboard,
+  KeyboardAvoidingView,
   Image,
   Modal,
   PanResponder,
@@ -14,15 +17,17 @@ import {
   Text,
   TextInput,
   TouchableOpacity,
+  TouchableWithoutFeedback,
   View,
 } from "react-native";
 import ImageViewer from "react-native-image-zoom-viewer";
-import { SafeAreaView } from "react-native-safe-area-context";
+import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import { KeyboardAwareScrollView } from "react-native-keyboard-aware-scroll-view";
 import { Button, Checkbox, ProgressBar } from "react-native-paper";
 import DropDownPicker from "react-native-dropdown-picker";
 import DateTimePickerModal from "react-native-modal-datetime-picker";
 import * as ImagePicker from "react-native-image-picker";
+import { Ionicons } from "@expo/vector-icons";
 import {
   addDoc,
   collection,
@@ -35,8 +40,12 @@ import {
 } from "firebase/firestore";
 import { auth, db } from "../firebaseConfig";
 import { Colors, ReceiptStyles } from "../utils/sharedStyles";
-import { formatDate } from "../utils/format_style";
-import { getCurrentYearAprilSix } from "../utils/financialPeriods";
+import { formatDate, formatCurrency } from "../utils/format_style";
+import {
+  getCurrentFinancialQuarter,
+  getCurrentYearAprilSix,
+  startOfDayLocal,
+} from "../utils/financialPeriods";
 import { useReceiptOcr, runOcrOnAssets, detectReceiptGroupsFromAssets } from "../utils/ocrHelpers";
 import {
   createImageAttachment,
@@ -48,6 +57,10 @@ import {
 } from "../utils/documentAttachments";
 import { triggerHaptic } from "../utils/haptics";
 import { categories_meta } from "../constants/arrays";
+import { getAnnotateImages, getIncomeFilterKey, setAnnotateImages as saveAnnotateImages, setIncomeFilterKey } from "../utils/appSettings";
+import { useData } from "../contexts/DataContext";
+import { calculateCis, isVatRegistered, VAT_TREATMENTS } from "../utils/taxCalculations";
+import AddReceiptSheet from "../components/AddReceiptSheet";
 
 const IMAGE_HEIGHT = Math.round(Dimensions.get("window").height * 0.45);
 
@@ -56,6 +69,17 @@ const ANNOTATIONS = [
   { key: "date",   label: "Date",   color: "#1A73E8" },
   { key: "vat",    label: "VAT",    color: "#E06B6B" },
 ];
+const ANNOTATION_MIN_BOX_WIDTH = 64;
+const ANNOTATION_MIN_BOX_HEIGHT = 26;
+
+const DEBUG_DISABLE_KEYBOARD_DISMISS_WRAPPER = true;
+
+function extractCisMaterialsAmount(rawText) {
+  const match = String(rawText || "").match(
+    /\bmaterials?(?:\s+(?:amount|total))?\s*[:=-]?\s*(?:£\s*)?([0-9][0-9,]*\.\d{2})\b/i,
+  );
+  return match ? Number(match[1].replace(/,/g, "")) : null;
+}
 
 function navigateBackToIncome(navigation) {
   navigation.reset({
@@ -70,7 +94,28 @@ function navigateBackToIncome(navigation) {
 }
 
 export default function IncomeFormScreen({ navigation, route, mode }) {
+  const insets = useSafeAreaInsets();
+  const { refreshIncome, userProfile } = useData();
+  const heroHeightAnim = useRef(new Animated.Value(HERO_EXPANDED_HEIGHT)).current;
+  const [heroHeight, setHeroHeight] = useState(HERO_EXPANDED_HEIGHT);
   const income = route?.params?.income;
+  const initialIncomeList = useMemo(() => {
+    if (Array.isArray(route?.params?.incomeList) && route.params.incomeList.length > 0) {
+      return route.params.incomeList;
+    }
+    return income ? [income] : [];
+  }, [income, route?.params?.incomeList]);
+  const [editableIncomeList, setEditableIncomeList] = useState(initialIncomeList);
+  const [currentIndex, setCurrentIndex] = useState(route?.params?.initialIndex || 0);
+
+  useEffect(() => {
+    setEditableIncomeList(initialIncomeList);
+    setCurrentIndex(route?.params?.initialIndex || 0);
+  }, [initialIncomeList, route?.params?.initialIndex]);
+
+  const currentIncome = mode === "edit"
+    ? editableIncomeList[currentIndex] || income
+    : income;
   const [amount, setAmount] = useState(
     income?.amount != null ? String(income.amount) : ""
   );
@@ -83,6 +128,18 @@ export default function IncomeFormScreen({ navigation, route, mode }) {
   const [vatAmountEdited, setVatAmountEdited] = useState(
     income?.vatAmount != null && income?.vatAmount !== ""
   );
+  const [cisApplies, setCisApplies] = useState(Boolean(income?.cis?.applies));
+  const [cisMaterialsAmount, setCisMaterialsAmount] = useState(
+    income?.cis?.materialsAmount != null ? String(income.cis.materialsAmount) : "0",
+  );
+  const [cisDeductionRate, setCisDeductionRate] = useState(
+    income?.cis?.deductionRate != null ? String(income.cis.deductionRate) : "20",
+  );
+  const [vatTreatment, setVatTreatment] = useState(
+    income?.vat?.treatment || income?.vatTreatment || VAT_TREATMENTS.STANDARD,
+  );
+  const vatEnabled = isVatRegistered(userProfile) || income?.vatAmount != null || currentIncome?.vatAmount != null;
+  const vatAnnotationsEnabled = isVatRegistered(userProfile);
 
   const deriveVatRateItems = () => {
     const unique = Array.from(
@@ -115,8 +172,13 @@ export default function IncomeFormScreen({ navigation, route, mode }) {
   const [pickerBusyText, setPickerBusyText] = useState("Opening attachment options…");
   const [ocrProcessing, setOcrProcessing] = useState(false);
   const [imageContainerWidth, setImageContainerWidth] = useState(0);
-  const [fullScreenImageIndex, setFullScreenImageIndex] = useState(null);
+  const [imageContainerHeight, setImageContainerHeight] = useState(HERO_EXPANDED_HEIGHT);
   const [ocrFrames, setOcrFrames] = useState(null);
+  const [annotateImages, setAnnotateImages] = useState(true);
+  const [showConfirmLeaveModal, setShowConfirmLeaveModal] = useState(false);
+  const [showSuccess, setShowSuccess] = useState(false);
+  const [showReviewSummaryModal, setShowReviewSummaryModal] = useState(false);
+  const [showAddMoreSheet, setShowAddMoreSheet] = useState(false);
 
   // Multi-statement draft mode (when multiple income images are detected)
   const [incomeDrafts, setIncomeDrafts] = useState([]);
@@ -124,6 +186,9 @@ export default function IncomeFormScreen({ navigation, route, mode }) {
   const [draftReviewStates, setDraftReviewStates] = useState([]); // "pending"|"confirmed"|"skipped"
   const [isDetecting, setIsDetecting] = useState(false);
   const [detectProgress, setDetectProgress] = useState(0);
+  const [detectMode, setDetectMode] = useState("auto");
+  const pendingDetectionAssetsRef = useRef([]);
+  const detectRequestIdRef = useRef(0);
   const [showBatchSummaryModal, setShowBatchSummaryModal] = useState(false);
   const [toastVisible, setToastVisible] = useState(false);
   const [toastMessage, setToastMessage] = useState("");
@@ -142,7 +207,83 @@ export default function IncomeFormScreen({ navigation, route, mode }) {
   const incomeFormStateRef = useRef(null);
   incomeDraftsRef.current = incomeDrafts;
   currentDraftIndexRef.current = currentDraftIndex;
-  incomeFormStateRef.current = { amount, vatAmount, vatRate, vatAmountEdited, reference, label, notes, selectedDate, attachments };
+  incomeFormStateRef.current = { amount, vatAmount, vatRate, vatAmountEdited, reference, label, notes, selectedDate, attachments, cisApplies, cisMaterialsAmount, cisDeductionRate, vatTreatment };
+
+  const indicatorScrollRef = useRef(null);
+  const indicatorLayoutsRef = useRef({});
+  const indicatorViewportWidthRef = useRef(0);
+
+  useEffect(() => {
+    let active = true;
+    const loadAnnotateImages = () => {
+      getAnnotateImages()
+        .then((enabled) => {
+          if (active) setAnnotateImages(enabled);
+        })
+        .catch(() => {
+          if (active) setAnnotateImages(true);
+        });
+    };
+
+    loadAnnotateImages();
+    const unsubscribeFocus = navigation.addListener("focus", loadAnnotateImages);
+    return () => {
+      active = false;
+      unsubscribeFocus?.();
+    };
+  }, [navigation]);
+
+  const toggleAnnotateImages = async () => {
+    const nextValue = !annotateImages;
+    setAnnotateImages(nextValue);
+    await saveAnnotateImages(nextValue);
+  };
+
+  const buildImageAnnotations = ({ localAttachments = [], uploadedAttachments = [], frameData = null }) => {
+    if (!frameData || !frameData.imageUri) return null;
+    const frameIndex = localAttachments.findIndex((attachment) => getAttachmentUri(attachment) === frameData.imageUri);
+    if (frameIndex < 0 || !uploadedAttachments[frameIndex]) return null;
+    const imageUrl = getAttachmentUri(uploadedAttachments[frameIndex]);
+    if (!imageUrl) return null;
+    return {
+      [imageUrl]: {
+        imageW: frameData.imageW,
+        imageH: frameData.imageH,
+        amount: frameData.amount || null,
+        date: frameData.date || null,
+        vat: frameData.vat || null,
+      },
+    };
+  };
+
+  const scrollIndicatorIntoView = (index) => {
+    const attempt = () => {
+      const layout = indicatorLayoutsRef.current[index];
+      const viewportWidth = indicatorViewportWidthRef.current;
+      if (!layout || !viewportWidth || !indicatorScrollRef.current) return;
+      const targetX = Math.max(
+        0,
+        layout.x + layout.width / 2 - viewportWidth / 2,
+      );
+      indicatorScrollRef.current.scrollTo({ x: targetX, animated: true });
+    };
+    attempt();
+    requestAnimationFrame(attempt);
+  };
+
+  useEffect(() => {
+    if (!isMultiDraftMode) return;
+    scrollIndicatorIntoView(currentDraftIndex);
+  }, [currentDraftIndex, incomeDrafts.length, isMultiDraftMode]);
+
+  const isIncomeDraftValid = (draft) => {
+    if (!draft) return false;
+    const a = parseFloat(draft.amount);
+    const validAmount = Number.isFinite(a) && a > 0;
+    const d = draft.selectedDate instanceof Date ? draft.selectedDate : new Date(draft.selectedDate);
+    const validDate = !Number.isNaN(d.getTime());
+    return validAmount && validDate;
+  };
 
   const draftSlideX = useRef(new Animated.Value(0)).current;
   const draftFade = useRef(new Animated.Value(1)).current;
@@ -177,6 +318,10 @@ export default function IncomeFormScreen({ navigation, route, mode }) {
       reference: analysis?.reference || "",
       label: "",
       notes: "",
+      cisApplies: Boolean(analysis?.cis?.applies),
+      cisMaterialsAmount: String(analysis?.cis?.materialsAmount ?? extractCisMaterialsAmount(analysis?.raw) ?? 0),
+      cisDeductionRate: String(analysis?.cis?.deductionRate ?? 20),
+      vatTreatment: VAT_TREATMENTS.STANDARD,
       selectedDate: parsedDate && !Number.isNaN(parsedDate.getTime()) ? parsedDate : new Date(),
       attachments: (assets || []).map((asset) => createImageAttachment(asset)),
       ocrFrames: groupOcrFrames || null,
@@ -188,6 +333,10 @@ export default function IncomeFormScreen({ navigation, route, mode }) {
     setVatAmount(draft?.vatAmount || "");
     setVatRate(draft?.vatRate || "");
     setVatAmountEdited(Boolean(draft?.vatAmountEdited));
+    setCisApplies(Boolean(draft?.cisApplies));
+    setCisMaterialsAmount(draft?.cisMaterialsAmount || "0");
+    setCisDeductionRate(draft?.cisDeductionRate || "20");
+    setVatTreatment(draft?.vatTreatment || VAT_TREATMENTS.STANDARD);
     setReference(draft?.reference || "");
     setLabel(draft?.label || "");
     setNotes(draft?.notes || "");
@@ -208,6 +357,10 @@ export default function IncomeFormScreen({ navigation, route, mode }) {
       notes: f.notes,
       selectedDate: new Date(f.selectedDate),
       attachments: [...f.attachments],
+      cisApplies: f.cisApplies,
+      cisMaterialsAmount: f.cisMaterialsAmount,
+      cisDeductionRate: f.cisDeductionRate,
+      vatTreatment: f.vatTreatment,
     };
   };
 
@@ -258,6 +411,34 @@ export default function IncomeFormScreen({ navigation, route, mode }) {
     [isMultiDraftMode],
   );
 
+  const detailSwipeResponder = React.useMemo(
+    () =>
+      PanResponder.create({
+        onMoveShouldSetPanResponder: (_, gestureState) => {
+          if (mode !== "edit" || isMultiDraftMode || editableIncomeList.length <= 1) {
+            return false;
+          }
+          const { dx, dy } = gestureState;
+          return Math.abs(dx) > 22 && Math.abs(dx) > Math.abs(dy) * 1.4;
+        },
+        onPanResponderRelease: (_, gestureState) => {
+          if (mode !== "edit" || isMultiDraftMode || editableIncomeList.length <= 1) {
+            return;
+          }
+          const { dx, dy } = gestureState;
+          if (Math.abs(dx) < 72 || Math.abs(dx) < Math.abs(dy) * 1.2) return;
+
+          Keyboard.dismiss();
+          if (dx < 0) {
+            setCurrentIndex((prev) => Math.min(prev + 1, editableIncomeList.length - 1));
+          } else {
+            setCurrentIndex((prev) => Math.max(prev - 1, 0));
+          }
+        },
+      }),
+    [editableIncomeList.length, isMultiDraftMode, mode],
+  );
+
   const confirmIncomeDraft = () => {
     const synced = syncIncomeDrafts();
     setDraftReviewStates((prev) => {
@@ -286,6 +467,45 @@ export default function IncomeFormScreen({ navigation, route, mode }) {
     }
   };
 
+  const handleLeavePress = () => {
+    if (mode === "edit") {
+      navigateBackToIncome(navigation);
+      return;
+    }
+    setShowConfirmLeaveModal(true);
+  };
+
+  useEffect(() => {
+    if (mode === "edit") return undefined;
+    const backHandler = BackHandler.addEventListener("hardwareBackPress", () => {
+      if (showSuccess) {
+        setShowSuccess(false);
+        return true;
+      }
+      if (showReviewSummaryModal) {
+        setShowReviewSummaryModal(false);
+        return true;
+      }
+      if (showConfirmLeaveModal) {
+        setShowConfirmLeaveModal(false);
+        return true;
+      }
+      if (!amount && !attachments.length && incomeDrafts.length === 0) {
+        navigation.goBack();
+        return true;
+      }
+      setShowConfirmLeaveModal(true);
+      return true;
+    });
+    return () => backHandler.remove();
+  }, [amount, attachments.length, incomeDrafts.length, mode, navigation, showConfirmLeaveModal, showReviewSummaryModal, showSuccess]);
+
+  useEffect(() => {
+    if (allDraftsReviewed) {
+      setShowReviewSummaryModal(true);
+    }
+  }, [allDraftsReviewed]);
+
   const handleSaveReviewedIncomes = async () => {
     if (!allDraftsReviewed) return;
     const user = auth.currentUser;
@@ -304,15 +524,25 @@ export default function IncomeFormScreen({ navigation, route, mode }) {
           userId: user.uid,
           attachments: draft.attachments,
         });
+        const cis = draft.cisApplies
+          ? { applies: true, materialsAmount: Number(draft.cisMaterialsAmount) || 0, deductionRate: Number(draft.cisDeductionRate) || 0, ...calculateCis({ grossAmount: draft.amount, vatAmount: draft.vatAmount, materialsAmount: draft.cisMaterialsAmount, deductionRate: draft.cisDeductionRate }) }
+          : null;
         await addDoc(collection(db, "income"), {
           amount: Number(draft.amount),
           vatAmount: Number(draft.vatAmount),
           vatRate: Number(draft.vatRate),
+          vat: { applies: vatEnabled, treatment: draft.vatTreatment || VAT_TREATMENTS.STANDARD },
+          cis,
           date: new Date(draft.selectedDate).toISOString(),
           reference: (draft.reference || "").trim(),
           label: (draft.label || "").trim(),
           notes: (draft.notes || "").trim(),
           attachments: uploaded,
+          imageAnnotations: buildImageAnnotations({
+            localAttachments: draft.attachments,
+            uploadedAttachments: uploaded,
+            frameData: draft.ocrFrames,
+          }) || null,
           userId: user.uid,
           createdAt: serverTimestamp(),
           updatedAt: serverTimestamp(),
@@ -324,6 +554,8 @@ export default function IncomeFormScreen({ navigation, route, mode }) {
           reference: draft.reference,
         });
       }
+
+      await refreshIncome();
 
       setBatchSaveSummary({
         saved: savedRows,
@@ -337,6 +569,16 @@ export default function IncomeFormScreen({ navigation, route, mode }) {
     } finally {
       setIsSaving(false);
     }
+  };
+
+  const openAddMoreSheet = () => {
+    setShowBatchSummaryModal(false);
+    setShowSuccess(false);
+    setShowReviewSummaryModal(false);
+    setIncomeDrafts([]);
+    setDraftReviewStates([]);
+    setCurrentDraftIndex(0);
+    setShowAddMoreSheet(true);
   };
 
   // ─── End multi-draft helpers ─────────────────────────────────────────────────
@@ -362,6 +604,15 @@ export default function IncomeFormScreen({ navigation, route, mode }) {
     if (extracted.vendor) {
       setReference(extracted.vendor);
       flashField(flashReference);
+    }
+    if (extracted?.cis?.applies) {
+      setCisApplies(true);
+      const materialsAmount = extracted.cis.materialsAmount ?? extractCisMaterialsAmount(extracted.raw);
+      if (materialsAmount != null) setCisMaterialsAmount(String(materialsAmount));
+      if (extracted.cis.deductionRate != null) setCisDeductionRate(String(extracted.cis.deductionRate));
+    }
+    if (extracted?.ocrFrames) {
+      setOcrFrames(extracted.ocrFrames);
     }
   };
 
@@ -390,8 +641,8 @@ export default function IncomeFormScreen({ navigation, route, mode }) {
   });
 
   const existingRemoteAttachments = useMemo(
-    () => normalizeStoredAttachments(income?.attachments || []),
-    [income?.attachments]
+    () => normalizeStoredAttachments((mode === "edit" ? currentIncome?.attachments : income?.attachments) || []),
+    [currentIncome?.attachments, income?.attachments, mode]
   );
 
   useEffect(() => {
@@ -433,7 +684,7 @@ export default function IncomeFormScreen({ navigation, route, mode }) {
   }, [attachments.length]);
 
   useEffect(() => {
-    if (!vatAmountEdited && amount && vatRate) {
+    if (vatEnabled && !vatAmountEdited && amount && vatRate) {
       const gross = parseFloat(amount);
       const rate = parseFloat(vatRate);
       if (isFinite(gross) && isFinite(rate)) {
@@ -443,51 +694,144 @@ export default function IncomeFormScreen({ navigation, route, mode }) {
     }
   }, [amount, vatRate, vatAmountEdited]);
 
+  useEffect(() => {
+    if (mode !== "edit" || !currentIncome) return;
+    setAmount(currentIncome?.amount != null ? String(currentIncome.amount) : "");
+    setVatAmount(currentIncome?.vatAmount != null ? String(currentIncome.vatAmount) : "");
+    setVatRate(currentIncome?.vatRate != null ? String(currentIncome.vatRate) : "");
+    setVatAmountEdited(currentIncome?.vatAmount != null && currentIncome?.vatAmount !== "");
+    setCisApplies(Boolean(currentIncome?.cis?.applies));
+    setCisMaterialsAmount(currentIncome?.cis?.materialsAmount != null ? String(currentIncome.cis.materialsAmount) : "0");
+    setCisDeductionRate(currentIncome?.cis?.deductionRate != null ? String(currentIncome.cis.deductionRate) : "20");
+    setVatTreatment(currentIncome?.vat?.treatment || currentIncome?.vatTreatment || VAT_TREATMENTS.STANDARD);
+    setReference(currentIncome?.reference || "");
+    setLabel(currentIncome?.label || "");
+    setNotes(currentIncome?.notes || "");
+    setSelectedDate(currentIncome?.date ? new Date(currentIncome.date) : new Date());
+    setAttachments(normalizeStoredAttachments(currentIncome?.attachments || []));
+    const imageAnnotations = currentIncome?.imageAnnotations || {};
+    const firstImageAnnotation = Object.entries(imageAnnotations)[0];
+    setOcrFrames(firstImageAnnotation ? { imageUri: firstImageAnnotation[0], ...firstImageAnnotation[1] } : null);
+  }, [currentIncome?.id, mode]);
+
+  useEffect(() => {
+    const id = heroHeightAnim.addListener(({ value }) => {
+      setHeroHeight(value);
+      setImageContainerHeight(value);
+    });
+    return () => heroHeightAnim.removeListener(id);
+  }, [heroHeightAnim]);
+
+  useEffect(() => {
+    const shrinkHero = () => {
+      Animated.timing(heroHeightAnim, {
+        toValue: HERO_COLLAPSED_HEIGHT,
+        duration: 220,
+        useNativeDriver: false,
+      }).start();
+    };
+
+    const expandHero = () => {
+      Animated.timing(heroHeightAnim, {
+        toValue: HERO_EXPANDED_HEIGHT,
+        duration: 220,
+        useNativeDriver: false,
+      }).start();
+    };
+
+    const showSub = Keyboard.addListener("keyboardDidShow", shrinkHero);
+    const hideSub = Keyboard.addListener("keyboardDidHide", expandHero);
+    return () => {
+      showSub.remove();
+      hideSub.remove();
+    };
+  }, [heroHeightAnim]);
+
+  const processInitialImages = React.useCallback(async (initialImages, { preferLocal = false } = {}) => {
+    const requestId = detectRequestIdRef.current + 1;
+    detectRequestIdRef.current = requestId;
+    pendingDetectionAssetsRef.current = initialImages;
+    setIsDetecting(true);
+    setDetectProgress(0);
+    setDetectMode("auto");
+
+    if (preferLocal) {
+      setDetectMode("local");
+    } else {
+      setIsDetecting(true);
+      try {
+        const user = auth.currentUser;
+        if (!user) {
+          setDetectMode("local");
+        } else {
+          const userSnap = await getDoc(doc(db, "users", user.uid));
+          const isVerified = userSnap.exists() && userSnap.data()?.verificationStatus === "verified";
+          setDetectMode(isVerified ? "cloud" : "local");
+        }
+      } catch {
+        setDetectMode("local");
+      }
+    }
+
+    try {
+      const groups = await detectReceiptGroupsFromAssets(
+        initialImages,
+        (progress) => {
+          if (detectRequestIdRef.current === requestId) setDetectProgress(progress);
+        },
+        { preferLocal },
+      );
+      if (detectRequestIdRef.current !== requestId) return;
+
+      const effectiveGroups = groups.length > 0
+        ? groups
+        : [{ assets: initialImages, analysis: {} }];
+
+      if (effectiveGroups.length === 1) {
+        const group = effectiveGroups[0];
+        setAttachments((group.assets || []).map(createImageAttachment));
+        applyOcrResult({ ...(group.analysis || {}), ocrFrames: group.ocrFrames || group.analysis?.ocrFrames || null });
+      } else {
+        const drafts = effectiveGroups.map((group) => createIncomeDraftFromGroup(group));
+        setIncomeDrafts(drafts);
+        setDraftReviewStates(Array(drafts.length).fill("pending"));
+        setCurrentDraftIndex(0);
+        applyIncomeDraftToForm(drafts[0]);
+        showToast(`${drafts.length} income statements detected`);
+      }
+    } catch (error) {
+      if (detectRequestIdRef.current !== requestId) return;
+      console.error("OCR error (income):", error);
+      setAttachments(initialImages.map(createImageAttachment));
+    } finally {
+      if (detectRequestIdRef.current === requestId) {
+        setIsDetecting(false);
+        setDetectProgress(0);
+      }
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const cancelDetectionAndExit = () => {
+    detectRequestIdRef.current += 1;
+    setIsDetecting(false);
+    setDetectProgress(0);
+    navigateBackToIncome(navigation);
+  };
+
+  const processDetectionLocally = () => {
+    const assets = pendingDetectionAssetsRef.current;
+    if (assets.length > 0) processInitialImages(assets, { preferLocal: true });
+  };
+
   // Process images passed via route params (from AddReceiptSheet)
   useEffect(() => {
     const initialImages = route?.params?.initialImages;
     if (!initialImages?.length) return;
-    let cancelled = false;
+    processInitialImages(initialImages);
 
-    (async () => {
-      setIsDetecting(true);
-      setDetectProgress(0);
-      try {
-        const groups = await detectReceiptGroupsFromAssets(initialImages, (p) => setDetectProgress(p));
-        if (cancelled) return;
-
-        const effectiveGroups = groups.length > 0
-          ? groups
-          : [{ assets: initialImages, analysis: {} }];
-
-        if (effectiveGroups.length === 1) {
-          // Single income statement — populate form directly
-          const newAttachments = (effectiveGroups[0].assets || []).map(createImageAttachment);
-          setAttachments((prev) => [...prev, ...newAttachments]);
-          const extracted = await runOcrOnAssets(effectiveGroups[0].assets || initialImages);
-          if (!cancelled) applyOcrResult(extracted);
-        } else {
-          // Multiple income statements detected — enter multi-draft mode
-          const drafts = effectiveGroups.map((g) => createIncomeDraftFromGroup(g));
-          setIncomeDrafts(drafts);
-          setDraftReviewStates(Array(drafts.length).fill("pending"));
-          setCurrentDraftIndex(0);
-          applyIncomeDraftToForm(drafts[0]);
-          showToast(`${drafts.length} income statement${drafts.length === 1 ? "" : "s"} detected`);
-        }
-      } catch (err) {
-        console.error("OCR error (income):", err);
-        // Fallback: add all images as attachments
-        const newAttachments = initialImages.map(createImageAttachment);
-        if (!cancelled) setAttachments((prev) => [...prev, ...newAttachments]);
-      } finally {
-        if (!cancelled) { setIsDetecting(false); setDetectProgress(0); }
-      }
-    })();
-
-    return () => { cancelled = true; };
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [route?.params?.initialImages]);
 
   const showToast = (message) => {
     setToastMessage(message);
@@ -639,12 +983,7 @@ export default function IncomeFormScreen({ navigation, route, mode }) {
       return;
     }
 
-    if (!reference.trim()) {
-      Alert.alert("Invalid Input", "Please enter a reference number.");
-      return;
-    }
-
-    if (!vatAmount || Number(vatAmount) < 0 || !vatRate || Number(vatRate) < 0) {
+    if (vatEnabled && (!vatAmount || Number(vatAmount) < 0 || !vatRate || Number(vatRate) < 0)) {
       Alert.alert("Invalid Input", "Please enter valid VAT amount and VAT rate.");
       return;
     }
@@ -657,6 +996,24 @@ export default function IncomeFormScreen({ navigation, route, mode }) {
 
     setIsSaving(true);
     try {
+      const maybeSwitchIncomeFilterToAllTime = async (savedDate) => {
+        try {
+          const activeKey = await getIncomeFilterKey();
+          if (activeKey !== "current-quarter") return;
+
+          const quarter = getCurrentFinancialQuarter(new Date());
+          const start = startOfDayLocal(quarter.startDate).getTime();
+          const end = startOfDayLocal(quarter.endDate).getTime();
+          const t = startOfDayLocal(savedDate).getTime();
+
+          if (t < start || t > end) {
+            await setIncomeFilterKey("all-time");
+          }
+        } catch {
+          // Non-blocking filter adjustment
+        }
+      };
+
       const currentRemoteUrls = new Set(
         attachments.filter((item) => item.url && !item.localUri).map((item) => item.url)
       );
@@ -673,21 +1030,31 @@ export default function IncomeFormScreen({ navigation, route, mode }) {
         attachments,
       });
 
+      const cis = cisApplies
+        ? { applies: true, materialsAmount: Number(cisMaterialsAmount) || 0, deductionRate: Number(cisDeductionRate) || 0, ...calculateCis({ grossAmount: amount, vatAmount, materialsAmount: cisMaterialsAmount, deductionRate: cisDeductionRate }) }
+        : null;
       const payload = {
         amount: Number(amount),
-        vatAmount: Number(vatAmount),
-        vatRate: Number(vatRate),
+        vatAmount: vatEnabled ? Number(vatAmount) : 0,
+        vatRate: vatEnabled ? Number(vatRate) : 0,
+        vat: { applies: vatEnabled, treatment: vatEnabled ? vatTreatment : VAT_TREATMENTS.LEGACY },
+        cis,
         date: selectedDate.toISOString(),
         reference: reference.trim(),
         label: label.trim(),
         notes: notes.trim(),
         attachments: uploadedAttachments,
+        imageAnnotations: buildImageAnnotations({
+          localAttachments: attachments,
+          uploadedAttachments,
+          frameData: ocrFrames,
+        }) || currentIncome?.imageAnnotations || null,
         userId: user.uid,
         updatedAt: serverTimestamp(),
       };
 
-      if (mode === "edit" && income?.id) {
-        await updateDoc(doc(db, "income", income.id), payload);
+      if (mode === "edit" && currentIncome?.id) {
+        await updateDoc(doc(db, "income", currentIncome.id), payload);
       } else {
         await addDoc(collection(db, "income"), {
           ...payload,
@@ -695,8 +1062,15 @@ export default function IncomeFormScreen({ navigation, route, mode }) {
         });
       }
 
+      await maybeSwitchIncomeFilterToAllTime(selectedDate);
+      await refreshIncome();
+
       triggerHaptic("success").catch(() => {});
-      navigateBackToIncome(navigation);
+      if (mode === "edit") {
+        navigateBackToIncome(navigation);
+      } else {
+        setShowSuccess(true);
+      }
     } catch (error) {
       console.error("Error saving income", error);
       Alert.alert("Save Failed", "Could not save this income record.");
@@ -706,7 +1080,7 @@ export default function IncomeFormScreen({ navigation, route, mode }) {
   };
 
   const deleteIncome = async () => {
-    if (!(mode === "edit" && income?.id)) return;
+    if (!(mode === "edit" && currentIncome?.id)) return;
 
     Alert.alert("Delete Income", "Delete this income record and its attachments?", [
       { text: "Cancel", style: "cancel" },
@@ -717,7 +1091,7 @@ export default function IncomeFormScreen({ navigation, route, mode }) {
           setIsSaving(true);
           try {
             await deleteStoredAttachments(attachments);
-            await deleteDoc(doc(db, "income", income.id));
+            await deleteDoc(doc(db, "income", currentIncome.id));
             navigateBackToIncome(navigation);
           } catch (error) {
             console.error("Error deleting income", error);
@@ -728,6 +1102,20 @@ export default function IncomeFormScreen({ navigation, route, mode }) {
         },
       },
     ]);
+  };
+
+  const confirmRemoveImage = (onConfirm) => {
+    Alert.alert("Remove Image", "Are you sure you want to remove this image?", [
+      { text: "Cancel", style: "cancel" },
+      { text: "Remove", style: "destructive", onPress: onConfirm },
+    ]);
+  };
+
+  const removeAttachmentByUri = (uriToRemove) => {
+    if (!uriToRemove) return;
+    setAttachments((current) =>
+      current.filter((item) => getAttachmentUri(item) !== uriToRemove)
+    );
   };
 
   const renderAttachment = (attachment, index) => {
@@ -749,7 +1137,9 @@ export default function IncomeFormScreen({ navigation, route, mode }) {
         <TouchableOpacity
           style={styles.removeAttachmentButton}
           onPress={() =>
-            setAttachments((current) => current.filter((item) => item.id !== attachment.id))
+            confirmRemoveImage(() => {
+              removeAttachmentByUri(uri);
+            })
           }
         >
           <Text style={styles.removeAttachmentText}>×</Text>
@@ -769,26 +1159,176 @@ export default function IncomeFormScreen({ navigation, route, mode }) {
 
   const deletePreviewImage = () => {
     if (!preview?.uri) return;
-    setAttachments((current) =>
-      current.filter((item) => getAttachmentUri(item) !== preview.uri)
-    );
-    setOcrModalVisible(false);
+    confirmRemoveImage(() => {
+      removeAttachmentByUri(preview.uri);
+      setOcrModalVisible(false);
+    });
   };
 
+  const amountNumber = parseFloat(amount);
+  const vatAmountNumber = parseFloat(vatAmount);
+  const vatRateNumber = parseFloat(vatRate);
+  const isAmountValid = Number.isFinite(amountNumber) && amountNumber > 0;
+  const isDateValid = selectedDate instanceof Date && !Number.isNaN(selectedDate.getTime());
+  const isVatAmountValid = Number.isFinite(vatAmountNumber) && vatAmountNumber >= 0;
+  const isVatRateValid = Number.isFinite(vatRateNumber) && vatRateNumber >= 0;
   const isIncomeFormValid =
-    Number(amount) > 0 &&
-    reference.trim().length > 0 &&
-    vatAmount.trim().length > 0 &&
-    vatRate.trim().length > 0 &&
-    !Number.isNaN(Number(vatAmount)) &&
-    !Number.isNaN(Number(vatRate));
+    isAmountValid &&
+    isDateValid &&
+    (!vatEnabled || (isVatAmountValid && isVatRateValid));
+  const isIncomeDirty = useMemo(() => {
+    if (mode !== "edit" || !currentIncome) return false;
+    const currentAttachments = attachments.map((item) => getAttachmentUri(item)).join("|");
+    const originalAttachments = normalizeStoredAttachments(currentIncome.attachments || [])
+      .map((item) => getAttachmentUri(item))
+      .join("|");
+    return (
+      amount !== (currentIncome.amount != null ? String(currentIncome.amount) : "") ||
+      vatAmount !== (currentIncome.vatAmount != null ? String(currentIncome.vatAmount) : "") ||
+      vatRate !== (currentIncome.vatRate != null ? String(currentIncome.vatRate) : "") ||
+      selectedDate.toISOString() !== (currentIncome.date || "") ||
+      reference !== (currentIncome.reference || "") ||
+      label !== (currentIncome.label || "") ||
+      notes !== (currentIncome.notes || "") ||
+      cisApplies !== Boolean(currentIncome.cis?.applies) ||
+      cisMaterialsAmount !== (currentIncome.cis?.materialsAmount != null ? String(currentIncome.cis.materialsAmount) : "0") ||
+      cisDeductionRate !== (currentIncome.cis?.deductionRate != null ? String(currentIncome.cis.deductionRate) : "20") ||
+      vatTreatment !== (currentIncome.vat?.treatment || currentIncome.vatTreatment || VAT_TREATMENTS.STANDARD) ||
+      currentAttachments !== originalAttachments
+    );
+  }, [amount, attachments, cisApplies, cisDeductionRate, cisMaterialsAmount, currentIncome, label, mode, notes, reference, selectedDate, vatAmount, vatRate, vatTreatment]);
+
+  const buildPercentOverlay = (frame, containerW = imageContainerWidth, containerH = imageContainerHeight || heroHeight, annotationData = ocrFrames) => {
+    const naturalW = annotationData?.imageW;
+    const naturalH = annotationData?.imageH;
+    if (!frame || !naturalW || !naturalH || !containerW || !containerH) return null;
+
+    const scale = Math.min(containerW / naturalW, containerH / naturalH);
+    const renderedW = naturalW * scale;
+    const renderedH = naturalH * scale;
+    const offsetX = (containerW - renderedW) / 2;
+    const offsetY = (containerH - renderedH) / 2;
+    const PAD = 8;
+
+    const left = frame.left * scale + offsetX - PAD;
+    const top = frame.top * scale + offsetY - PAD;
+    const rawWidth = frame.width * scale + PAD * 2;
+    const width = Math.min(Math.max(rawWidth, ANNOTATION_MIN_BOX_WIDTH), containerW);
+    const height = Math.min(
+      Math.max(frame.height * scale + PAD * 2, ANNOTATION_MIN_BOX_HEIGHT),
+      containerH,
+    );
+
+    const clampedLeft = Math.max(0, Math.min(left, containerW - width));
+    const clampedTop = Math.max(0, Math.min(top, containerH - height));
+
+    const toPct = (value, total) => `${Math.max(0, (value / total) * 100).toFixed(4)}%`;
+    return {
+      left: toPct(clampedLeft, containerW),
+      top: toPct(clampedTop, containerH),
+      width: toPct(width, containerW),
+      height: toPct(height, containerH),
+    };
+  };
+
+  const getImageCanvasHeight = (annotationData) => {
+    const containerH = imageContainerHeight || heroHeight;
+    const naturalW = annotationData?.imageW;
+    const naturalH = annotationData?.imageH;
+    if (!imageContainerWidth || !naturalW || !naturalH) return containerH;
+    return Math.max(containerH, imageContainerWidth * (naturalH / naturalW));
+  };
+
+  const openFullScreenImage = (uri, annotationData = null) => {
+    setFullScreenImage({ uri, annotationData });
+  };
+
+  const closeFullScreenImage = () => {
+    setFullScreenImage(null);
+    if (returnToOcrAfterFullscreen) {
+      requestAnimationFrame(() => setOcrModalVisible(true));
+      setReturnToOcrAfterFullscreen(false);
+    }
+  };
+
+  const renderAnnotatedZoomImage = (props) => {
+    const annotationData = annotateImages ? fullScreenImage?.annotationData : null;
+    const imageStyle = props?.style || {};
+    const width = Number(imageStyle.width) || Dimensions.get("window").width;
+    const height = Number(imageStyle.height) || Dimensions.get("window").height;
+
+    return (
+      <View style={[imageStyle, { position: "relative" }]}> 
+        <Image {...props} style={imageStyle} resizeMode="contain" />
+        {annotationData ? (
+          <View style={styles.annotationOverlay} pointerEvents="none">
+            {ANNOTATIONS.filter(({ key }) => (key !== "vat" || vatAnnotationsEnabled) && annotationData[key]).map(({ key, label, color }) => {
+              const frame = annotationData[key];
+              const overlayBox = buildPercentOverlay(frame, width, height, annotationData);
+              if (!overlayBox) return null;
+              return (
+                <View key={`zoom-${key}`} style={[styles.annBox, { ...overlayBox, borderColor: color }]}> 
+                  <View style={[styles.annChip, { backgroundColor: color }]}> 
+                    <Text style={styles.annChipText} numberOfLines={1}>{label}</Text>
+                  </View>
+                </View>
+              );
+            })}
+          </View>
+        ) : null}
+      </View>
+    );
+  };
+
+  const showMainAnnotationToggle = attachments
+    .filter(isImageAttachment)
+    .some((attachment) => {
+      if (getAttachmentUri(attachment) !== ocrFrames?.imageUri) return false;
+      return ANNOTATIONS.some(
+        ({ key }) => (key !== "vat" || vatAnnotationsEnabled) && ocrFrames[key],
+      );
+    });
 
   return (
-    <SafeAreaView style={ReceiptStyles.safeArea}>
+    <SafeAreaView
+      style={[ReceiptStyles.safeArea, styles.safeAreaLight]}
+      edges={["left", "right"]}
+    >
+      <View style={[styles.header, { paddingTop: Math.max(insets.top + 10, 24) }]}>
+        <TouchableOpacity
+          onPress={handleLeavePress}
+          style={styles.headerBtn}
+          activeOpacity={0.8}
+        >
+          <Text style={styles.headerBtnText}>‹ Back</Text>
+        </TouchableOpacity>
+        <Text style={styles.headerTitle}>
+          {mode === "edit" ? "Edit Income" : isMultiDraftMode ? "Review Income" : "Add Income"}
+        </Text>
+        {mode === "edit" && editableIncomeList.length > 1 ? (
+          <Text style={styles.indexPill}>{`${currentIndex + 1}/${editableIncomeList.length}`}</Text>
+        ) : null}
+        <View style={styles.headerBtn} />
+      </View>
+
+      <KeyboardAvoidingView
+        style={{ flex: 1 }}
+        behavior={Platform.OS === "ios" ? "padding" : "height"}
+      >
+      <TouchableWithoutFeedback
+        onPress={Keyboard.dismiss}
+        accessible={false}
+        disabled={DEBUG_DISABLE_KEYBOARD_DISMISS_WRAPPER}
+      >
+      <View style={{ flex: 1 }}>
       {/* Fixed image panel */}
-      <View
-        style={styles.imageSection}
-        onLayout={(e) => setImageContainerWidth(e.nativeEvent.layout.width)}
+      <Animated.View
+        style={[styles.imageSection, { height: heroHeightAnim }]}
+        onLayout={(e) => {
+          setImageContainerWidth(e.nativeEvent.layout.width);
+          setImageContainerHeight(e.nativeEvent.layout.height);
+        }}
+        {...detailSwipeResponder.panHandlers}
       >
         {imageContainerWidth > 0 ? (
           <ScrollView
@@ -799,51 +1339,58 @@ export default function IncomeFormScreen({ navigation, route, mode }) {
           >
             {attachments.filter(isImageAttachment).map((att, index) => {
               const uri = getAttachmentUri(att);
-              const isAnnotated = ocrFrames?.imageUri === uri;
+              const annotationData = ocrFrames?.imageUri === uri ? ocrFrames : null;
+              const isAnnotated = annotateImages && annotationData;
+              const canvasHeight = getImageCanvasHeight(annotationData);
               return (
                 <View key={att.id || String(index)} style={{ position: "relative" }}>
-                  <TouchableOpacity
-                    style={[styles.carouselPage, { width: imageContainerWidth }]}
-                    activeOpacity={0.9}
-                    onPress={() => setFullScreenImageIndex(index)}
-                  >
-                    <Image
-                      source={{ uri }}
-                      style={[styles.carouselImage, { width: imageContainerWidth }]}
-                      resizeMode="contain"
-                    />
-                  </TouchableOpacity>
-                  {isAnnotated && ANNOTATIONS.filter(({ key }) => ocrFrames[key]).map(({ key, label, color }) => {
-                    const naturalW = ocrFrames.imageW;
-                    const naturalH = ocrFrames.imageH;
-                    if (!naturalW) return null;
-                    const scale = Math.min(imageContainerWidth / naturalW, IMAGE_HEIGHT / naturalH);
-                    const renderedW = naturalW * scale;
-                    const renderedH = naturalH * scale;
-                    const offsetX = (imageContainerWidth - renderedW) / 2;
-                    const offsetY = (IMAGE_HEIGHT - renderedH) / 2;
-                    const frame = ocrFrames[key];
-                    const PAD = 8;
-                    const padded = {
-                      left: frame.left * scale + offsetX - PAD,
-                      top: frame.top * scale + offsetY - PAD,
-                      width: frame.width * scale + PAD * 2,
-                      height: frame.height * scale + PAD * 2,
-                    };
-                    return (
-                      <React.Fragment key={key}>
-                        <View style={[styles.annBox, { ...padded, borderColor: color }]} />
-                        <View style={[styles.annChip, { backgroundColor: color, top: padded.top - 18, left: padded.left - 1 }]}>
-                          <Text style={styles.annChipText}>{label}</Text>
-                        </View>
-                      </React.Fragment>
-                    );
-                  })}
+                  <View style={[styles.carouselPage, { width: imageContainerWidth }]}> 
+                    <ScrollView
+                      nestedScrollEnabled
+                      showsVerticalScrollIndicator={false}
+                      style={styles.imagePageScroller}
+                      contentContainerStyle={{ minHeight: imageContainerHeight || heroHeight }}
+                    >
+                      <TouchableOpacity
+                        activeOpacity={0.9}
+                        onPress={() => openFullScreenImage(uri, annotationData)}
+                        style={{ width: imageContainerWidth, height: canvasHeight, position: "relative" }}
+                      >
+                        <Image
+                          source={{ uri }}
+                          style={{ width: imageContainerWidth, height: canvasHeight }}
+                          resizeMode="contain"
+                        />
+                        {isAnnotated ? (
+                          <View style={styles.annotationOverlay} pointerEvents="none">
+                            {ANNOTATIONS.filter(({ key }) => (key !== "vat" || vatAnnotationsEnabled) && ocrFrames[key]).map(({ key, label, color }) => {
+                              const frame = ocrFrames[key];
+                              const overlayBox = buildPercentOverlay(frame, imageContainerWidth, canvasHeight, ocrFrames);
+                              if (!overlayBox) return null;
+                              return (
+                                <View key={key} style={[styles.annBox, { ...overlayBox, borderColor: color }]}> 
+                                  <View style={[styles.annChip, { backgroundColor: color }]}> 
+                                    <Text style={styles.annChipText} numberOfLines={1}>{label}</Text>
+                                  </View>
+                                </View>
+                              );
+                            })}
+                          </View>
+                        ) : null}
+                      </TouchableOpacity>
+                    </ScrollView>
+                  </View>
                   <TouchableOpacity
                     style={styles.carouselRemoveBtn}
-                    onPress={() => setAttachments((current) => current.filter((item) => item.id !== att.id))}
+                    accessibilityRole="button"
+                    accessibilityLabel="Delete image"
+                    onPress={() =>
+                      confirmRemoveImage(() => {
+                        removeAttachmentByUri(uri);
+                      })
+                    }
                   >
-                    <Text style={styles.carouselRemoveText}>×</Text>
+                    <Ionicons name="trash-outline" size={17} color="#fff" />
                   </TouchableOpacity>
                 </View>
               );
@@ -855,6 +1402,20 @@ export default function IncomeFormScreen({ navigation, route, mode }) {
               {tipStatusLoaded && showTip ? <ScannerTooltip onDismiss={dismissTip} text="Tap here to scan an invoice" /> : null}
             </View>
           </ScrollView>
+        ) : null}
+        {showMainAnnotationToggle ? (
+          <TouchableOpacity
+            style={[
+              styles.mainAnnotationToggleButton,
+              !annotateImages ? styles.mainAnnotationToggleButtonOff : null,
+            ]}
+            onPress={toggleAnnotateImages}
+            accessibilityRole="switch"
+            accessibilityState={{ checked: annotateImages }}
+            accessibilityLabel="Toggle annotations"
+          >
+            <Ionicons name={annotateImages ? "scan" : "scan-outline"} size={18} color="#fff" />
+          </TouchableOpacity>
         ) : null}
         {ocrProcessing && (
           <View style={styles.scanningBanner}>
@@ -869,38 +1430,48 @@ export default function IncomeFormScreen({ navigation, route, mode }) {
             />
           </View>
         )}
-      </View>
-
-      {/* Floating X close button */}
-      <TouchableOpacity
-        style={styles.floatingCloseBtn}
-        onPress={() => navigateBackToIncome(navigation)}
-        activeOpacity={0.8}
-      >
-        <Text style={styles.floatingCloseBtnText}>✕</Text>
-      </TouchableOpacity>
+      </Animated.View>
 
       <KeyboardAwareScrollView
-        contentContainerStyle={styles.scrollContent}
+        contentContainerStyle={[
+          styles.scrollContent,
+          isMultiDraftMode && styles.multiDraftScrollContent,
+        ]}
         enableOnAndroid
         keyboardShouldPersistTaps="handled"
+        style={{ marginTop: 8 }}
       >
-        <View style={ReceiptStyles.container}>
+        <View
+          style={[
+            ReceiptStyles.container,
+            {
+              justifyContent: "flex-start",
+              paddingTop: 0,
+              paddingBottom: 12,
+              paddingHorizontal: 12,
+            },
+          ]}
+        >
           <Animated.View
-            style={[ReceiptStyles.borderContainer, { transform: [{ translateX: draftSlideX }], opacity: draftFade }]}
+            style={[
+              ReceiptStyles.borderContainer,
+              {
+                transform: [{ translateX: draftSlideX }],
+                opacity: draftFade,
+                paddingVertical: 12,
+                paddingHorizontal: 12,
+                borderRadius: 16,
+                borderWidth: 3,
+              },
+            ]}
             {...(isMultiDraftMode ? draftSwipeResponder.panHandlers : {})}
           >
-            <Text style={ReceiptStyles.header}>
-              {mode === "edit" ? "Edit Income" : isMultiDraftMode ? "Review Income" : "Add Income"}
-            </Text>
-
-
             <View style={styles.moneyRow}>
               <Animated.View style={[styles.moneyColumn, {
                   backgroundColor: flashAmount.interpolate({ inputRange: [0, 1], outputRange: ["transparent", "rgba(253,224,71,0.45)"] }),
                   borderRadius: 6,
                 }]}>
-                <Text style={ReceiptStyles.label}>Amount:</Text>
+                <Text style={[ReceiptStyles.label, styles.formLabel]}>Amount:</Text>
                 <View style={[ReceiptStyles.inputRow, styles.currencyField]}>
                   <View style={styles.currencyWrapper}>
                     <Text style={styles.currencyText}>£</Text>
@@ -911,7 +1482,20 @@ export default function IncomeFormScreen({ navigation, route, mode }) {
                     keyboardType="decimal-pad"
                     placeholder="0.00"
                     placeholderTextColor={Colors.textSecondary}
-                    style={[ReceiptStyles.input, styles.amountInput, styles.inputWithCurrency]}
+                    onFocus={() => {
+                      Animated.timing(heroHeightAnim, {
+                        toValue: HERO_COLLAPSED_HEIGHT,
+                        duration: 220,
+                        useNativeDriver: false,
+                      }).start();
+                    }}
+                    style={[
+                      ReceiptStyles.input,
+                      styles.amountInput,
+                      styles.inputWithCurrency,
+                      styles.compactInput,
+                      isAmountValid ? styles.validFieldInput : styles.invalidFieldInput,
+                    ]}
                   />
                 </View>
               </Animated.View>
@@ -920,9 +1504,14 @@ export default function IncomeFormScreen({ navigation, route, mode }) {
                   backgroundColor: flashDate.interpolate({ inputRange: [0, 1], outputRange: ["transparent", "rgba(253,224,71,0.45)"] }),
                   borderRadius: 6,
                 }]}>
-                <Text style={ReceiptStyles.label}>Date:</Text>
+                <Text style={[ReceiptStyles.label, styles.formLabel]}>Date:</Text>
                 <TouchableOpacity
-                  style={[ReceiptStyles.dateButton, styles.dateButtonAligned]}
+                  style={[
+                    ReceiptStyles.dateButton,
+                    styles.dateButtonAligned,
+                    styles.compactField,
+                    isDateValid ? styles.validFieldInput : styles.invalidFieldInput,
+                  ]}
                   onPress={() => setDatePickerVisibility(true)}
                 >
                   <Text style={ReceiptStyles.dateText}>{formatDate(selectedDate)}</Text>
@@ -934,22 +1523,31 @@ export default function IncomeFormScreen({ navigation, route, mode }) {
                 backgroundColor: flashReference.interpolate({ inputRange: [0, 1], outputRange: ["transparent", "rgba(253,224,71,0.45)"] }),
                 borderRadius: 6,
               }]}>
-              <Text style={ReceiptStyles.label}>Reference:</Text>
+              <Text style={[ReceiptStyles.label, styles.formLabel]}>Reference (optional):</Text>
               <TextInput
                 value={reference}
                 onChangeText={setReference}
-                placeholder="Invoice number or source"
+                placeholder="Optional invoice number or source"
                 placeholderTextColor={stylesConst.placeholder}
-                style={ReceiptStyles.input}
+                onFocus={() => {
+                  Animated.timing(heroHeightAnim, {
+                    toValue: HERO_COLLAPSED_HEIGHT,
+                    duration: 220,
+                    useNativeDriver: false,
+                  }).start();
+                }}
+                style={[ReceiptStyles.input, styles.compactInput]}
               />
             </Animated.View>
 
+            {vatEnabled ? (
+              <>
             <View style={styles.moneyRow}>
               <Animated.View style={[styles.moneyColumn, {
                   backgroundColor: flashVat.interpolate({ inputRange: [0, 1], outputRange: ["transparent", "rgba(253,224,71,0.45)"] }),
                   borderRadius: 6,
                 }]}>
-                <Text style={ReceiptStyles.label}>VAT Amount:</Text>
+                <Text style={[ReceiptStyles.label, styles.formLabel]}>VAT Amount:</Text>
                 <View style={[ReceiptStyles.inputRow, styles.currencyField]}>
                   <View style={styles.currencyWrapper}>
                     <Text style={styles.currencyText}>£</Text>
@@ -963,12 +1561,24 @@ export default function IncomeFormScreen({ navigation, route, mode }) {
                     keyboardType="decimal-pad"
                     placeholder="0.00"
                     placeholderTextColor={Colors.textSecondary}
-                    style={[ReceiptStyles.input, styles.inputWithCurrency]}
+                    onFocus={() => {
+                      Animated.timing(heroHeightAnim, {
+                        toValue: HERO_COLLAPSED_HEIGHT,
+                        duration: 220,
+                        useNativeDriver: false,
+                      }).start();
+                    }}
+                    style={[
+                      ReceiptStyles.input,
+                      styles.inputWithCurrency,
+                      styles.compactInput,
+                      isVatAmountValid ? styles.validFieldInput : styles.invalidFieldInput,
+                    ]}
                   />
                 </View>
               </Animated.View>
               <View style={[styles.moneyColumn, { zIndex: 3000 }]}>
-                <Text style={ReceiptStyles.label}>VAT Rate (%):</Text>
+                <Text style={[ReceiptStyles.label, styles.formLabel]}>VAT Rate (%):</Text>
                 <DropDownPicker
                   open={vatRateOpen}
                   value={vatRate}
@@ -981,7 +1591,11 @@ export default function IncomeFormScreen({ navigation, route, mode }) {
                   }}
                   setItems={setVatRateItems}
                   placeholder="Select"
-                  style={ReceiptStyles.vatRatePicker}
+                  style={[
+                    ReceiptStyles.vatRatePicker,
+                    styles.compactPicker,
+                    isVatRateValid ? styles.validFieldInput : styles.invalidFieldInput,
+                  ]}
                   dropDownContainerStyle={ReceiptStyles.vatRateDropdown}
                   zIndex={3000}
                   zIndexInverse={1000}
@@ -990,45 +1604,81 @@ export default function IncomeFormScreen({ navigation, route, mode }) {
                 />
               </View>
             </View>
+            <TouchableOpacity style={styles.cisToggleRow} onPress={() => setVatTreatment((current) => current === VAT_TREATMENTS.DOMESTIC_REVERSE_CHARGE ? VAT_TREATMENTS.STANDARD : VAT_TREATMENTS.DOMESTIC_REVERSE_CHARGE)}>
+              <Checkbox status={vatTreatment === VAT_TREATMENTS.DOMESTIC_REVERSE_CHARGE ? "checked" : "unchecked"} color={Colors.accent} />
+              <Text style={ReceiptStyles.ocrLabel}>Domestic reverse charge construction</Text>
+            </TouchableOpacity>
+              </>
+            ) : null}
 
             <View style={styles.fieldGroup}>
-              <Text style={ReceiptStyles.label}>Label (optional):</Text>
-              <TextInput
-                value={label}
-                onChangeText={setLabel}
-                placeholder="An optional label"
-                placeholderTextColor={stylesConst.placeholder}
-                style={ReceiptStyles.input}
-              />
+              <TouchableOpacity style={styles.cisToggleRow} onPress={() => setCisApplies((current) => !current)}>
+                <Checkbox status={cisApplies ? "checked" : "unchecked"} color={Colors.accent} />
+                <Text style={ReceiptStyles.ocrLabel}>CIS deduction applies</Text>
+              </TouchableOpacity>
+              {cisApplies ? (
+                <>
+                  <View style={styles.moneyRow}>
+                    <View style={styles.moneyColumn}>
+                      <Text style={[ReceiptStyles.label, styles.formLabel]}>Materials (excl. VAT):</Text>
+                      <TextInput value={cisMaterialsAmount} onChangeText={setCisMaterialsAmount} keyboardType="decimal-pad" placeholder="0.00" placeholderTextColor={Colors.textSecondary} style={[ReceiptStyles.input, styles.compactInput]} />
+                    </View>
+                    <View style={styles.moneyColumn}>
+                      <Text style={[ReceiptStyles.label, styles.formLabel]}>CIS rate (%):</Text>
+                      <TextInput value={cisDeductionRate} onChangeText={setCisDeductionRate} keyboardType="decimal-pad" placeholder="20" placeholderTextColor={Colors.textSecondary} style={[ReceiptStyles.input, styles.compactInput]} />
+                    </View>
+                  </View>
+                  {(() => {
+                    const cis = calculateCis({ grossAmount: amount, vatAmount: vatEnabled ? vatAmount : 0, materialsAmount: cisMaterialsAmount, deductionRate: cisDeductionRate });
+                    return <Text style={styles.cisCalculationText}>CIS withheld: {formatCurrency(cis.deductionAmount)}   Net received: {formatCurrency(cis.netPaid)}</Text>;
+                  })()}
+                </>
+              ) : null}
             </View>
 
-
-
             <View style={[styles.fieldGroup, styles.notesSection]}>
-              <Text style={ReceiptStyles.label}>Notes:</Text>
+              <Text style={[ReceiptStyles.label, styles.formLabel]}>Notes:</Text>
               <TextInput
                 value={notes}
                 onChangeText={setNotes}
                 placeholder="Optional notes"
                 placeholderTextColor={stylesConst.placeholder}
-                style={[ReceiptStyles.input, styles.notesInput]}
+                onFocus={() => {
+                  Animated.timing(heroHeightAnim, {
+                    toValue: HERO_COLLAPSED_HEIGHT,
+                    duration: 220,
+                    useNativeDriver: false,
+                  }).start();
+                }}
+                style={[ReceiptStyles.input, styles.compactInput, styles.notesInput]}
                 multiline
               />
             </View>
 
-            {mode === "edit" ? (
-              <Button
-                mode="outlined"
-                textColor={Colors.accent}
-                onPress={deleteIncome}
-                style={styles.deleteButton}
-              >
-                Delete Income
-              </Button>
-            ) : null}
+            <View style={styles.fieldGroup}>
+              <Text style={[ReceiptStyles.label, styles.formLabel]}>Label (optional):</Text>
+              <TextInput
+                value={label}
+                onChangeText={setLabel}
+                placeholder="An optional label"
+                placeholderTextColor={stylesConst.placeholder}
+                onFocus={() => {
+                  Animated.timing(heroHeightAnim, {
+                    toValue: HERO_COLLAPSED_HEIGHT,
+                    duration: 220,
+                    useNativeDriver: false,
+                  }).start();
+                }}
+                style={[ReceiptStyles.input, styles.compactInput]}
+              />
+            </View>
+
           </Animated.View>
         </View>
       </KeyboardAwareScrollView>
+      </View>
+      </TouchableWithoutFeedback>
+      </KeyboardAvoidingView>
 
       <DateTimePickerModal
         isVisible={isDatePickerVisible}
@@ -1085,7 +1735,7 @@ export default function IncomeFormScreen({ navigation, route, mode }) {
                     <Text style={ReceiptStyles.ocrLabel}>Amount:</Text>
                     <Text style={ReceiptStyles.ocrValue}>
                       {ocrResult?.amount != null
-                        ? `£${Number(ocrResult.amount).toFixed(2)}`
+                        ? formatCurrency(ocrResult.amount)
                         : "Not detected"}
                     </Text>
                   </View>
@@ -1127,7 +1777,7 @@ export default function IncomeFormScreen({ navigation, route, mode }) {
                     />
                     <Text style={ReceiptStyles.ocrLabel}>VAT:</Text>
                     <Text style={ReceiptStyles.ocrValue}>
-                      {ocrResult?.vat?.value != null ? `£${Number(ocrResult.vat.value).toFixed(2)}` : "Not detected"}
+                      {ocrResult?.vat?.value != null ? formatCurrency(ocrResult.vat.value) : "Not detected"}
                       {`  (Rate ${ocrResult?.vat?.rate ?? "—"}%)`}
                     </Text>
                   </View>
@@ -1173,84 +1823,47 @@ export default function IncomeFormScreen({ navigation, route, mode }) {
         </View>
       </Modal>
 
-      {/* Carousel fullscreen modal */}
-      <Modal
-        visible={fullScreenImageIndex !== null}
-        animationType="fade"
-        presentationStyle="fullScreen"
-        transparent={false}
-        onRequestClose={() => setFullScreenImageIndex(null)}
-      >
-        {fullScreenImageIndex !== null ? (
-          <>
-            <ImageViewer
-              imageUrls={attachments.filter(isImageAttachment).map(att => ({ url: getAttachmentUri(att) }))}
-              index={fullScreenImageIndex}
-              enableSwipeDown
-              onSwipeDown={() => setFullScreenImageIndex(null)}
-              onClick={() => setFullScreenImageIndex(null)}
-              backgroundColor="black"
-              renderIndicator={attachments.filter(isImageAttachment).length > 1 ? undefined : () => null}
-              saveToLocalByLongPress={false}
-            />
-            <TouchableOpacity
-              style={ReceiptStyles.fullScreenCloseButton}
-              onPress={() => setFullScreenImageIndex(null)}
-            >
-              <Text style={ReceiptStyles.fullScreenCloseText}>✕</Text>
-            </TouchableOpacity>
-          </>
-        ) : null}
-      </Modal>
-
       <Modal
         visible={!!fullScreenImage}
         animationType="fade"
-        presentationStyle="fullScreen"
-        transparent={false}
-        onRequestClose={() => {
-          setFullScreenImage(null);
-          if (returnToOcrAfterFullscreen) {
-            requestAnimationFrame(() => setOcrModalVisible(true));
-            setReturnToOcrAfterFullscreen(false);
-          }
-        }}
+        presentationStyle="overFullScreen"
+        transparent
+        statusBarTranslucent
+        onRequestClose={closeFullScreenImage}
       >
         {fullScreenImage ? (
           <>
             <ImageViewer
               imageUrls={[{ url: fullScreenImage.uri }]}
               enableSwipeDown
-              onSwipeDown={() => {
-                setFullScreenImage(null);
-                if (returnToOcrAfterFullscreen) {
-                  requestAnimationFrame(() => setOcrModalVisible(true));
-                  setReturnToOcrAfterFullscreen(false);
-                }
-              }}
-              onClick={() => {
-                setFullScreenImage(null);
-                if (returnToOcrAfterFullscreen) {
-                  requestAnimationFrame(() => setOcrModalVisible(true));
-                  setReturnToOcrAfterFullscreen(false);
-                }
-              }}
+              onSwipeDown={closeFullScreenImage}
+              renderImage={renderAnnotatedZoomImage}
               backgroundColor="black"
               renderIndicator={() => null}
               saveToLocalByLongPress={false}
             />
-            <TouchableOpacity
-              style={ReceiptStyles.fullScreenCloseButton}
-              onPress={() => {
-                setFullScreenImage(null);
-                if (returnToOcrAfterFullscreen) {
-                  requestAnimationFrame(() => setOcrModalVisible(true));
-                  setReturnToOcrAfterFullscreen(false);
-                }
-              }}
-            >
-              <Text style={ReceiptStyles.fullScreenCloseText}>✕</Text>
-            </TouchableOpacity>
+            <View style={ReceiptStyles.fullScreenCloseButtonWrapper}>
+              <TouchableOpacity
+                style={ReceiptStyles.fullScreenCloseButton}
+                onPress={closeFullScreenImage}
+              >
+                <Text style={ReceiptStyles.fullScreenCloseText}>✕</Text>
+              </TouchableOpacity>
+              {fullScreenImage?.annotationData ? (
+                <TouchableOpacity
+                  style={[
+                    ReceiptStyles.fullScreenAnnotationToggleButton,
+                    !annotateImages ? ReceiptStyles.fullScreenAnnotationToggleButtonOff : null,
+                  ]}
+                  onPress={toggleAnnotateImages}
+                  accessibilityRole="switch"
+                  accessibilityState={{ checked: annotateImages }}
+                  accessibilityLabel="Toggle annotations"
+                >
+                  <Ionicons name={annotateImages ? "scan" : "scan-outline"} size={20} color="#fff" />
+                </TouchableOpacity>
+              ) : null}
+            </View>
           </>
         ) : null}
       </Modal>
@@ -1270,7 +1883,7 @@ export default function IncomeFormScreen({ navigation, route, mode }) {
               <View style={styles.summaryListWrap}>
                 {batchSaveSummary.saved.map((entry, index) => (
                   <Text key={`${entry.date}-${entry.amount}-${index}`} style={ReceiptStyles.modalDetailText}>
-                    £{entry.amount} — {entry.reference || "—"} — {entry.date}
+                    {formatCurrency(entry.amount)} — {entry.reference || "—"} — {entry.date}
                   </Text>
                 ))}
               </View>
@@ -1294,14 +1907,108 @@ export default function IncomeFormScreen({ navigation, route, mode }) {
               >
                 Go to Income
               </Button>
+
+                <Button
+                mode="contained"
+                buttonColor={Colors.accent}
+                onPress={() => {
+                  openAddMoreSheet();
+                }}
+              >
+                Add more
+              </Button>
+
+            </View>
+          </View>
+        </View>
+      </Modal>
+
+      <Modal
+        visible={showReviewSummaryModal}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setShowReviewSummaryModal(false)}
+      >
+        <View style={ReceiptStyles.modalOverlay}>
+          <View style={ReceiptStyles.modalContent}>
+            <Text style={ReceiptStyles.modalTitle}>Review complete</Text>
+            <Text style={[ReceiptStyles.modalDetailText, styles.summaryHeading]}>
+              Confirmed ({draftReviewStates.filter((state) => state === "confirmed").length}):
+            </Text>
+            {incomeDrafts.filter((_, index) => draftReviewStates[index] === "confirmed").length > 0 ? (
+              <View style={styles.summaryListWrap}>
+                {incomeDrafts
+                  .filter((_, index) => draftReviewStates[index] === "confirmed")
+                  .map((draft, index) => (
+                    <Text key={`${draft.selectedDate}-${draft.amount}-${index}`} style={ReceiptStyles.modalDetailText}>
+                      {formatCurrency(draft.amount)} — {draft.reference || "—"} — {formatDate(new Date(draft.selectedDate))}
+                    </Text>
+                  ))}
+              </View>
+            ) : (
+              <Text style={ReceiptStyles.modalDetailText}>None</Text>
+            )}
+            <Text style={[ReceiptStyles.modalDetailText, styles.summaryHeading]}>
+              Skipped — {draftReviewStates.filter((state) => state === "skipped").length}
+            </Text>
+            <View style={ReceiptStyles.modalButtons}>
+              <Button
+                mode="outlined"
+                textColor={Colors.accent}
+                onPress={() => setShowReviewSummaryModal(false)}
+              >
+                Back
+              </Button>
               <Button
                 mode="contained"
                 buttonColor={Colors.accent}
                 onPress={() => {
-                  setShowBatchSummaryModal(false);
-                  setIncomeDrafts([]);
-                  setDraftReviewStates([]);
-                  setCurrentDraftIndex(0);
+                  setShowReviewSummaryModal(false);
+                  handleSaveReviewedIncomes();
+                }}
+                disabled={isSaving}
+              >
+                Confirm and Save
+              </Button>
+            </View>
+          </View>
+        </View>
+      </Modal>
+
+      <Modal
+        visible={showSuccess}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setShowSuccess(false)}
+      >
+        <View style={ReceiptStyles.modalOverlay}>
+          <View style={ReceiptStyles.modalContent}>
+            <Text
+              style={[ReceiptStyles.modalTitle, { textAlign: "center" }]}
+            >
+              Income saved 🎉
+            </Text>
+            <Text style={{ textAlign: "center", marginTop: 4, color: "#555" }}>
+              Do you want to add another?
+            </Text>
+            <View
+              style={[ReceiptStyles.modalButtons, { marginTop: 16 }]}
+            >
+              <Button
+                mode="outlined"
+                textColor={Colors.accent}
+                onPress={() => {
+                  setShowSuccess(false);
+                  navigateBackToIncome(navigation);
+                }}
+              >
+                Go to Income
+              </Button>
+              <Button
+                mode="contained"
+                buttonColor={Colors.accent}
+                onPress={() => {
+                  openAddMoreSheet();
                 }}
               >
                 Add another
@@ -1317,17 +2024,92 @@ export default function IncomeFormScreen({ navigation, route, mode }) {
           <View style={ReceiptStyles.uploadCard}>
             <ActivityIndicator size="large" color={Colors.accent} />
             <Text style={{ marginTop: 12, fontWeight: "700", fontSize: 15 }}>
-              Detecting income statements…
+              {detectMode === "local"
+                ? "Processing income locally…"
+                : detectMode === "cloud"
+                ? "Processing income in the cloud…"
+                : "Processing income…"}
             </Text>
             <Text style={{ marginTop: 4, color: "#666", fontSize: 12, textAlign: "center" }}>
-              Please wait while we analyse your images
+              {detectMode === "local"
+                ? "This may be faster, but results can be less accurate."
+                : detectMode === "cloud"
+                ? "Please wait while we process your images in the cloud."
+                : "Selecting the best processing mode for your account."}
             </Text>
             <View style={{ alignSelf: "stretch", marginTop: 16 }}>
               <ProgressBar progress={detectProgress} color={Colors.accent} style={{ borderRadius: 4 }} />
             </View>
+            <View style={styles.detectingActions}>
+              <Button mode="outlined" onPress={cancelDetectionAndExit}>
+                Cancel
+              </Button>
+              <Button
+                mode="contained"
+                buttonColor={Colors.accent}
+                onPress={processDetectionLocally}
+                disabled={detectMode === "local"}
+              >
+                Process locally
+              </Button>
+            </View>
+            {detectMode === "cloud" ? (
+              <Text style={styles.detectingHint}>
+                Local processing can be quicker, but is usually less accurate.
+              </Text>
+            ) : null}
           </View>
         </View>
       )}
+
+      <View style={isMultiDraftMode ? styles.multiDraftActionDock : null}>
+      {/* Dark red divider line — top of fixed area */}
+      {isMultiDraftMode ? <View style={styles.buttonBarDivider} /> : null}
+
+      {/* Draft indicator dots */}
+      {isMultiDraftMode && incomeDrafts.length > 0 ? (
+        <ScrollView
+          ref={indicatorScrollRef}
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          style={styles.receiptIndicatorRow}
+          contentContainerStyle={styles.receiptIndicatorRowContent}
+          onLayout={(e) => {
+            indicatorViewportWidthRef.current = e.nativeEvent.layout.width;
+          }}
+        >
+          {incomeDrafts.map((draft, index) => {
+            const isActive = index === currentDraftIndex;
+            const state = draftReviewStates[index];
+            let dotColor;
+            if (state === "confirmed") dotColor = "#2E9F46";
+            else if (state === "skipped") dotColor = "#555";
+            else {
+              const valid =
+                index === currentDraftIndex ? isIncomeFormValid : isIncomeDraftValid(draft);
+              dotColor = valid ? "#4A90D9" : "#E06B6B";
+            }
+            return (
+              <TouchableOpacity
+                key={String(index)}
+                style={styles.indicatorDotWrapper}
+                onPress={() => navigateToIncomeDraft(index)}
+                onLayout={(e) => {
+                  indicatorLayoutsRef.current[index] = e.nativeEvent.layout;
+                }}
+                hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+              >
+                <View
+                  style={
+                    isActive ? styles.indicatorTriangle : styles.indicatorTriangleHidden
+                  }
+                />
+                <View style={[styles.indicatorDot, { backgroundColor: dotColor }]} />
+              </TouchableOpacity>
+            );
+          })}
+        </ScrollView>
+      ) : null}
 
       {/* Sticky bottom action bar */}
       {isMultiDraftMode && allDraftsReviewed ? (
@@ -1335,7 +2117,7 @@ export default function IncomeFormScreen({ navigation, route, mode }) {
           <Button
             mode="contained"
             buttonColor={Colors.accent}
-            onPress={handleSaveReviewedIncomes}
+            onPress={() => setShowReviewSummaryModal(true)}
             style={styles.submitButtonInner}
             disabled={isSaving}
           >
@@ -1343,7 +2125,18 @@ export default function IncomeFormScreen({ navigation, route, mode }) {
           </Button>
         </View>
       ) : null}
-      <View style={[styles.stickyButtonBar, isMultiDraftMode && { borderTopWidth: 0 }]}>
+      <View
+        style={[
+          styles.stickyButtonBar,
+          {
+            paddingBottom:
+              Platform.OS === "android"
+                ? Math.max(insets.bottom, 10)
+                : 10,
+          },
+          isMultiDraftMode && { borderTopWidth: 0 },
+        ]}
+      >
         {isMultiDraftMode ? (
           <>
             {(() => {
@@ -1351,14 +2144,15 @@ export default function IncomeFormScreen({ navigation, route, mode }) {
               const isCurrentSkipped = draftReviewStates[currentDraftIndex] === "skipped";
               return (
                 <>
-                  <Text style={styles.draftCounter}>
-                    {currentDraftIndex + 1} / {incomeDrafts.length}
-                  </Text>
                   <Button
                     mode={isCurrentSkipped ? "contained" : "outlined"}
                     buttonColor={isCurrentSkipped ? "#555" : undefined}
                     textColor={isCurrentSkipped ? "#fff" : Colors.accent}
-                    style={[styles.stickyActionButton, isCurrentConfirmed ? styles.multiActionFaded : null]}
+                    style={[
+                      styles.stickyActionButton,
+                      !isCurrentSkipped && !isCurrentConfirmed ? styles.multiActionDefaultButton : null,
+                      isCurrentConfirmed ? styles.multiActionFaded : null,
+                    ]}
                     onPress={skipIncomeDraft}
                   >
                     {isCurrentSkipped ? "Skipped" : "Skip"}
@@ -1367,7 +2161,11 @@ export default function IncomeFormScreen({ navigation, route, mode }) {
                     mode={isCurrentConfirmed ? "contained" : "outlined"}
                     buttonColor={isCurrentConfirmed ? Colors.accent : undefined}
                     textColor={isCurrentConfirmed ? "#fff" : Colors.accent}
-                    style={[styles.stickyActionButton, isCurrentSkipped ? styles.multiActionFaded : null]}
+                    style={[
+                      styles.stickyActionButton,
+                      !isCurrentSkipped && !isCurrentConfirmed ? styles.multiActionDefaultButton : null,
+                      isCurrentSkipped ? styles.multiActionFaded : null,
+                    ]}
                     onPress={confirmIncomeDraft}
                     disabled={!isIncomeFormValid}
                   >
@@ -1379,25 +2177,50 @@ export default function IncomeFormScreen({ navigation, route, mode }) {
           </>
         ) : (
           <>
-            <Button
-              mode="contained"
-              buttonColor={Colors.accent}
-              style={styles.stickyActionButton}
-              onPress={() => navigateBackToIncome(navigation)}
-            >
-              Cancel
-            </Button>
-            <Button
-              mode="contained"
-              buttonColor={Colors.accent}
-              style={styles.stickyActionButton}
-              onPress={saveIncome}
-              disabled={isSaving || !isIncomeFormValid}
-            >
-              Save
-            </Button>
+            {mode === "edit" ? (
+              <>
+                <Button
+                  mode="outlined"
+                  textColor={Colors.accent}
+                  style={styles.stickyActionButton}
+                  onPress={deleteIncome}
+                >
+                  Delete
+                </Button>
+                <Button
+                  mode="contained"
+                  buttonColor={Colors.accent}
+                  style={styles.stickyActionButton}
+                  onPress={isIncomeDirty ? saveIncome : () => navigateBackToIncome(navigation)}
+                  disabled={isSaving || (isIncomeDirty && !isIncomeFormValid)}
+                >
+                  {isIncomeDirty ? "Save" : "Close"}
+                </Button>
+              </>
+            ) : (
+              <>
+                <Button
+                  mode="contained"
+                  buttonColor={Colors.accent}
+                  style={styles.stickyActionButton}
+                  onPress={handleLeavePress}
+                >
+                  Cancel
+                </Button>
+                <Button
+                  mode="contained"
+                  buttonColor={Colors.accent}
+                  style={styles.stickyActionButton}
+                  onPress={saveIncome}
+                  disabled={isSaving || !isIncomeFormValid}
+                >
+                  Save
+                </Button>
+              </>
+            )}
           </>
         )}
+      </View>
       </View>
 
       {isSaving || pickerBusy ? (
@@ -1409,36 +2232,136 @@ export default function IncomeFormScreen({ navigation, route, mode }) {
         </View>
       ) : null}
 
+      {/* Leave Modal */}
+      <Modal
+        visible={showConfirmLeaveModal}
+        transparent
+        animationType="slide"
+        onRequestClose={() => setShowConfirmLeaveModal(false)}
+      >
+        <View style={ReceiptStyles.modalOverlay}>
+          <View style={ReceiptStyles.modalContent}>
+            <Text style={ReceiptStyles.modalTitle}>
+              Are you sure you want to go back?
+            </Text>
+            <View style={ReceiptStyles.modalButtons}>
+              <Button mode="outlined" onPress={() => setShowConfirmLeaveModal(false)}>
+                Cancel
+              </Button>
+              <Button
+                mode="contained"
+                buttonColor="#a60d49"
+                onPress={() => {
+                  setShowConfirmLeaveModal(false);
+                  navigateBackToIncome(navigation);
+                }}
+              >
+                Confirm
+              </Button>
+            </View>
+          </View>
+        </View>
+      </Modal>
+
       {/* Toast notification */}
       {toastVisible ? (
         <Animated.View style={[styles.toastContainer, { opacity: toastOpacity }]}>
           <Text style={styles.toastText}>{toastMessage}</Text>
         </Animated.View>
       ) : null}
+
+      <AddReceiptSheet
+        visible={showAddMoreSheet}
+        onClose={() => setShowAddMoreSheet(false)}
+        navigation={navigation}
+        targetScreen="IncomeRecord"
+        itemLabel="invoice"
+      />
     </SafeAreaView>
   );
 }
+
+const HERO_EXPANDED_HEIGHT = Math.round(Dimensions.get("window").height * 0.45);
+const HERO_COLLAPSED_HEIGHT = Math.round(Dimensions.get("window").height * 0.35);
 
 const stylesConst = {
   placeholder: "#8f8f95",
 };
 
 const styles = StyleSheet.create({
-  scrollContent: { flexGrow: 1, paddingBottom: 160 },
+  safeAreaLight: {
+    backgroundColor: "#fff",
+  },
+  header: {
+    backgroundColor: "#1C1C4E",
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    paddingHorizontal: 16,
+    paddingBottom: 14,
+  },
+  headerTitle: { color: "#fff", fontSize: 17, fontWeight: "700" },
+  headerBtn: { width: 82, alignItems: "flex-start" },
+  headerBtnText: { color: "#fff", fontWeight: "600", fontSize: 18 },
+  indexPill: {
+    position: "absolute",
+    right: 54,
+    top: 12,
+    color: "#fff",
+    fontSize: 12,
+    fontWeight: "700",
+    backgroundColor: "rgba(255,255,255,0.18)",
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 12,
+  },
+  scrollContent: { flexGrow: 1, paddingBottom: 12 },
+  multiDraftScrollContent: { paddingBottom: 170 },
+  multiDraftActionDock: {
+    position: "absolute",
+    left: 0,
+    right: 0,
+    bottom: 0,
+    backgroundColor: "#fff",
+    zIndex: 100,
+    elevation: 100,
+  },
   imageSection: {
-    height: IMAGE_HEIGHT,
+    height: HERO_EXPANDED_HEIGHT,
     overflow: "hidden",
     backgroundColor: "#000",
     borderBottomWidth: 1,
     borderBottomColor: "#333",
   },
   carouselPage: {
-    height: IMAGE_HEIGHT,
+    height: "100%",
     justifyContent: "center",
     alignItems: "center",
   },
   carouselImage: {
-    height: IMAGE_HEIGHT,
+    height: "100%",
+  },
+  imagePageScroller: {
+    alignSelf: "stretch",
+    flex: 1,
+  },
+  mainAnnotationToggleButton: {
+    position: "absolute",
+    top: 10,
+    left: 10,
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: "rgba(166, 13, 73, 0.88)",
+    alignItems: "center",
+    justifyContent: "center",
+    zIndex: 50,
+    elevation: 50,
+  },
+  mainAnnotationToggleButtonOff: {
+    backgroundColor: "rgba(15,15,20,0.72)",
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.45)",
   },
   carouselAddBtn: {
     flex: 1,
@@ -1482,28 +2405,11 @@ const styles = StyleSheet.create({
     fontSize: 13,
     fontWeight: "600",
   },
-  floatingCloseBtn: {
-    position: "absolute",
-    top: 12,
-    left: 12,
-    width: 36,
-    height: 36,
-    borderRadius: 18,
-    backgroundColor: "#a60d49",
-    justifyContent: "center",
-    alignItems: "center",
-    zIndex: 200,
-    elevation: 6,
-  },
-  floatingCloseBtnText: {
-    color: "#fff",
-    fontSize: 18,
-    lineHeight: 20,
-    fontWeight: "bold",
-  },
-  fieldGroup: { marginBottom: 18 },
+  fieldGroup: { marginBottom: 6 },
+  formLabel: { marginLeft: 10, marginBottom: 1, fontSize: 13 },
   attachmentSection: { marginTop: 16 },
   dateButtonAligned: { marginHorizontal: 0 },
+  compactField: { height: 42 },
   currencyField: { position: "relative" },
   currencyWrapper: {
     position: "absolute",
@@ -1518,8 +2424,20 @@ const styles = StyleSheet.create({
   currencyText: { color: Colors.textSecondary, fontSize: 16, fontWeight: "600" },
   amountInput: { flex: 1 },
   inputWithCurrency: { paddingLeft: 28 },
-  notesInput: { height: 110, textAlignVertical: "top", paddingTop: 10 },
-  moneyRow: { flexDirection: "row", justifyContent: "space-between", gap: 12, marginBottom: 18, zIndex: 2000 },
+  notesInput: { height: 96, textAlignVertical: "top", paddingTop: 8 },
+  moneyRow: { flexDirection: "row", justifyContent: "space-between", gap: 8, marginBottom: 6, zIndex: 2000 },
+  compactInput: { height: 42, paddingVertical: 8, borderRadius: 5 },
+  compactPicker: { height: 42, minHeight: 42, borderRadius: 5 },
+  validFieldInput: {
+    backgroundColor: "#fff",
+    borderColor: "#2E9F46",
+    borderWidth: 1,
+  },
+  invalidFieldInput: {
+    backgroundColor: "#fff",
+    borderColor: "#E06B6B",
+    borderWidth: 1,
+  },
   moneyColumn: { flex: 1 },
   attachmentCard: { marginRight: 12, position: "relative" },
   removeAttachmentButton: {
@@ -1535,31 +2453,32 @@ const styles = StyleSheet.create({
   },
   removeAttachmentText: { color: Colors.surface, fontSize: 18, lineHeight: 18 },
   sideTipWrapper: {
-    flexDirection: "row",
     alignItems: "center",
-    marginLeft: 8,
+    marginTop: 8,
     zIndex: 10,
   },
-  leftTriangle: {
+  topTriangle: {
     width: 0,
     height: 0,
-    borderTopWidth: 7,
-    borderBottomWidth: 7,
-    borderRightWidth: 10,
-    borderTopColor: "transparent",
-    borderBottomColor: "transparent",
-    borderRightColor: "#F0D1FF",
+    borderLeftWidth: 8,
+    borderRightWidth: 8,
+    borderBottomWidth: 10,
+    borderLeftColor: "transparent",
+    borderRightColor: "transparent",
+    borderBottomColor: "#F0D1FF",
+    marginBottom: -1,
   },
   sideTipBox: {
     backgroundColor: "#F0D1FF",
     padding: 10,
     borderRadius: 12,
-    maxWidth: 170,
+    maxWidth: 190,
   },
   sideTipText: {
     color: "#4A148C",
     fontSize: 11,
     lineHeight: 15,
+    textAlign: "center",
   },
   sideGotIt: {
     color: "#4A148C",
@@ -1580,6 +2499,10 @@ const styles = StyleSheet.create({
   multiActionFaded: {
     opacity: 0.45,
   },
+  multiActionDefaultButton: {
+    borderColor: "#b5b5b5",
+    borderWidth: 1,
+  },
   saveAllButton: {
     marginTop: 12,
     borderRadius: 8,
@@ -1592,6 +2515,8 @@ const styles = StyleSheet.create({
     marginTop: 8,
     marginBottom: 2,
   },
+  cisToggleRow: { flexDirection: "row", alignItems: "center", marginBottom: 8 },
+  cisCalculationText: { color: Colors.textPrimary, fontWeight: "600", marginTop: 12 },
   summaryListWrap: {
     marginBottom: 6,
   },
@@ -1602,16 +2527,37 @@ const styles = StyleSheet.create({
     alignItems: "center",
     zIndex: 1200,
   },
+  detectingActions: {
+    marginTop: 16,
+    width: "100%",
+    flexDirection: "row",
+    justifyContent: "space-between",
+    gap: 10,
+  },
+  detectingHint: {
+    marginTop: 8,
+    color: "#666",
+    fontSize: 11,
+    textAlign: "center",
+  },
   annBox: {
     position: "absolute",
     borderWidth: 2,
     borderRadius: 4,
+    overflow: "visible",
+    minWidth: ANNOTATION_MIN_BOX_WIDTH,
+    minHeight: ANNOTATION_MIN_BOX_HEIGHT,
   },
   annChip: {
     position: "absolute",
+    top: -18,
+    left: 0,
     paddingHorizontal: 5,
     paddingVertical: 1,
     borderRadius: 3,
+  },
+  annotationOverlay: {
+    ...StyleSheet.absoluteFillObject,
   },
   annChipText: {
     color: "#fff",
@@ -1638,6 +2584,57 @@ const styles = StyleSheet.create({
     color: Colors.accent,
     minWidth: 40,
     textAlign: "center",
+  },
+  // Draft indicator dots
+  buttonBarDivider: {
+    height: 2,
+    backgroundColor: "#a60d49",
+    width: "100%",
+  },
+  receiptIndicatorRow: {
+    flexGrow: 0,
+    backgroundColor: "#fff",
+  },
+  receiptIndicatorRowContent: {
+    flexDirection: "row",
+    alignItems: "flex-end",
+    justifyContent: "center",
+    flexGrow: 1,
+    paddingVertical: 2,
+    paddingHorizontal: 12,
+    gap: 14,
+  },
+  indicatorDotWrapper: {
+    alignItems: "center",
+    paddingHorizontal: 2,
+    paddingVertical: 2,
+  },
+  indicatorDot: {
+    width: 16,
+    height: 16,
+    borderRadius: 8,
+  },
+  indicatorTriangle: {
+    width: 0,
+    height: 0,
+    borderLeftWidth: 6,
+    borderRightWidth: 6,
+    borderTopWidth: 8,
+    borderLeftColor: "transparent",
+    borderRightColor: "transparent",
+    borderTopColor: "#1C1C4E",
+    marginBottom: 3,
+  },
+  indicatorTriangleHidden: {
+    width: 0,
+    height: 0,
+    borderLeftWidth: 6,
+    borderRightWidth: 6,
+    borderTopWidth: 8,
+    borderLeftColor: "transparent",
+    borderRightColor: "transparent",
+    borderTopColor: "transparent",
+    marginBottom: 3,
   },
   submitButtonContainer: {
     paddingHorizontal: 16,
@@ -1685,7 +2682,7 @@ const styles = StyleSheet.create({
 
 const ScannerTooltip = ({ onDismiss, text }) => (
   <View style={styles.sideTipWrapper}>
-    <View style={styles.leftTriangle} />
+    <View style={styles.topTriangle} />
     <View style={styles.sideTipBox}>
       <Text style={styles.sideTipText}>{text}</Text>
       <TouchableOpacity onPress={onDismiss}>

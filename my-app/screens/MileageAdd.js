@@ -12,6 +12,7 @@ import {
   View,
 } from "react-native";
 import DropDownPicker from "react-native-dropdown-picker";
+import { Checkbox } from "react-native-paper";
 import Constants from "expo-constants";
 import {
   collection,
@@ -20,7 +21,7 @@ import {
 } from "firebase/firestore";
 import { auth, db } from "../firebaseConfig";
 import { Colors } from "../utils/sharedStyles";
-import { formatDate } from "../utils/format_style";
+import { formatDate, formatCurrency } from "../utils/format_style";
 import {
   getVehicles,
   getLastUsedVehicleId,
@@ -28,13 +29,12 @@ import {
 } from "../utils/appSettings";
 import { useData } from "../contexts/DataContext";
 import DateTimePickerModal from "react-native-modal-datetime-picker";
-import { useSafeAreaInsets } from "react-native-safe-area-context";
+import MileageRouteMap from "../components/MileageRouteMap";
 
 const GOOGLE_MAPS_KEY =
   Constants.expoConfig?.extra?.GOOGLE_MAPS_API_KEY || "";
 
 export default function MileageAdd({ navigation }) {
-  const insets = useSafeAreaInsets();
   const { userProfile } = useData();
   const isVerified = userProfile?.verificationStatus === "verified";
   // ── Vehicle picker ─────────────────────────────────────────────────────────
@@ -63,7 +63,9 @@ export default function MileageAdd({ navigation }) {
   const [startAddress, setStartAddress] = useState("");
   const [endAddress, setEndAddress] = useState("");
   const [distance, setDistance] = useState("");
+  const [returnTrip, setReturnTrip] = useState(false);
   const [loadingRoute, setLoadingRoute] = useState(false);
+  const [routeEndpoints, setRouteEndpoints] = useState(null);
 
   // Autocomplete suggestion lists
   const [startSuggestions, setStartSuggestions] = useState([]);
@@ -79,7 +81,8 @@ export default function MileageAdd({ navigation }) {
   // ─────────────────────────────────────────────────────────────────────────
   const selectedVehicle = vehicles.find((v) => v.id === vehicleId) || null;
   const ratePerMile = selectedVehicle?.ratePerMile ?? 55;
-  const effectiveMiles = parseFloat(distance) || 0;
+  const oneWayMiles = parseFloat(distance) || 0;
+  const effectiveMiles = oneWayMiles * (returnTrip ? 2 : 1);
   const amountGBP = ((effectiveMiles * ratePerMile) / 100).toFixed(2);
   const canSave = !!vehicleId && effectiveMiles > 0;
 
@@ -118,11 +121,20 @@ export default function MileageAdd({ navigation }) {
       const res = await fetch(url);
       const data = await res.json();
       if (data.status === "OK" && data.routes?.length) {
-        const metres = data.routes[0].legs[0].distance.value;
+        const leg = data.routes[0].legs[0];
+        const metres = leg.distance.value;
         setDistance((metres / 1609.344).toFixed(2));
+        setRouteEndpoints({
+          start: { latitude: leg.start_location.lat, longitude: leg.start_location.lng },
+          end: { latitude: leg.end_location.lat, longitude: leg.end_location.lng },
+          encodedPath: data.routes[0].overview_polyline?.points || "",
+        });
+      } else {
+        setRouteEndpoints(null);
       }
     } catch (err) {
       console.error("Directions error", err);
+      setRouteEndpoints(null);
     } finally {
       setLoadingRoute(false);
     }
@@ -155,6 +167,7 @@ export default function MileageAdd({ navigation }) {
   const handleStartChange = (text) => {
     setStartAddress(text);
     setStartSuggestions([]);
+    setRouteEndpoints(null);
     clearTimeout(startDebounce.current);
     startDebounce.current = setTimeout(async () => {
       setStartSuggestions(await fetchSuggestions(text));
@@ -164,6 +177,7 @@ export default function MileageAdd({ navigation }) {
   const handleEndChange = (text) => {
     setEndAddress(text);
     setEndSuggestions([]);
+    setRouteEndpoints(null);
     clearTimeout(endDebounce.current);
     endDebounce.current = setTimeout(async () => {
       setEndSuggestions(await fetchSuggestions(text));
@@ -204,10 +218,15 @@ export default function MileageAdd({ navigation }) {
           startAddress,
           endAddress,
           distance: effectiveMiles,
+          oneWayDistance: oneWayMiles,
+          returnTrip,
           vehicleId,
           vehicleReg: selectedVehicle?.registrationNumber || "",
           ratePerMile,
           purpose: purpose.trim(),
+          startCoordinate: routeEndpoints?.start || null,
+          endCoordinate: routeEndpoints?.end || null,
+          routePolyline: routeEndpoints?.encodedPath || null,
         },
         createdAt: serverTimestamp(),
       });
@@ -345,6 +364,10 @@ export default function MileageAdd({ navigation }) {
             placeholderTextColor="#999"
             keyboardType="decimal-pad"
           />
+          <TouchableOpacity style={styles.returnTripRow} onPress={() => setReturnTrip((current) => !current)}>
+            <Checkbox status={returnTrip ? "checked" : "unchecked"} color={Colors.accent} />
+            <Text style={styles.returnTripText}>Return trip</Text>
+          </TouchableOpacity>
 
           {/* Summary */}
           <View style={styles.summaryBox}>
@@ -360,18 +383,18 @@ export default function MileageAdd({ navigation }) {
             </View>
             <View style={[styles.summaryRow, styles.summaryRowLast]}>
               <Text style={styles.summaryLabelBold}>Amount</Text>
-              <Text style={styles.summaryValueBold}>£{effectiveMiles > 0 ? amountGBP : "0.00"}</Text>
+              <Text style={styles.summaryValueBold}>{effectiveMiles > 0 ? formatCurrency(amountGBP) : "£0.00"}</Text>
             </View>
           </View>
+          <MileageRouteMap
+            start={routeEndpoints?.start}
+            end={routeEndpoints?.end}
+            encodedPath={routeEndpoints?.encodedPath}
+          />
         </ScrollView>
 
         {/* Bottom action bar */}
-        <View
-          style={[
-            styles.bottomBar,
-            { paddingBottom: Math.max(insets.bottom, Platform.OS === "android" ? 24 : 16) },
-          ]}
-        >
+        <View style={styles.bottomBar}>
           <TouchableOpacity style={styles.cancelBtn} onPress={() => navigation.goBack()}>
             <Text style={styles.cancelBtnText}>Cancel</Text>
           </TouchableOpacity>
@@ -446,7 +469,7 @@ const styles = StyleSheet.create({
   bottomBar: {
     flexDirection: "row",
     padding: 16,
-    paddingBottom: 16,
+    paddingBottom: Platform.OS === "android" ? 24 : 16,
     gap: 12,
     backgroundColor: "#f4f4f8",
     borderTopWidth: 1,
@@ -489,4 +512,14 @@ const styles = StyleSheet.create({
     borderBottomColor: "#f0f0f0",
   },
   suggestionText: { fontSize: 14, color: Colors.textPrimary },
+  returnTripRow: {
+    alignItems: "center",
+    flexDirection: "row",
+    marginTop: 8,
+  },
+  returnTripText: {
+    color: Colors.textPrimary,
+    fontSize: 14,
+    fontWeight: "600",
+  },
 });

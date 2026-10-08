@@ -11,11 +11,13 @@ import {
   Keyboard,
   TouchableWithoutFeedback,
   Linking,
+  findNodeHandle,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { auth, db } from "../firebaseConfig";
 import {
   createUserWithEmailAndPassword,
+  reload,
   sendEmailVerification,
   updateProfile,
 } from "firebase/auth";
@@ -28,6 +30,7 @@ import { verifyClientCode } from "../utils/verificationCodes";
 
 const looksLikeEmail = (s) => /\S+@\S+\.\S+/.test(String(s || "").trim());
 const PRIVACY_URL = "https://caistec.com/privacy-policy.html";
+const AUTO_ASSIGN_VERIFICATION_URL = "https://express-accounts-73d38.web.app/auto-assign-verification-by-email";
 
 const SignUpScreen = ({ navigation }) => {
   const [name, setName] = useState("");
@@ -41,6 +44,8 @@ const SignUpScreen = ({ navigation }) => {
   const [privacyAccepted, setPrivacyAccepted] = useState(false);
 
   // refs for keyboard navigation
+  const scrollViewRef = useRef(null);
+  const nameRef = useRef(null);
   const emailRef = useRef(null);
   const passwordRef = useRef(null);
   const confirmRef = useRef(null);
@@ -57,8 +62,8 @@ const SignUpScreen = ({ navigation }) => {
   }, [password]);
 
   const allRulesOk = rules.minLen && rules.upper && rules.lower && rules.number;
-  const passwordsMatch = (password || "") === (confirm || "");
-  const emailOk = looksLikeEmail(email);
+  const passwordsMatch = (password || "").trim() === (confirm || "").trim();
+  const emailOk = looksLikeEmail((email || "").trim());
   const nameOk = (name || "").trim().length > 0;
 
   const canSubmit =
@@ -68,6 +73,27 @@ const SignUpScreen = ({ navigation }) => {
     passwordsMatch &&
     privacyAccepted &&
     !loading;
+
+  const scrollToInput = (inputRef) => {
+    const node = inputRef?.current ? findNodeHandle(inputRef.current) : null;
+    if (!node || !scrollViewRef.current) return;
+
+    requestAnimationFrame(() => {
+      if (scrollViewRef.current?.scrollToFocusedInput) {
+        scrollViewRef.current.scrollToFocusedInput(node);
+        return;
+      }
+
+      inputRef.current?.measure?.((x, y, width, height, pageX, pageY) => {
+        scrollViewRef.current?.scrollToPosition?.(0, Math.max(0, pageY - 120), true);
+      });
+    });
+  };
+
+  const focusField = (inputRef) => {
+    inputRef?.current?.focus();
+    scrollToInput(inputRef);
+  };
 
   const showRegistrationError = (code, fallback) => {
     let msg = "Could not create your account. Please try again.";
@@ -99,6 +125,8 @@ const SignUpScreen = ({ navigation }) => {
   const register = async () => {
     try {
       const emailTrimmed = (email || "").trim().toLowerCase();
+      const passwordTrimmed = (password || "").trim();
+      const confirmTrimmed = (confirm || "").trim();
       const nameTrimmed = (name || "").trim();
 
       if (!nameTrimmed) return Alert.alert("Sign Up", "Please enter your name.");
@@ -109,7 +137,7 @@ const SignUpScreen = ({ navigation }) => {
           "Sign Up",
           "Please meet all password requirements before continuing."
         );
-      if (!passwordsMatch)
+      if (passwordTrimmed !== confirmTrimmed)
         return Alert.alert("Sign Up", "Passwords do not match.");
       if (!privacyAccepted)
         return Alert.alert(
@@ -124,7 +152,7 @@ const SignUpScreen = ({ navigation }) => {
       const cred = await createUserWithEmailAndPassword(
         auth,
         emailTrimmed,
-        password
+        passwordTrimmed
       );
 
       // Update display name
@@ -160,7 +188,55 @@ const SignUpScreen = ({ navigation }) => {
         }
       }
 
-      await sendEmailVerification(cred.user);
+      let autoVerifiedByEmail = false;
+      try {
+        const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+        for (let attempt = 1; attempt <= 3; attempt += 1) {
+          const idToken = await cred.user.getIdToken(attempt > 1);
+          const autoAssignResponse = await fetch(AUTO_ASSIGN_VERIFICATION_URL, {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              Authorization: "Bearer " + idToken,
+            },
+            body: JSON.stringify({}),
+          });
+
+          const autoAssignPayload = await autoAssignResponse.json().catch(() => ({}));
+          if (!autoAssignResponse.ok) {
+            throw new Error(autoAssignPayload && autoAssignPayload.error ? autoAssignPayload.error : "Auto-verification request failed.");
+          }
+
+          autoVerifiedByEmail = Boolean(autoAssignPayload && autoAssignPayload.matched);
+          if (autoVerifiedByEmail) {
+            break;
+          }
+
+          if (attempt < 3) {
+            await wait(300 * attempt);
+          }
+        }
+
+        if (autoVerifiedByEmail) {
+          await reload(cred.user);
+          await cred.user.getIdToken(true);
+          await setDoc(
+            doc(db, "users", cred.user.uid),
+            {
+              emailVerified: true,
+              updatedAt: serverTimestamp(),
+            },
+            { merge: true }
+          );
+        }
+      } catch (autoAssignError) {
+        console.warn("Auto-assign by email failed", autoAssignError);
+      }
+
+      if (!autoVerifiedByEmail) {
+        await sendEmailVerification(cred.user);
+      }
 
       triggerHaptic("success").catch(() => {});
 
@@ -199,6 +275,7 @@ const SignUpScreen = ({ navigation }) => {
     <SafeAreaView style={AuthStyles.flex} edges={['bottom', 'left', 'right']}>
       <TouchableWithoutFeedback onPress={Keyboard.dismiss} accessible={false}>
         <KeyboardAwareScrollView
+          ref={scrollViewRef}
           contentContainerStyle={{ flexGrow: 1, paddingBottom: 40 }} // 👈 padding for Android nav bar
           enableOnAndroid={true}
           extraScrollHeight={20}
@@ -236,6 +313,7 @@ const SignUpScreen = ({ navigation }) => {
 
               <View style={AuthStyles.passwordContainer}>
                 <TextInput
+                  ref={nameRef}
                   style={AuthStyles.input}
                   placeholder="Bob Builder"
                   placeholderTextColor="#555"
@@ -243,7 +321,8 @@ const SignUpScreen = ({ navigation }) => {
                   onChangeText={setName}
                   editable={!loading}
                   returnKeyType="next"
-                  onSubmitEditing={() => emailRef.current.focus()}
+                  onFocus={() => scrollToInput(nameRef)}
+                  onSubmitEditing={() => focusField(emailRef)}
                 />
               </View>
 
@@ -262,9 +341,11 @@ const SignUpScreen = ({ navigation }) => {
                   autoCapitalize="none"
                   value={email}
                   onChangeText={setEmail}
+                  onBlur={() => setEmail((value) => value.trim())}
                   editable={!loading}
                   returnKeyType="next"
-                  onSubmitEditing={() => passwordRef.current.focus()}
+                  onFocus={() => scrollToInput(emailRef)}
+                  onSubmitEditing={() => focusField(passwordRef)}
                 />
               </View>
 
@@ -279,9 +360,11 @@ const SignUpScreen = ({ navigation }) => {
                   secureTextEntry={!showPassword}
                   value={password}
                   onChangeText={setPassword}
+                  onBlur={() => setPassword((value) => value.trim())}
                   editable={!loading}
                   returnKeyType="next"
-                  onSubmitEditing={() => confirmRef.current.focus()}
+                  onFocus={() => scrollToInput(passwordRef)}
+                  onSubmitEditing={() => focusField(confirmRef)}
                 />
                 <TouchableOpacity
                   style={AuthStyles.eyeIcon}
@@ -310,8 +393,10 @@ const SignUpScreen = ({ navigation }) => {
                   secureTextEntry={!showConfirm}
                   value={confirm}
                   onChangeText={setConfirm}
+                  onBlur={() => setConfirm((value) => value.trim())}
                   editable={!loading}
                   returnKeyType="done"
+                  onFocus={() => scrollToInput(confirmRef)}
                   onSubmitEditing={register} // 👈 Done submits form
                 />
                 <TouchableOpacity

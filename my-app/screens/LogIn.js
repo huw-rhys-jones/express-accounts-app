@@ -191,6 +191,10 @@ const LoginScreen = ({ navigation }) => {
         await runWithLoading("Signing you in…", async () => {
           await handlePostFederatedLogin(userCredential);
         });
+      }, (error) => {
+        setLoading(false);
+        setLoadingText(null);
+        showLoginError(error?.code, "Google sign-in could not be completed. Check your connection and try again.");
       });
   }
 

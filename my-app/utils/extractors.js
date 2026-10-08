@@ -64,6 +64,19 @@ function parseAmount(raw) {
   const neg = /^\(.*\)$/.test(t) || /^-/.test(t);
   t = t.replace(/[()\-]/g, '');
   t = t.replace(CURRENCY_SYMS, '');
+
+  // Common OCR artifact: 2445 means 24.45, 8995 means 89.95, etc. Keep the
+  // conversion conservative so real years/quantities are not misread as money.
+  const looksLikeOsrPrice = /^\d{4}$/.test(t) && !/^20\d{2}$/.test(t) && !/^19\d{2}$/.test(t);
+  if (looksLikeOsrPrice) {
+    const whole = Number(t.slice(0, -2));
+    const cents = Number(t.slice(-2));
+    if (Number.isFinite(whole) && Number.isFinite(cents) && whole >= 0 && cents >= 0 && cents <= 99) {
+      const num = Number(`${whole}.${String(cents).padStart(2, '0')}`);
+      if (Number.isFinite(num) && num > 0 && num < 1000) return neg ? -num : num;
+    }
+  }
+
   const lastComma = t.lastIndexOf(',');
   const lastDot = t.lastIndexOf('.');
 
@@ -201,11 +214,21 @@ function extractDate(text) {
 
       // score: prefer lines with date keywords; prefer not-in-future; slight bias to earlier lines
       const normalizedMatch = normalizeWhitespace(m[0]).toLowerCase();
-      const line = lines.find(ln => ln.toLowerCase().includes(normalizedMatch)) || '';
+      const lineIndex = lines.findIndex(ln => ln.toLowerCase().includes(normalizedMatch));
+      const line = lineIndex >= 0 ? lines[lineIndex] : '';
+      const contextText = [lines[lineIndex - 1] || '', line, lines[lineIndex + 1] || ''].filter(Boolean).join(' ');
       const today = new Date();
       const dt = new Date(iso);
       let score = 1;
-      if (/\b(date|txn|transaction|issued|invoice|payment)\b/i.test(line)) score += 1.2;
+      const isInvoiceDateContext = /\b(?:invoice|date|issued|statement)\b/i.test(contextText) && !/\b(?:due|payment|deadline)\b/i.test(contextText);
+      const isDueDateContext = DUE_DATE_HINT_RE.test(contextText);
+      const isPeriodContext = /\b(?:week|period|end|commencing|from|to)\b/i.test(contextText);
+      const isTransactionLikeContext = /\b(?:units|rate|vat|net|gross|total|sheet|ref|period|contractor|ts|description)\b/i.test(contextText) && !isInvoiceDateContext;
+      if (isInvoiceDateContext) score += 3.2;
+      if (isDueDateContext) score -= 2.0;
+      if (isPeriodContext) score -= 1.5;
+      if (isTransactionLikeContext) score -= 1.0;
+      if (/\b(txn|transaction|issued|invoice|payment)\b/i.test(contextText)) score += 1.2;
       if (dt > today) score -= 1.0;
       // clamp years to sane range
       const year = dt.getFullYear();
@@ -223,7 +246,14 @@ function extractDate(text) {
 // ---------- amount extraction ----------
 // ---------- amount extraction ----------
 // ---------- amount extraction ----------
-const MONEY_RE = /(?:£\s?|GBP\s*)?(?:\d{1,3}(?:[\s,.]\d{3})+|\d{1,6})[.,]\d{1,2}(?!\d)/g;
+const MONEY_RE = /(?:£\s?|₤\s?|GBP\s*)?(?:\d{1,3}(?:[\s,.]\d{3})+|\d{1,6})[.,]\d{1,2}(?!\d)/g;
+// Matches "total"/"totals" plus common OCR misreads of the word (TOTAT, TOTA1, IOTAL, TOTAI)
+// seen on thermal-printer receipts — keeps this in sync with the guardrail regexes below
+// that already special-case these variants.
+const TOTAL_HINT_RE = /\b(?:grand\s+)?tot[a4][l1t]s?\b|\biotal\b|\b(?:total\s+)?amount\s+due\b|\bbalance\s+due\b|\bgrand\s+total\b/i;
+const DUE_HINT_RE = /\b(?:amount|balance)\s+due\b|\btotal\s+amount\s+due\b/i;
+const INVOICE_DATE_HINT_RE = /\b(?:date|invoice\s+date|issued|invoice|statement\s+date)\b/i;
+const DUE_DATE_HINT_RE = /\b(?:due\s+by|payment\s+due|due\s+date)\b/i;
 
 // Inside your extractors.js
 export function extractAmount(reconstructedText) {
@@ -243,13 +273,92 @@ export function extractAmount(reconstructedText) {
       return `${intPart}/${decPart}`;
     }
   );
+  reconstructedText = reconstructedText.replace(/([£₤$€¥]\s*\d{1,6}[.,])([CO])\b/gi, '$10');
 
   const lines = reconstructedText.split('\n');
   const lineData = lines.map(l => l.toUpperCase());
   const candidates = [];
 
+  const labelledAmount = (label, maxLines = 2) => {
+    const labelIndex = lineData.findIndex(line => label.test(line));
+    if (labelIndex < 0) return null;
+    for (let offset = 0; offset <= maxLines && labelIndex + offset < lines.length; offset += 1) {
+      const match = lines[labelIndex + offset].match(/(?:£\s*)?(\d{1,3}(?:[,.\s]\d{3})+(?:[.,]\d{2})?|\d+[.,]\d{2})/);
+      const value = match ? parseAmount(match[1]) : null;
+      if (Number.isFinite(value) && value > 0) return value;
+    }
+    return null;
+  };
+
+  const strongLabelPatterns = [
+    /\bgrand\s+total\b/i,
+    /\b(?:total\s+)?amount\s+due\b/i,
+    /\bbalance\s+due\b/i,
+    /\btotal\s+to\s+pay\b/i,
+    /\bcash\s+price\b/i,
+    /\bamount\s+payable\b/i,
+  ];
+
+  const explicitTotal = (() => {
+    const indices = lineData
+      .map((line, index) => ({ line, index }))
+      .filter(({ line }) => strongLabelPatterns.some((pattern) => pattern.test(line)))
+      .map(({ line, index }) => ({ line, index }));
+
+    for (let i = indices.length - 1; i >= 0; i -= 1) {
+      const { line, index: idx } = indices[i];
+      if (/\bBALANCE\s+DUE\b/.test(line)) {
+        const followingBlock = lineData.slice(idx + 1, idx + 5).join(' ');
+        const previousCurrency = lines[idx - 1]?.match(/(?:GBP\s*)?[£₤$€¥]\s*(\d{1,3}(?:[,\.\s]\d{3})+(?:[.,]\d{2})?|\d+[.,]\d{1,2})/i);
+        if (previousCurrency && /\b(?:GIFT\s+CARD|CARD|MASTERCARD|VISA|PAYMENT)\b/.test(followingBlock)) {
+          const previousValue = parseAmount(previousCurrency[1]);
+          if (Number.isFinite(previousValue) && previousValue > 0) {
+            return { amount: previousValue, display: `£${previousValue.toFixed(2)}` };
+          }
+        }
+      }
+
+      const offsets = /\bBALANCE\s+DUE\b/.test(line) ? [0, 1, 2] : [0, 1, 2, 3, 4, 5];
+      const followingLabels = lineData.slice(idx, idx + 5).join(' ');
+      const passes = [
+        /(?:GBP\s*)?[£₤$€¥]\s*(\d{1,3}(?:[,\.\s]\d{3})+(?:[.,]\d{2})?|\d+[.,]\d{1,2})/i,
+        /\b(\d{1,3}(?:[,\.\s]\d{3})+(?:[.,]\d{2})?|\d+[.,]\d{2})\b/,
+      ];
+
+      for (const amountPattern of passes) {
+        if (amountPattern === passes[1] && /\bTOTAL\s+TO\s+PAY\b/.test(line) && /\bCASH\s+TENDERED\b/.test(followingLabels) && /\bCHANGE\b/.test(followingLabels)) {
+          continue;
+        }
+        for (const offset of offsets) {
+          const lineIndex = idx + offset;
+          if (lineIndex < 0 || lineIndex >= lines.length) continue;
+          const candidateLine = lines[lineIndex];
+          const match = candidateLine.match(amountPattern);
+          if (!match) continue;
+          if (amountPattern === passes[1] && /[A-Za-z].*\d|\d.*[A-Za-z]|\//.test(candidateLine)) continue;
+          const value = parseAmount(match[1]);
+          if (Number.isFinite(value) && value > 0) {
+            return { amount: value, display: `£${value.toFixed(2)}` };
+          }
+        }
+      }
+    }
+    return null;
+  })();
+
+  if (explicitTotal != null) {
+    return explicitTotal;
+  }
+
+  if (/construction industry scheme|payment and deduction statement/i.test(reconstructedText)) {
+    const grossPaid = labelledAmount(/\bGROSS\s+(?:PAID|PAYMENT)\b/, 2);
+    if (grossPaid != null) {
+      return { amount: grossPaid, display: `£${grossPaid.toFixed(2)}` };
+    }
+  }
+
   // Require a non-alphanumeric boundary before the amount to avoid matches like "9306U261.67"
-  const FORGIVING_MONEY = /(?:^|[^A-Z0-9])((?:GBP|[£S$€¥ECT])?\s?(?:\d{1,3}(?:[\s,.]\d{3})+|\d{1,6})[.,]\s?\d{1,2})(?!\d)/gi;
+  const FORGIVING_MONEY = /(?:^|[^A-Z0-9])((?:GBP|[£₤$€¥])?\s?(?:\d{1,3}(?:[\s,.]\d{3})+|\d{1,6})[.,]\s?\d{1,2})(?!\d)/gi;
 
   const hasNear = (lineIndex, regex, radius = 1) => {
     for (let i = Math.max(0, lineIndex - radius); i <= Math.min(lineData.length - 1, lineIndex + radius); i++) {
@@ -270,13 +379,29 @@ export function extractAmount(reconstructedText) {
 
   lines.forEach((line, lineIndex) => {
     const matches = [...line.matchAll(FORGIVING_MONEY)];
-    if (!matches.length) return;
+    const bareFourDigitValues = [...line.matchAll(/\b(\d{4})\b/g)].map(m => m[1]);
 
-    // Prevent duplicate same-value hits from the same line inflating repetition
+    const candidateRaws = new Map();
+    matches.forEach((match) => candidateRaws.set(match[1], match[1]));
+    bareFourDigitValues.forEach((token) => {
+      if (!/^\d{4}$/.test(token)) return;
+      if (/^(19|20)\d{2}$/.test(token)) return;
+      if (/[\/]/.test(line) || /\d{1,2}[\/.-]\d{1,2}/.test(line)) return;
+      if (/\b(?:date|time|invoice|order|acc|account|till|table|room|phone|vat\s+no|total|subtotal|discount|payment|receipt)\b/i.test(line)) {
+        // Keep these only when the line is a stand-alone price-like value, not a date or ID.
+      } else if (/(?:^|\s)\d{4}(?:\s|$)/.test(line) && !/[A-Za-z]/.test(line)) {
+        candidateRaws.set(token, token);
+      }
+      if (/^\d{4}$/.test(line.trim()) && /(?:^|\s)\d{4}(?:\s|$)/.test(line) && !/[A-Za-z]/.test(line)) {
+        candidateRaws.set(token, token);
+      }
+    });
+
+    const allRaws = [...candidateRaws.keys()];
+    if (!allRaws.length) return;
+
     const seenValueInLine = new Set();
-
-    matches.forEach((match) => {
-      const raw = match[1];
+    allRaws.forEach((raw) => {
       const val = parseAmount(raw);
       if (Number.isNaN(val) || val <= 0 || val > 100000) return;
       const valueKey = val.toFixed(2);
@@ -285,10 +410,6 @@ export function extractAmount(reconstructedText) {
 
       const upperLine = lineData[lineIndex];
       const hasCurrency = /[£S$€¥]/i.test(raw);
-
-      // Reject 1-decimal amounts without a currency symbol — these are usually
-      // unit prices, percentages, or OCR noise (e.g. "168.9 p/litre", "20.0%").
-      // 2-decimal amounts are fine without currency (standard price format).
       const cleanedRaw = raw.replace(/[£S$€¥GBP\s]/gi, '');
       const decPart = cleanedRaw.split(/[.,]/).pop();
       if (decPart && decPart.length === 1 && !hasCurrency) return;
@@ -306,7 +427,7 @@ export function extractAmount(reconstructedText) {
   if (!candidates.length) return null;
 
   const totalLine = lineData.findIndex(
-    l => /\bTOTAL\b|\bTOTAT\b|\bTOTA1\b|\bAMOUNT\s+DUE\b|\bBALANCE\s+DUE\b|\bTOT\b/.test(l) && !/\bSUBTOTAL\b/.test(l)
+    l => TOTAL_HINT_RE.test(l) && !/\bSUBTOTAL\b/.test(l)
   );
 
   const valueLines = new Map();
@@ -316,6 +437,67 @@ export function extractAmount(reconstructedText) {
     set.add(c.lineIndex);
     valueLines.set(key, set);
   });
+
+  const totalToPayIndex = lineData.findIndex(l => /\bTOTAL\s+TO\s+PAY\b/.test(l));
+  const cashTenderedIndex = lineData.findIndex(l => /\bCASH\s+TENDERED\b/.test(l));
+  const changeIndex = lineData.findIndex(l => /\bCHANGE\b/.test(l));
+  if (totalToPayIndex >= 0 && cashTenderedIndex > totalToPayIndex && changeIndex > cashTenderedIndex) {
+    const currencyValues = [...new Set(
+      candidates
+        .filter(c => c.hasCurrency && c.lineIndex > totalToPayIndex)
+        .map(c => Number(c.val.toFixed(2)))
+    )];
+    for (const totalValue of currencyValues) {
+      for (const cashValue of currencyValues) {
+        for (const changeValue of currencyValues) {
+          if (totalValue >= cashValue || changeValue >= totalValue) continue;
+          if (Math.abs((totalValue + changeValue) - cashValue) > 0.06) continue;
+          return { amount: totalValue, display: `£${totalValue.toFixed(2)}` };
+        }
+      }
+    }
+  }
+
+  const nettIndex = lineData.findIndex(l => /^\s*NETT?\s*$/.test(l));
+  const taxIndex = lineData.findIndex((l, index) => index > nettIndex && /^\s*TAX\s*$/.test(l));
+  const grossIndex = lineData.findIndex((l, index) => index > taxIndex && /^\s*GROSS\s*$/.test(l));
+  if (nettIndex >= 0 && taxIndex > nettIndex && grossIndex > taxIndex && grossIndex - nettIndex <= 6) {
+    const summaryValues = candidates
+      .filter(c => c.lineIndex > grossIndex && c.lineIndex <= grossIndex + 8)
+      .sort((a, b) => a.lineIndex - b.lineIndex)
+      .map(c => Number(c.val.toFixed(2)));
+    for (let i = 0; i < summaryValues.length; i += 1) {
+      for (let j = 0; j < summaryValues.length; j += 1) {
+        for (let k = 0; k < summaryValues.length; k += 1) {
+          const netValue = summaryValues[i];
+          const taxValue = summaryValues[j];
+          const grossValue = summaryValues[k];
+          if (grossValue <= netValue || grossValue <= taxValue) continue;
+          if (Math.abs((netValue + taxValue) - grossValue) > 0.06) continue;
+          return { amount: grossValue, display: `£${grossValue.toFixed(2)}` };
+        }
+      }
+    }
+  }
+
+  const genericTotalIndex = lineData.findIndex(l => /^\s*(?:TOTAL|TOTAT|TOTA1|IOTAL)\s*:?\s*$/.test(l));
+  if (genericTotalIndex >= 0) {
+    const totalBlock = candidates.filter(c => {
+      if (!c.hasCurrency) return false;
+      if (c.lineIndex <= genericTotalIndex || c.lineIndex > genericTotalIndex + 12) return false;
+      const nearbyText = [lineData[c.lineIndex - 1] || '', c.upperLine].join(' ');
+      return !/\b(?:PAYMENT\s+RECEIPT|CASH|CHANGE|TENDER|CARD\s+PAYMENT|MASTERCARD|VISA|AID|AUTH(?:ORI[ZS]ATION)?|VAT\s+SUMMARY|POINTS?|VOUCHERS?)\b/.test(nearbyText);
+    });
+
+    if (totalBlock.length >= 2) {
+      totalBlock.sort((a, b) => {
+        if (b.val !== a.val) return b.val - a.val;
+        return b.lineIndex - a.lineIndex;
+      });
+      const winner = totalBlock[0];
+      return { amount: winner.val, display: `£${winner.val.toFixed(2)}` };
+    }
+  }
 
   const uniqueValues = [...new Set(candidates.map(c => c.val))].sort((a, b) => a - b);
   const median = uniqueValues[Math.floor(uniqueValues.length / 2)] || 0;
@@ -331,10 +513,15 @@ export function extractAmount(reconstructedText) {
     const key = candidate.val.toFixed(2);
     const uniqueLineCount = (valueLines.get(key) || new Set()).size;
 
-    const isTotalOnLine = /\bTOTAL\b|\bTOTAT\b|\bTOTA1\b|\bAMOUNT\s+DUE\b|\bBALANCE\s+DUE\b|\bGRAND\s+TOTAL\b|\bTOT\b/.test(line);
-    const isTotalNear = hasNear(candidate.lineIndex, /\bAMOUNT\s+DUE\b|\bBALANCE\s+DUE\b|\bGRAND\s+TOTAL\b/, 1);
-    const isTotalAboveOnly = !isTotalOnLine && !isTotalNear && hasAbove(candidate.lineIndex, /\bTOTAL\b|\bTOTAT\b|\bTOTA1\b|\bTOT\b/, 3);
-    const isTotalContext = isTotalOnLine || isTotalNear || isTotalAboveOnly;
+    const isExplicitDueLine = DUE_HINT_RE.test(line);
+    const isExplicitDueNear = hasNear(candidate.lineIndex, DUE_HINT_RE, 1);
+    const isExplicitDueAbove = hasAbove(candidate.lineIndex, DUE_HINT_RE, 2);
+    const isTotalOnLine = TOTAL_HINT_RE.test(line);
+    const isTotalNear = hasNear(candidate.lineIndex, TOTAL_HINT_RE, 1);
+    const isTotalAboveOnly = !isTotalOnLine && !isTotalNear && hasAbove(candidate.lineIndex, TOTAL_HINT_RE, 3);
+    const isGrandTotalLine = /\bgrand\s+total\b/i.test(line) || hasNear(candidate.lineIndex, /\bgrand\s+total\b/i, 1);
+    const isRatingContext = /\b(?:rating|rate\s+or\s+tip|tip)\b/i.test(line) || hasNear(candidate.lineIndex, /\b(?:rating|rate\s+or\s+tip|tip)\b/i, 1);
+    const isTotalContext = isTotalOnLine || isTotalNear || isTotalAboveOnly || isExplicitDueLine || isExplicitDueNear || isExplicitDueAbove;
     const isSubtotalContext = /\bSUBTOTAL\b|\bDISCOUNT\b|\bREFUND\b|\bTIPS?\b/.test(line)
       || hasNear(candidate.lineIndex, /\bSUBTOTAL\b|\bDISCOUNT\b|\bREFUND\b|\bTIPS?\b/, 1);
     const isVatContext = /\bVAT\b|\bTAX\b/.test(line)
@@ -345,6 +532,22 @@ export function extractAmount(reconstructedText) {
     const isItemLine = /\bKID\b|\bSTEAK\b|\bCHICKEN\b|\bCOOKIE\b|\bSALAD\b|\bWINE\b|\bRUMP\b|\bPRAWN\b|\bAVOCADO\b|\bMOZZARELLA\b|\bTOMATO\b|\bSAUCE\b|\bMEAL\b|\bBAG\s+CHARGE\b/.test(line);
 
     if (candidate.hasCurrency) score += 40;
+    if (isGrandTotalLine) score += 420;
+    if (isRatingContext && !isTotalContext) score -= 900;
+    if (isExplicitDueLine || isExplicitDueNear || isExplicitDueAbove) score += 320;
+    if (totalLine >= 0) {
+      const isAfterTotalLabel = candidate.lineIndex >= totalLine && candidate.lineIndex <= totalLine + 5;
+      const isBeforeTotalLabel = candidate.lineIndex < totalLine;
+      if (isAfterTotalLabel) score += 260;
+      if (isBeforeTotalLabel) score -= 240;
+      if (candidate.lineIndex > totalLine + 5) score -= 120;
+      const windowValues = candidates.filter(c => c.lineIndex >= totalLine && c.lineIndex <= totalLine + 5).map(c => c.val);
+      if (windowValues.length) {
+        const maxWindowValue = Math.max(...windowValues);
+        if (candidate.val >= maxWindowValue * 0.98 && candidate.val === maxWindowValue) score += 450;
+        else if (candidate.val < maxWindowValue * 0.9) score -= 160;
+      }
+    }
     if (candidate.val < 1) score -= 40;
     else if (candidate.val < 3) score -= 15;
 
@@ -360,8 +563,8 @@ export function extractAmount(reconstructedText) {
       score -= 260;
     }
 
-    if (isTotalOnLine || isTotalNear) score += 260;
-    else if (isTotalAboveOnly) score += 130; // reduced: might be column-table label offset
+    if (isTotalOnLine || isTotalNear) score += 420;
+    else if (isTotalAboveOnly) score += 180; // reduced: might be column-table label offset
     if (isSubtotalContext) score -= 190;
     if (isVatContext) score -= 260;
     if (isPaymentContext) score -= 140;
@@ -427,13 +630,18 @@ export function extractAmount(reconstructedText) {
     }
 
     // Strong boost for values tied to explicit TOTAL/SALE/DEBIT lines around the total section
-    if ((/\bTOTAL\b|\bTOTAT\b|\bTOTA1\b|\bAMOUNT\s+DUE\b|\bTOT\b/.test(line) || /\bSALE\b|\bDEBIT\b/.test(line)) && candidate.val >= 10) {
-      score += 170;
+    if ((TOTAL_HINT_RE.test(line) || DUE_HINT_RE.test(line) || /\bSALE\b|\bDEBIT\b/.test(line)) && candidate.val >= 10) {
+      score += 220;
     }
 
     // Small repeated item prices should not beat large final totals near the total line
     if (candidate.val < 10 && uniqueLineCount >= 2 && isItemLine && totalLine >= 0 && candidate.lineIndex <= totalLine) {
       score -= 120;
+    }
+
+    // If the document has explicit grand-total or amount-due framing, prefer the largest value nearby.
+    if (isTotalContext && candidate.val >= 10 && largest > 0 && candidate.val >= largest * 0.7) {
+      score += 80;
     }
 
     candidate.score = score;
@@ -534,6 +742,11 @@ export function extractAmount(reconstructedText) {
     return b.lineIndex - a.lineIndex;
   });
 
+  const hasRatingContext = lineData.some(l => /\b(?:rating|rate\s+or\s+tip|tip)\b/i.test(l));
+  if (totalLine < 0 && hasRatingContext && candidates.every(c => c.val <= 20)) {
+    return null;
+  }
+
   const winner = candidates[0];
 
   return {
@@ -578,10 +791,20 @@ function cleanReferenceValue(raw) {
     .replace(/[.,;:]+$/, "");
 
   if (!cleaned) return null;
-  if (cleaned.length < 3 || cleaned.length > 32) return null;
-  if (!/[A-Z]/i.test(cleaned) || !/\d/.test(cleaned)) return null;
 
-  return cleaned;
+  const withoutLabel = cleaned
+    .replace(/^\s*(?:invoice(?:\s+(?:no|number))?|reference|ref|statement|document|quotation\s+ref|payment\s+reference)\s*[:#-]?\s*/i, "")
+    .trim();
+
+  if (!withoutLabel) return null;
+  if (withoutLabel.length < 2 || withoutLabel.length > 32) return null;
+  if (!/\d/.test(withoutLabel)) return null;
+  if (/\b(?:payment|bank|account|customer|date|vat|phone|address|contact)\b/i.test(withoutLabel)) return null;
+  if (/\b(?:jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|jun(?:e)?|jul(?:y)?|aug(?:ust)?|sep(?:tember)?|sept|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?)\b/i.test(withoutLabel) && /\d{4}/.test(withoutLabel)) return null;
+  if (/\d{1,2}[\/.-]\d{1,2}[\/.-]\d{2,4}/.test(withoutLabel)) return null;
+  if (/^£/.test(withoutLabel)) return null;
+
+  return withoutLabel;
 }
 
 function extractReference(text) {
@@ -589,6 +812,38 @@ function extractReference(text) {
 
   const lines = text.split("\n").map(normalizeWhitespace).filter(Boolean);
   const candidates = [];
+  const addCandidate = (reference, score) => {
+    const cleaned = cleanReferenceValue(reference);
+    if (cleaned) candidates.push({ reference: cleaned, score });
+  };
+
+  lines.forEach((line, index) => {
+    const nextLines = lines.slice(index + 1, index + 7);
+
+    const standaloneInvoice = line.match(/^inv[-/]?\d{2,}[a-z0-9/-]*$/i);
+    if (standaloneInvoice) addCandidate(standaloneInvoice[0], 4.8);
+
+    if (/^invoice$/i.test(line)) {
+      const identifier = nextLines.find(value =>
+        /^(?:[a-z]+[-/]?)?\d+[a-z0-9/-]*$/i.test(value) &&
+        !/^\d{1,2}[/.\-]\d{1,2}[/.\-]\d{2,4}$/.test(value)
+      );
+      if (identifier) addCandidate(identifier, 4.4);
+    }
+
+    if (/^invoice number:?$/i.test(line)) {
+      const identifier = nextLines.find(value =>
+        /^\d{4,}$/.test(value) && !/^\d{1,2}[/.\-]\d{1,2}[/.\-]\d{2,4}$/.test(value)
+      );
+      if (identifier) addCandidate(identifier, 4.6);
+    }
+
+    if (/^sub\s*contractor\s*(?:no|number)\.?$/i.test(line)) {
+      const identifier = nextLines.find(value => /^\d{5,}$/.test(value));
+      if (identifier) addCandidate(identifier, 4.2);
+    }
+  });
+
   const referencePatterns = [
     {
       regex: /\b(?:reference|ref)(?:\s*(?:no|number))?\.?\s*[:#-]?\s*([A-Z0-9][A-Z0-9\/.\-]*(?:\s+[A-Z0-9\/.\-]+){0,2})\b/i,
@@ -603,8 +858,12 @@ function extractReference(text) {
       score: 2.8,
     },
   ];
+  const labelLinePattern = /\b(?:invoice|inv|reference|ref|statement|document)(?:\s*(?:no|number))?\b/i;
 
   lines.forEach((line, index) => {
+    const lineLower = line.toLowerCase();
+    const hasPaymentContext = /\b(payment|bank|account|customer)\b/i.test(lineLower);
+
     referencePatterns.forEach(({ regex, score }) => {
       const match = line.match(regex);
       const reference = cleanReferenceValue(match?.[1]);
@@ -612,10 +871,23 @@ function extractReference(text) {
 
       let candidateScore = score;
       if (/\b(invoice|reference|statement)\b/i.test(line)) candidateScore += 0.6;
+      if (hasPaymentContext) candidateScore -= 1.5;
       if (index <= 4) candidateScore += 0.2;
 
       candidates.push({ reference, score: candidateScore });
     });
+
+    if (labelLinePattern.test(lineLower)) {
+      const nextLine = lines[index + 1];
+      const reference = cleanReferenceValue(nextLine);
+      if (reference && !hasPaymentContext) {
+        let candidateScore = 3.8;
+        if (/\b(invoice|inv)\b/i.test(lineLower)) candidateScore += 0.8;
+        if (/\b(reference|ref)\b/i.test(lineLower)) candidateScore += 0.4;
+        if (index <= 4) candidateScore += 0.2;
+        candidates.push({ reference, score: candidateScore });
+      }
+    }
   });
 
   if (!candidates.length) return null;
@@ -636,8 +908,13 @@ const getAllowedVatRates = () => {
 };
 
 // ---------- VAT extraction (snaps to categories_meta rates only) ----------
-export function extractVAT(text, amountInfo, categoryIdx) {
+export function extractVAT(text, amountInfo, categoryIdx, profile = undefined) {
   if (!text) return { value: null, rate: null };
+
+  const isVatRegistered = profile === undefined || profile === null
+    ? true
+    : profile?.taxProfile?.vat?.isRegistered !== false && profile?.isVatRegistered !== false;
+  if (!isVatRegistered) return { value: null, rate: null };
 
   const allowedRates = getAllowedVatRates();
 
@@ -656,6 +933,29 @@ export function extractVAT(text, amountInfo, categoryIdx) {
 
   const cleaned = text.replace(/\r\n/g, "\n");
   const lines = cleaned.split("\n").map(l => l.trim()).filter(Boolean);
+  const inferRateFromAmounts = (vatValue) => {
+    if (!Number.isFinite(vatValue) || !amountInfo?.amount || vatValue <= 0 || vatValue >= amountInfo.amount) return null;
+    return snapRate((vatValue / (amountInfo.amount - vatValue)) * 100);
+  };
+
+  const isCisDeductionStatement = /\b(?:subcontractor statement|statement of payment and deductions|construction industry scheme|payment and deduction statement|remittance advice)\b/i.test(cleaned) &&
+    /\b(?:cis\s+)?tax deduction\b|\bdeducted\s*\(\s*b\s*\)|\bgross\s+(?:paid|payment)\b/i.test(cleaned);
+  if (isCisDeductionStatement) {
+    return { value: 0, rate: 0 };
+  }
+
+  for (let index = 0; index < lines.length; index += 1) {
+    const label = lines[index];
+    if (!/^vat(?:\s*\(\s*\d{1,2}(?:[.,]\d{1,2})?\s*%\s*\))?\s*[:\-]?$/i.test(label)) continue;
+    const valueLine = lines[index + 1] || "";
+    if (/\b\d{1,2}[/.\-]\d{1,2}[/.\-]\d{2,4}\b/.test(valueLine)) continue;
+    const valueMatch = valueLine.match(/(?:£\s*)?(\d{1,3}(?:[,.]\d{3})*(?:[.,]\d{2})?)/);
+    const value = valueMatch ? parseAmount(valueMatch[1]) : null;
+    if (!Number.isFinite(value)) continue;
+    const rateMatch = label.match(/(\d{1,2}(?:[.,]\d{1,2})?)\s*%/i);
+    const rate = value === 0 ? 0 : rateMatch ? snapRate(parseFloat(rateMatch[1].replace(',', '.'))) : inferRateFromAmounts(value);
+    return { value: parseFloat(value.toFixed(2)), rate };
+  }
 
   // Cap an OCR-detected VAT value at the theoretical maximum for the detected
   // category: if the receipt shows a higher number it is almost certainly an OCR
@@ -675,11 +975,11 @@ export function extractVAT(text, amountInfo, categoryIdx) {
   if (hdrIdx >= 0) {
     for (let i = 1; i <= 3 && hdrIdx + i < lines.length; i++) {
       const row = lines[hdrIdx + i];
-      const nums = (row.match(/£?\s*\d+\.\d{2}/g) || []).map(s =>
-        parseFloat(s.replace(/[£\s]/g, ""))
+      const nums = (row.match(/£?\s*\d+(?:[.,]\d{2})/g) || []).map(s =>
+        parseFloat(s.replace(/[£\s]/g, "").replace(/,/g, ""))
       );
-      const rm = row.match(/(\d{1,2}(?:\.\d{1,2})?)\s*(?:%|$)/);
-      const snapped = rm ? snapRate(parseFloat(rm[1])) : null;
+      const rm = row.match(/(\d{1,2}(?:[.,]\d{1,2})?)\s*(?:%|$)/);
+      const snapped = rm ? snapRate(parseFloat(rm[1].replace(',', '.'))) : null;
 
       if (nums.length >= 3) {
         const vatVal = nums[nums.length - 1]; // VAT column usually last
@@ -691,26 +991,41 @@ export function extractVAT(text, amountInfo, categoryIdx) {
     }
   }
 
-  // 2) Explicit "VAT amount" lines (ignore "VAT No")
+  // 2) Explicit VAT amount lines (ignore registration / number headers)
   for (const l of lines) {
-    if (/vat\s*no\b/i.test(l)) continue;
+    const low = l.toLowerCase();
+    if (!/\b(?:vat|tax)\b/i.test(low)) continue;
+    if (/vat\s*(?:no|number|reg|registration|account|code)\b/i.test(low)) continue;
+
+    const moneyMatch = l.match(/(£\s*\d+(?:[.,]\d{2})?)/i);
+    if (moneyMatch) {
+      const rawValue = moneyMatch[1].replace(/[£\s]/g, "").replace(/,/g, "");
+      const val = parseFloat(rawValue);
+      if (Number.isFinite(val)) {
+        const rateMatch = l.match(/(\d{1,2}(?:[.,]\d{1,2})?)\s*%/i);
+        const rate = rateMatch ? snapRate(parseFloat(rateMatch[1].replace(',', '.'))) : inferRateFromAmounts(val);
+        return { value: capVat(parseFloat(val.toFixed(2))), rate };
+      }
+    }
+
     const m =
-      l.match(/vat(?!\s*no)[^0-9£]*(£?\s*\d+\.\d{2})/i) ||
-      l.match(/(£\s*\d+\.\d{2})\s*vat\b/i);
+      l.match(/\b(?:vat|tax)\b(?:[^£%\n]*?)(£\s*\d+(?:[.,]\d{2})?)/i) ||
+      l.match(/(£\s*\d+(?:[.,]\d{2})?)\s*\b(?:vat|tax)\b/i);
     if (m) {
-      const val = parseFloat(m[1].replace(/[£\s]/g, ""));
-      if (isFinite(val)) return { value: capVat(parseFloat(val.toFixed(2))), rate: null };
+      const rawValue = m[1].replace(/[£\s]/g, "").replace(/,/g, "");
+      const val = parseFloat(rawValue);
+      if (Number.isFinite(val)) return { value: capVat(parseFloat(val.toFixed(2))), rate: null };
     }
   }
 
   // 3) A rate near "VAT" → compute using snapped rate
   const rateHit =
-    cleaned.match(/(?:vat[^%\n]{0,12})?(\d{1,2}(?:\.\d{1,2})?)\s*%/i) ||
-    cleaned.match(/(\d{1,2}(?:\.\d{1,2})?)\s*%\s*vat/i);
-  const snappedRate = rateHit ? snapRate(parseFloat(rateHit[1])) : null;
+    cleaned.match(/(?:vat[^%\n]{0,12})?(\d{1,2}(?:[.,]\d{1,2})?)\s*%/i) ||
+    cleaned.match(/(\d{1,2}(?:[.,]\d{1,2})?)\s*%\s*vat/i) ||
+    cleaned.match(/\b(?:vat|tax)\s*(?:rate)?\s*[:#-]?\s*(\d{1,2}(?:[.,]\d{1,2})?)/i);
+  const snappedRate = rateHit ? snapRate(parseFloat(rateHit[1].replace(',', '.'))) : null;
 
   if (snappedRate != null && amountInfo?.amount) {
-    // If detected rate is 0% but the category normally has a higher rate, use category rate
     const catRateOverride = categoryIdx >= 0 ? categories_meta[categoryIdx]?.vatRate : null;
     const effectiveRate = (snappedRate === 0 && Number.isFinite(catRateOverride) && catRateOverride > 0)
       ? catRateOverride
@@ -732,7 +1047,61 @@ export function extractVAT(text, amountInfo, categoryIdx) {
     }
   }
 
+  // 5) If the invoice clearly contains a VAT line but the amount is missing, infer from total/amount and a standard UK rate
+  if (amountInfo?.amount && /\bvat\b/i.test(cleaned) && !/\b(?:zero|0(?:\.00)?|no vat|exempt|vat exempt|vat free)\b/i.test(cleaned)) {
+    const inferredRate = 20;
+    const gross = amountInfo.amount;
+    const net = gross / (1 + inferredRate / 100);
+    const vat = gross - net;
+    return { value: parseFloat(vat.toFixed(2)), rate: inferredRate };
+  }
+
   return { value: null, rate: null };
+}
+
+export function extractCIS(text, amountInfo) {
+  if (!text) {
+    return { applies: false, materialsAmount: 0, deductionRate: 0, taxWithheld: 0 };
+  }
+
+  const lines = text.replace(/\r\n/g, "\n").split("\n").map(line => line.trim()).filter(Boolean);
+  const applies = /construction industry scheme|cis\s+(?:subcontractors?\s+)?payment statement|payment and deduction statement|remittance advice(?=[\s\S]*?tax deduction)/i.test(text);
+  if (!applies) {
+    return { applies: false, materialsAmount: 0, deductionRate: 0, taxWithheld: 0 };
+  }
+
+  const moneyFromLine = (line) => {
+    const match = line.match(/(?:£\s*)?(\d{1,3}(?:[,.]\d{3})*[.,]\d{2})-?/);
+    return match ? parseAmount(match[1]) : null;
+  };
+
+  const rateMatch = text.match(/\b(?:cis\s+)?(?:tax\s+)?(?:deduction|rate)\b[^%\n]{0,20}?(\d{1,2}(?:[.,]\d{1,2})?)\s*%/i) ||
+    text.match(/\b(\d{1,2}(?:[.,]\d{1,2})?)\s*%\b(?=[\s\S]{0,80}\b(?:cis|tax)\b)/i);
+  const deductionRate = rateMatch ? parseFloat(rateMatch[1].replace(',', '.')) : 20;
+
+  let taxWithheld = null;
+  for (let index = 0; index < lines.length; index += 1) {
+    if (!/\b(?:cis\s+|tax\s+)deduction\b|\bdeducted\s*\(\s*b\s*\)|\btax\s+withheld\b/i.test(lines[index])) continue;
+    for (let offset = 0; offset <= 4 && index + offset < lines.length; offset += 1) {
+      const value = moneyFromLine(lines[index + offset]);
+      if (value != null) {
+        taxWithheld = value;
+        break;
+      }
+    }
+    if (taxWithheld != null) break;
+  }
+
+  if (taxWithheld == null && amountInfo?.amount != null) {
+    taxWithheld = Number((amountInfo.amount * deductionRate / 100).toFixed(2));
+  }
+
+  return {
+    applies: true,
+    materialsAmount: 0,
+    deductionRate,
+    taxWithheld: taxWithheld ?? 0,
+  };
 }
 
 
@@ -778,7 +1147,7 @@ export function categoryFinder(text, categories) {
 
 
 // ---------- main ----------
-export function extractData(text) {
+export function extractData(text, profile = undefined) {
   if (!text || typeof text !== 'string') {
     return {
       money: { value: null, currency: 0 },
@@ -786,16 +1155,21 @@ export function extractData(text) {
       reference: null,
       category: -1,
       vat: { value: null, rate: null },
+      cis: { applies: false, materialsAmount: 0, deductionRate: null, taxWithheld: 0 },
     };
   }
 
   const cleaned = text.replace(/\r\n/g, '\n');
+  const isVatRegistered = profile === undefined || profile === null
+    ? true
+    : profile?.taxProfile?.vat?.isRegistered !== false && profile?.isVatRegistered !== false;
 
   const amountInfo = extractAmount(cleaned);
   const dateIso = extractDate(cleaned);
   const reference = extractReference(cleaned);
   const categoryIdx = categoryFinder(cleaned, categories_meta);
-  const vatInfo = extractVAT(cleaned, amountInfo, categoryIdx);
+  const vatInfo = isVatRegistered ? extractVAT(cleaned, amountInfo, categoryIdx, profile) : { value: null, rate: null };
+  const cisInfo = extractCIS(cleaned, amountInfo);
 
   return {
     money: {
@@ -807,6 +1181,7 @@ export function extractData(text) {
     reference,
     category: categoryIdx,
     vat: vatInfo, // ✅ new field
+    cis: cisInfo,
   };
 }
 

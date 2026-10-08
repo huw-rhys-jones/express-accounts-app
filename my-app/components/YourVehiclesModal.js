@@ -10,7 +10,7 @@ import {
 import { Colors } from "../utils/sharedStyles";
 import RegisterVehicleModal from "./RegisterVehicleModal";
 
-export default function YourVehiclesModal({ visible, onClose, vehicles, onChanged }) {
+export default function YourVehiclesModal({ visible, onClose, vehicles, onChanged, onRecordMileage }) {
   const [editingVehicle, setEditingVehicle] = useState(null);
   const [registerOpen, setRegisterOpen] = useState(false);
 
@@ -35,9 +35,7 @@ export default function YourVehiclesModal({ visible, onClose, vehicles, onChange
                   <TouchableOpacity
                     key={v.id}
                     style={styles.vehicleRow}
-                    onPress={() => {
-                      setEditingVehicle(v);
-                    }}
+                    onPress={() => setEditingVehicle(v)}
                     activeOpacity={0.75}
                   >
                     <View style={styles.regBadge}>
@@ -60,7 +58,7 @@ export default function YourVehiclesModal({ visible, onClose, vehicles, onChange
                 style={styles.addBtn}
                 onPress={() => setRegisterOpen(true)}
               >
-                <Text style={styles.addBtnText}>+ Add Another Vehicle</Text>
+                <Text style={styles.addBtnText}>+ Add Vehicle</Text>
               </TouchableOpacity>
             </ScrollView>
 
@@ -75,6 +73,7 @@ export default function YourVehiclesModal({ visible, onClose, vehicles, onChange
       <RegisterVehicleModal
         visible={Boolean(editingVehicle)}
         vehicle={editingVehicle}
+        onRecordMileage={onRecordMileage}
         onClose={() => setEditingVehicle(null)}
         onSaved={(updated) => {
           setEditingVehicle(null);
@@ -85,6 +84,7 @@ export default function YourVehiclesModal({ visible, onClose, vehicles, onChange
       {/* Add new vehicle */}
       <RegisterVehicleModal
         visible={registerOpen}
+        onRecordMileage={onRecordMileage}
         onClose={() => setRegisterOpen(false)}
         onSaved={(updated) => {
           setRegisterOpen(false);

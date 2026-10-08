@@ -2,6 +2,7 @@ apply plugin: "com.android.application"
 apply plugin: "org.jetbrains.kotlin.android"
 apply plugin: "com.facebook.react"
 
+apply from: rootProject.file("env.gradle")
 def projectRoot = rootDir.getAbsoluteFile().getParentFile().getAbsolutePath()
 
 /**
@@ -67,6 +68,7 @@ react {
  * Set this to true in release builds to optimize the app using [R8](https://developer.android.com/topic/performance/app-optimization/enable-app-optimization).
  */
 def enableMinifyInReleaseBuilds = (findProperty('android.enableMinifyInReleaseBuilds') ?: false).toBoolean()
+def googleMapsApiKey = (findProperty('GOOGLE_MAPS_API_KEY') ?: System.getenv('GOOGLE_MAPS_API_KEY') ?: "")
 
 /**
  * The preferred build flavor of JavaScriptCore (JSC)
@@ -94,8 +96,17 @@ android {
         targetSdkVersion rootProject.ext.targetSdkVersion
         versionCode (findProperty('android.versionCode') as Integer) ?: 1
         versionName (findProperty('android.versionName') ?: '1.2.0')
+        manifestPlaceholders = [
+            GOOGLE_MAPS_API_KEY: googleMapsApiKey,
+            AUTH_REDIRECT_SCHEME: "com.caistec.expressaccounts"
+        ]
 
         buildConfigField "String", "REACT_NATIVE_RELEASE_LEVEL", "\"${findProperty('reactNativeReleaseLevel') ?: 'stable'}\""
+        buildConfigField "String", "FIREBASE_API_KEY", buildConfigString(envValue("FIREBASE_API_KEY"))
+        buildConfigField "String", "FIREBASE_APP_ID", buildConfigString(envValue("FIREBASE_APP_ID"))
+        buildConfigField "String", "FIREBASE_PROJECT_ID", buildConfigString(envValue("FIREBASE_PROJECT_ID"))
+        buildConfigField "String", "FIREBASE_STORAGE_BUCKET", buildConfigString(envValue("FIREBASE_STORAGE_BUCKET"))
+        buildConfigField "String", "FIREBASE_MESSAGING_SENDER_ID", buildConfigString(envValue("FIREBASE_MESSAGING_SENDER_ID"))
     }
     signingConfigs {
         debug {
@@ -108,6 +119,9 @@ android {
     buildTypes {
         debug {
             signingConfig signingConfigs.debug
+            applicationIdSuffix ".dev"
+            versionNameSuffix "-dev"
+            resValue "string", "app_name", "Express Accounts Dev"
         }
         release {
             // Caution! In production, you need to generate your own keystore file.
@@ -155,6 +169,8 @@ android {
 dependencies {
     // The version of react-native is set by the React Native Gradle Plugin
     implementation("com.facebook.react:react-android")
+    implementation(platform("com.google.firebase:firebase-bom:33.16.0"))
+    implementation("com.google.firebase:firebase-common")
 
     def isGifEnabled = (findProperty('expo.gif.enabled') ?: "") == "true";
     def isWebpEnabled = (findProperty('expo.webp.enabled') ?: "") == "true";

@@ -9,6 +9,7 @@ const [major = 0, minor = 0, patch = 0] = String(appVersion)
   .map((part) => Number.parseInt(part, 10) || 0);
 
 const numericBuild = major * 10000 + minor * 100 + patch;
+const iosBuildNumber = process.env.IOS_BUILD_NUMBER || String(numericBuild);
 
 export default ({ config }) => ({
   ...config,
@@ -24,6 +25,11 @@ export default ({ config }) => ({
   newArchEnabled: false, // Keeping this false as per your current setup
   backgroundColor: "#302C66",
 
+  notification: {
+    icon: "./assets/notification-icon.png",
+    color: "#9B0D35"
+  },
+
   splash: {
     image: "./assets/splash-icon.png",
     resizeMode: "contain",
@@ -31,6 +37,7 @@ export default ({ config }) => ({
   },
 
   ios: {
+    buildNumber: iosBuildNumber,
     supportsTablet: false,
     bundleIdentifier: "com.caistec.expressaccounts",
     googleServicesFile: "./GoogleService-Info.plist",
@@ -59,12 +66,20 @@ export default ({ config }) => ({
       "android.permission.WRITE_EXTERNAL_STORAGE",
       "android.permission.READ_EXTERNAL_STORAGE",
       "android.permission.ACCESS_FINE_LOCATION",
-      "android.permission.ACCESS_COARSE_LOCATION"
+      "android.permission.ACCESS_COARSE_LOCATION",
+      "android.permission.POST_NOTIFICATIONS"
     ]
   },
 
   plugins: [
     "expo-apple-authentication",
+    [
+      "expo-notifications",
+      {
+        "icon": "./assets/notification-icon.png",
+        "color": "#9B0D35"
+      }
+    ],
     "expo-router",
     [
       "expo-location",

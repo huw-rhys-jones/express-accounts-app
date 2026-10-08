@@ -3,7 +3,7 @@ service cloud.firestore {
   match /databases/{database}/documents {
 
     // Accountant emails that can read all data in this project.
-    // Keep this list in sync with ALLOWED_EMAILS in client-portal-mock.html.
+    // Keep this list in sync with ALLOWED_EMAILS in client-portal.html.
     function isAccountant() {
       return request.auth != null &&
              request.auth.token.email in ["info@caistec.com", "info@expressaccounts.biz", "catrin@expressaccounts.biz"];
@@ -74,6 +74,10 @@ service cloud.firestore {
     match /users/{userId} {
       allow read, write: if isOwner(userId);
       allow read, update: if isAccountant();
+    }
+
+    match /users/{userId}/pushTokens/{tokenId} {
+      allow read, write, delete: if isOwner(userId);
     }
 
     // 2FA challenges: users create and approve/deny their own challenges.

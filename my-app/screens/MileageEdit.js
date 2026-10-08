@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
@@ -12,6 +12,7 @@ import {
   View,
 } from "react-native";
 import DropDownPicker from "react-native-dropdown-picker";
+import { Checkbox } from "react-native-paper";
 import Constants from "expo-constants";
 import {
   doc,
@@ -21,20 +22,19 @@ import {
 } from "firebase/firestore";
 import { auth, db } from "../firebaseConfig";
 import { Colors } from "../utils/sharedStyles";
-import { formatDate } from "../utils/format_style";
+import { formatDate, formatCurrency } from "../utils/format_style";
 import DateTimePickerModal from "react-native-modal-datetime-picker";
-import { useSafeAreaInsets } from "react-native-safe-area-context";
 import {
   getVehicles,
   setLastUsedVehicleId,
 } from "../utils/appSettings";
 import { useData } from "../contexts/DataContext";
+import MileageRouteMap from "../components/MileageRouteMap";
 
 const GOOGLE_MAPS_KEY =
   Constants.expoConfig?.extra?.GOOGLE_MAPS_API_KEY || "";
 
 export default function MileageEdit({ navigation, route }) {
-  const insets = useSafeAreaInsets();
   const item = route?.params?.item;
   const md = item?.mileageDetails || {};
 
@@ -62,8 +62,22 @@ export default function MileageEdit({ navigation, route }) {
   const [purpose, setPurpose] = useState(md.purpose || "");
   const [startAddress, setStartAddress] = useState(md.startAddress || "");
   const [endAddress, setEndAddress] = useState(md.endAddress || "");
-  const [distance, setDistance] = useState(md.distance ? String(md.distance) : "");
+  const [returnTrip, setReturnTrip] = useState(Boolean(md.returnTrip));
+  const [distance, setDistance] = useState(
+    md.returnTrip && md.oneWayDistance != null
+      ? String(md.oneWayDistance)
+      : md.distance ? String(md.distance) : "",
+  );
   const [loadingRoute, setLoadingRoute] = useState(false);
+  const [routeEndpoints, setRouteEndpoints] = useState(
+    md.startCoordinate && md.endCoordinate
+      ? {
+          start: md.startCoordinate,
+          end: md.endCoordinate,
+          encodedPath: md.routePolyline || "",
+        }
+      : null,
+  );
 
   // ── Autocomplete ───────────────────────────────────────────────────────────
   const [startSuggestions, setStartSuggestions] = useState([]);
@@ -78,9 +92,24 @@ export default function MileageEdit({ navigation, route }) {
   // ─────────────────────────────────────────────────────────────────────────
   const selectedVehicle = vehicles.find((v) => v.id === vehicleId) || null;
   const ratePerMile = selectedVehicle?.ratePerMile ?? md.ratePerMile ?? 55;
-  const effectiveMiles = parseFloat(distance) || 0;
+  const oneWayMiles = parseFloat(distance) || 0;
+  const effectiveMiles = oneWayMiles * (returnTrip ? 2 : 1);
   const amountGBP = ((effectiveMiles * ratePerMile) / 100).toFixed(2);
   const canSave = !!vehicleId && effectiveMiles > 0;
+  const isMileageDirty = useMemo(() => {
+    const initialOneWayDistance = md.returnTrip && md.oneWayDistance != null
+      ? String(md.oneWayDistance)
+      : md.distance ? String(md.distance) : "";
+    return (
+      vehicleId !== (md.vehicleId || null) ||
+      selectedDate.toISOString() !== (item?.date ? new Date(item.date).toISOString() : "") ||
+      purpose !== (md.purpose || "") ||
+      startAddress !== (md.startAddress || "") ||
+      endAddress !== (md.endAddress || "") ||
+      distance !== initialOneWayDistance ||
+      returnTrip !== Boolean(md.returnTrip)
+    );
+  }, [distance, endAddress, item?.date, md.distance, md.endAddress, md.oneWayDistance, md.purpose, md.returnTrip, md.startAddress, md.vehicleId, purpose, returnTrip, selectedDate, startAddress, vehicleId]);
 
   // ─────────────────────────────────────────────────────────────────────────
   useEffect(() => {
@@ -99,7 +128,7 @@ export default function MileageEdit({ navigation, route }) {
   // ─────────────────────────────────────────────────────────────────────────
   // Route calculation
   // ─────────────────────────────────────────────────────────────────────────
-  const calculateRoute = async (start, end) => {
+  const calculateRoute = async (start, end, updateDistance = true) => {
     if (!start || !end) return;
     setLoadingRoute(true);
     try {
@@ -107,14 +136,31 @@ export default function MileageEdit({ navigation, route }) {
       const res = await fetch(url);
       const data = await res.json();
       if (data.status === "OK" && data.routes?.length) {
-        setDistance((data.routes[0].legs[0].distance.value / 1609.344).toFixed(2));
+        const leg = data.routes[0].legs[0];
+        if (updateDistance) {
+          setDistance((leg.distance.value / 1609.344).toFixed(2));
+        }
+        setRouteEndpoints({
+          start: { latitude: leg.start_location.lat, longitude: leg.start_location.lng },
+          end: { latitude: leg.end_location.lat, longitude: leg.end_location.lng },
+          encodedPath: data.routes[0].overview_polyline?.points || "",
+        });
+      } else {
+        setRouteEndpoints(null);
       }
     } catch (err) {
       console.error("Directions error", err);
+      setRouteEndpoints(null);
     } finally {
       setLoadingRoute(false);
     }
   };
+
+  useEffect(() => {
+    if (!routeEndpoints?.encodedPath && startAddress && endAddress) {
+      calculateRoute(startAddress, endAddress, false);
+    }
+  }, []); // Existing records may predate persisted route coordinates.
 
   // ─────────────────────────────────────────────────────────────────────────
   // Places autocomplete (new API, verified users only)
@@ -135,6 +181,7 @@ export default function MileageEdit({ navigation, route }) {
   const handleStartChange = (text) => {
     setStartAddress(text);
     setStartSuggestions([]);
+    setRouteEndpoints(null);
     clearTimeout(startDebounce.current);
     startDebounce.current = setTimeout(async () => {
       setStartSuggestions(await fetchSuggestions(text));
@@ -144,6 +191,7 @@ export default function MileageEdit({ navigation, route }) {
   const handleEndChange = (text) => {
     setEndAddress(text);
     setEndSuggestions([]);
+    setRouteEndpoints(null);
     clearTimeout(endDebounce.current);
     endDebounce.current = setTimeout(async () => {
       setEndSuggestions(await fetchSuggestions(text));
@@ -179,10 +227,15 @@ export default function MileageEdit({ navigation, route }) {
           startAddress,
           endAddress,
           distance: effectiveMiles,
+          oneWayDistance: oneWayMiles,
+          returnTrip,
           vehicleId,
           vehicleReg: selectedVehicle?.registrationNumber || "",
           ratePerMile,
           purpose: purpose.trim(),
+          startCoordinate: routeEndpoints?.start || null,
+          endCoordinate: routeEndpoints?.end || null,
+          routePolyline: routeEndpoints?.encodedPath || null,
         },
         updatedAt: serverTimestamp(),
       });
@@ -222,7 +275,7 @@ export default function MileageEdit({ navigation, route }) {
     <View style={styles.container}>
       <View style={styles.header}>
         <TouchableOpacity onPress={() => navigation.goBack()} style={styles.headerBtn}>
-          <Text style={styles.headerBtnText}>‹</Text>
+          <Text style={styles.headerBtnText}>‹ Back</Text>
         </TouchableOpacity>
         <Text style={styles.headerTitle}>Edit Mileage</Text>
         <View style={styles.headerBtn} />
@@ -298,6 +351,10 @@ export default function MileageEdit({ navigation, route }) {
             {loadingRoute && <ActivityIndicator size="small" color={Colors.accent} style={{ marginLeft: 6 }} />}
           </Text>
           <TextInput style={styles.input} value={distance} onChangeText={setDistance} placeholder="0.0" placeholderTextColor="#999" keyboardType="decimal-pad" />
+          <TouchableOpacity style={styles.returnTripRow} onPress={() => setReturnTrip((current) => !current)}>
+            <Checkbox status={returnTrip ? "checked" : "unchecked"} color={Colors.accent} />
+            <Text style={styles.returnTripText}>Return trip</Text>
+          </TouchableOpacity>
 
           {/* Summary */}
           <View style={styles.summaryBox}>
@@ -311,18 +368,18 @@ export default function MileageEdit({ navigation, route }) {
             </View>
             <View style={[styles.summaryRow, styles.summaryRowLast]}>
               <Text style={styles.summaryLabelBold}>Amount</Text>
-              <Text style={styles.summaryValueBold}>£{effectiveMiles > 0 ? amountGBP : "0.00"}</Text>
+              <Text style={styles.summaryValueBold}>{effectiveMiles > 0 ? formatCurrency(amountGBP) : "£0.00"}</Text>
             </View>
           </View>
+          <MileageRouteMap
+            start={routeEndpoints?.start}
+            end={routeEndpoints?.end}
+            encodedPath={routeEndpoints?.encodedPath}
+          />
         </ScrollView>
 
         {/* Bottom action bar */}
-        <View
-          style={[
-            styles.bottomBar,
-            { paddingBottom: Math.max(insets.bottom, Platform.OS === "android" ? 24 : 16) },
-          ]}
-        >
+        <View style={styles.bottomBar}>
           <TouchableOpacity
             style={styles.deleteBtn}
             onPress={handleDelete}
@@ -331,11 +388,11 @@ export default function MileageEdit({ navigation, route }) {
             {deleting ? <ActivityIndicator color="#fff" size="small" /> : <Text style={styles.deleteBtnText}>Delete</Text>}
           </TouchableOpacity>
           <TouchableOpacity
-            style={[styles.saveBtn, !canSave && styles.saveBtnDisabled]}
-            onPress={handleSave}
-            disabled={!canSave || saving}
+            style={[styles.saveBtn, isMileageDirty && !canSave && styles.saveBtnDisabled]}
+            onPress={isMileageDirty ? handleSave : () => navigation.goBack()}
+            disabled={(isMileageDirty && !canSave) || saving}
           >
-            {saving ? <ActivityIndicator color="#fff" size="small" /> : <Text style={styles.saveBtnText}>Save</Text>}
+            {saving ? <ActivityIndicator color="#fff" size="small" /> : <Text style={styles.saveBtnText}>{isMileageDirty ? "Save" : "Close"}</Text>}
           </TouchableOpacity>
         </View>
       </KeyboardAvoidingView>
@@ -353,8 +410,8 @@ const styles = StyleSheet.create({
     paddingBottom: 14,
   },
   headerTitle: { color: "#fff", fontSize: 17, fontWeight: "700" },
-  headerBtn: { width: 40, alignItems: "center" },
-  headerBtnText: { color: "#fff", fontWeight: "600", fontSize: 22 },
+  headerBtn: { width: 82, alignItems: "flex-start" },
+  headerBtnText: { color: "#fff", fontWeight: "600", fontSize: 18 },
   scrollContent: { padding: 16, paddingBottom: 20 },
   fieldLabel: { fontSize: 13, fontWeight: "600", color: "#333", marginBottom: 4, marginTop: 12 },
   required: { color: Colors.accent },
@@ -375,6 +432,8 @@ const styles = StyleSheet.create({
   },
   suggestionRow: { paddingHorizontal: 14, paddingVertical: 11, borderBottomWidth: 1, borderBottomColor: "#f0f0f0" },
   suggestionText: { fontSize: 14, color: Colors.textPrimary },
+  returnTripRow: { alignItems: "center", flexDirection: "row", marginTop: 8 },
+  returnTripText: { color: Colors.textPrimary, fontSize: 14, fontWeight: "600" },
   summaryBox: { backgroundColor: "#fff", borderRadius: 14, padding: 16, marginTop: 20, borderWidth: 1, borderColor: Colors.border },
   summaryRow: { flexDirection: "row", justifyContent: "space-between", paddingVertical: 6, borderBottomWidth: 1, borderBottomColor: "#f0f0f0" },
   summaryRowLast: { borderBottomWidth: 0, paddingTop: 10 },
@@ -384,12 +443,12 @@ const styles = StyleSheet.create({
   summaryValueBold: { fontSize: 18, color: Colors.accent, fontWeight: "800" },
   bottomBar: {
     flexDirection: "row", padding: 16,
-    paddingBottom: 16,
+    paddingBottom: Platform.OS === "android" ? 24 : 16,
     gap: 12, backgroundColor: "#f4f4f8",
     borderTopWidth: 1, borderTopColor: "#e0e0e8",
   },
-  deleteBtn: { flex: 1, backgroundColor: "#cc2222", paddingVertical: 14, borderRadius: 30, alignItems: "center" },
-  deleteBtnText: { color: "#fff", fontWeight: "700", fontSize: 16 },
+  deleteBtn: { flex: 1, backgroundColor: "#fff", borderColor: Colors.accent, borderWidth: 1, paddingVertical: 14, borderRadius: 30, alignItems: "center" },
+  deleteBtnText: { color: Colors.accent, fontWeight: "700", fontSize: 16 },
   saveBtn: { flex: 1, backgroundColor: Colors.accent, paddingVertical: 14, borderRadius: 30, alignItems: "center" },
   saveBtnDisabled: { backgroundColor: "#b0b0c0" },
   saveBtnText: { color: "#fff", fontWeight: "700", fontSize: 16 },

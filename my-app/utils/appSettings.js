@@ -1,12 +1,11 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { auth } from "../firebaseConfig";
-import { db } from "../firebaseConfig";
-import { doc, getDoc, serverTimestamp, setDoc } from "firebase/firestore";
 
 const RECEIPT_FILTER_KEY = "@settings:receiptFilterKey";
 const INCOME_FILTER_KEY = "@settings:incomeFilterKey";
 const BANK_FILTER_KEY = "@settings:bankFilterKey";
 const SUMMARY_FILTER_KEY = "@settings:summaryFilterKey";
+const FINANCIAL_YEAR_SCOPE_KEY = "@settings:financialYearScope";
 
 async function getFilterKey(storageKey) {
   try {
@@ -27,6 +26,19 @@ export async function getReceiptFilterKey() {
 
 export async function setReceiptFilterKey(filterKey) {
   await setFilterKey(RECEIPT_FILTER_KEY, filterKey);
+}
+
+export async function getFinancialYearScope() {
+  try {
+    const value = await AsyncStorage.getItem(FINANCIAL_YEAR_SCOPE_KEY);
+    return value === "all-time" ? "all-time" : (value ? Number(value) : null);
+  } catch {
+    return null;
+  }
+}
+
+export async function setFinancialYearScope(startYear) {
+  await AsyncStorage.setItem(FINANCIAL_YEAR_SCOPE_KEY, String(startYear ?? "all-time"));
 }
 
 export async function getIncomeFilterKey() {
@@ -54,6 +66,8 @@ export async function setSummaryFilterKey(filterKey) {
 }
 
 const ADD_SHEET_TOOLTIP_SEEN_KEY = "@settings:addSheetTooltipSeen";
+const HIDDEN_PERIOD_TOOLTIP_DISMISSED_KEY = "@settings:hiddenPeriodTooltipDismissed";
+const ANNOTATE_IMAGES_KEY = "@settings:annotateImages";
 
 export async function getAddSheetTooltipSeen() {
   try {
@@ -72,6 +86,59 @@ export async function setAddSheetTooltipSeen() {
   }
 }
 
+export async function getHiddenPeriodTooltipDismissed() {
+  try {
+    const value = await AsyncStorage.getItem(HIDDEN_PERIOD_TOOLTIP_DISMISSED_KEY);
+    return value === "true";
+  } catch {
+    return false;
+  }
+}
+
+export async function setHiddenPeriodTooltipDismissed() {
+  try {
+    await AsyncStorage.setItem(HIDDEN_PERIOD_TOOLTIP_DISMISSED_KEY, "true");
+  } catch {
+    // ignore
+  }
+}
+
+export async function getAnnotateImages() {
+  try {
+    const value = await AsyncStorage.getItem(ANNOTATE_IMAGES_KEY);
+    return value == null ? true : value === "true";
+  } catch {
+    return true;
+  }
+}
+
+export async function setAnnotateImages(enabled) {
+  try {
+    await AsyncStorage.setItem(ANNOTATE_IMAGES_KEY, enabled ? "true" : "false");
+  } catch {
+    // ignore
+  }
+}
+
+const MILEAGE_OPTION_SEEN_KEY = "@settings:mileageOptionSeen";
+
+export async function getMileageOptionSeen() {
+  try {
+    const value = await AsyncStorage.getItem(MILEAGE_OPTION_SEEN_KEY);
+    return value === "true";
+  } catch {
+    return false;
+  }
+}
+
+export async function setMileageOptionSeen() {
+  try {
+    await AsyncStorage.setItem(MILEAGE_OPTION_SEEN_KEY, "true");
+  } catch {
+    // ignore
+  }
+}
+
 // ── Vehicles ──────────────────────────────────────────────────────────────────
 // Keys are scoped per user so each account has its own vehicle list on the device.
 function vehiclesKey() {
@@ -85,76 +152,19 @@ function lastUsedVehicleKey() {
 }
 
 export async function getVehicles() {
-  const readLocalVehicles = async () => {
-    try {
-      const raw = await AsyncStorage.getItem(vehiclesKey());
-      const parsed = raw ? JSON.parse(raw) : [];
-      return Array.isArray(parsed) ? parsed : [];
-    } catch {
-      return [];
-    }
-  };
-
-  const localVehicles = await readLocalVehicles();
-  const uid = auth.currentUser?.uid;
-  if (!uid) {
-    return localVehicles;
-  }
-
   try {
-    const userRef = doc(db, "users", uid);
-    const userSnap = await getDoc(userRef);
-    const cloudVehicles = userSnap.exists() && Array.isArray(userSnap.data()?.vehicles)
-      ? userSnap.data().vehicles
-      : [];
-
-    if (cloudVehicles.length > 0) {
-      await AsyncStorage.setItem(vehiclesKey(), JSON.stringify(cloudVehicles));
-      return cloudVehicles;
-    }
-
-    if (localVehicles.length > 0) {
-      // Migrate legacy device-local vehicles for this user to Firestore.
-      await setDoc(
-        userRef,
-        {
-          vehicles: localVehicles,
-          updatedAt: serverTimestamp(),
-        },
-        { merge: true }
-      );
-      return localVehicles;
-    }
-
-    return [];
+    const raw = await AsyncStorage.getItem(vehiclesKey());
+    return raw ? JSON.parse(raw) : [];
   } catch {
-    return localVehicles;
+    return [];
   }
 }
 
 export async function setVehicles(vehicles) {
-  const safeVehicles = Array.isArray(vehicles) ? vehicles : [];
-
   try {
-    await AsyncStorage.setItem(vehiclesKey(), JSON.stringify(safeVehicles));
+    await AsyncStorage.setItem(vehiclesKey(), JSON.stringify(vehicles));
   } catch {
     // ignore
-  }
-
-  const uid = auth.currentUser?.uid;
-  if (!uid) return;
-
-  try {
-    await setDoc(
-      doc(db, "users", uid),
-      {
-        vehicles: safeVehicles,
-        updatedAt: serverTimestamp(),
-      },
-      { merge: true }
-    );
-  } catch {
-    // ignore network errors; local cache remains available
   }
 }
 

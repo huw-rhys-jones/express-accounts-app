@@ -73,6 +73,50 @@ export function getCurrentFinancialQuarter(now = new Date()) {
   );
 }
 
+// Not included in buildFinancialFilterOptions; selectable only from the side-menu financial year picker.
+export const ALL_TIME_FILTER_OPTION = {
+  key: "all-time",
+  label: "All Time",
+  startDate: null,
+  endDate: null,
+};
+
+function getYearsPresent(records = [], now = new Date()) {
+  const years = new Set([getFinancialYearStartYear(now)]);
+  for (const record of records) {
+    const d = toDateOrNull(record?.date);
+    if (!d) continue;
+    years.add(getFinancialYearStartYear(d));
+  }
+  return Array.from(years).sort((a, b) => b - a);
+}
+
+// Options for a single selected financial year: the year itself plus its four quarters.
+export function buildYearScopedFilterOptions(startYear) {
+  const fy = getFinancialYearPeriod(startYear);
+  const options = [{ key: `year-${startYear}`, label: fy.label, startDate: fy.startDate, endDate: fy.endDate }];
+  for (const quarter of getFinancialQuarterPeriods(startYear)) {
+    options.push({
+      key: `quarter-${quarter.key}`,
+      label: quarter.label,
+      startDate: quarter.startDate,
+      endDate: quarter.endDate,
+    });
+  }
+  return options;
+}
+
+// Options for the "All Time" scope: All Time plus every financial year present in the data (no quarters).
+export function buildAllTimeScopedFilterOptions(records = [], now = new Date()) {
+  return [
+    ALL_TIME_FILTER_OPTION,
+    ...getYearsPresent(records, now).map((year) => {
+      const fy = getFinancialYearPeriod(year);
+      return { key: `year-${year}`, label: fy.label, startDate: fy.startDate, endDate: fy.endDate };
+    }),
+  ];
+}
+
 export function buildFinancialFilterOptions(receipts = [], now = new Date()) {
   const years = new Set([getFinancialYearStartYear(now)]);
 
@@ -116,6 +160,37 @@ export function buildFinancialFilterOptions(receipts = [], now = new Date()) {
   return options;
 }
 
+export function buildFinancialYearOptions(
+  receipts = [],
+  incomeItems = [],
+  bankStatements = [],
+  now = new Date(),
+  count = 5,
+) {
+  const currentStartYear = getFinancialYearStartYear(now);
+  const buildOption = (key, label, startYear, period) => {
+    const expenses = getPeriodRecordCount(receipts, period);
+    const income = getPeriodRecordCount(incomeItems, period);
+    const bankStatementsCount = getPeriodRecordCount(bankStatements, period);
+    return {
+      key,
+      label,
+      startYear,
+      count: expenses + income + bankStatementsCount,
+      counts: { expenses, income, bankStatements: bankStatementsCount },
+    };
+  };
+
+  return [
+    buildOption("all-time", "All Time", null, ALL_TIME_FILTER_OPTION),
+    ...Array.from({ length: count }, (_, index) => {
+      const startYear = currentStartYear - index;
+      const period = getFinancialYearPeriod(startYear);
+      return buildOption(period.key, period.label, startYear, period);
+    }),
+  ];
+}
+
 export function filterReceiptsByDateRange(receipts = [], startDate, endDate) {
   if (!startDate || !endDate) return receipts;
 
@@ -128,4 +203,24 @@ export function filterReceiptsByDateRange(receipts = [], startDate, endDate) {
     const t = startOfDayLocal(d).getTime();
     return t >= start && t <= end;
   });
+}
+
+export function getPeriodRecordCount(records = [], option) {
+  if (!option?.startDate || !option?.endDate) {
+    return records.length;
+  }
+  return filterReceiptsByDateRange(records, option.startDate, option.endDate).length;
+}
+
+export function formatPeriodLabelWithCount(
+  baseLabel,
+  count,
+  singularNoun,
+  pluralNoun = `${singularNoun}s`
+) {
+  if (count === 0) {
+    return `${baseLabel} - No ${singularNoun}`;
+  }
+  const noun = count === 1 ? singularNoun : pluralNoun;
+  return `${baseLabel} - ${count} ${noun}`;
 }

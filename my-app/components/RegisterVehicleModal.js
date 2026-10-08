@@ -2,6 +2,7 @@ import React, { useEffect, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
+  Dimensions,
   KeyboardAvoidingView,
   Modal,
   Platform,
@@ -30,7 +31,9 @@ const FUEL_TYPES = [
   { label: "Hybrid", value: "HYBRID" },
 ];
 
-export default function RegisterVehicleModal({ visible, onClose, onSaved, vehicle }) {
+const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get("window");
+
+export default function RegisterVehicleModal({ visible, onClose, onSaved, vehicle, onRecordMileage }) {
   const insets = useSafeAreaInsets();
   const isEditing = Boolean(vehicle);
 
@@ -43,9 +46,11 @@ export default function RegisterVehicleModal({ visible, onClose, onSaved, vehicl
   const [fuelType, setFuelType] = useState("PETROL");
   const [ratePerMile, setRatePerMile] = useState("55");
   const [dvlaLooking, setDvlaLooking] = useState(false);
+  const [mileagePromptVisible, setMileagePromptVisible] = useState(false);
 
   // Pre-fill when editing
   useEffect(() => {
+    setMileagePromptVisible(false);
     if (vehicle) {
       setReg(vehicle.registrationNumber || "");
       setMake(vehicle.make || "");
@@ -92,7 +97,25 @@ export default function RegisterVehicleModal({ visible, onClose, onSaved, vehicl
 
     await setVehicles(updated);
     onSaved?.(updated);
+
+    if (isEditing) {
+      onClose();
+      return;
+    }
+
+    // Newly registered vehicle — offer to jump straight into logging a trip.
+    setMileagePromptVisible(true);
+  };
+
+  const dismissMileagePrompt = () => {
+    setMileagePromptVisible(false);
     onClose();
+  };
+
+  const recordMileageNow = () => {
+    setMileagePromptVisible(false);
+    onClose();
+    onRecordMileage?.();
   };
 
   const handleDelete = () => {
@@ -117,12 +140,13 @@ export default function RegisterVehicleModal({ visible, onClose, onSaved, vehicl
   };
 
   return (
-    <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
-      <KeyboardAvoidingView
-        style={styles.overlay}
-        behavior={Platform.OS === "ios" ? "padding" : undefined}
-      >
-        <View style={styles.card}>
+    <>
+      <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
+        <KeyboardAvoidingView
+          style={styles.overlay}
+          behavior={Platform.OS === "ios" ? "padding" : undefined}
+        >
+          <View style={styles.card}>
           <Text style={styles.title}>{isEditing ? "Edit Vehicle" : "Register Vehicle"}</Text>
 
           <ScrollView
@@ -218,12 +242,6 @@ export default function RegisterVehicleModal({ visible, onClose, onSaved, vehicl
             <Text style={styles.rateHint}>
               HMRC advisory rate is 55p/mile. You can adjust this to match your actual rate.
             </Text>
-
-            {isEditing && (
-              <TouchableOpacity style={styles.deleteBtn} onPress={handleDelete}>
-                <Text style={styles.deleteBtnText}>Remove Vehicle</Text>
-              </TouchableOpacity>
-            )}
           </ScrollView>
 
           {/* Buttons always visible outside ScrollView */}
@@ -233,6 +251,11 @@ export default function RegisterVehicleModal({ visible, onClose, onSaved, vehicl
               { paddingBottom: Math.max(insets.bottom, Platform.OS === "android" ? 16 : 8) },
             ]}
           >
+            {isEditing && (
+              <TouchableOpacity style={styles.deleteBtn} onPress={handleDelete}>
+                <Text style={styles.deleteBtnText}>Delete</Text>
+              </TouchableOpacity>
+            )}
             <TouchableOpacity style={styles.cancelBtn} onPress={onClose}>
               <Text style={styles.cancelBtnText}>Cancel</Text>
             </TouchableOpacity>
@@ -246,17 +269,44 @@ export default function RegisterVehicleModal({ visible, onClose, onSaved, vehicl
           </View>
         </View>
       </KeyboardAvoidingView>
-    </Modal>
+      </Modal>
+
+      <Modal
+        visible={mileagePromptVisible}
+        transparent
+        animationType="fade"
+        onRequestClose={dismissMileagePrompt}
+      >
+        <View style={styles.promptOverlay}>
+          <View style={styles.promptCard}>
+            <Text style={styles.promptTitle}>Vehicle Registered</Text>
+            <Text style={styles.promptText}>Would you like to record a mileage expense now?</Text>
+            <View style={styles.promptButtonRow}>
+              <TouchableOpacity style={styles.promptSecondaryBtn} onPress={dismissMileagePrompt}>
+                <Text style={styles.promptSecondaryBtnText}>Not now</Text>
+              </TouchableOpacity>
+              <TouchableOpacity style={styles.promptPrimaryBtn} onPress={recordMileageNow}>
+                <Text style={styles.promptPrimaryBtnText}>Record Mileage</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
+    </>
   );
 }
 
 const styles = StyleSheet.create({
   overlay: {
     flex: 1,
+    width: SCREEN_WIDTH,
+    height: SCREEN_HEIGHT,
     backgroundColor: "rgba(0,0,0,0.55)",
     justifyContent: "flex-end",
   },
   card: {
+    width: SCREEN_WIDTH,
+    alignSelf: "stretch",
     backgroundColor: "#fff",
     borderTopLeftRadius: 20,
     borderTopRightRadius: 20,
@@ -360,15 +410,69 @@ const styles = StyleSheet.create({
     fontSize: 15,
   },
   deleteBtn: {
-    marginTop: 12,
-    marginBottom: 8,
-    paddingVertical: 12,
+    flex: 1,
+    paddingVertical: 14,
+    borderRadius: 12,
+    backgroundColor: "#fff1f4",
     alignItems: "center",
   },
   deleteBtnText: {
     color: Colors.accent,
+    fontWeight: "700",
+    fontSize: 15,
+  },
+  promptOverlay: {
+    flex: 1,
+    backgroundColor: "rgba(0,0,0,0.55)",
+    justifyContent: "center",
+    alignItems: "center",
+    padding: 24,
+  },
+  promptCard: {
+    backgroundColor: "#fff",
+    borderRadius: 16,
+    padding: 20,
+    width: "100%",
+    maxWidth: 400,
+  },
+  promptTitle: {
+    fontSize: 17,
+    fontWeight: "800",
+    color: Colors.textPrimary,
+    marginBottom: 10,
+  },
+  promptText: {
+    fontSize: 14,
+    color: "#444",
+    lineHeight: 20,
+    marginBottom: 18,
+  },
+  promptButtonRow: {
+    flexDirection: "row",
+    gap: 12,
+  },
+  promptSecondaryBtn: {
+    flex: 1,
+    paddingVertical: 12,
+    borderRadius: 10,
+    backgroundColor: "#f0f0f0",
+    alignItems: "center",
+  },
+  promptSecondaryBtnText: {
+    color: "#333",
     fontWeight: "600",
     fontSize: 14,
-    textDecorationLine: "underline",
+  },
+  promptPrimaryBtn: {
+    flex: 1,
+    paddingVertical: 12,
+    borderRadius: 10,
+    backgroundColor: Colors.accent,
+    alignItems: "center",
+  },
+  promptPrimaryBtnText: {
+    color: "#fff",
+    fontWeight: "700",
+    fontSize: 14,
   },
 });
