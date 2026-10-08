@@ -10,26 +10,42 @@ import {
   Alert,
   Keyboard,
   TouchableWithoutFeedback,
+  Linking,
+  findNodeHandle,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
-import { auth } from "../firebaseConfig";
-import { createUserWithEmailAndPassword, updateProfile } from "firebase/auth";
+import { auth, db } from "../firebaseConfig";
+import {
+  createUserWithEmailAndPassword,
+  reload,
+  sendEmailVerification,
+  updateProfile,
+} from "firebase/auth";
+import { doc, setDoc, serverTimestamp } from "firebase/firestore";
 import { Ionicons } from "@expo/vector-icons";
 import { KeyboardAwareScrollView } from "react-native-keyboard-aware-scroll-view";
-import { Colors } from "../utils/sharedStyles";
+import { Colors, AuthStyles } from "../utils/sharedStyles";
+import { triggerHaptic } from "../utils/haptics";
+import { verifyClientCode } from "../utils/verificationCodes";
 
 const looksLikeEmail = (s) => /\S+@\S+\.\S+/.test(String(s || "").trim());
+const PRIVACY_URL = "https://caistec.com/privacy-policy.html";
+const AUTO_ASSIGN_VERIFICATION_URL = "https://express-accounts-73d38.web.app/auto-assign-verification-by-email";
 
 const SignUpScreen = ({ navigation }) => {
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [confirm, setConfirm] = useState("");
+  const [verificationCode, setVerificationCode] = useState("");
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirm, setShowConfirm] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [privacyAccepted, setPrivacyAccepted] = useState(false);
 
   // refs for keyboard navigation
+  const scrollViewRef = useRef(null);
+  const nameRef = useRef(null);
   const emailRef = useRef(null);
   const passwordRef = useRef(null);
   const confirmRef = useRef(null);
@@ -46,11 +62,38 @@ const SignUpScreen = ({ navigation }) => {
   }, [password]);
 
   const allRulesOk = rules.minLen && rules.upper && rules.lower && rules.number;
-  const passwordsMatch = (password || "") === (confirm || "");
-  const emailOk = looksLikeEmail(email);
+  const passwordsMatch = (password || "").trim() === (confirm || "").trim();
+  const emailOk = looksLikeEmail((email || "").trim());
   const nameOk = (name || "").trim().length > 0;
 
-  const canSubmit = nameOk && emailOk && allRulesOk && passwordsMatch && !loading;
+  const canSubmit =
+    nameOk &&
+    emailOk &&
+    allRulesOk &&
+    passwordsMatch &&
+    privacyAccepted &&
+    !loading;
+
+  const scrollToInput = (inputRef) => {
+    const node = inputRef?.current ? findNodeHandle(inputRef.current) : null;
+    if (!node || !scrollViewRef.current) return;
+
+    requestAnimationFrame(() => {
+      if (scrollViewRef.current?.scrollToFocusedInput) {
+        scrollViewRef.current.scrollToFocusedInput(node);
+        return;
+      }
+
+      inputRef.current?.measure?.((x, y, width, height, pageX, pageY) => {
+        scrollViewRef.current?.scrollToPosition?.(0, Math.max(0, pageY - 120), true);
+      });
+    });
+  };
+
+  const focusField = (inputRef) => {
+    inputRef?.current?.focus();
+    scrollToInput(inputRef);
+  };
 
   const showRegistrationError = (code, fallback) => {
     let msg = "Could not create your account. Please try again.";
@@ -70,6 +113,9 @@ const SignUpScreen = ({ navigation }) => {
       case "auth/operation-not-allowed":
         msg = "Email/password sign-up is not enabled for this project.";
         break;
+      case "permission-denied":
+        msg = "Registration was blocked by database rules. Please try again.";
+        break;
       default:
         msg = fallback || msg;
     }
@@ -79,6 +125,8 @@ const SignUpScreen = ({ navigation }) => {
   const register = async () => {
     try {
       const emailTrimmed = (email || "").trim().toLowerCase();
+      const passwordTrimmed = (password || "").trim();
+      const confirmTrimmed = (confirm || "").trim();
       const nameTrimmed = (name || "").trim();
 
       if (!nameTrimmed) return Alert.alert("Sign Up", "Please enter your name.");
@@ -89,15 +137,22 @@ const SignUpScreen = ({ navigation }) => {
           "Sign Up",
           "Please meet all password requirements before continuing."
         );
-      if (!passwordsMatch)
+      if (passwordTrimmed !== confirmTrimmed)
         return Alert.alert("Sign Up", "Passwords do not match.");
+      if (!privacyAccepted)
+        return Alert.alert(
+          "Privacy Policy",
+          "Please accept the Privacy Policy before creating your account."
+        );
+
+      triggerHaptic("selection").catch(() => {});
 
       setLoading(true);
 
       const cred = await createUserWithEmailAndPassword(
         auth,
         emailTrimmed,
-        password
+        passwordTrimmed
       );
 
       // Update display name
@@ -105,15 +160,92 @@ const SignUpScreen = ({ navigation }) => {
         await updateProfile(cred.user, { displayName: nameTrimmed });
       }
 
-      // Navigate in with a clean stack
+      // Persist name to Firestore so the accountant portal can display it
+      await setDoc(
+        doc(db, "users", cred.user.uid),
+        {
+          name: nameTrimmed,
+          email: emailTrimmed,
+          emailVerified: false,
+          createdAt: serverTimestamp(),
+        },
+        { merge: true }
+      );
+
+      if (verificationCode.trim()) {
+        try {
+          await verifyClientCode({
+            db,
+            userId: cred.user.uid,
+            rawCode: verificationCode,
+          });
+        } catch (verificationError) {
+          console.warn("Verification code could not be applied", verificationError);
+          Alert.alert(
+            "Code Not Applied",
+            "Your account was created, but we could not apply that client code. You can add it later from settings."
+          );
+        }
+      }
+
+      let autoVerifiedByEmail = false;
+      try {
+        const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+        for (let attempt = 1; attempt <= 3; attempt += 1) {
+          const idToken = await cred.user.getIdToken(attempt > 1);
+          const autoAssignResponse = await fetch(AUTO_ASSIGN_VERIFICATION_URL, {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              Authorization: "Bearer " + idToken,
+            },
+            body: JSON.stringify({}),
+          });
+
+          const autoAssignPayload = await autoAssignResponse.json().catch(() => ({}));
+          if (!autoAssignResponse.ok) {
+            throw new Error(autoAssignPayload && autoAssignPayload.error ? autoAssignPayload.error : "Auto-verification request failed.");
+          }
+
+          autoVerifiedByEmail = Boolean(autoAssignPayload && autoAssignPayload.matched);
+          if (autoVerifiedByEmail) {
+            break;
+          }
+
+          if (attempt < 3) {
+            await wait(300 * attempt);
+          }
+        }
+
+        if (autoVerifiedByEmail) {
+          await reload(cred.user);
+          await cred.user.getIdToken(true);
+          await setDoc(
+            doc(db, "users", cred.user.uid),
+            {
+              emailVerified: true,
+              updatedAt: serverTimestamp(),
+            },
+            { merge: true }
+          );
+        }
+      } catch (autoAssignError) {
+        console.warn("Auto-assign by email failed", autoAssignError);
+      }
+
+      if (!autoVerifiedByEmail) {
+        await sendEmailVerification(cred.user);
+      }
+
+      triggerHaptic("success").catch(() => {});
+
       navigation.reset({
         index: 0,
         routes: [
           {
-            name: "MainTabs", // The parent navigator
-            state: { 
-              routes: [{ name: "Expenses" }] // The child screen
-            },
+            name: "MainTabs",
+            state: { routes: [{ name: "Expenses" }] },
           },
         ],
       });
@@ -126,46 +258,49 @@ const SignUpScreen = ({ navigation }) => {
   };
 
   const Rule = ({ ok, text }) => (
-    <View style={styles.ruleRow}>
+    <View style={AuthStyles.ruleRow}>
       <Ionicons
         name={ok ? "checkmark-circle" : "close-circle"}
         size={18}
         color={ok ? "#2e7d32" : "#b00020"}
         style={{ marginRight: 6 }}
       />
-      <Text style={[styles.ruleText, ok ? styles.ruleOk : styles.ruleBad]}>
+      <Text style={[AuthStyles.ruleText, ok ? AuthStyles.ruleOk : AuthStyles.ruleBad]}>
         {text}
       </Text>
     </View>
   );
 
   return (
-    <SafeAreaView style={{ flex: 1, backgroundColor: Colors.background }}>
+    <SafeAreaView style={AuthStyles.flex} edges={['bottom', 'left', 'right']}>
       <TouchableWithoutFeedback onPress={Keyboard.dismiss} accessible={false}>
         <KeyboardAwareScrollView
+          ref={scrollViewRef}
           contentContainerStyle={{ flexGrow: 1, paddingBottom: 40 }} // 👈 padding for Android nav bar
           enableOnAndroid={true}
           extraScrollHeight={20}
           keyboardShouldPersistTaps="handled"
           showsVerticalScrollIndicator={false}
-        >
-          <View style={styles.container}>
+        >        
+          <View style={AuthStyles.logoContainer}>
+                <Image
+                  source={require("../assets/images/logo.png")}
+                  style={AuthStyles.logo}
+                />
+          </View>
+
+          <View style={AuthStyles.container}>
             {/* Logo */}
-            <View style={styles.logoContainer}>
-              <Image
-                source={require("../assets/images/logo.png")}
-                style={styles.logo}
-              />
-            </View>
+    
 
             {/* Header */}
-            <View style={styles.header}>
-              <Text style={styles.headerText}>Create new account</Text>
-              <Text style={styles.subtitle}>
+            <View style={AuthStyles.header}>
+              <Text style={AuthStyles.headerText}>Create new account</Text>
+              <Text style={AuthStyles.subtitle}>
                 Already registered?{" "}
                 <Text
                   onPress={() => navigation.navigate("SignIn")}
-                  style={styles.link}
+                  style={AuthStyles.link}
                 >
                   Log in here
                 </Text>
@@ -173,53 +308,66 @@ const SignUpScreen = ({ navigation }) => {
             </View>
 
             {/* Form */}
-            <View style={styles.form}>
-              <Text style={styles.label}>NAME (COMPANY OR PERSONAL)</Text>
-              <TextInput
-                style={styles.input}
-                placeholder="Bob Builder"
-                placeholderTextColor="#555"
-                value={name}
-                onChangeText={setName}
-                editable={!loading}
-                returnKeyType="next"
-                onSubmitEditing={() => emailRef.current.focus()}
-              />
+            <View style={AuthStyles.form}>
+              <Text style={AuthStyles.label}>NAME (COMPANY OR PERSONAL)</Text>
 
-              <Text style={styles.label}>EMAIL</Text>
-              <TextInput
-                ref={emailRef}
-                style={[
-                  styles.input,
-                  email.length > 0 && !emailOk && styles.inputError,
-                ]}
-                placeholder="you@example.com"
-                placeholderTextColor="#555"
-                keyboardType="email-address"
-                autoCapitalize="none"
-                value={email}
-                onChangeText={setEmail}
-                editable={!loading}
-                returnKeyType="next"
-                onSubmitEditing={() => passwordRef.current.focus()}
-              />
+              <View style={AuthStyles.passwordContainer}>
+                <TextInput
+                  ref={nameRef}
+                  style={AuthStyles.input}
+                  placeholder="Bob Builder"
+                  placeholderTextColor="#555"
+                  value={name}
+                  onChangeText={setName}
+                  editable={!loading}
+                  returnKeyType="next"
+                  onFocus={() => scrollToInput(nameRef)}
+                  onSubmitEditing={() => focusField(emailRef)}
+                />
+              </View>
 
-              <Text style={styles.label}>PASSWORD</Text>
-              <View style={styles.passwordContainer}>
+              <Text style={AuthStyles.label}>EMAIL</Text>
+              
+              <View style={AuthStyles.passwordContainer}>
+                <TextInput
+                  ref={emailRef}
+                  style={[
+                    AuthStyles.input,
+                    email.length > 0 && !emailOk && AuthStyles.inputError,
+                  ]}
+                  placeholder="you@example.com"
+                  placeholderTextColor="#555"
+                  keyboardType="email-address"
+                  autoCapitalize="none"
+                  value={email}
+                  onChangeText={setEmail}
+                  onBlur={() => setEmail((value) => value.trim())}
+                  editable={!loading}
+                  returnKeyType="next"
+                  onFocus={() => scrollToInput(emailRef)}
+                  onSubmitEditing={() => focusField(passwordRef)}
+                />
+              </View>
+
+
+              <Text style={AuthStyles.label}>PASSWORD</Text>
+              <View style={AuthStyles.passwordContainer}>
                 <TextInput
                   ref={passwordRef}
-                  style={[styles.input, styles.inputWithIcon]}
+                  style={[AuthStyles.input, AuthStyles.inputWithIcon]}
                   placeholder="******"
                   placeholderTextColor="#555"
                   secureTextEntry={!showPassword}
                   value={password}
                   onChangeText={setPassword}
+                  onBlur={() => setPassword((value) => value.trim())}
                   editable={!loading}
                   returnKeyType="next"
-                  onSubmitEditing={() => confirmRef.current.focus()}
+                  onFocus={() => scrollToInput(passwordRef)}
+                  onSubmitEditing={() => focusField(confirmRef)}
                 />
                 <TouchableOpacity
-                  style={styles.eyeIcon}
+                  style={AuthStyles.eyeIcon}
                   onPress={() => setShowPassword((v) => !v)}
                   hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
                 >
@@ -231,26 +379,28 @@ const SignUpScreen = ({ navigation }) => {
                 </TouchableOpacity>
               </View>
 
-              <Text style={styles.label}>CONFIRM PASSWORD</Text>
-              <View style={styles.passwordContainer}>
+              <Text style={AuthStyles.label}>CONFIRM PASSWORD</Text>
+              <View style={AuthStyles.passwordContainer}>
                 <TextInput
                   ref={confirmRef}
                   style={[
-                    styles.input,
-                    styles.inputWithIcon,
-                    confirm.length > 0 && !passwordsMatch && styles.inputError,
+                    AuthStyles.input,
+                    AuthStyles.inputWithIcon,
+                    confirm.length > 0 && !passwordsMatch && AuthStyles.inputError,
                   ]}
                   placeholder="******"
                   placeholderTextColor="#555"
                   secureTextEntry={!showConfirm}
                   value={confirm}
                   onChangeText={setConfirm}
+                  onBlur={() => setConfirm((value) => value.trim())}
                   editable={!loading}
                   returnKeyType="done"
+                  onFocus={() => scrollToInput(confirmRef)}
                   onSubmitEditing={register} // 👈 Done submits form
                 />
                 <TouchableOpacity
-                  style={styles.eyeIcon}
+                  style={AuthStyles.eyeIcon}
                   onPress={() => setShowConfirm((v) => !v)}
                   hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
                 >
@@ -263,7 +413,7 @@ const SignUpScreen = ({ navigation }) => {
               </View>
 
               {/* Password requirements */}
-              <View style={styles.requirements}>
+              <View style={AuthStyles.requirements}>
                 <Rule ok={rules.minLen} text="At least 8 characters" />
                 <Rule ok={rules.upper} text="At least 1 uppercase letter" />
                 <Rule ok={rules.lower} text="At least 1 lowercase letter" />
@@ -275,14 +425,58 @@ const SignUpScreen = ({ navigation }) => {
               </View>
 
               <TouchableOpacity
-                style={[styles.button, !canSubmit && { opacity: 0.6 }]}
+                onPress={() => setPrivacyAccepted((value) => !value)}
+                style={{
+                  flexDirection: "row",
+                  alignItems: "center",
+                  marginTop: 8,
+                  marginBottom: 8,
+                }}
+              >
+                <Ionicons
+                  name={privacyAccepted ? "checkbox" : "square-outline"}
+                  size={22}
+                  color={Colors.accent}
+                  style={{ marginRight: 8 }}
+                />
+                <Text style={{ color: Colors.textPrimary, flex: 1 }}>
+                  I have read and agree to the{" "}
+                  <Text
+                    style={{ color: Colors.accent, textDecorationLine: "underline" }}
+                    onPress={() => Linking.openURL(PRIVACY_URL)}
+                  >
+                    Privacy Policy
+                  </Text>
+                  .
+                </Text>
+              </TouchableOpacity>
+
+              <Text style={styles.label}>VERIFICATION CODE (OPTIONAL)</Text>
+              <View style={styles.passwordContainer}>
+                <TextInput
+                  style={styles.input}
+                  placeholder="Enter client code if you have one"
+                  placeholderTextColor="#555"
+                  value={verificationCode}
+                  onChangeText={setVerificationCode}
+                  editable={!loading}
+                  autoCapitalize="characters"
+                  autoCorrect={false}
+                />
+              </View>
+              <Text style={styles.helperText}>
+                Entering a valid verification code here will verify the account during email sign up.
+              </Text>
+
+              <TouchableOpacity
+                style={[AuthStyles.button, !canSubmit && { opacity: 0.6 }]}
                 onPress={register}
                 disabled={!canSubmit}
               >
                 {loading ? (
                   <ActivityIndicator color="#fff" />
                 ) : (
-                  <Text style={styles.buttonText}>Sign up</Text>
+                  <Text style={AuthStyles.buttonText}>Sign up</Text>
                 )}
               </TouchableOpacity>
             </View>
@@ -375,8 +569,14 @@ const styles = StyleSheet.create({
     padding: 12,
     borderRadius: 10,
     backgroundColor: Colors.inputBg,
-    marginTop: 6,
+    // marginTop: 6, <--- REMOVE THIS
     color: Colors.textSecondary,
+  },
+  helperText: {
+    color: Colors.textMuted,
+    fontSize: 13,
+    lineHeight: 18,
+    marginTop: 8,
   },
   inputError: {
     borderWidth: 1,
@@ -384,13 +584,17 @@ const styles = StyleSheet.create({
   },
 
   // Eye-in-input pattern
+  // 2. Move the margin and relative positioning to the container
   passwordContainer: {
     position: "relative",
     justifyContent: "center",
+    marginTop: 6,    // <--- ADDED HERE (matches your previous input margin)
+    marginBottom: 0, // Adjust if you need spacing below the confirm box
   },
   inputWithIcon: {
     paddingRight: 44,
   },
+// 3. Ensure the icon fills the height of the container to center correctly
   eyeIcon: {
     position: "absolute",
     right: 10,
@@ -399,6 +603,7 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     alignItems: "center",
     width: 32,
+    zIndex: 1, 
   },
 
   requirements: {

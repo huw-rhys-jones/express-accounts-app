@@ -1,41 +1,704 @@
-import React, { useState, useEffect, useCallback, useMemo } from "react";
+import React, { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import {
   View,
   Text,
+  Pressable,
   TouchableOpacity,
   StyleSheet,
   FlatList,
   ActivityIndicator,
   RefreshControl,
-  Divider
+  Modal,
+  TextInput,
+  Alert,
+  Linking,
+  Switch,
+  Image,
 } from "react-native";
-import { signOut } from "firebase/auth";
-import { collection, query, where, getDocs } from "firebase/firestore";
+import { signOut, deleteUser, updateProfile } from "firebase/auth";
+import {
+  collection,
+  query,
+  where,
+  getDocs,
+  doc,
+  getDoc,
+  setDoc,
+  serverTimestamp,
+  deleteDoc, // Add this
+  writeBatch,
+} from "firebase/firestore";
 import { db, auth } from "../firebaseConfig";
-import { formatDate } from "../utils/format_style";
+import { formatDate, formatCurrency } from "../utils/format_style";
 import SideMenu from "../components/SideMenu";
 import { StatusBar, Platform } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
-import Constants from 'expo-constants';
+import Constants from "expo-constants";
 import { Colors } from "../utils/sharedStyles";
+import appPackage from "../package.json";
+import DropDownPicker from "react-native-dropdown-picker";
+import {
+  getStorage,
+  ref as storageRef,
+  listAll,
+  deleteObject,
+} from "firebase/storage";
+import {
+  buildYearScopedFilterOptions,
+  buildAllTimeScopedFilterOptions,
+  filterReceiptsByDateRange,
+  getPeriodRecordCount,
+  formatPeriodLabelWithCount,
+} from "../utils/financialPeriods";
+import {
+  getHapticsEnabled,
+  setHapticsEnabled,
+  triggerHaptic,
+} from "../utils/haptics";
+import { getReceiptFilterKey, setReceiptFilterKey, setAllFilterKeys, getVehicles, getHiddenPeriodTooltipDismissed, setHiddenPeriodTooltipDismissed } from "../utils/appSettings";
+import { verifyClientCode } from "../utils/verificationCodes";
+import AddReceiptSheet from "../components/AddReceiptSheet";
+import RegisterVehicleModal from "../components/RegisterVehicleModal";
+import YourVehiclesModal from "../components/YourVehiclesModal";
+import SharedTabMenu from "../components/SharedTabMenu";
+import { useData } from "../contexts/DataContext";
 
 // Inside your component
-const appVersion = Constants.expoConfig?.version || "1.0.0";
+const appVersion = appPackage?.version || Constants.expoConfig?.version || "unknown";
+const internalBuildLabel = Constants.expoConfig?.extra?.internalBuildLabel || "";
+const versionLabel = internalBuildLabel ? `${appVersion} (${internalBuildLabel})` : appVersion;
 
-
-
-const ExpensesScreen = ({ navigation }) => {
+const ExpensesScreen = ({ navigation, route }) => {
+  const { receipts, incomeItems, bankStatements, financialYearScope, setFinancialYearScope, initialLoading: dataLoading } = useData();
   const [displayName, setDisplayName] = useState("User");
-  const [receipts, setReceipts] = useState([]);
-  const [loading, setLoading] = useState(true);
+  const [verifiedName, setVerifiedName] = useState("");
+  const [verificationStatus, setVerificationStatus] = useState("");
+  const [loading, setLoading] = useState(false);
   const [loadingText, setLoadingText] = useState(null);
   const [refreshing, setRefreshing] = useState(false);
+  const [addSheetVisible, setAddSheetVisible] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
-
+  const [vehicles, setVehicles] = useState([]);
+  const [registerVehicleOpen, setRegisterVehicleOpen] = useState(false);
+  const [yourVehiclesOpen, setYourVehiclesOpen] = useState(false);
+  const [isSelectionMode, setIsSelectionMode] = useState(false);
+  const [selectedIds, setSelectedIds] = useState(new Set());
 
   // --- sorting state ---
-  const [sortKey, setSortKey] = useState("date");      // "date" | "amount" | "category"
-  const [sortDir, setSortDir] = useState("desc");      // "asc" | "desc"
+  const [sortKey, setSortKey] = useState("date"); // "date" | "amount" | "category"
+  const [sortDir, setSortDir] = useState("desc"); // "asc" | "desc"
+
+  const [showItemTip, setShowItemTip] = useState(false);
+
+  const [deleteModalVisible, setDeleteModalVisible] = useState(false);
+  const [confirmText, setConfirmText] = useState("");
+
+  const [feedbackModalVisible, setFeedbackModalVisible] = useState(false);
+  const [feedbackText, setFeedbackText] = useState("");
+  const [showNotifyTip, setShowNotifyTip] = useState(false);
+  const [hapticsEnabled, setHapticsEnabledState] = useState(true);
+  const [settingsModalVisible, setSettingsModalVisible] = useState(false);
+  const [filterOpen, setFilterOpen] = useState(false);
+  const [activeFilterKey, setActiveFilterKey] = useState("current-quarter");
+  const [filterItems, setFilterItems] = useState([]);
+  const [showHiddenRecordsTip, setShowHiddenRecordsTip] = useState(false);
+  const [hiddenPeriodTipDismissed, setHiddenPeriodTipDismissed] = useState(false);
+  const [hiddenPeriodTipTemporarilyDismissed, setHiddenPeriodTipTemporarilyDismissed] = useState(false);
+  const [referralCodeModalVisible, setReferralCodeModalVisible] = useState(false);
+  const [referralCode, setReferralCode] = useState("");
+  const [nameChangeModalVisible, setNameChangeModalVisible] = useState(false);
+  const [newName, setNewName] = useState(displayName);
+  const [federatedPromptMode, setFederatedPromptMode] = useState(false);
+  const menuToModalTimerRef = useRef(null);
+
+  const handleSendFeedback = async () => {
+  // 1. Validation
+  if (!feedbackText.trim()) {
+    Alert.alert("Empty Message", "Please enter your feedback before sending.");
+    return;
+  }
+
+  // 2. Get the current user's email
+  const userEmail = auth.currentUser?.email || "Unknown User";
+
+  await runWithLoading("Sending feedback...", async () => {
+    try {
+      const response = await fetch('https://express-accounts-73d38.web.app/submit-feedback', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          name: displayName, // Uses the state variable you've already set
+          email: userEmail,  // The verified auth email
+          message: feedbackText,
+        }),
+      });
+
+      if (response.ok) {
+        Alert.alert("Success", "Thank you! Your feedback has been sent.");
+        setFeedbackModalVisible(false);
+        setFeedbackText("");
+      } else {
+        throw new Error("Server error");
+      }
+    } catch (error) {
+      console.error("Feedback Error:", error);
+      Alert.alert("Connection Error", "Could not reach the server. Please try again.");
+    }
+  });
+};
+
+  const handleDeleteAccount = () => {
+    // Close the side menu first so it's not in the way
+    setMenuOpen(false);
+    // Open the "Type DELETE" modal instead of an Alert
+    setDeleteModalVisible(true);
+  };
+
+  const performDeletion = async () => {
+    const user = auth.currentUser;
+    if (!user) return;
+
+    // 1. Close the modal immediately
+    setDeleteModalVisible(false);
+    setConfirmText("");
+
+    // 2. Start the loading overlay
+    await runWithLoading("Permanently erasing data...", async () => {
+      try {
+        // Step A: Delete images from Storage (Do this first while auth is active)
+        await deleteUserStorage(user.uid);
+
+        // Step B: Delete user-owned documents in Firestore
+        const batch = writeBatch(db);
+
+        const [receiptSnapshot, incomeSnapshot, bankSnapshot] = await Promise.all([
+          getDocs(
+            query(collection(db, "receipts"), where("userId", "==", user.uid))
+          ),
+          getDocs(
+            query(collection(db, "income"), where("userId", "==", user.uid))
+          ),
+          getDocs(
+            query(collection(db, "bankStatements"), where("userId", "==", user.uid))
+          ),
+        ]);
+
+        receiptSnapshot.forEach((docRef) => batch.delete(docRef.ref));
+        incomeSnapshot.forEach((docRef) => batch.delete(docRef.ref));
+        bankSnapshot.forEach((docRef) => batch.delete(docRef.ref));
+        await batch.commit();
+
+        // Step C: Delete the main User Profile document
+        await deleteDoc(doc(db, "users", user.uid));
+
+        // Step D: Finally, delete the Auth account
+        // This is the "Point of No Return"
+        await deleteUser(user);
+
+        navigation.replace("SignIn");
+      } catch (error) {
+        console.error("Deletion Error:", error);
+
+        if (error.code === "auth/requires-recent-login") {
+          Alert.alert(
+            "Security Timeout",
+            "For your security, you must have logged in recently to delete your account. Please sign out and back in, then try again."
+          );
+        } else {
+          Alert.alert(
+            "Error",
+            "Something went wrong while deleting your data. Please try again."
+          );
+        }
+      }
+    });
+  };
+
+  const deleteUserStorage = async (userId) => {
+    const storage = getStorage();
+    const folderNames = ["receipts", "income", "bankStatements"];
+
+    for (const folderName of folderNames) {
+      const userFolderRef = storageRef(storage, `${folderName}/${userId}`);
+
+      try {
+        const listResult = await listAll(userFolderRef);
+        const deletePromises = listResult.items.map((item) => deleteObject(item));
+        await Promise.all(deletePromises);
+      } catch (error) {
+        console.log("Storage cleanup error (likely no files):", folderName, error);
+      }
+    }
+  };
+
+  const filterOptions = useMemo(
+    () => (financialYearScope === "all-time"
+      ? buildAllTimeScopedFilterOptions([...receipts, ...incomeItems, ...bankStatements], new Date())
+      : buildYearScopedFilterOptions(financialYearScope)),
+    [financialYearScope, receipts, incomeItems, bankStatements]
+  );
+
+  const activeFilter = useMemo(
+    () => filterOptions.find((option) => option.key === activeFilterKey) || filterOptions[0],
+    [activeFilterKey, filterOptions]
+  );
+
+  const filterCountsByKey = useMemo(() => {
+    const counts = {};
+    for (const option of filterOptions) {
+      counts[option.key] = getPeriodRecordCount(receipts, option);
+    }
+    return counts;
+  }, [filterOptions, receipts]);
+
+  useEffect(() => {
+    if (!activeFilter && filterOptions[0]) {
+      setActiveFilterKey(filterOptions[0].key);
+    }
+  }, [activeFilter, filterOptions]);
+
+  useEffect(() => {
+    setFilterItems(
+      filterOptions.map((option) => {
+        const count = filterCountsByKey[option.key] ?? 0;
+        return {
+          label: formatPeriodLabelWithCount(option.label, count, "Receipt"),
+          value: option.key,
+        };
+      })
+    );
+  }, [filterCountsByKey, filterOptions]);
+
+  useEffect(() => {
+    if (filterOptions.length === 0) {
+      return;
+    }
+
+    const hasActiveOption = filterOptions.some(
+      (option) => option.key === activeFilterKey
+    );
+
+    if (!hasActiveOption) {
+      const fallbackKey = filterOptions[0].key;
+      setActiveFilterKey(fallbackKey);
+      setReceiptFilterKey(fallbackKey).catch(() => {});
+    }
+  }, [activeFilterKey, filterOptions]);
+
+  useEffect(() => {
+    if (
+      dataLoading ||
+      loading ||
+      filterOpen ||
+      isSelectionMode ||
+      hiddenPeriodTipDismissed ||
+      hiddenPeriodTipTemporarilyDismissed ||
+      filterOptions.length === 0
+    ) {
+      setShowHiddenRecordsTip(false);
+      return;
+    }
+
+    const activeCount = filterCountsByKey[activeFilterKey] ?? 0;
+    const hasRecordsInOtherPeriods = filterOptions.some(
+      (option) => option.key !== activeFilterKey && (filterCountsByKey[option.key] ?? 0) > 0
+    );
+    setShowHiddenRecordsTip(activeCount === 0 && hasRecordsInOtherPeriods);
+  }, [
+    activeFilterKey,
+    dataLoading,
+    filterCountsByKey,
+    filterOpen,
+    filterOptions,
+    hiddenPeriodTipDismissed,
+    hiddenPeriodTipTemporarilyDismissed,
+    isSelectionMode,
+    loading,
+  ]);
+
+  const dismissHiddenRecordsTip = useCallback(async () => {
+    setShowHiddenRecordsTip(false);
+    setHiddenPeriodTipDismissed(true);
+    await setHiddenPeriodTooltipDismissed();
+  }, []);
+
+  const handleSetFilterOpen = useCallback((nextOpen) => {
+    setFilterOpen((previous) => {
+      const resolvedOpen = typeof nextOpen === "function" ? nextOpen(previous) : nextOpen;
+      if (resolvedOpen) {
+        setShowHiddenRecordsTip(false);
+        setHiddenPeriodTipTemporarilyDismissed(true);
+      }
+      return resolvedOpen;
+    });
+  }, []);
+
+  const filteredReceipts = useMemo(() => {
+    if (!activeFilter) return receipts;
+    return filterReceiptsByDateRange(
+      receipts,
+      activeFilter.startDate,
+      activeFilter.endDate
+    );
+  }, [activeFilter, receipts]);
+
+  const sortedReceipts = useMemo(() => {
+    const data = [...filteredReceipts];
+    data.sort((a, b) => {
+      let av,
+        bv,
+        cmp = 0;
+
+      if (sortKey === "amount") {
+        av = Number(a.amount) || 0;
+        bv = Number(b.amount) || 0;
+        cmp = av - bv;
+      } else if (sortKey === "date") {
+        av = new Date(a.date).getTime() || 0;
+        bv = new Date(b.date).getTime() || 0;
+        cmp = av - bv;
+      } else if (sortKey === "category") {
+        av = String(a.category || "");
+        bv = String(b.category || "");
+        cmp = av.localeCompare(bv, undefined, { sensitivity: "base" });
+      }
+
+      return sortDir === "asc" ? cmp : -cmp;
+    });
+    return data;
+  }, [filteredReceipts, sortKey, sortDir]);
+
+  const clearSelectionMode = useCallback(() => {
+    setIsSelectionMode(false);
+    setSelectedIds(new Set());
+  }, []);
+
+  const toggleSelectedId = useCallback((id) => {
+    setSelectedIds((previous) => {
+      const next = new Set(previous);
+      if (next.has(id)) {
+        next.delete(id);
+      } else {
+        next.add(id);
+      }
+      if (next.size === 0) {
+        setIsSelectionMode(false);
+      }
+      return next;
+    });
+  }, []);
+
+  const beginSelectionWithId = useCallback((id) => {
+    setIsSelectionMode(true);
+    setSelectedIds(new Set([id]));
+  }, []);
+
+  const handleBatchDeleteReceipts = useCallback(() => {
+    if (selectedIds.size === 0) {
+      return;
+    }
+
+    const idsToDelete = Array.from(selectedIds);
+    Alert.alert(
+      "Delete Receipts",
+      `Are you sure you want to delete ${idsToDelete.length} items?`,
+      [
+        { text: "Cancel", style: "cancel" },
+        {
+          text: "Delete",
+          style: "destructive",
+          onPress: async () => {
+            await runWithLoading("Deleting receipts…", async () => {
+              const batch = writeBatch(db);
+              idsToDelete.forEach((id) => {
+                batch.delete(doc(db, "receipts", id));
+              });
+              await batch.commit();
+            });
+            triggerHaptic("success").catch(() => {});
+            clearSelectionMode();
+          },
+        },
+      ],
+    );
+  }, [clearSelectionMode, selectedIds]);
+
+  useEffect(() => {
+    getHapticsEnabled()
+      .then(setHapticsEnabledState)
+      .catch(() => setHapticsEnabledState(true));
+
+    getHiddenPeriodTooltipDismissed()
+      .then(setHiddenPeriodTipDismissed)
+      .catch(() => setHiddenPeriodTipDismissed(false));
+
+    getReceiptFilterKey()
+      .then(setActiveFilterKey)
+      .catch(() => setActiveFilterKey("current-quarter"));
+
+    getVehicles().then(setVehicles).catch(() => {});
+  }, []);
+
+  useEffect(() => {
+    const unsubscribeFocus = navigation.addListener("focus", () => {
+      getReceiptFilterKey()
+        .then(setActiveFilterKey)
+        .catch(() => setActiveFilterKey("current-quarter"));
+
+      getVehicles().then(setVehicles).catch(() => {});
+    });
+
+    return unsubscribeFocus;
+  }, [navigation]);
+
+  useEffect(() => {
+    if (!route?.params?.showFederatedCodePrompt) {
+      return;
+    }
+
+    setFederatedPromptMode(true);
+    setReferralCodeModalVisible(true);
+    navigation.setParams({ showFederatedCodePrompt: false });
+  }, [navigation, route?.params?.showFederatedCodePrompt]);
+
+  // Check Firebase for "seen" status
+  useEffect(() => {
+    const checkItemTipStatus = async () => {
+      const user = auth.currentUser;
+      // Condition: 1 receipt exactly + not loading
+      if (user && !loading && !dataLoading && sortedReceipts.length === 1) {
+        try {
+          const userRef = doc(db, "users", user.uid);
+          const userSnap = await getDoc(userRef);
+
+          if (!userSnap.data()?.hasSeenItemTip) {
+            setShowItemTip(true);
+          }
+        } catch (error) {
+          console.log("Error fetching item tooltip status:", error);
+        }
+      }
+    };
+    checkItemTipStatus();
+  }, [loading, sortedReceipts.length]); // Re-run when list length changes
+
+  const dismissItemTip = async () => {
+    setShowItemTip(false);
+    const user = auth.currentUser;
+    if (user) {
+      try {
+        const userRef = doc(db, "users", user.uid);
+        await setDoc(userRef, { hasSeenItemTip: true }, { merge: true });
+      } catch (error) {
+        console.log("Error updating item tooltip status:", error);
+      }
+    }
+  };
+
+  const markNotifyTipSeen = useCallback(async () => {
+    const user = auth.currentUser;
+    if (!user) return;
+    try {
+      await setDoc(
+        doc(db, "users", user.uid),
+        { hasSeenNotifyAccountantTip: true, updatedAt: serverTimestamp() },
+        { merge: true }
+      );
+    } catch (error) {
+      console.log("Error marking notify tooltip seen:", error);
+    }
+  }, []);
+
+  const dismissNotifyTip = useCallback(async () => {
+    setShowNotifyTip(false);
+    await markNotifyTipSeen();
+  }, [markNotifyTipSeen]);
+
+  const closeMenu = useCallback(() => {
+    if (showNotifyTip) {
+      dismissNotifyTip();
+    }
+    setMenuOpen(false);
+  }, [dismissNotifyTip, showNotifyTip]);
+
+  const openAfterMenuClose = useCallback((openFn) => {
+    closeMenu();
+    if (menuToModalTimerRef.current) {
+      clearTimeout(menuToModalTimerRef.current);
+    }
+    // iOS can drop modal presentations if a second modal opens during the first modal's close animation.
+    menuToModalTimerRef.current = setTimeout(() => {
+      openFn(true);
+      menuToModalTimerRef.current = null;
+    }, 260);
+  }, [closeMenu]);
+
+  useEffect(() => {
+    return () => {
+      if (menuToModalTimerRef.current) {
+        clearTimeout(menuToModalTimerRef.current);
+      }
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!menuOpen) {
+      return;
+    }
+
+    const checkNotifyTipStatus = async () => {
+      const user = auth.currentUser;
+      if (!user) return;
+      try {
+        const userRef = doc(db, "users", user.uid);
+        const userSnap = await getDoc(userRef);
+        if (!userSnap.data()?.hasSeenNotifyAccountantTip) {
+          setShowNotifyTip(true);
+        }
+      } catch (error) {
+        console.log("Error fetching notify tooltip status:", error);
+      }
+    };
+
+    checkNotifyTipStatus();
+  }, [menuOpen]);
+
+  const handleNotifyAccountant = async () => {
+    const user = auth.currentUser;
+    if (!user) return;
+
+    triggerHaptic("selection").catch(() => {});
+
+    await runWithLoading("Sending notify request…", async () => {
+      await setDoc(
+        doc(db, "users", user.uid),
+        {
+          notifyAccountant: true,
+          notifyAccountantAt: serverTimestamp(),
+          updatedAt: serverTimestamp(),
+          ...(user.displayName ? { name: user.displayName } : {}),
+          ...(user.email ? { email: user.email } : {}),
+        },
+        { merge: true }
+      );
+    });
+
+    setMenuOpen(false);
+    setShowNotifyTip(false);
+    triggerHaptic("success").catch(() => {});
+    Alert.alert("Accountant Notified", "Your accountant has been notified that your receipts are ready for processing.");
+  };
+
+  const handleOpenPrivacyPolicy = useCallback(async () => {
+    triggerHaptic("selection").catch(() => {});
+    const url = "https://caistec.com/privacy-policy.html";
+    const canOpen = await Linking.canOpenURL(url);
+    if (!canOpen) {
+      Alert.alert("Unable to open link", "Could not open Privacy Policy.");
+      return;
+    }
+    await Linking.openURL(url);
+  }, []);
+
+  const toggleHapticsSetting = useCallback(async () => {
+    const next = !hapticsEnabled;
+    setHapticsEnabledState(next);
+    await setHapticsEnabled(next);
+    if (next) {
+      triggerHaptic("selection").catch(() => {});
+    }
+  }, [hapticsEnabled]);
+
+  const handleSubmitReferralCode = async () => {
+    if (!referralCode.trim()) {
+      Alert.alert("Invalid Code", "Please enter a client code.");
+      return;
+    }
+
+    const user = auth.currentUser;
+    if (!user) return;
+
+    triggerHaptic("selection").catch(() => {});
+
+    try {
+      const result = await verifyClientCode({
+        db,
+        userId: user.uid,
+        rawCode: referralCode,
+      });
+      setVerifiedName(result.verifiedName);
+      setVerificationStatus("verified");
+      triggerHaptic("success").catch(() => {});
+      Alert.alert(
+        "Verified",
+        `Code accepted. Your account is now verified as ${result.verifiedName}.`
+      );
+      setReferralCodeModalVisible(false);
+      setReferralCode("");
+      setFederatedPromptMode(false);
+    } catch (error) {
+      console.error("Error verifying referral code:", error);
+      Alert.alert("Verification Failed", error.message || "Could not verify that code. Please try again.");
+    }
+  };
+
+  const handleSubmitNameChange = async () => {
+    if (!newName.trim()) {
+      Alert.alert("Invalid Name", "Please enter a name.");
+      return;
+    }
+
+    const user = auth.currentUser;
+    if (!user) return;
+
+    triggerHaptic("selection").catch(() => {});
+
+    try {
+      await updateProfile(user, { displayName: newName.trim() });
+      await setDoc(
+        doc(db, "users", user.uid),
+        { name: newName.trim() },
+        { merge: true }
+      );
+      setDisplayName(newName.trim());
+      triggerHaptic("success").catch(() => {});
+      Alert.alert("Success", "Name updated!");
+      setNameChangeModalVisible(false);
+    } catch (error) {
+      console.error("Error updating name:", error);
+      Alert.alert("Error", "Could not update name. Please try again.");
+    }
+  };
+
+  const handleIdPlaceholder = useCallback(() => {
+    closeMenu();
+    Alert.alert(
+      "ID Upload Coming Soon",
+      "Planned flow: capture passport or driving licence images, extract name, date of birth, document number, and expiry with OCR, then compare those details against the signed-in account before manual review."
+    );
+  }, [closeMenu]);
+
+  const handleAddressPlaceholder = useCallback(() => {
+    closeMenu();
+    Alert.alert(
+      "Address Capture Coming Soon",
+      "This will become the place to add and confirm a billing or registered address, with proof-of-address support later."
+    );
+  }, [closeMenu]);
+
+  const handleOpenSettings = useCallback(() => {
+    closeMenu();
+    requestAnimationFrame(() => setSettingsModalVisible(true));
+  }, [closeMenu]);
+
+  const handleFilterSelection = useCallback(
+    async (nextKey) => {
+      setHiddenPeriodTipTemporarilyDismissed(false);
+      setActiveFilterKey(nextKey);
+      await setAllFilterKeys(nextKey);
+    },
+    []
+  );
 
   const runWithLoading = async (text, fn) => {
     setLoadingText(text);
@@ -52,32 +715,31 @@ const ExpensesScreen = ({ navigation }) => {
     try {
       const user = auth.currentUser;
       if (!user) {
-        setReceipts([]);
         setDisplayName("User");
+        setVerifiedName("");
+        setVerificationStatus("");
         return;
       }
       setDisplayName(user.displayName || "User");
 
-      const q = query(collection(db, "receipts"), where("userId", "==", user.uid));
-      const querySnapshot = await getDocs(q);
-      const userReceipts = querySnapshot.docs.map((doc) => ({
-        id: doc.id,
-        ...doc.data(),
-      }));
-      setReceipts(userReceipts);
+      const userProfileRef = doc(db, "users", user.uid);
+      const userProfileSnap = await getDoc(userProfileRef);
+      const userProfile = userProfileSnap.exists() ? userProfileSnap.data() || {} : {};
+      setVerifiedName(String(userProfile.verifiedName || ""));
+      setVerificationStatus(String(userProfile.verificationStatus || ""));
+
+      // Sync name + email to Firestore so the accountant portal shows real names
+      const profileUpdate = { email: user.email, updatedAt: serverTimestamp() };
+      if (user.displayName) profileUpdate.name = user.displayName;
+      setDoc(userProfileRef, profileUpdate, { merge: true }).catch(() => {});
     } catch (err) {
       console.error("Error fetching receipts:", err);
     }
   }, []);
 
   useEffect(() => {
-    runWithLoading("Loading receipts…", fetchReceipts);
-
-    const unsubscribeFocus = navigation.addListener("focus", () => {
-      fetchReceipts().catch((e) => console.error("Refresh on focus failed", e));
-    });
-    return unsubscribeFocus;
-  }, [navigation, fetchReceipts]);
+    fetchReceipts().catch(console.error);
+  }, [fetchReceipts]);
 
   const onRefresh = useCallback(async () => {
     setRefreshing(true);
@@ -89,6 +751,7 @@ const ExpensesScreen = ({ navigation }) => {
   }, [fetchReceipts]);
 
   const handleLogout = async () => {
+    triggerHaptic("selection").catch(() => {});
     await runWithLoading("Signing out…", async () => {
       await signOut(auth);
       navigation.replace("SignIn");
@@ -111,146 +774,261 @@ const ExpensesScreen = ({ navigation }) => {
     return sortDir === "asc" ? "▲" : "▼";
   };
 
-  const sortedReceipts = useMemo(() => {
-    const data = [...receipts];
-    data.sort((a, b) => {
-      let av, bv, cmp = 0;
-
-      if (sortKey === "amount") {
-        av = Number(a.amount) || 0;
-        bv = Number(b.amount) || 0;
-        cmp = av - bv;
-      } else if (sortKey === "date") {
-        av = new Date(a.date).getTime() || 0;
-        bv = new Date(b.date).getTime() || 0;
-        cmp = av - bv;
-      } else if (sortKey === "category") {
-        av = String(a.category || "");
-        bv = String(b.category || "");
-        cmp = av.localeCompare(bv, undefined, { sensitivity: "base" });
-      }
-
-      return sortDir === "asc" ? cmp : -cmp;
-    });
-    return data;
-  }, [receipts, sortKey, sortDir]);
-
   const renderHeaderRow = () => (
     <View style={styles.headerRow}>
-      <TouchableOpacity style={styles.headerCellDate} onPress={() => toggleSort("date")}>
+      <TouchableOpacity
+        style={styles.headerCellDate}
+        onPress={() => toggleSort("date")}
+      >
         <Text style={styles.headerText}>Date</Text>
         <Text style={styles.headerArrow}>{sortIcon("date")}</Text>
       </TouchableOpacity>
 
-      <TouchableOpacity style={styles.headerCellCategory} onPress={() => toggleSort("category")}>
+      <TouchableOpacity
+        style={styles.headerCellCategory}
+        onPress={() => toggleSort("category")}
+      >
         <Text style={styles.headerText}>Category</Text>
         <Text style={styles.headerArrow}>{sortIcon("category")}</Text>
       </TouchableOpacity>
 
-      <TouchableOpacity style={styles.headerCellAmount} onPress={() => toggleSort("amount")}>
+      <TouchableOpacity
+        style={styles.headerCellAmount}
+        onPress={() => toggleSort("amount")}
+      >
         <Text style={styles.headerTextRight}>Amount</Text>
         <Text style={styles.headerArrow}>{sortIcon("amount")}</Text>
       </TouchableOpacity>
     </View>
   );
 
-  const renderReceiptItem = ({ item }) => (
-    <TouchableOpacity
-      onPress={() => navigation.navigate("ReceiptDetails", { receipt: item })}
-      style={styles.receiptItem}
-    >
-      <Text style={styles.receiptDate}>{formatDate(new Date(item.date))}</Text>
+  const renderReceiptItem = ({ item, index }) => {
+    const isFirst = index === 0;
+    const isSelected = selectedIds.has(item.id);
 
-      <View style={{ flex: 1, alignItems: "flex-start", marginLeft: 25 }}>
-        <Text style={styles.receiptCategory}>
-          {String(item.category).split(" ").join("\n")}
-        </Text>
+    return (
+      <View style={{ width: "100%", alignItems: "center" }}>
+        {/* 1. The Blue "Container" wrapper */}
+        <View
+          style={[
+            styles.listContainer,
+            { width: "98%", marginTop: 0, marginBottom: 5 },
+          ]}
+        >
+          <TouchableOpacity
+            onPress={() => {
+              if (isSelectionMode) {
+                toggleSelectedId(item.id);
+                return;
+              }
+              if (item.type === "mileage") {
+                navigation.navigate("MileageDetails", { item });
+                return;
+              }
+              navigation.navigate("ReceiptDetails", { receipt: item });
+            }}
+            onLongPress={() => beginSelectionWithId(item.id)}
+            delayLongPress={220}
+            style={[
+              styles.receiptItem,
+              { width: "100%", marginBottom: 0 },
+              isSelected && styles.selectedReceiptItem,
+            ]}
+          >
+            {isSelectionMode ? (
+              <View style={[styles.selectionBadge, isSelected && styles.selectionBadgeActive]}>
+                <Text style={styles.selectionBadgeText}>{isSelected ? "✓" : ""}</Text>
+              </View>
+            ) : null}
+            <Text style={styles.receiptDate}>
+              {formatDate(new Date(item.date))}
+            </Text>
+
+            <View style={{ flex: 1, alignItems: "flex-start", marginLeft: 25 }}>
+              {item.type === "mileage" ? (
+                <Text style={styles.receiptLabel} numberOfLines={1}>
+                  🚗 {item.mileageDetails?.vehicleReg || "Mileage"}
+                  {item.mileageDetails?.distance ? `  ·  ${item.mileageDetails.distance} mi` : ""}
+                </Text>
+              ) : item.label ? (
+                <Text
+                  style={styles.receiptLabel}
+                  numberOfLines={1}
+                  ellipsizeMode="tail"
+                >
+                  {String(item.label)}
+                </Text>
+              ) : null}
+              <Text
+                style={styles.receiptCategory}
+                numberOfLines={1}
+                ellipsizeMode="tail"
+              >
+                {String(item.category || "Uncategorized")}
+              </Text>
+            </View>
+
+            <Text style={styles.receiptAmount}>
+              {formatCurrency(item.amount)}
+            </Text>
+          </TouchableOpacity>
+        </View>
+
+        {/* 2. The Tooltip (Sibling to the blue box) */}
+        {isFirst && !isSelectionMode && showItemTip && sortedReceipts.length === 1 && (
+          <ItemTooltip onDismiss={dismissItemTip} />
+        )}
       </View>
-
-      <Text style={styles.receiptAmount}>£{Number(item.amount).toFixed(2)}</Text>
-    </TouchableOpacity>
-  );
+    );
+  };
 
   const renderEmptyState = () =>
-    loading ? null : (
+    dataLoading ? null : (
       <View style={styles.emptyState}>
-        <View style={styles.card}>
-          <Text style={styles.description}>
-            Click here to view a short video on how this app works
-          </Text>
-        </View>
         <TouchableOpacity
           style={styles.addButton}
-          onPress={() => navigation.navigate("Receipt")}
+          onPress={() => setAddSheetVisible(true)}
         >
-          <Text style={styles.buttonText}>Add Expenses</Text>
+          <Text style={styles.buttonText}>Add Receipts</Text>
         </TouchableOpacity>
       </View>
     );
 
-  const hasReceipts = !loading && sortedReceipts.length > 0;
+  const hasReceipts = !dataLoading && !loading && sortedReceipts.length > 0;
 
   return (
-    <SafeAreaView style={styles.container}>
-
+    <SafeAreaView style={[styles.container, { backgroundColor: '#1C1C4E' }]}>
+      <StatusBar backgroundColor="#1C1C4E" barStyle="light-content" />
       {/* Top App Bar */}
       <View style={[styles.topBar, { paddingTop: 5 }]}>
-        <TouchableOpacity style={styles.topBarButton} onPress={() => setMenuOpen(true)}>
-          <Text style={styles.topBarButtonText}>≡</Text>
-        </TouchableOpacity>
+        {isSelectionMode ? (
+          <>
+            <TouchableOpacity style={styles.topBarButton} onPress={clearSelectionMode}>
+              <Text style={styles.topBarButtonText}>✕</Text>
+            </TouchableOpacity>
 
-        <Text style={styles.topBarTitle}>Expenses</Text>
+            <Text style={styles.topBarTitle}>{selectedIds.size} selected</Text>
 
-        {/* Right spacer to balance the layout (same width as the button) */}
-        <View style={{ width: 44 }} />
+            <TouchableOpacity
+              style={[styles.topBarButton, selectedIds.size === 0 && { opacity: 0.4 }]}
+              disabled={selectedIds.size === 0}
+              onPress={handleBatchDeleteReceipts}
+            >
+              <Text style={styles.topBarButtonText}>🗑</Text>
+            </TouchableOpacity>
+          </>
+        ) : (
+          <>
+            <TouchableOpacity
+              style={styles.topBarButton}
+              onPress={() => setMenuOpen(true)}
+            >
+              <Text style={styles.topBarButtonText}>≡</Text>
+            </TouchableOpacity>
+
+            <Text style={styles.topBarTitle}>Expenses</Text>
+
+            {/* Right spacer to balance the layout (same width as the button) */}
+            <View style={{ width: 44 }} />
+          </>
+        )}
       </View>
 
-
       <View style={styles.content}>
-        <View style={styles.card}>
-          <Text style={styles.title}>Welcome, {displayName}!</Text>
-          {loading ? null : sortedReceipts.length === 0 ? (
-            <Text style={styles.subtitle}>
-              You haven't added any expenses yet!
-            </Text>
-          ) : (
-            <Text style={styles.subtitle}>Your receipts are shown below:</Text>
-          )}
-        </View>
 
         {/* Header row OUTSIDE the FlatList to avoid Android sticky bug */}
-        {hasReceipts ? (
-          <View style={{ marginTop: 10, marginBottom: 8 }}>
+        {hasReceipts && !isSelectionMode ? (
+          <View style={{ marginTop: 12, marginBottom: 8 }}>
             {renderHeaderRow()}
           </View>
         ) : null}
 
         <FlatList
-          ListEmptyComponent={!loading ? renderEmptyState : null}
-          data={loading ? [] : sortedReceipts}
+          ListEmptyComponent={(!dataLoading && !loading) ? renderEmptyState : null}
+          data={(loading || dataLoading) ? [] : sortedReceipts}
           keyExtractor={(item) => item.id}
           renderItem={renderReceiptItem}
+          extraData={{ isSelectionMode, selectedIds: Array.from(selectedIds).join("|") }}
           contentContainerStyle={[
-            styles.listContainer,
-            !hasReceipts ? { flexGrow: 1, justifyContent: "center" } : null,
+            { paddingVertical: 10 },
+            !hasReceipts ? { flexGrow: 1, justifyContent: "center" } : { paddingBottom: 110 },
           ]}
           refreshControl={
             <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
           }
-          // NOTE: header is outside; do not use stickyHeaderIndices/ListHeaderComponent
         />
+
       </View>
 
+      {filterOpen ? (
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel="Close period selector"
+          onPress={() => setFilterOpen(false)}
+          style={styles.filterDismissLayer}
+        />
+      ) : null}
+
+      {!isSelectionMode && !dataLoading && !loading && !filterOpen && showHiddenRecordsTip ? (
+        <View style={styles.hiddenPeriodTipWrapper} pointerEvents="box-none">
+          <View style={styles.hiddenPeriodTipBox}>
+            <Text style={styles.hiddenPeriodTipText}>
+              You may have records in other periods which are currently not displaying.
+            </Text>
+            <TouchableOpacity onPress={dismissHiddenRecordsTip}>
+              <Text style={styles.hiddenPeriodTipOk}>OK</Text>
+            </TouchableOpacity>
+          </View>
+          <View style={styles.hiddenPeriodTipTriangleDown} />
+        </View>
+      ) : null}
+
+      {/* Period filter bar — sits just above the bottom tab bar */}
+      {!isSelectionMode && !dataLoading && !loading && filterOptions.length > 0 ? (
+        <View style={styles.filterBar}>
+          <DropDownPicker
+            open={filterOpen}
+            value={activeFilterKey}
+            items={filterItems}
+            setOpen={handleSetFilterOpen}
+            setValue={(callback) => {
+              const nextKey = callback(activeFilterKey);
+              handleFilterSelection(nextKey).catch(() => {});
+              return nextKey;
+            }}
+            setItems={setFilterItems}
+            listMode="SCROLLVIEW"
+            dropDownDirection="TOP"
+            closeOnClickOutside={true}
+            maxHeight={filterItems.length * 48 + 12}
+            style={styles.filterDropdown}
+            dropDownContainerStyle={styles.filterDropdownContainer}
+            zIndex={3000}
+            zIndexInverse={1000}
+          />
+        </View>
+      ) : null}
+
       {/* Floating Add Expenses Button */}
-      <TouchableOpacity
-        style={styles.floatingButton}
-        onPress={() => navigation.navigate("Receipt")}
-      >
-        <Text style={styles.floatingButtonText}>+</Text>
-      </TouchableOpacity>
+      {!isSelectionMode && !addSheetVisible && (
+        <TouchableOpacity
+          style={styles.floatingButton}
+          onPress={() => setAddSheetVisible(true)}
+        >
+          <Text style={styles.floatingButtonText}>+</Text>
+        </TouchableOpacity>
+      )}
+
+      <AddReceiptSheet
+        visible={addSheetVisible}
+        onClose={() => setAddSheetVisible(false)}
+        navigation={navigation}
+        itemLabel="receipt"
+        vehicles={vehicles}
+      />
 
       {/* Full-screen loading overlay */}
-      {loading && (
+      {(loading || dataLoading) && (
         <View style={styles.blockingOverlay} pointerEvents="auto">
           <View style={styles.loadingCard}>
             <ActivityIndicator size="large" />
@@ -262,32 +1040,263 @@ const ExpensesScreen = ({ navigation }) => {
       )}
 
       {/* Slide-in side menu */}
-      <SideMenu open={menuOpen} onClose={() => setMenuOpen(false)}>
-       <View style={{ flex: 1 }}> 
-
-        <Text style={styles.menuTitle}>Menu</Text>
-      
-        <View style={styles.userInfo}>
-          <Text style={styles.userEmail}>{auth.currentUser?.email}</Text>
-        </View>
-
-        <TouchableOpacity
-          onPress={async () => {
-            setMenuOpen(false);
-            await handleLogout();
+      <SideMenu open={menuOpen} onClose={closeMenu}>
+        <SharedTabMenu
+          navigation={navigation}
+          closeMenu={closeMenu}
+          displayName={displayName}
+          open={menuOpen}
+          onVehiclesChanged={setVehicles}
+          onFinancialYearScopeChange={(scope, filterKey) => {
+            setFinancialYearScope(scope);
+            setActiveFilterKey(filterKey);
           }}
-          style={styles.signOutBtn}>
-          <Text style={styles.signOutText}>Sign out</Text>
-        </TouchableOpacity>
-
-        <View style={styles.versionContainer}>
-          <Text style={styles.versionText}>Version {appVersion}</Text>
-        </View>
-        
-       </View>
+        />
       </SideMenu>
-    </SafeAreaView>
 
+      {/* Feedback Modal */}
+      <Modal visible={feedbackModalVisible} transparent animationType="slide">
+        <View style={styles.modalOverlay}>
+          <View style={styles.loadingCard}>
+            <Text style={styles.title}>Send Feedback</Text>
+            <Text style={{ textAlign: "center", marginVertical: 10, color: Colors.textPrimary }}>
+              Have a suggestion or found a bug? Let us know below.
+            </Text>
+
+            <TextInput
+              style={[styles.input, { minHeight: 120, textAlignVertical: 'top', color: Colors.textPrimary  }]}
+              placeholder="Type your feedback here..."
+              placeholderTextColor="#999"
+              multiline
+              value={feedbackText}
+              onChangeText={setFeedbackText}
+            />
+
+            <View style={{ flexDirection: "row", marginTop: 20, gap: 10, width: '100%' }}>
+              <TouchableOpacity
+                onPress={() => {
+                  setFeedbackModalVisible(false);
+                  setFeedbackText("");
+                }}
+                style={[styles.signOutBtn, { backgroundColor: "#ccc", flex: 1 }]}
+              >
+                <Text style={{ color: "#000", textAlign: 'center' }}>Cancel</Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                onPress={handleSendFeedback}
+                style={[styles.signOutBtn, { flex: 1 }]}
+              >
+                <Text style={styles.signOutText}>Send</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
+
+      <Modal
+        visible={settingsModalVisible}
+        transparent
+        animationType="slide"
+        onRequestClose={() => setSettingsModalVisible(false)}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={[styles.loadingCard, styles.settingsModalCard]}>
+            <Text style={styles.title}>Settings</Text>
+
+            <View style={styles.settingsRow}>
+              <Text style={styles.settingsLabel}>Haptic feedback</Text>
+              <Switch
+                value={hapticsEnabled}
+                onValueChange={toggleHapticsSetting}
+                trackColor={{ false: "#c8cad2", true: "#f0b5ca" }}
+                thumbColor={hapticsEnabled ? Colors.accent : "#f4f3f4"}
+              />
+            </View>
+
+            <TouchableOpacity
+              onPress={() => setSettingsModalVisible(false)}
+              style={[styles.signOutBtn, { width: "100%" }]}
+            >
+              <Text style={styles.signOutText}>Done</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
+
+      {/* Client Code Modal */}
+      <Modal
+        visible={referralCodeModalVisible}
+        transparent
+        animationType="slide"
+        onRequestClose={() => {
+          setReferralCodeModalVisible(false);
+          setFederatedPromptMode(false);
+        }}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={styles.loadingCard}>
+            <Text style={styles.title}>
+              {federatedPromptMode ? "Welcome" : "Enter Client Code"}
+            </Text>
+            <Text style={{ textAlign: "center", marginVertical: 10, color: Colors.textPrimary }}>
+              {federatedPromptMode
+                ? "If you have a client code, enter it now to link your account. You can also continue without one."
+                : "Enter your verification code to link your account to your accountant."}
+            </Text>
+
+            {verificationStatus === "verified" ? (
+              <Text style={styles.verificationWarningText}>
+                This account is already verified{verifiedName ? ` as ${verifiedName}` : ""}. Entering another code may overwrite that link.
+              </Text>
+            ) : null}
+
+            <TextInput
+              style={[styles.input, { color: Colors.textPrimary }]}
+              placeholder="Client code"
+              placeholderTextColor="#999"
+              value={referralCode}
+              onChangeText={setReferralCode}
+              autoCapitalize="none"
+            />
+
+            <View style={{ flexDirection: "row", marginTop: 20, gap: 10, width: "100%" }}>
+              <TouchableOpacity
+                onPress={() => {
+                  setReferralCodeModalVisible(false);
+                  setFederatedPromptMode(false);
+                }}
+                style={[styles.signOutBtn, { backgroundColor: "#ccc", flex: 1 }]}
+              >
+                <Text style={{ color: "#000", textAlign: "center" }}>
+                  {federatedPromptMode ? "Continue without code" : "Cancel"}
+                </Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                onPress={handleSubmitReferralCode}
+                style={[styles.signOutBtn, { flex: 1 }]}
+              >
+                <Text style={styles.signOutText}>Submit</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
+
+      {/* Name Change Modal */}
+      <Modal
+        visible={nameChangeModalVisible}
+        transparent
+        animationType="slide"
+        onRequestClose={() => setNameChangeModalVisible(false)}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={styles.loadingCard}>
+            <Text style={styles.title}>Change Your Name</Text>
+            <Text style={{ textAlign: "center", marginVertical: 10, color: Colors.textPrimary }}>
+              Enter your new name.
+            </Text>
+
+            <TextInput
+              style={[styles.input, { color: Colors.textPrimary }]}
+              placeholder="New name"
+              placeholderTextColor="#999"
+              value={newName}
+              onChangeText={setNewName}
+            />
+
+            <View style={{ flexDirection: "row", marginTop: 20, gap: 10, width: "100%" }}>
+              <TouchableOpacity
+                onPress={() => setNameChangeModalVisible(false)}
+                style={[styles.signOutBtn, { backgroundColor: "#ccc", flex: 1 }]}
+              >
+                <Text style={{ color: "#000", textAlign: "center" }}>Cancel</Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                onPress={handleSubmitNameChange}
+                style={[styles.signOutBtn, { flex: 1 }]}
+              >
+                <Text style={styles.signOutText}>Accept</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
+
+      <Modal visible={deleteModalVisible} transparent animationType="fade">
+        <View style={styles.modalOverlay}>
+          <View style={styles.loadingCard}>
+            <Text style={[styles.title, { color: "#ff4444" }]}>
+              Delete Account?
+            </Text>
+            <Text style={{ textAlign: "center", marginVertical: 10, 
+              color: Colors.textPrimary 
+              }}>
+              This will permanently erase all receipts and images. Please type{" "}
+              <Text style={{ fontWeight: "bold" }}>DELETE</Text> to confirm.
+            </Text>
+
+            <TextInput
+              style={[styles.input, { width: "100%", textAlign: "center", 
+                color: Colors.textPrimary  
+              }]}
+              placeholder="Type here"
+              value={confirmText}
+              onChangeText={setConfirmText}
+              autoCapitalize="characters"
+            />
+
+            <View style={{ flexDirection: "row", marginTop: 20, gap: 10 }}>
+              <TouchableOpacity
+                onPress={() => {
+                  setDeleteModalVisible(false);
+                  setConfirmText("");
+                }}
+                style={[
+                  styles.signOutBtn,
+                  { backgroundColor: "#ccc", flex: 1 },
+                ]}
+              >
+                <Text style={{ color: "#000" }}>Cancel</Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                onPress={performDeletion} // This triggers the logic above
+                disabled={confirmText !== "DELETE"}
+                style={[
+                  styles.signOutBtn,
+                  {
+                    backgroundColor:
+                      confirmText === "DELETE" ? "#ff4444" : "#ffcccc",
+                    flex: 1,
+                  },
+                ]}
+              >
+                <Text style={{ color: "white" }}>Delete All</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
+      {/* Vehicle Modals */}
+      <RegisterVehicleModal
+        visible={registerVehicleOpen}
+        onClose={() => setRegisterVehicleOpen(false)}
+        onSaved={(updated) => setVehicles(updated)}
+        vehicle={null}
+        onRecordMileage={() => navigation.navigate("MileageRecord", {})}
+      />
+      <YourVehiclesModal
+        visible={yourVehiclesOpen}
+        onClose={() => setYourVehiclesOpen(false)}
+        vehicles={vehicles}
+        onRecordMileage={() => navigation.navigate("MileageRecord", {})}
+        onChanged={(updated) => setVehicles(updated)}
+      />
+
+    </SafeAreaView>
   );
 };
 
@@ -306,7 +1315,81 @@ const styles = StyleSheet.create({
     alignItems: "center",
   },
   title: { fontSize: 19, fontWeight: "bold", color: Colors.textPrimary },
-  subtitle: { fontSize: 17, color: Colors.textPrimary, marginTop: 14, textAlign: "center" },
+  subtitle: {
+    fontSize: 17,
+    color: Colors.textPrimary,
+    marginTop: 14,
+    textAlign: "center",
+  },
+  filterBar: {
+    position: "absolute",
+    bottom: 0,
+    left: 0,
+    right: 0,
+    backgroundColor: "#1C1C4E",
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    zIndex: 3000,
+    elevation: 30,
+  },
+  filterDismissLayer: {
+    ...StyleSheet.absoluteFillObject,
+    zIndex: 2000,
+    elevation: 20,
+  },
+  filterDropdown: {
+    borderColor: Colors.border,
+    borderRadius: 10,
+    backgroundColor: Colors.card,
+  },
+  filterDropdownContainer: {
+    borderColor: Colors.border,
+    backgroundColor: Colors.card,
+  },
+  hiddenPeriodTipWrapper: {
+    position: "absolute",
+    left: 14,
+    right: 14,
+    bottom: 60,
+    alignItems: "center",
+    zIndex: 1400,
+  },
+  hiddenPeriodTipBox: {
+    backgroundColor: "#F0D1FF",
+    borderRadius: 12,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    width: "100%",
+    elevation: 5,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.3,
+    shadowRadius: 4,
+  },
+  hiddenPeriodTipText: {
+    color: "#4A148C",
+    fontSize: 14,
+    lineHeight: 20,
+  },
+  hiddenPeriodTipOk: {
+    marginTop: 8,
+    color: "#4A148C",
+    fontWeight: "700",
+    textAlign: "right",
+    textDecorationLine: "underline",
+  },
+  hiddenPeriodTipTriangleDown: {
+    width: 0,
+    height: 0,
+    backgroundColor: "transparent",
+    borderStyle: "solid",
+    borderLeftWidth: 10,
+    borderRightWidth: 10,
+    borderTopWidth: 15,
+    borderLeftColor: "transparent",
+    borderRightColor: "transparent",
+    borderTopColor: "#F0D1FF",
+  },
   description: {
     fontSize: 16,
     color: Colors.textPrimary,
@@ -315,9 +1398,9 @@ const styles = StyleSheet.create({
   },
   addButton: {
     backgroundColor: Colors.accent,
-    paddingVertical: 17,
-    paddingHorizontal: 43,
-    borderRadius: 35,
+    paddingVertical: 16,
+    paddingHorizontal: 28,
+    borderRadius: 28,
     alignSelf: "center",
     marginTop: 20,
     shadowColor: "#a60d49",
@@ -325,7 +1408,7 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.3,
     shadowRadius: 5,
   },
-  buttonText: { fontSize: 25, fontWeight: "bold", color: "white" },
+  buttonText: { fontSize: 18, fontWeight: "700", color: "white" },
 
   emptyState: {
     flex: 1,
@@ -337,7 +1420,7 @@ const styles = StyleSheet.create({
   listContainer: {
     marginTop: 10,
     borderRadius: 10,
-    padding: 8,
+    padding: 6,
     backgroundColor: Colors.textPrimary,
     width: "100%",
   },
@@ -345,9 +1428,9 @@ const styles = StyleSheet.create({
   // ---- Header row (sortable columns) ----
   headerRow: {
     backgroundColor: Colors.card,
-    borderRadius: 12,            // round all corners
+    borderRadius: 12, // round all corners
     paddingHorizontal: 16,
-    paddingVertical: 12,         // internal space
+    paddingVertical: 12, // internal space
     width: "95%",
     alignSelf: "center",
     flexDirection: "row",
@@ -375,8 +1458,13 @@ const styles = StyleSheet.create({
     gap: 6,
   },
   headerText: { fontSize: 14, fontWeight: "700", color: Colors.textPrimary },
-  headerTextRight: { fontSize: 14, fontWeight: "700", color: Colors.textPrimary, textAlign: "right" },
-  headerArrow: { fontSize: 12, color: "#555" },
+  headerTextRight: {
+    fontSize: 14,
+    fontWeight: "700",
+    color: Colors.textPrimary,
+    textAlign: "right",
+  },
+  headerArrow: { fontSize: 12, color: Colors.textMuted },
 
   receiptItem: {
     backgroundColor: "#f0f0f0",
@@ -387,16 +1475,60 @@ const styles = StyleSheet.create({
     alignSelf: "center",
     flexDirection: "row",
     justifyContent: "space-between",
-    alignItems: "center",
+    alignItems: "flex-end",
     minHeight: 60,
   },
-  receiptDate: { fontSize: 14, color: "#555" },
-  receiptCategory: { fontSize: 16, fontWeight: "500", color: "#000" },
-  receiptAmount: { fontSize: 16, fontWeight: "bold", color: Colors.accent },
+  selectedReceiptItem: {
+    borderWidth: 2,
+    borderColor: Colors.accent,
+    backgroundColor: "#fef3f8",
+    position: "relative",
+  },
+  selectionBadge: {
+    position: "absolute",
+    left: 10,
+    top: 8,
+    width: 18,
+    height: 18,
+    borderRadius: 9,
+    borderWidth: 1,
+    borderColor: Colors.accent,
+    backgroundColor: "#fff",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  selectionBadgeActive: {
+    backgroundColor: Colors.accent,
+  },
+  selectionBadgeText: {
+    color: "#fff",
+    fontSize: 12,
+    fontWeight: "700",
+    lineHeight: 12,
+  },
+  receiptDate: { fontSize: 14, color: Colors.textMuted, minWidth: 90 },
+  receiptLabel: {
+    fontSize: 12,
+    color: Colors.textMuted,
+    marginBottom: 2,
+  },
+  receiptCategory: {
+    fontSize: 16,
+    fontWeight: "500",
+    color: "#000",
+    width: "100%",
+  },
+  receiptAmount: {
+    fontSize: 16,
+    fontWeight: "bold",
+    color: Colors.accent,
+    minWidth: 90,
+    textAlign: "right",
+  },
 
   floatingButton: {
     position: "absolute",
-    bottom: 100,
+    bottom: 70,
     right: 30,
     backgroundColor: Colors.accent,
     width: 60,
@@ -416,61 +1548,62 @@ const styles = StyleSheet.create({
   // Blocking overlay
   blockingOverlay: {
     position: "absolute",
-    top: 0, left: 0, right: 0, bottom: 0,
-    backgroundColor: "rgba(0,0,0,0.3)",
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    backgroundColor: "rgba(0,0,0,0.5)", // Slightly darker for better contrast
     justifyContent: "center",
     alignItems: "center",
     zIndex: 999,
   },
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: "rgba(0, 0, 0, 0.5)", // Dim the background
+    justifyContent: "center", // Center vertically
+    alignItems: "center", // Center horizontally
+    padding: 20, // Keep card away from screen edges
+  },
   loadingCard: {
-    backgroundColor: "white",
+    backgroundColor: Colors.surface,
     paddingVertical: 20,
-    paddingHorizontal: 24,
+    paddingHorizontal: 26,
     borderRadius: 12,
     alignItems: "center",
     minWidth: 200,
   },
-  loadingText: { marginTop: 10, fontSize: 16, fontWeight: "600" },
+  loadingText: { marginTop: 10, fontSize: 16, fontWeight: "600", color: Colors.textPrimary },
   topBar: {
-  backgroundColor: Colors.card,
-  width: "100%",
-  // height is paddingTop (status bar) + this content height
-  // keep the content area comfy:
-  paddingHorizontal: 12,
-  paddingBottom: 10,
-  flexDirection: "row",
-  alignItems: "center",
-  justifyContent: "space-between",
-  // subtle shadow/elevation
-  elevation: 3,
-  shadowColor: "#000",
-  shadowOpacity: 0.1,
-  shadowRadius: 4,
-  shadowOffset: { width: 0, height: 2 },
-},
-topBarButton: {
-  width: 44,
-  height: 36,
-  borderRadius: 18,
-  backgroundColor: Colors.inputBg,
-  alignItems: "center",
-  justifyContent: "center",
-},
-topBarButtonText: {
-  fontSize: 18,
-  fontWeight: "700",
-  color: Colors.textPrimary,
-},
-topBarTitle: {
-  fontSize: 18,
-  fontWeight: "800",
-  color: Colors.textPrimary,
-},
-menuTitle: { 
-  fontSize: 22, 
-  fontWeight: "800", 
-  color: Colors.textPrimary, 
-    marginBottom: 10 
+    backgroundColor: '#1C1C4E',
+    width: "100%",
+    paddingHorizontal: 12,
+    paddingBottom: 10,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    borderBottomWidth: 1,
+    borderBottomColor: Colors.accent,
+  },
+  topBarButton: {
+    width: 52,
+    height: 48,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  topBarButtonText: {
+    fontSize: 32,
+    color: "#fff",
+  },
+  topBarTitle: {
+    fontSize: 18,
+    fontWeight: "700",
+    color: "#fff",
+  },
+  menuTitle: {
+    fontSize: 22,
+    fontWeight: "800",
+    color: Colors.textPrimary,
+    marginBottom: 10,
   },
   userInfo: {
     marginBottom: 20,
@@ -486,20 +1619,218 @@ menuTitle: {
     borderRadius: 10,
     marginTop: 20,
   },
-  signOutText: { 
-    color: "white", 
-    fontWeight: "700", 
-    textAlign: 'center' 
+  signOutText: {
+    color: "white",
+    fontWeight: "700",
+    textAlign: "center",
+  },
+  // Pushes the entire block to the bottom of the SideMenu
+  footerContainer: {
+    marginTop: "auto",
+    paddingBottom: 10,
+  },
+  settingsRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    marginBottom: 12,
+    width: "100%",
+  },
+  settingsLabel: {
+    color: Colors.textPrimary,
+    fontSize: 14,
+  },
+  menuLogo: {
+    width: "100%",
+    height: 60,
+    marginTop: 8,
+    marginBottom: 4,
+  },
+  redButton: {
+    backgroundColor: Colors.accent,
+    paddingVertical: 14,
+    paddingHorizontal: 16,
+    borderRadius: 10,
+    alignItems: "center",
+  },
+  redButtonText: {
+    color: "white",
+    fontWeight: "700",
+    textAlign: "center",
+  },
+  referralBtn: {
+    backgroundColor: "#27ae60",
+    paddingVertical: 14,
+    paddingHorizontal: 16,
+    borderRadius: 10,
+    alignItems: "center",
+  },
+  disabledActionButton: {
+    backgroundColor: "#b9bcc8",
+  },
+  disabledActionButtonText: {
+    color: "#f5f6f8",
+  },
+  verificationWarningText: {
+    color: Colors.accent,
+    fontSize: 13,
+    lineHeight: 18,
+    textAlign: "center",
+    marginBottom: 10,
+  },
+  settingsModalCard: {
+    width: "100%",
+    maxWidth: 420,
+    alignItems: "stretch",
+  },
+  settingsFilterSection: {
+    width: "100%",
+    marginTop: 8,
+    marginBottom: 20,
+    zIndex: 3000,
+  },
+  // The new filled style (formerly for Sign Out, now for Delete)
+  deleteBtnFilled: {
+    backgroundColor: Colors.accent, // Red for destruction
+    paddingVertical: 12,
+    paddingHorizontal: 16,
+    borderRadius: 10,
+    marginBottom: 10,
+  },
+  notifyBtnFilled: {
+    backgroundColor: "#2e86de",
+    paddingVertical: 12,
+    paddingHorizontal: 16,
+    borderRadius: 10,
+    marginBottom: 10,
+  },
+  notifyTipBox: {
+    backgroundColor: "#FFF3CD",
+    borderColor: "#F5C451",
+    borderWidth: 1,
+    borderRadius: 8,
+    padding: 10,
+    marginBottom: 10,
+  },
+  notifyTipText: {
+    color: "#5C4100",
+    fontSize: 13,
+    lineHeight: 18,
+  },
+  notifyTipOkay: {
+    color: "#5C4100",
+    fontWeight: "700",
+    textAlign: "right",
+    textDecorationLine: "underline",
+    marginTop: 8,
+  },
+  filledBtnText: {
+    color: "white",
+    fontWeight: "700",
+    textAlign: "center",
+  },
+  secondaryMenuButton: {
+    backgroundColor: Colors.surface,
+    borderColor: Colors.border,
+    borderWidth: 1,
+    borderRadius: 10,
+    paddingVertical: 12,
+    paddingHorizontal: 16,
+    alignItems: "center",
+  },
+  secondaryMenuButtonText: {
+    color: Colors.textPrimary,
+    fontWeight: "600",
+    textAlign: "center",
+  },
+  disabledMenuButton: {
+    backgroundColor: "#f0f0f0",
+    borderColor: "#ddd",
+    opacity: 0.55,
+  },
+  disabledMenuButtonText: {
+    color: "#aaa",
+  },
+  // The new transparent style (formerly for Delete, now for Sign Out)
+  signOutLink: {
+    backgroundColor: "transparent",
+    paddingVertical: 10,
+    marginBottom: 20,
+  },
+  linkBtnText: {
+    color: Colors.textPrimary,
+    fontWeight: "600",
+    textAlign: "center",
+    textDecorationLine: "underline",
   },
   versionContainer: {
-    marginTop: 'auto', // Pushes to bottom of the flex container
-    paddingBottom: 20,
-    alignItems: 'center',
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    paddingTop: 20,
+    paddingBottom: 10,
   },
   versionText: {
-    color: '#B5B3C6',
+    color: "#B5B3C6",
     fontSize: 12,
-    fontWeight: '600',
-  }
-
+    fontWeight: "600",
+  },
+  itemTipWrapper: {
+    alignItems: "center",
+    marginTop: -5, // Pull it closer to the item
+    marginBottom: 10,
+    paddingHorizontal: 20,
+    zIndex: 10,
+  },
+  topTriangle: {
+    width: 0,
+    height: 0,
+    backgroundColor: "transparent",
+    borderStyle: "solid",
+    borderLeftWidth: 10,
+    borderRightWidth: 10,
+    borderBottomWidth: 15,
+    borderLeftColor: "transparent",
+    borderRightColor: "transparent",
+    borderBottomColor: "#F0D1FF", // Match your brand color
+  },
+  itemTipBox: {
+    backgroundColor: "#F0D1FF",
+    padding: 12,
+    borderRadius: 8,
+    width: "100%",
+    elevation: 5,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.3,
+    shadowRadius: 4,
+  },
+  itemTipText: {
+    color: "#4A148C",
+    fontSize: 14,
+    lineHeight: 20,
+    textAlign: "center",
+  },
+  itemGotIt: {
+    color: "#4A148C",
+    fontWeight: "bold",
+    textAlign: "right",
+    marginTop: 8,
+    textDecorationLine: "underline",
+  },
 });
+
+const ItemTooltip = ({ onDismiss }) => (
+  <View style={styles.itemTipWrapper}>
+    <View style={styles.topTriangle} />
+    <View style={styles.itemTipBox}>
+      <Text style={styles.itemTipText}>
+        Here's your first expense receipt! Tap it to edit, delete or see the
+        receipt image.
+      </Text>
+      <TouchableOpacity onPress={onDismiss}>
+        <Text style={styles.itemGotIt}>Got it</Text>
+      </TouchableOpacity>
+    </View>
+  </View>
+);

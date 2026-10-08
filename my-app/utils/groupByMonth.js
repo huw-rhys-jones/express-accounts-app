@@ -28,3 +28,46 @@ export function groupReceiptsByMonth(receipts) {
 
   return months;
 }
+
+export function groupCashflowByMonth(receipts = [], incomeItems = [], startDate = null, endDate = null) {
+  const now = new Date();
+  const currentYear = now.getFullYear();
+
+  const fyStartYear = now.getMonth() >= 3 ? currentYear : currentYear - 1;
+  const fyStart = startDate ? new Date(startDate) : new Date(fyStartYear, 3, 1);
+  const fyEnd = endDate ? new Date(endDate) : new Date(fyStartYear + 1, 2, 31);
+
+  // Build month buckets only for months within the range
+  const months = [];
+  const cursor = new Date(fyStart.getFullYear(), fyStart.getMonth(), 1);
+  const rangeEnd = new Date(fyEnd.getFullYear(), fyEnd.getMonth(), 1);
+  while (cursor <= rangeEnd) {
+    months.push({
+      key: cursor.getMonth(),
+      label: cursor.toLocaleString("default", { month: "short" }),
+      expenseTotal: 0,
+      incomeTotal: 0,
+      _year: cursor.getFullYear(),
+      _month: cursor.getMonth(),
+    });
+    cursor.setMonth(cursor.getMonth() + 1);
+  }
+
+  receipts.forEach((receipt) => {
+    const date = new Date(receipt.date);
+    if (date >= fyStart && date <= fyEnd) {
+      const bucket = months.find((m) => m._year === date.getFullYear() && m._month === date.getMonth());
+      if (bucket) bucket.expenseTotal += Number(receipt.amount) || 0;
+    }
+  });
+
+  incomeItems.forEach((incomeItem) => {
+    const date = new Date(incomeItem.date);
+    if (date >= fyStart && date <= fyEnd) {
+      const bucket = months.find((m) => m._year === date.getFullYear() && m._month === date.getMonth());
+      if (bucket) bucket.incomeTotal += Number(incomeItem.amount) || 0;
+    }
+  });
+
+  return months;
+}

@@ -1,6 +1,6 @@
 import * as WebBrowser from "expo-web-browser";
 import * as Google from "expo-auth-session/providers/google";
-import { useEffect } from "react";
+import { useEffect, useRef } from "react";
 import { auth } from "../firebaseConfig";
 import { GoogleAuthProvider, signInWithCredential } from "firebase/auth";
 import { makeRedirectUri } from "expo-auth-session";
@@ -8,9 +8,11 @@ import Constants from "expo-constants";
 
 WebBrowser.maybeCompleteAuthSession();
 
-export function useGoogleSignIn(onSuccess) {
+const redirectScheme = "com.caistec.expressaccounts";
+
+export function useGoogleSignIn(onSuccess, onError) {
   const redirectUri = makeRedirectUri({
-    scheme: "com.caistec.expressaccounts", // same as in your Android manifest/app.json
+    scheme: redirectScheme,
   });
 
   const expoClientId = Constants.expoConfig.extra.GOOGLE_EXPO_CLIENT_ID;
@@ -26,7 +28,16 @@ export function useGoogleSignIn(onSuccess) {
     scopes: ["openid", "profile", "email"],
   });
 
-  console.log("Redirect URI:", redirectUri);
+  // Keep a ref to the latest onSuccess so the sign-in effect only needs to
+  // depend on `response`. Without this, every re-render of the parent
+  // (e.g. from App.js calling setUser) creates a new onSuccess reference,
+  // causing the effect to re-fire and call signInWithCredential a second time.
+  const onSuccessRef = useRef(onSuccess);
+  const onErrorRef = useRef(onError);
+  useEffect(() => {
+    onSuccessRef.current = onSuccess;
+    onErrorRef.current = onError;
+  }, [onError, onSuccess]);
 
   useEffect(() => {
     if (response?.type === "success") {
@@ -41,10 +52,13 @@ export function useGoogleSignIn(onSuccess) {
       const credential = GoogleAuthProvider.credential(id_token, access_token);
 
       signInWithCredential(auth, credential)
-        .then(onSuccess)
-        .catch((error) => console.error("Google Sign-In error", error));
+        .then((result) => onSuccessRef.current?.(result))
+        .catch((error) => {
+          console.error("Google Sign-In error", error);
+          onErrorRef.current?.(error);
+        });
     }
-  }, [response]);
+  }, [response]); // response only — onSuccess is accessed via ref
 
   return [request, promptAsync];
 }

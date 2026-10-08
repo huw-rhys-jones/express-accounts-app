@@ -1,4 +1,11 @@
 {
+  "firestore": {
+    "rules": "firestore.rules",
+    "indexes": "firestore.indexes.json"
+  },
+  "storage": {
+    "rules": "storage.rules"
+  },
   "hosting": {
     "public": "public",
     "ignore": [
@@ -6,10 +13,91 @@
       "**/.*",
       "**/node_modules/**"
     ],
+    "redirects": [
+      {
+        "source": "/client-portal-mock.html",
+        "destination": "/client-portal.html",
+        "type": 301
+      }
+    ],
     "rewrites": [
       {
         "source": "/submit-deletion-request",
         "function": "submitDeletionRequest"
+      },
+      {
+        "source": "/submit-feedback",
+        "function": "submitFeedback"
+      },
+      {
+        "source": "/extract-bank-statement-pdf",
+        "function": {
+          "functionId": "extractBankStatementPdf",
+          "region": "europe-west2"
+        }
+      },
+      {
+        "source": "/extract-receipt-images",
+        "function": {
+          "functionId": "extractReceiptImages",
+          "region": "europe-west2"
+        }
+      },
+      {
+        "source": "/auto-assign-verification-by-email",
+        "function": {
+          "functionId": "autoAssignVerificationByEmail",
+          "region": "europe-west2"
+        }
+      },
+      {
+        "source": "/portal-verify-user-email",
+        "function": {
+          "functionId": "portalVerifyUserEmail",
+          "region": "europe-west2"
+        }
+      },
+      {
+        "source": "/portal-send-test-notification",
+        "function": {
+          "functionId": "sendPortalTestNotification",
+          "region": "europe-west2"
+        }
+      },
+      {
+        "source": "/portal-check-notification-receipts",
+        "function": {
+          "functionId": "checkPortalNotificationReceipts",
+          "region": "europe-west2"
+        }
+      },
+      {
+        "source": "/portal-fetch-image",
+        "function": {
+          "functionId": "fetchPortalAttachment",
+          "region": "europe-west2"
+        }
+      },
+      {
+        "source": "/portal-update-review",
+        "function": {
+          "functionId": "updatePortalRecordReview",
+          "region": "europe-west2"
+        }
+      },
+      {
+        "source": "/portal-update-record",
+        "function": {
+          "functionId": "updatePortalRecord",
+          "region": "europe-west2"
+        }
+      },
+      {
+        "source": "/export-client-zip",
+        "function": {
+          "functionId": "exportClientZip",
+          "region": "europe-west2"
+        }
       }
     ]
   },
@@ -23,9 +111,6 @@
         "firebase-debug.log",
         "firebase-debug.*.log",
         "*.local"
-      ],
-      "predeploy": [
-        "npm --prefix \"$RESOURCE_DIR\" run lint"
       ]
     }
   ]

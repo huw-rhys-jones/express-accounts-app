@@ -12,6 +12,8 @@ import {
   Alert,
 } from "react-native";
 import {
+  getAdditionalUserInfo,
+  sendEmailVerification,
   signInWithEmailAndPassword,
   OAuthProvider,
   signInWithCredential,
@@ -26,7 +28,9 @@ import * as Crypto from "expo-crypto";
 import { GoogleLogo } from "../utils/format_style";
 import { Ionicons } from "@expo/vector-icons";
 import { KeyboardAwareScrollView } from "react-native-keyboard-aware-scroll-view";
-import { Colors } from "../utils/sharedStyles";
+import { Colors, AuthStyles } from "../utils/sharedStyles";
+import { triggerHaptic } from "../utils/haptics";
+import { setReceiptFilterKey, setIncomeFilterKey, setBankFilterKey } from "../utils/appSettings";
 
 WebBrowser.maybeCompleteAuthSession();
 
@@ -54,6 +58,9 @@ if (Platform.OS === "android") {
 
 const looksLikeEmail = (s) => /\S+@\S+\.\S+/.test(String(s || "").trim());
 
+const isPasswordProviderUser = (user) =>
+  Boolean(user?.providerData?.some((provider) => provider?.providerId === "password"));
+
 const LoginScreen = ({ navigation }) => {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -67,6 +74,45 @@ const LoginScreen = ({ navigation }) => {
   const [resetEmail, setResetEmail] = useState("");
   const [sendingReset, setSendingReset] = useState(false);
 
+  // Feedback state
+  const [feedbackVisible, setFeedbackVisible] = useState(false);
+  const [feedbackText, setFeedbackText] = useState("");
+
+  const handleSendFeedback = async () => {
+    const senderEmail = (email || "").trim();
+
+    if (!senderEmail || !looksLikeEmail(senderEmail)) {
+      return Alert.alert("Email Required", "Please provide a valid email so we can get back to you.");
+    }
+    if (!feedbackText.trim()) {
+      return Alert.alert("Message Required", "Please enter your message.");
+    }
+
+    await runWithLoading("Sending...", async () => {
+      try {
+        const response = await fetch('https://express-accounts-73d38.web.app/submit-feedback', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            name: "Login Screen Support Request",
+            email: senderEmail, // This sends the email from the text box
+            message: feedbackText,
+          }),
+        });
+
+        if (response.ok) {
+          Alert.alert("Sent", "We have received your message and will contact you at " + senderEmail);
+          setFeedbackVisible(false);
+          setFeedbackText("");
+        } else {
+          throw new Error();
+        }
+      } catch (error) {
+        Alert.alert("Error", "Could not send message. Check your connection.");
+      }
+    });
+  };
+
   // Helper to show/hide the loader around any async flow
   const runWithLoading = async (text, fn) => {
     setLoadingText(text);
@@ -79,19 +125,77 @@ const LoginScreen = ({ navigation }) => {
     }
   };
 
+  const navigateToExpenses = async (params = {}) => {
+    await Promise.all([
+      setReceiptFilterKey("current-quarter"),
+      setIncomeFilterKey("current-quarter"),
+      setBankFilterKey("current-quarter"),
+    ]);
+    navigation.reset({
+      index: 0,
+      routes: [
+        {
+          name: "MainTabs",
+          state: {
+            index: 0,
+            routes: [{ name: "Expenses", params }],
+          },
+        },
+      ],
+    });
+  };
+
+  const upsertUserProfile = async (user, { displayName, emailAddress, isNewUser = false } = {}) => {
+    await setDoc(
+      doc(db, "users", user.uid),
+      {
+        ...(displayName ? { name: displayName } : {}),
+        ...(emailAddress ? { email: emailAddress } : {}),
+        ...(isNewUser ? { createdAt: serverTimestamp() } : {}),
+        updatedAt: serverTimestamp(),
+      },
+      { merge: true }
+    );
+  };
+
+  const handlePostFederatedLogin = async (userCredential, overrides = {}) => {
+    const user = userCredential?.user;
+    if (!user) return;
+
+    const additionalInfo = getAdditionalUserInfo(userCredential);
+    const isNewUser = Boolean(additionalInfo?.isNewUser);
+    const displayName = overrides.displayName || user.displayName || undefined;
+    const emailAddress = overrides.emailAddress || user.email || undefined;
+
+    if (!user.displayName && displayName) {
+      await updateProfile(user, { displayName });
+    }
+
+    await upsertUserProfile(user, {
+      displayName,
+      emailAddress,
+      isNewUser,
+    });
+
+    if (isNewUser) {
+      navigateToExpenses({ showFederatedCodePrompt: true });
+      return;
+    }
+
+    navigateToExpenses();
+  };
+
   let request, promptAsync;
   if (Platform.OS === "android" && useGoogleSignIn) {
-     [request, promptAsync] = useGoogleSignIn(() =>
-        navigation.reset({
-          index: 0,
-          routes: [
-            {
-              name: "MainTabs",
-              state: { index: 0, routes: [{ name: "Expenses" }] },
-            },
-          ],
-        })
-     );
+      [request, promptAsync] = useGoogleSignIn(async (userCredential) => {
+        await runWithLoading("Signing you in…", async () => {
+          await handlePostFederatedLogin(userCredential);
+        });
+      }, (error) => {
+        setLoading(false);
+        setLoadingText(null);
+        showLoginError(error?.code, "Google sign-in could not be completed. Check your connection and try again.");
+      });
   }
 
   useEffect(() => {
@@ -160,21 +264,29 @@ const LoginScreen = ({ navigation }) => {
       }
 
       await runWithLoading("Signing you in…", async () => {
+        triggerHaptic("selection").catch(() => {});
+
         const userCredential = await signInWithEmailAndPassword(
           auth,
           emailTrimmed,
           passwordTrimmed
         );
 
-         navigation.reset({
-          index: 0,
-          routes: [
-            {
-              name: "MainTabs",
-              state: { index: 0, routes: [{ name: "Expenses" }] },
-              },
-            ],
-          });
+        // Upsert name + email into Firestore so the accountant portal shows real names
+        const signedInUser = userCredential.user;
+        await setDoc(
+          doc(db, "users", signedInUser.uid),
+          {
+            ...(signedInUser.displayName ? { name: signedInUser.displayName } : {}),
+            email: signedInUser.email,
+            updatedAt: serverTimestamp(),
+          },
+          { merge: true }
+        );
+
+        triggerHaptic("success").catch(() => {});
+
+        navigateToExpenses();
       });
     } catch (error) {
       console.error("❌ Email login failed:", error);
@@ -186,6 +298,8 @@ const LoginScreen = ({ navigation }) => {
   const onAppleButtonPress = async () => {
     try {
       await runWithLoading("Signing in with Apple…", async () => {
+        triggerHaptic("selection").catch(() => {});
+
         const rawNonce = Math.random().toString(36).substring(2, 10);
         const hashedNonce = await Crypto.digestStringAsync(
           Crypto.CryptoDigestAlgorithm.SHA256,
@@ -227,25 +341,10 @@ const LoginScreen = ({ navigation }) => {
           await updateProfile(user, { displayName: fullName });
         }
 
-        await setDoc(
-          doc(db, "users", user.uid),
-          {
-            ...(fullName ? { name: fullName } : {}),
-            ...(userEmail ? { email: userEmail } : {}),
-            createdAt: serverTimestamp(),
-            updatedAt: serverTimestamp(),
-          },
-          { merge: true }
-        );
-
-         navigation.reset({
-          index: 0,
-          routes: [
-            {
-              name: "MainTabs",
-              state: { index: 0, routes: [{ name: "Expenses" }] },
-            },
-          ],
+        triggerHaptic("success").catch(() => {});
+        await handlePostFederatedLogin(result, {
+          displayName: fullName,
+          emailAddress: userEmail,
         });
       });
     } catch (e) {
@@ -261,8 +360,12 @@ const LoginScreen = ({ navigation }) => {
   const onGooglePress = async () => {
     try {
       await runWithLoading("Signing in with Google…", async () => {
+        triggerHaptic("selection").catch(() => {});
         if (!request) return;
-        await promptAsync();
+        const result = await promptAsync();
+        if (result?.type !== "success") {
+          return;
+        }
       });
     } catch (e) {
       console.error("❌ Google Sign-In Error:", e);
@@ -315,42 +418,46 @@ const LoginScreen = ({ navigation }) => {
   };
 
   return (
-    <View style={styles.flex}>
+    <View style={AuthStyles.flex}>
       <KeyboardAwareScrollView
         contentContainerStyle={{ flexGrow: 1 }}
         enableOnAndroid={true}
         keyboardShouldPersistTaps="handled"
+        extraScrollHeight={20}
       >
-        <View style={styles.logoContainer}>
+        <View style={AuthStyles.logoContainer}>
           <Image
             source={require("../assets/images/logo.png")}
-            style={styles.logo}
+            style={AuthStyles.logo}
           />
         </View>
 
-        <View style={styles.container}>
-        <View style={styles.header}>
-          <Text style={styles.headerText}>Sign in to continue</Text>
+        <View style={AuthStyles.container}>
+        <View style={AuthStyles.header}>
+          <Text style={AuthStyles.headerText}>Sign in to continue</Text>
         </View>
 
-        <View style={styles.formContainer}>
-          <Text style={styles.label}>EMAIL</Text>
-          <TextInput
-            editable={!loading}
-            style={styles.input}
-            placeholder="example@email.com"
-            placeholderTextColor="#AAA"
-            keyboardType="email-address"
-            value={email}
-            onChangeText={setEmail}
-            autoCapitalize="none"
-          />
+        <View style={AuthStyles.formContainer}>
 
-          <Text style={styles.label}>PASSWORD</Text>
-          <View style={styles.passwordContainer}>
+          <Text style={AuthStyles.label}>EMAIL</Text>
+          <View style={AuthStyles.passwordContainer}>
             <TextInput
               editable={!loading}
-              style={[styles.input, styles.inputWithIcon]}
+              style={AuthStyles.input}
+              placeholder="example@email.com"
+              placeholderTextColor="#AAA"
+              keyboardType="email-address"
+              value={email}
+              onChangeText={setEmail}
+              autoCapitalize="none"
+            />
+          </View>
+
+          <Text style={AuthStyles.label}>PASSWORD</Text>
+          <View style={AuthStyles.passwordContainer}>
+            <TextInput
+              editable={!loading}
+              style={[AuthStyles.input, AuthStyles.inputWithIcon]}
               placeholder="******"
               placeholderTextColor="#AAA"
               secureTextEntry={!showPassword}
@@ -358,7 +465,7 @@ const LoginScreen = ({ navigation }) => {
               onChangeText={setPassword}
             />
             <TouchableOpacity
-              style={styles.eyeIcon}
+              style={AuthStyles.eyeIcon}
               onPress={() => setShowPassword((prev) => !prev)}
               hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
             >
@@ -371,22 +478,22 @@ const LoginScreen = ({ navigation }) => {
           </View>
 
           <TouchableOpacity
-            style={[styles.loginButton, loading && { opacity: 0.7 }]}
+            style={[AuthStyles.loginButton, loading && { opacity: 0.7 }]}
             onPress={login}
             disabled={loading}
           >
-            <Text style={styles.loginButtonText}>Log in</Text>
+            <Text style={AuthStyles.loginButtonText}>Sign in</Text>
           </TouchableOpacity>
 
           {/* Social buttons */}
           {Platform.OS === "android" && (
             <TouchableOpacity
-              style={[styles.googleButton, loading && { opacity: 0.7 }]}
+              style={[AuthStyles.googleButton, loading && { opacity: 0.7 }]}
               onPress={onGooglePress}
               disabled={!request || loading}
             >
-              <View style={styles.googleButtonContent}>
-                <Text style={styles.googleButtonText}>Sign in with Google</Text>
+              <View style={AuthStyles.googleButtonContent}>
+                <Text style={AuthStyles.googleButtonText}>Sign in with Google</Text>
                 <GoogleLogo />
               </View>
             </TouchableOpacity>
@@ -401,19 +508,27 @@ const LoginScreen = ({ navigation }) => {
                 AppleAuthentication.AppleAuthenticationButtonStyle.BLACK
               }
               cornerRadius = {8}
-              style={styles.appleButton}
+              style={AuthStyles.appleButton}
               onPress={onAppleButtonPress}
             />
           )}
 
           {/* Secondary actions */}
-          <View style={styles.linksRow}>
+          <View style={AuthStyles.linksRow}>
             <TouchableOpacity onPress={() => navigation.navigate("SignUp")}>
-              <Text style={styles.signup}>Create account</Text>
+              <Text style={AuthStyles.signup}>Create account</Text>
             </TouchableOpacity>
 
             <TouchableOpacity onPress={openForgot}>
-              <Text style={styles.forgotPassword}>Forgot Password?</Text>
+              <Text style={AuthStyles.forgotPassword}>Forgot Password?</Text>
+            </TouchableOpacity>
+          </View>
+
+          <View style={[AuthStyles.linksRow, { justifyContent: 'center', marginTop: 25 }]}>
+            <TouchableOpacity onPress={() => setFeedbackVisible(true)}>
+              <Text style={[AuthStyles.forgotPassword, { color: Colors.accent }]}>
+                Need help? Contact Support
+              </Text>
             </TouchableOpacity>
           </View>
         </View>
@@ -421,10 +536,10 @@ const LoginScreen = ({ navigation }) => {
 
       {/* 🔒 Full-screen loading overlay */}
       <Modal visible={loading} transparent animationType="fade">
-        <View style={styles.loadingOverlay}>
-          <View style={styles.loadingCard}>
+        <View style={AuthStyles.loadingOverlay}>
+          <View style={AuthStyles.loadingCard}>
             <ActivityIndicator size="large" />
-            <Text style={styles.loadingText}>
+            <Text style={AuthStyles.loadingText}>
               {loadingText || "Please wait…"}
             </Text>
           </View>
@@ -438,13 +553,13 @@ const LoginScreen = ({ navigation }) => {
         animationType="fade"
         onRequestClose={() => setForgotVisible(false)}
       >
-        <View style={styles.loadingOverlay}>
-          <View style={styles.loadingCard}>
-            <Text style={[styles.loadingText, { marginBottom: 10 }]}>
+        <View style={AuthStyles.loadingOverlay}>
+          <View style={AuthStyles.loadingCard}>
+            <Text style={[AuthStyles.loadingText, { marginBottom: 10 }]}>
               Reset your password
             </Text>
             <TextInput
-              style={styles.input}
+              style={AuthStyles.input}
               placeholder="Your email address"
               placeholderTextColor="#AAA"
               autoCapitalize="none"
@@ -455,7 +570,7 @@ const LoginScreen = ({ navigation }) => {
             <View style={{ flexDirection: "row", gap: 10, marginTop: 6 }}>
               <TouchableOpacity
                 style={[
-                  styles.loginButton,
+                  AuthStyles.loginButton,
                   { flex: 1, backgroundColor: "#a60d49" },
                   sendingReset && { opacity: 0.7 },
                 ]}
@@ -465,17 +580,69 @@ const LoginScreen = ({ navigation }) => {
                 {sendingReset ? (
                   <ActivityIndicator color="#FFF" />
                 ) : (
-                  <Text style={styles.loginButtonText}>Send reset link</Text>
+                  <Text style={AuthStyles.loginButtonText}>Send reset link</Text>
                 )}
               </TouchableOpacity>
               <TouchableOpacity
                 style={[
-                  styles.googleButton,
+                  AuthStyles.googleButton,
                   { flex: 1, backgroundColor: "#EEE" },
                 ]}
                 onPress={() => setForgotVisible(false)}
               >
-                <Text style={[styles.googleButtonText, { marginRight: 0 }]}>
+                <Text style={[AuthStyles.googleButtonText, { marginRight: 0 }]}>
+                  Cancel
+                </Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
+
+      {/* Support / Feedback Modal */}
+      {/* Updated Support / Feedback Modal */}
+      <Modal visible={feedbackVisible} transparent animationType="slide">
+        <View style={AuthStyles.loadingOverlay}>
+          <View style={AuthStyles.loadingCard}>
+            <Text style={[AuthStyles.loadingText, { marginBottom: 10 }]}>
+              Contact Support
+            </Text>
+            
+            {/* Email Field - so you know who to reply to */}
+            <TextInput
+              style={[AuthStyles.input, { width: '100%', marginBottom: 10 }]}
+              placeholder="Your email address"
+              placeholderTextColor="#AAA"
+              keyboardType="email-address"
+              autoCapitalize="none"
+              value={email} // This links it to the email state you already have!
+              onChangeText={setEmail}
+            />
+
+            <TextInput
+              style={[AuthStyles.input, { minHeight: 120, textAlignVertical: 'top', width: '100%' }]}
+              placeholder="Tell us what's wrong..."
+              placeholderTextColor="#AAA"
+              multiline
+              value={feedbackText}
+              onChangeText={setFeedbackText}
+            />
+            
+            <View style={{ flexDirection: "row", gap: 10, marginTop: 15 }}>
+              <TouchableOpacity
+                style={[AuthStyles.loginButton, { flex: 1 }]}
+                onPress={handleSendFeedback}
+              >
+                <Text style={AuthStyles.loginButtonText}>Send</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[AuthStyles.googleButton, { flex: 1, backgroundColor: "#EEE" }]}
+                onPress={() => {
+                  setFeedbackVisible(false);
+                  setFeedbackText("");
+                }}
+              >
+                <Text style={[AuthStyles.googleButtonText, { marginRight: 0 }]}>
                   Cancel
                 </Text>
               </TouchableOpacity>
@@ -553,6 +720,7 @@ const styles = StyleSheet.create({
   },
 
   // ---- Unified input style for both fields ----
+  // 1. Remove margins from the base input so it doesn't shift away from the icon
   input: {
     backgroundColor: Colors.inputBg,
     color: Colors.textSecondary,
@@ -560,30 +728,33 @@ const styles = StyleSheet.create({
     paddingVertical: 12,
     paddingHorizontal: 12,
     borderRadius: 10,
-    marginTop: 5,
-    marginBottom: 15,
+    // marginTop: 5,    <-- REMOVE THIS
+    // marginBottom: 15, <-- REMOVE THIS
   },
 
-  // Password wrapper so we can place the eye icon inside
+  // 2. Move those margins to the container instead
   passwordContainer: {
     position: "relative",
     justifyContent: "center",
+    marginTop: 5,      // <-- ADDED HERE
+    marginBottom: 15,   // <-- ADDED HERE
   },
 
-  // Extra right padding so text doesn't overlap the eye icon
   inputWithIcon: {
     paddingRight: 44,
   },
 
-  // Eye icon aligned inside the input, vertically centered
   eyeIcon: {
     position: "absolute",
     right: 10,
+    // Removing top: 0 and bottom: 0 is fine if the parent has a defined height, 
+    // but keeping them with justifyContent: 'center' is the safest way to center.
     top: 0,
     bottom: 0,
     justifyContent: "center",
     alignItems: "center",
     width: 32,
+    zIndex: 1, // Ensure it sits above the input for taps
   },
 
   loginButton: {

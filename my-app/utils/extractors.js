@@ -1,16 +1,62 @@
-import { months, categories_meta, TOTAL_HINT, CURRENCY_SYMS } from '../constants/arrays';
+import { months, categories_meta, TOTAL_HINT, CURRENCY_SYMS } from '../constants/arrays.js';
 
+export const reconstructLines = (blocks) => {
+  let allLines = [];
 
+  // Flatten blocks into a single list of lines with coordinates
+  blocks.forEach(block => {
+    block.lines.forEach(line => {
+      // Use the vertical center of the line to handle slight skews
+      const centerY = line.frame.top + (line.frame.height / 2);
+      allLines.push({
+        text: line.text,
+        y: centerY,
+        x: line.frame.left,
+        h: line.frame.height || 0
+      });
+    });
+  });
 
-// Money like: £1,234.56  1,234.56 GBP  (1,234.56)  -£12.00  £ 12.00
-// const MONEY_RE = new RegExp(
-//   String.raw`(?<![A-Za-z])(?:£|\$|€|GBP|USD|EUR)?\s*[-(]?\d{1,3}(?:[ ,]\d{3})*(?:\.\d{2})?\)?(?!\d)\s*(?:£|\$|€|GBP|USD|EUR)?`,
-//   'ig'
-// );
+  if (allLines.length === 0) return "";
 
-// function normalizeWhitespace(s) {
-//   return s.replace(/\s+/g, ' ').trim();
-// }
+  // 1. Sort all lines by Y (top to bottom)
+  allLines.sort((a, b) => a.y - b.y);
+
+  const heights = allLines
+    .map(l => l.h)
+    .filter(h => Number.isFinite(h) && h > 0)
+    .sort((a, b) => a - b);
+  const medianHeight = heights.length
+    ? heights[Math.floor(heights.length / 2)]
+    : 20;
+
+  // Adaptive threshold avoids merging unrelated rows on dense receipts
+  const Y_THRESHOLD = Math.max(14, Math.min(30, Math.round(medianHeight * 0.95)));
+
+  let reconstructedText = "";
+
+  let currentY = allLines[0].y;
+  let currentGroup = [];
+
+  allLines.forEach(line => {
+    if (Math.abs(line.y - currentY) > Y_THRESHOLD) {
+      // New row detected: Sort the previous row left-to-right (X)
+      currentGroup.sort((a, b) => a.x - b.x);
+      reconstructedText += currentGroup.map(g => g.text).join(" ") + "\n";
+      
+      currentGroup = [line];
+      currentY = line.y;
+    } else {
+      currentGroup.push(line);
+    }
+  });
+
+  // Handle the final group
+  currentGroup.sort((a, b) => a.x - b.x);
+  reconstructedText += currentGroup.map(g => g.text).join(" ") + "\n";
+
+  return reconstructedText;
+};
 
 function parseAmount(raw) {
   if (!raw) return null;
@@ -18,7 +64,36 @@ function parseAmount(raw) {
   const neg = /^\(.*\)$/.test(t) || /^-/.test(t);
   t = t.replace(/[()\-]/g, '');
   t = t.replace(CURRENCY_SYMS, '');
-  t = t.replace(/,/g, '');
+
+  // Common OCR artifact: 2445 means 24.45, 8995 means 89.95, etc. Keep the
+  // conversion conservative so real years/quantities are not misread as money.
+  const looksLikeOsrPrice = /^\d{4}$/.test(t) && !/^20\d{2}$/.test(t) && !/^19\d{2}$/.test(t);
+  if (looksLikeOsrPrice) {
+    const whole = Number(t.slice(0, -2));
+    const cents = Number(t.slice(-2));
+    if (Number.isFinite(whole) && Number.isFinite(cents) && whole >= 0 && cents >= 0 && cents <= 99) {
+      const num = Number(`${whole}.${String(cents).padStart(2, '0')}`);
+      if (Number.isFinite(num) && num > 0 && num < 1000) return neg ? -num : num;
+    }
+  }
+
+  const lastComma = t.lastIndexOf(',');
+  const lastDot = t.lastIndexOf('.');
+
+  if (lastComma >= 0 && lastDot >= 0) {
+    const decimalIndex = Math.max(lastComma, lastDot);
+    const decimalChar = t[decimalIndex];
+    const integerPart = t.slice(0, decimalIndex).replace(/[.,]/g, '');
+    const fractionPart = t.slice(decimalIndex + 1).replace(/[.,]/g, '');
+    t = `${integerPart}${decimalChar}${fractionPart}`;
+  } else if (lastComma >= 0) {
+    t = /,\d{2}$/.test(t) ? t.replace(',', '.') : t.replace(/,/g, '');
+  } else if ((t.match(/\./g) || []).length > 1) {
+    const integerPart = t.slice(0, lastDot).replace(/\./g, '');
+    const fractionPart = t.slice(lastDot + 1).replace(/\./g, '');
+    t = `${integerPart}.${fractionPart}`;
+  }
+
   const num = parseFloat(t);
   if (Number.isNaN(num)) return null;
   return neg ? -num : num;
@@ -30,25 +105,36 @@ function escapeForRegex(s) {
 }
 
 // ---------- date extraction ----------
+const FULL_MONTHS = {
+  january: 0, february: 1, march: 2, april: 3, may: 4, june: 5,
+  july: 6, august: 7, september: 8, october: 9, november: 10, december: 11
+};
+const MONTH_ALT = `${months.join('|')}|January|February|March|April|May|June|July|August|September|October|November|December`;
+
 const DATE_PATTERNS = [
   // 12/03/25 or 12-03-25 (assume day-first)
-  /\b(\d{1,2})[\/.\-](\d{1,2})[\/.\-](\d{2})\b/g,
+  /\b(\d{1,2})[\/.-](\d{1,2})[\/.-](\d{2})\b/g,
   // 12/03/2025
-  /\b(\d{1,2})[\/.\-](\d{1,2})[\/.\-](\d{4})\b/g,
+  /\b(\d{1,2})[\/.-](\d{1,2})[\/.-](\d{4})\b/g,
   // 2025-03-12 or 2025.03.12
-  /\b(20\d{2})[\/.\-](\d{1,2})[\/.\-](\d{1,2})\b/g,
-  // 12 Mar 2025 / 12 March 2025 / Mar 12, 2025
+  /\b(20\d{2})[\/.-](\d{1,2})[\/.-](\d{1,2})\b/g,
+  // 12 Mar 2025 / 12 March 2025
   new RegExp(
-    String.raw`\b(\d{1,2})\s+(${months.join('|')})\.?,?\s+(20\d{2})\b`,
+    String.raw`\b(\d{1,2})(?:st|nd|rd|th)?\s+(${MONTH_ALT})\.?,?\s+(20\d{2})\b`,
     'ig'
   ),
+  // Mar 12, 2025 / March 12, 2025 / March 31st , 2025
   new RegExp(
-    String.raw`\b(${months.join('|')})\.?\s+(\d{1,2}),?\s+(20\d{2})\b`,
+    String.raw`\b(${MONTH_ALT})\.?\s+(\d{1,2})(?:st|nd|rd|th)?[\s,]+(20\d{2})\b`,
     'ig'
   ),
+  // 05/Aug/2024 or 05-August-2024
+  /\b(\d{1,2})[\/\-]([A-Za-z]{3,9})[\/\-](\d{4})\b/g,
 ];
 
 function monthNameToIndex(s) {
+  const lower = s.toLowerCase();
+  if (lower in FULL_MONTHS) return FULL_MONTHS[lower];
   const idx = months.findIndex(m => new RegExp(`^${m}$`, 'i').test(s));
   return idx >= 0 ? idx : null;
 }
@@ -63,7 +149,17 @@ function toISODate(y, mIdx1based, d) {
 }
 
 function extractDate(text) {
-  const lines = normalizeWhitespace(text).split('\n').map(normalizeWhitespace);
+  if (!text) return null;
+
+  // Keep line boundaries for contextual scoring
+  const lines = text.split('\n').map(normalizeWhitespace).filter(Boolean);
+
+  // OCR cleanup for date matching:
+  // - "1April 2025" -> "1 April 2025"
+  // - "31st" / "2nd" / "3rd" / "4th" -> "31" / "2" / "3" / "4"
+  const textForDate = text
+    .replace(new RegExp(`(\\d)(${MONTH_ALT})`, 'ig'), '$1 $2')
+    .replace(/\b(\d{1,2})(st|nd|rd|th)\b/ig, '$1');
 
   const candidates = [];
 
@@ -71,7 +167,7 @@ function extractDate(text) {
   for (const pat of DATE_PATTERNS) {
     pat.lastIndex = 0; // reset
     let m;
-    while ((m = pat.exec(text)) !== null) {
+    while ((m = pat.exec(textForDate)) !== null) {
       let iso = null;
 
       if (pat === DATE_PATTERNS[0]) {
@@ -97,24 +193,42 @@ function extractDate(text) {
         const y = parseInt(m[3], 10);
         const mo = (monthNameToIndex(moName) ?? 0) + 1;
         iso = toISODate(y, mo, d);
-      } else {
-        // Month-name first
+      } else if (pat === DATE_PATTERNS[4]) {
+        // Month-name first: Mar 12, 2025 / March 12, 2025
         const moName = m[1];
         const d = parseInt(m[2], 10);
         const y = parseInt(m[3], 10);
         const mo = (monthNameToIndex(moName) ?? 0) + 1;
         iso = toISODate(y, mo, d);
+      } else {
+        // DD/Mon/YYYY: 05/Aug/2024 or 05-August-2024
+        const d = parseInt(m[1], 10);
+        const moName = m[2];
+        const y = parseInt(m[3], 10);
+        const moIdx = monthNameToIndex(moName);
+        if (moIdx === null) continue;
+        iso = toISODate(y, moIdx + 1, d);
       }
 
       if (!iso) continue;
 
       // score: prefer lines with date keywords; prefer not-in-future; slight bias to earlier lines
-      const idx = text.lastIndexOf(m[0]);
-      const line = lines.find(ln => ln.includes(m[0])) || '';
+      const normalizedMatch = normalizeWhitespace(m[0]).toLowerCase();
+      const lineIndex = lines.findIndex(ln => ln.toLowerCase().includes(normalizedMatch));
+      const line = lineIndex >= 0 ? lines[lineIndex] : '';
+      const contextText = [lines[lineIndex - 1] || '', line, lines[lineIndex + 1] || ''].filter(Boolean).join(' ');
       const today = new Date();
       const dt = new Date(iso);
       let score = 1;
-      if (/\b(date|txn|transaction|issued|invoice|payment)\b/i.test(line)) score += 1.2;
+      const isInvoiceDateContext = /\b(?:invoice|date|issued|statement)\b/i.test(contextText) && !/\b(?:due|payment|deadline)\b/i.test(contextText);
+      const isDueDateContext = DUE_DATE_HINT_RE.test(contextText);
+      const isPeriodContext = /\b(?:week|period|end|commencing|from|to)\b/i.test(contextText);
+      const isTransactionLikeContext = /\b(?:units|rate|vat|net|gross|total|sheet|ref|period|contractor|ts|description)\b/i.test(contextText) && !isInvoiceDateContext;
+      if (isInvoiceDateContext) score += 3.2;
+      if (isDueDateContext) score -= 2.0;
+      if (isPeriodContext) score -= 1.5;
+      if (isTransactionLikeContext) score -= 1.0;
+      if (/\b(txn|transaction|issued|invoice|payment)\b/i.test(contextText)) score += 1.2;
       if (dt > today) score -= 1.0;
       // clamp years to sane range
       const year = dt.getFullYear();
@@ -132,49 +246,528 @@ function extractDate(text) {
 // ---------- amount extraction ----------
 // ---------- amount extraction ----------
 // ---------- amount extraction ----------
-const MONEY_RE = /(?:£\s?|GBP\s?)?\d{1,6}\.\d{2}(?!\d)/g; // only amounts with decimals
+const MONEY_RE = /(?:£\s?|₤\s?|GBP\s*)?(?:\d{1,3}(?:[\s,.]\d{3})+|\d{1,6})[.,]\d{1,2}(?!\d)/g;
+// Matches "total"/"totals" plus common OCR misreads of the word (TOTAT, TOTA1, IOTAL, TOTAI)
+// seen on thermal-printer receipts — keeps this in sync with the guardrail regexes below
+// that already special-case these variants.
+const TOTAL_HINT_RE = /\b(?:grand\s+)?tot[a4][l1t]s?\b|\biotal\b|\b(?:total\s+)?amount\s+due\b|\bbalance\s+due\b|\bgrand\s+total\b/i;
+const DUE_HINT_RE = /\b(?:amount|balance)\s+due\b|\btotal\s+amount\s+due\b/i;
+const INVOICE_DATE_HINT_RE = /\b(?:date|invoice\s+date|issued|invoice|statement\s+date)\b/i;
+const DUE_DATE_HINT_RE = /\b(?:due\s+by|payment\s+due|due\s+date)\b/i;
 
-function extractAmount(text) {
-  const lines = normalizeWhitespace(text).split("\n").map(normalizeWhitespace);
-  const allMatches = [...text.matchAll(MONEY_RE)];
+// Inside your extractors.js
+export function extractAmount(reconstructedText) {
+  if (!reconstructedText) return null;
 
-  if (!allMatches.length) return null;
+  // Normalise handwritten receipts that use a vertical bar as decimal separator.
+  // OCR reads "12|95" as "12/95". Pattern: N{1-4}/NN not followed by another /N
+  // (which would indicate a date like 12/05/2024). Convert to N.NN.
+  reconstructedText = reconstructedText.replace(
+    /\b(\d{1,4})\/(\d{2})\b(?!\/\d)/g,
+    (_, intPart, decPart) => {
+      // Skip if it looks like a date fragment: month/day would have intPart 1-12, decPart 1-31
+      // but "12/95" can't be a date (no month 95), so the only risky case is e.g. "3/05".
+      // Accept anything where decPart > 31 (clearly pence not days) OR intPart > 12 (can't be month).
+      if (parseInt(decPart) > 31 || parseInt(intPart) > 12) return `${intPart}.${decPart}`;
+      // Ambiguous (e.g. "3/05") — leave alone to avoid corrupting dates.
+      return `${intPart}/${decPart}`;
+    }
+  );
+  reconstructedText = reconstructedText.replace(/([£₤$€¥]\s*\d{1,6}[.,])([CO])\b/gi, '$10');
 
-  const cands = allMatches
-    .map((m) => {
-      const raw = m[0];
-      const val = parseFloat(raw.replace(/[^\d.]/g, "")); // strip £, GBP, etc.
-      if (isNaN(val)) return null;
+  const lines = reconstructedText.split('\n');
+  const lineData = lines.map(l => l.toUpperCase());
+  const candidates = [];
 
-      const line = lines.find((ln) => ln.includes(raw)) || "";
-      let score = 1;
-
-      if (/total|amount|balance|paid/i.test(line)) score += 3;
-      if (/change|vat|tax/i.test(line)) score -= 1;
-
-      if (/£|gbp/i.test(raw)) score += 2;
-      else score -= 0.5;
-
-      score += 0.001 * text.indexOf(raw);
-
-      if (val > 10000 && !/total|amount|balance|paid/i.test(line)) score -= 5;
-
-      return { val, raw, line, score };
-    })
-    .filter(Boolean);
-
-  if (!cands.length) return null;
-
-  const totalCands = cands.filter((c) => /total|amount|balance|paid/i.test(c.line));
-  const chosen = totalCands.length
-    ? totalCands.reduce((a, c) => (c.val > a.val ? c : a))
-    : cands.reduce((a, c) => (c.score > a.score ? c : a));
-
-  // always return with 2 dp
-  return { 
-    amount: Number(chosen.val.toFixed(2)), 
-    display: `£${chosen.val.toFixed(2)}` 
+  const labelledAmount = (label, maxLines = 2) => {
+    const labelIndex = lineData.findIndex(line => label.test(line));
+    if (labelIndex < 0) return null;
+    for (let offset = 0; offset <= maxLines && labelIndex + offset < lines.length; offset += 1) {
+      const match = lines[labelIndex + offset].match(/(?:£\s*)?(\d{1,3}(?:[,.\s]\d{3})+(?:[.,]\d{2})?|\d+[.,]\d{2})/);
+      const value = match ? parseAmount(match[1]) : null;
+      if (Number.isFinite(value) && value > 0) return value;
+    }
+    return null;
   };
+
+  const strongLabelPatterns = [
+    /\bgrand\s+total\b/i,
+    /\b(?:total\s+)?amount\s+due\b/i,
+    /\bbalance\s+due\b/i,
+    /\btotal\s+to\s+pay\b/i,
+    /\bcash\s+price\b/i,
+    /\bamount\s+payable\b/i,
+  ];
+
+  const explicitTotal = (() => {
+    const indices = lineData
+      .map((line, index) => ({ line, index }))
+      .filter(({ line }) => strongLabelPatterns.some((pattern) => pattern.test(line)))
+      .map(({ line, index }) => ({ line, index }));
+
+    for (let i = indices.length - 1; i >= 0; i -= 1) {
+      const { line, index: idx } = indices[i];
+      if (/\bBALANCE\s+DUE\b/.test(line)) {
+        const followingBlock = lineData.slice(idx + 1, idx + 5).join(' ');
+        const previousCurrency = lines[idx - 1]?.match(/(?:GBP\s*)?[£₤$€¥]\s*(\d{1,3}(?:[,\.\s]\d{3})+(?:[.,]\d{2})?|\d+[.,]\d{1,2})/i);
+        if (previousCurrency && /\b(?:GIFT\s+CARD|CARD|MASTERCARD|VISA|PAYMENT)\b/.test(followingBlock)) {
+          const previousValue = parseAmount(previousCurrency[1]);
+          if (Number.isFinite(previousValue) && previousValue > 0) {
+            return { amount: previousValue, display: `£${previousValue.toFixed(2)}` };
+          }
+        }
+      }
+
+      const offsets = /\bBALANCE\s+DUE\b/.test(line) ? [0, 1, 2] : [0, 1, 2, 3, 4, 5];
+      const followingLabels = lineData.slice(idx, idx + 5).join(' ');
+      const passes = [
+        /(?:GBP\s*)?[£₤$€¥]\s*(\d{1,3}(?:[,\.\s]\d{3})+(?:[.,]\d{2})?|\d+[.,]\d{1,2})/i,
+        /\b(\d{1,3}(?:[,\.\s]\d{3})+(?:[.,]\d{2})?|\d+[.,]\d{2})\b/,
+      ];
+
+      for (const amountPattern of passes) {
+        if (amountPattern === passes[1] && /\bTOTAL\s+TO\s+PAY\b/.test(line) && /\bCASH\s+TENDERED\b/.test(followingLabels) && /\bCHANGE\b/.test(followingLabels)) {
+          continue;
+        }
+        for (const offset of offsets) {
+          const lineIndex = idx + offset;
+          if (lineIndex < 0 || lineIndex >= lines.length) continue;
+          const candidateLine = lines[lineIndex];
+          const match = candidateLine.match(amountPattern);
+          if (!match) continue;
+          if (amountPattern === passes[1] && /[A-Za-z].*\d|\d.*[A-Za-z]|\//.test(candidateLine)) continue;
+          const value = parseAmount(match[1]);
+          if (Number.isFinite(value) && value > 0) {
+            return { amount: value, display: `£${value.toFixed(2)}` };
+          }
+        }
+      }
+    }
+    return null;
+  })();
+
+  if (explicitTotal != null) {
+    return explicitTotal;
+  }
+
+  if (/construction industry scheme|payment and deduction statement/i.test(reconstructedText)) {
+    const grossPaid = labelledAmount(/\bGROSS\s+(?:PAID|PAYMENT)\b/, 2);
+    if (grossPaid != null) {
+      return { amount: grossPaid, display: `£${grossPaid.toFixed(2)}` };
+    }
+  }
+
+  // Require a non-alphanumeric boundary before the amount to avoid matches like "9306U261.67"
+  const FORGIVING_MONEY = /(?:^|[^A-Z0-9])((?:GBP|[£₤$€¥])?\s?(?:\d{1,3}(?:[\s,.]\d{3})+|\d{1,6})[.,]\s?\d{1,2})(?!\d)/gi;
+
+  const hasNear = (lineIndex, regex, radius = 1) => {
+    for (let i = Math.max(0, lineIndex - radius); i <= Math.min(lineData.length - 1, lineIndex + radius); i++) {
+      if (regex.test(lineData[i])) return true;
+    }
+    return false;
+  };
+
+  // Only look at lines ABOVE the candidate — total labels always precede their amounts.
+  // This prevents column-table layouts ("VAT\nTotal\n£58.17\n£349.00") from incorrectly
+  // giving TOTAL context to the first column value (£58.17) instead of the last (£349.00).
+  const hasAbove = (lineIndex, regex, radius = 3) => {
+    for (let i = Math.max(0, lineIndex - radius); i < lineIndex; i++) {
+      if (regex.test(lineData[i])) return true;
+    }
+    return false;
+  };
+
+  lines.forEach((line, lineIndex) => {
+    const matches = [...line.matchAll(FORGIVING_MONEY)];
+    const bareFourDigitValues = [...line.matchAll(/\b(\d{4})\b/g)].map(m => m[1]);
+
+    const candidateRaws = new Map();
+    matches.forEach((match) => candidateRaws.set(match[1], match[1]));
+    bareFourDigitValues.forEach((token) => {
+      if (!/^\d{4}$/.test(token)) return;
+      if (/^(19|20)\d{2}$/.test(token)) return;
+      if (/[\/]/.test(line) || /\d{1,2}[\/.-]\d{1,2}/.test(line)) return;
+      if (/\b(?:date|time|invoice|order|acc|account|till|table|room|phone|vat\s+no|total|subtotal|discount|payment|receipt)\b/i.test(line)) {
+        // Keep these only when the line is a stand-alone price-like value, not a date or ID.
+      } else if (/(?:^|\s)\d{4}(?:\s|$)/.test(line) && !/[A-Za-z]/.test(line)) {
+        candidateRaws.set(token, token);
+      }
+      if (/^\d{4}$/.test(line.trim()) && /(?:^|\s)\d{4}(?:\s|$)/.test(line) && !/[A-Za-z]/.test(line)) {
+        candidateRaws.set(token, token);
+      }
+    });
+
+    const allRaws = [...candidateRaws.keys()];
+    if (!allRaws.length) return;
+
+    const seenValueInLine = new Set();
+    allRaws.forEach((raw) => {
+      const val = parseAmount(raw);
+      if (Number.isNaN(val) || val <= 0 || val > 100000) return;
+      const valueKey = val.toFixed(2);
+      if (seenValueInLine.has(valueKey)) return;
+      seenValueInLine.add(valueKey);
+
+      const upperLine = lineData[lineIndex];
+      const hasCurrency = /[£S$€¥]/i.test(raw);
+      const cleanedRaw = raw.replace(/[£S$€¥GBP\s]/gi, '');
+      const decPart = cleanedRaw.split(/[.,]/).pop();
+      if (decPart && decPart.length === 1 && !hasCurrency) return;
+      candidates.push({
+        val,
+        raw,
+        hasCurrency,
+        lineIndex,
+        upperLine,
+        score: 0
+      });
+    });
+  });
+
+  if (!candidates.length) return null;
+
+  const totalLine = lineData.findIndex(
+    l => TOTAL_HINT_RE.test(l) && !/\bSUBTOTAL\b/.test(l)
+  );
+
+  const valueLines = new Map();
+  candidates.forEach(c => {
+    const key = c.val.toFixed(2);
+    const set = valueLines.get(key) || new Set();
+    set.add(c.lineIndex);
+    valueLines.set(key, set);
+  });
+
+  const totalToPayIndex = lineData.findIndex(l => /\bTOTAL\s+TO\s+PAY\b/.test(l));
+  const cashTenderedIndex = lineData.findIndex(l => /\bCASH\s+TENDERED\b/.test(l));
+  const changeIndex = lineData.findIndex(l => /\bCHANGE\b/.test(l));
+  if (totalToPayIndex >= 0 && cashTenderedIndex > totalToPayIndex && changeIndex > cashTenderedIndex) {
+    const currencyValues = [...new Set(
+      candidates
+        .filter(c => c.hasCurrency && c.lineIndex > totalToPayIndex)
+        .map(c => Number(c.val.toFixed(2)))
+    )];
+    for (const totalValue of currencyValues) {
+      for (const cashValue of currencyValues) {
+        for (const changeValue of currencyValues) {
+          if (totalValue >= cashValue || changeValue >= totalValue) continue;
+          if (Math.abs((totalValue + changeValue) - cashValue) > 0.06) continue;
+          return { amount: totalValue, display: `£${totalValue.toFixed(2)}` };
+        }
+      }
+    }
+  }
+
+  const nettIndex = lineData.findIndex(l => /^\s*NETT?\s*$/.test(l));
+  const taxIndex = lineData.findIndex((l, index) => index > nettIndex && /^\s*TAX\s*$/.test(l));
+  const grossIndex = lineData.findIndex((l, index) => index > taxIndex && /^\s*GROSS\s*$/.test(l));
+  if (nettIndex >= 0 && taxIndex > nettIndex && grossIndex > taxIndex && grossIndex - nettIndex <= 6) {
+    const summaryValues = candidates
+      .filter(c => c.lineIndex > grossIndex && c.lineIndex <= grossIndex + 8)
+      .sort((a, b) => a.lineIndex - b.lineIndex)
+      .map(c => Number(c.val.toFixed(2)));
+    for (let i = 0; i < summaryValues.length; i += 1) {
+      for (let j = 0; j < summaryValues.length; j += 1) {
+        for (let k = 0; k < summaryValues.length; k += 1) {
+          const netValue = summaryValues[i];
+          const taxValue = summaryValues[j];
+          const grossValue = summaryValues[k];
+          if (grossValue <= netValue || grossValue <= taxValue) continue;
+          if (Math.abs((netValue + taxValue) - grossValue) > 0.06) continue;
+          return { amount: grossValue, display: `£${grossValue.toFixed(2)}` };
+        }
+      }
+    }
+  }
+
+  const genericTotalIndex = lineData.findIndex(l => /^\s*(?:TOTAL|TOTAT|TOTA1|IOTAL)\s*:?\s*$/.test(l));
+  if (genericTotalIndex >= 0) {
+    const totalBlock = candidates.filter(c => {
+      if (!c.hasCurrency) return false;
+      if (c.lineIndex <= genericTotalIndex || c.lineIndex > genericTotalIndex + 12) return false;
+      const nearbyText = [lineData[c.lineIndex - 1] || '', c.upperLine].join(' ');
+      return !/\b(?:PAYMENT\s+RECEIPT|CASH|CHANGE|TENDER|CARD\s+PAYMENT|MASTERCARD|VISA|AID|AUTH(?:ORI[ZS]ATION)?|VAT\s+SUMMARY|POINTS?|VOUCHERS?)\b/.test(nearbyText);
+    });
+
+    if (totalBlock.length >= 2) {
+      totalBlock.sort((a, b) => {
+        if (b.val !== a.val) return b.val - a.val;
+        return b.lineIndex - a.lineIndex;
+      });
+      const winner = totalBlock[0];
+      return { amount: winner.val, display: `£${winner.val.toFixed(2)}` };
+    }
+  }
+
+  const uniqueValues = [...new Set(candidates.map(c => c.val))].sort((a, b) => a - b);
+  const median = uniqueValues[Math.floor(uniqueValues.length / 2)] || 0;
+  const largest = uniqueValues[uniqueValues.length - 1] || 0;
+  const strongestRepeatedValue = [...valueLines.entries()]
+    .filter(([, set]) => set.size >= 2)
+    .map(([value]) => parseFloat(value))
+    .sort((a, b) => b - a)[0] || 0;
+
+  candidates.forEach(candidate => {
+    let score = 0;
+    const line = candidate.upperLine;
+    const key = candidate.val.toFixed(2);
+    const uniqueLineCount = (valueLines.get(key) || new Set()).size;
+
+    const isExplicitDueLine = DUE_HINT_RE.test(line);
+    const isExplicitDueNear = hasNear(candidate.lineIndex, DUE_HINT_RE, 1);
+    const isExplicitDueAbove = hasAbove(candidate.lineIndex, DUE_HINT_RE, 2);
+    const isTotalOnLine = TOTAL_HINT_RE.test(line);
+    const isTotalNear = hasNear(candidate.lineIndex, TOTAL_HINT_RE, 1);
+    const isTotalAboveOnly = !isTotalOnLine && !isTotalNear && hasAbove(candidate.lineIndex, TOTAL_HINT_RE, 3);
+    const isGrandTotalLine = /\bgrand\s+total\b/i.test(line) || hasNear(candidate.lineIndex, /\bgrand\s+total\b/i, 1);
+    const isRatingContext = /\b(?:rating|rate\s+or\s+tip|tip)\b/i.test(line) || hasNear(candidate.lineIndex, /\b(?:rating|rate\s+or\s+tip|tip)\b/i, 1);
+    const isTotalContext = isTotalOnLine || isTotalNear || isTotalAboveOnly || isExplicitDueLine || isExplicitDueNear || isExplicitDueAbove;
+    const isSubtotalContext = /\bSUBTOTAL\b|\bDISCOUNT\b|\bREFUND\b|\bTIPS?\b/.test(line)
+      || hasNear(candidate.lineIndex, /\bSUBTOTAL\b|\bDISCOUNT\b|\bREFUND\b|\bTIPS?\b/, 1);
+    const isVatContext = /\bVAT\b|\bTAX\b/.test(line)
+      || (hasNear(candidate.lineIndex, /\bVAT\b|\bTAX\b/, 1) && !isTotalContext);
+    const isPaymentContext = (hasNear(candidate.lineIndex, /\bCASH\b|\bCHANGE\b|\bTENDER\b|\bCARD\s+PAYMENT\b|\bAUTHORI[ZS]ED\b|\bAPPROVED\b|\bMASTERCARD\b|\bVISA\b|\bAID\b|\bDEBIT\b|\bSALE\b/, 1)
+      || /\bAMOUNT\s+PAID\b/.test(line))
+      && !/\bAMOUNT\s+DUE\b|\bBALANCE\s+DUE\b/.test(line);
+    const isItemLine = /\bKID\b|\bSTEAK\b|\bCHICKEN\b|\bCOOKIE\b|\bSALAD\b|\bWINE\b|\bRUMP\b|\bPRAWN\b|\bAVOCADO\b|\bMOZZARELLA\b|\bTOMATO\b|\bSAUCE\b|\bMEAL\b|\bBAG\s+CHARGE\b/.test(line);
+
+    if (candidate.hasCurrency) score += 40;
+    if (isGrandTotalLine) score += 420;
+    if (isRatingContext && !isTotalContext) score -= 900;
+    if (isExplicitDueLine || isExplicitDueNear || isExplicitDueAbove) score += 320;
+    if (totalLine >= 0) {
+      const isAfterTotalLabel = candidate.lineIndex >= totalLine && candidate.lineIndex <= totalLine + 5;
+      const isBeforeTotalLabel = candidate.lineIndex < totalLine;
+      if (isAfterTotalLabel) score += 260;
+      if (isBeforeTotalLabel) score -= 240;
+      if (candidate.lineIndex > totalLine + 5) score -= 120;
+      const windowValues = candidates.filter(c => c.lineIndex >= totalLine && c.lineIndex <= totalLine + 5).map(c => c.val);
+      if (windowValues.length) {
+        const maxWindowValue = Math.max(...windowValues);
+        if (candidate.val >= maxWindowValue * 0.98 && candidate.val === maxWindowValue) score += 450;
+        else if (candidate.val < maxWindowValue * 0.9) score -= 160;
+      }
+    }
+    if (candidate.val < 1) score -= 40;
+    else if (candidate.val < 3) score -= 15;
+
+    // Penalize unit-price lines (e.g. "0.100kg @ 22.00/kg" — not a payable total)
+    // Also penalise volume-quantity lines (e.g. "45.91 LTR @ £1.259" — the number is litres, not £)
+    if (/\d\s*\/\s*(?:kg|lb|g|ltr|litre|ml|each|ea|unit)\b/i.test(line) ||
+        /\b\d+\.?\d*\s+(?:ltr|litres?)\b/i.test(line)) {
+      score -= 280;
+    }
+
+    // Date fragments (e.g. 12.09 from 12.09.2024) are not totals
+    if (/\bDATE\b|\bTIME\b/.test(line) && /\d{1,2}[./-]\d{1,2}[./-]\d{2,4}/.test(line) && candidate.val <= 31.99) {
+      score -= 260;
+    }
+
+    if (isTotalOnLine || isTotalNear) score += 420;
+    else if (isTotalAboveOnly) score += 180; // reduced: might be column-table label offset
+    if (isSubtotalContext) score -= 190;
+    if (isVatContext) score -= 260;
+    if (isPaymentContext) score -= 140;
+
+    // Guardrail: tiny TOTAL values are often OCR-picked VAT/fee amounts, not payable totals
+    if (
+      isTotalContext &&
+      candidate.val < 8 &&
+      strongestRepeatedValue >= 10 &&
+      candidate.val < strongestRepeatedValue * 0.65
+    ) {
+      score -= 520;
+    }
+
+    if (totalLine >= 0 && candidate.lineIndex >= totalLine) {
+      const distance = candidate.lineIndex - totalLine;
+      if (distance <= 3) score += 140;
+      else if (distance <= 12) score += 80;
+      else if (distance <= 24) score += 35;
+    } else if (totalLine >= 0 && totalLine - candidate.lineIndex <= 2) {
+      // Reverse label format: amount appears 1-2 lines BEFORE the total label.
+      // Only applies for explicit "due" labels (e.g. "£58.56\nBALANCE DUE"), NOT plain
+      // "TOTAL" which typically has its value below it, not above.
+      if (/\bBALANCE\s+DUE\b|\bAMOUNT\s+DUE\b/.test(lineData[totalLine] || '')) {
+        score += 120;
+      }
+    }
+
+    // If the line has multiple amounts and is total-like, largest on that line is usually the payable total
+    if (isTotalContext) {
+      const lineAmounts = candidates.filter(c => c.lineIndex === candidate.lineIndex).map(c => c.val);
+      if (lineAmounts.length >= 2) {
+        const lineMax = Math.max(...lineAmounts);
+        if (Math.abs(candidate.val - lineMax) < 0.001) score += 190;
+        else score -= 180;
+      }
+    }
+
+    if (uniqueLineCount === 2) {
+      const idxs = [...(valueLines.get(key) || new Set())].sort((a, b) => a - b);
+      const span = idxs[1] - idxs[0];
+      if (!isVatContext && !isPaymentContext) {
+        if (candidate.val < 10) {
+          // Small values: modest bonus regardless of total context (prevents VAT-table
+          // column values near a TOTAL header from being over-scored)
+          if (span <= 4) score += 70;
+          else if (span <= 12) score += 40;
+          else score += 20;
+        } else {
+          if (span <= 4) score += 220;
+          else if (span <= 12) score += 130;
+          else score += 60;
+        }
+      }
+    } else if (uniqueLineCount >= 3 && uniqueLineCount <= 6) {
+      if (!isVatContext) score += 50;
+    }
+
+    if (candidate.val === largest && largest > 10 && (isTotalContext || (totalLine >= 0 && candidate.lineIndex >= totalLine))) {
+      if (largest >= (median || 1) * 2.8) score += 220;
+      else if (largest >= (median || 1) * 2.0) score += 130;
+      else score += 60;
+    }
+
+    // Strong boost for values tied to explicit TOTAL/SALE/DEBIT lines around the total section
+    if ((TOTAL_HINT_RE.test(line) || DUE_HINT_RE.test(line) || /\bSALE\b|\bDEBIT\b/.test(line)) && candidate.val >= 10) {
+      score += 220;
+    }
+
+    // Small repeated item prices should not beat large final totals near the total line
+    if (candidate.val < 10 && uniqueLineCount >= 2 && isItemLine && totalLine >= 0 && candidate.lineIndex <= totalLine) {
+      score -= 120;
+    }
+
+    // If the document has explicit grand-total or amount-due framing, prefer the largest value nearby.
+    if (isTotalContext && candidate.val >= 10 && largest > 0 && candidate.val >= largest * 0.7) {
+      score += 80;
+    }
+
+    candidate.score = score;
+  });
+
+  // Cash/change relation: TOTAL + CHANGE ~= PAID. Boost TOTAL and penalize PAID.
+  const valueMap = new Map();
+  candidates.forEach(c => {
+    const key = c.val.toFixed(2);
+    if (!valueMap.has(key)) valueMap.set(key, []);
+    valueMap.get(key).push(c);
+  });
+
+  const values = [...valueMap.keys()].map(v => parseFloat(v));
+  for (let i = 0; i < values.length; i++) {
+    for (let j = 0; j < values.length; j++) {
+      for (let k = 0; k < values.length; k++) {
+        const totalVal = values[i];
+        const changeVal = values[j];
+        const paidVal = values[k];
+        if (totalVal <= 0 || changeVal <= 0 || paidVal <= 0) continue;
+        if (totalVal >= paidVal || changeVal >= paidVal) continue;
+        if (Math.abs((totalVal + changeVal) - paidVal) > 0.06) continue;
+
+        const totalCandidates = valueMap.get(totalVal.toFixed(2)) || [];
+        const changeCandidates = valueMap.get(changeVal.toFixed(2)) || [];
+        const paidCandidates = valueMap.get(paidVal.toFixed(2)) || [];
+
+        const hasChangeContext = changeCandidates.some(c =>
+          /\bCHANGE\b/.test(c.upperLine) || hasNear(c.lineIndex, /\bCHANGE\b/, 1)
+        );
+        const hasPaidContext = paidCandidates.some(c =>
+          /\bCASH\b|\bTENDER\b|\bCARD\b|\bPAID\b/.test(c.upperLine) || hasNear(c.lineIndex, /\bCASH\b|\bTENDER\b|\bCARD\b|\bPAID\b/, 1)
+        );
+        // Require BOTH proximity signals, OR BOTH document-wide labels (for column-table receipts
+        // where labels are separated from values by many lines, e.g. Harrods format).
+        const hasChangeAnywhere = lineData.some(l => /\bCHANGE\b/i.test(l));
+        const hasCashTenderAnywhere = lineData.some(l => /\bCASH\s+TENDER|\bCASH\s+PAYMENT/i.test(l));
+        const proximityOK = hasChangeContext && hasPaidContext;
+        const documentWideOK = hasChangeAnywhere && hasCashTenderAnywhere;
+        if (!proximityOK && !documentWideOK) continue;
+        // For the document-wide (column-table) fallback, require all three amounts to
+        // have explicit currency symbols — prevents item prices (no £) from matching.
+        if (!proximityOK) {
+          const hasCurr = (val) => (valueMap.get(val.toFixed(2)) || []).some(c => c.hasCurrency);
+          if (!hasCurr(totalVal) || !hasCurr(changeVal) || !hasCurr(paidVal)) continue;
+        }
+        // Sanity: the change should always be less than the total
+        if (changeVal >= totalVal) continue;
+
+        totalCandidates.forEach(c => { c.score += 260; });
+        paidCandidates.forEach(c => { c.score -= 220; });
+        changeCandidates.forEach(c => { c.score -= 110; });
+      }
+    }
+  }
+
+  // OCR leading-digit artifact: "254.73" on TOTAL with "54.73" on SALE/CARD line
+  candidates.forEach(bigCandidate => {
+    if (bigCandidate.val < 100 || !/\bTOTAL\b|\bTOTAT\b|\bTOTA1\b/.test(bigCandidate.upperLine)) return;
+
+    const cents = Math.round((bigCandidate.val % 1) * 100);
+    candidates.forEach(smallCandidate => {
+      if (smallCandidate.val >= bigCandidate.val) return;
+      const smallCents = Math.round((smallCandidate.val % 1) * 100);
+      if (cents !== smallCents) return;
+
+      const diff = bigCandidate.val - smallCandidate.val;
+      if (diff < 90 || diff > 300) return;
+
+      const paymentLike = /\bSALE\b|\bDEBIT\b|\bCARD\b|\bVISA\b|\bMASTERCARD\b|\bAMOUNT\b|\bTOTAL\b/.test(smallCandidate.upperLine)
+        || hasNear(smallCandidate.lineIndex, /\bSALE\b|\bDEBIT\b|\bCARD\b|\bVISA\b|\bMASTERCARD\b|\bAMOUNT\b/, 1);
+      if (!paymentLike) return;
+
+      bigCandidate.score -= 260;
+      smallCandidate.score += 320;
+    });
+  });
+
+  // Guardrail: suspiciously small totals compared with nearby repeated amounts
+  const repeatedValues = [...valueLines.entries()]
+    .filter(([, set]) => set.size >= 2)
+    .map(([val]) => parseFloat(val));
+  const strongestRepeated = repeatedValues.length ? Math.max(...repeatedValues) : 0;
+  candidates.forEach(c => {
+    const inStrongTotalContext = /\bTOTAL\b|\bTOTAT\b|\bTOTA1\b|\bAMOUNT\s+DUE\b|\bBALANCE\s+DUE\b/.test(c.upperLine);
+    if (!inStrongTotalContext || strongestRepeated <= 0) return;
+    if (c.val < strongestRepeated * 0.45 && c.val < 8) {
+      c.score -= 220;
+    }
+  });
+
+  candidates.sort((a, b) => {
+    if (b.score !== a.score) return b.score - a.score;
+    const freqA = (valueLines.get(a.val.toFixed(2)) || new Set()).size;
+    const freqB = (valueLines.get(b.val.toFixed(2)) || new Set()).size;
+    if (freqB !== freqA) return freqB - freqA;
+    return b.lineIndex - a.lineIndex;
+  });
+
+  const hasRatingContext = lineData.some(l => /\b(?:rating|rate\s+or\s+tip|tip)\b/i.test(l));
+  if (totalLine < 0 && hasRatingContext && candidates.every(c => c.val <= 20)) {
+    return null;
+  }
+
+  const winner = candidates[0];
+
+  return {
+    amount: winner.val,
+    display: `£${winner.val.toFixed(2)}`
+  };
+}
+
+// Emergency fallback if the truncation was too aggressive
+function fallbackHeuristic(text) {
+    const allMatches = [...text.matchAll(MONEY_RE)];
+    const scored = allMatches.map(m => {
+        const val = parseFloat(m[0].replace(/[^\d.]/g, ""));
+        const context = text.substring(m.index - 30, m.index + 30).toLowerCase();
+        let s = 0;
+        if (/balance due/i.test(context)) s += 1000;
+        if (/points|nectar/i.test(context)) s -= 2000; // Nuclear penalty
+        return { val, score: s };
+    });
+    const winner = scored.sort((a, b) => b.score - a.score)[0];
+    return { amount: winner.val, display: `£${winner.val.toFixed(2)}` };
 }
 
 function normalizeWhitespace(s) {
@@ -184,9 +777,122 @@ function normalizeWhitespace(s) {
 function normalizeForMatch(s) {
   return s
     .replace(/\u2019/g, "'")
+    .replace(/'/g, '')   // strip apostrophes so "McDonald's" matches "mcdonalds" etc.
     .replace(/\s+/g, " ")
     .trim()
     .toLowerCase();
+}
+
+function cleanReferenceValue(raw) {
+  if (!raw) return null;
+
+  const cleaned = normalizeWhitespace(raw)
+    .replace(/^[#:\-.\s]+/, "")
+    .replace(/[.,;:]+$/, "");
+
+  if (!cleaned) return null;
+
+  const withoutLabel = cleaned
+    .replace(/^\s*(?:invoice(?:\s+(?:no|number))?|reference|ref|statement|document|quotation\s+ref|payment\s+reference)\s*[:#-]?\s*/i, "")
+    .trim();
+
+  if (!withoutLabel) return null;
+  if (withoutLabel.length < 2 || withoutLabel.length > 32) return null;
+  if (!/\d/.test(withoutLabel)) return null;
+  if (/\b(?:payment|bank|account|customer|date|vat|phone|address|contact)\b/i.test(withoutLabel)) return null;
+  if (/\b(?:jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|jun(?:e)?|jul(?:y)?|aug(?:ust)?|sep(?:tember)?|sept|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?)\b/i.test(withoutLabel) && /\d{4}/.test(withoutLabel)) return null;
+  if (/\d{1,2}[\/.-]\d{1,2}[\/.-]\d{2,4}/.test(withoutLabel)) return null;
+  if (/^£/.test(withoutLabel)) return null;
+
+  return withoutLabel;
+}
+
+function extractReference(text) {
+  if (!text) return null;
+
+  const lines = text.split("\n").map(normalizeWhitespace).filter(Boolean);
+  const candidates = [];
+  const addCandidate = (reference, score) => {
+    const cleaned = cleanReferenceValue(reference);
+    if (cleaned) candidates.push({ reference: cleaned, score });
+  };
+
+  lines.forEach((line, index) => {
+    const nextLines = lines.slice(index + 1, index + 7);
+
+    const standaloneInvoice = line.match(/^inv[-/]?\d{2,}[a-z0-9/-]*$/i);
+    if (standaloneInvoice) addCandidate(standaloneInvoice[0], 4.8);
+
+    if (/^invoice$/i.test(line)) {
+      const identifier = nextLines.find(value =>
+        /^(?:[a-z]+[-/]?)?\d+[a-z0-9/-]*$/i.test(value) &&
+        !/^\d{1,2}[/.\-]\d{1,2}[/.\-]\d{2,4}$/.test(value)
+      );
+      if (identifier) addCandidate(identifier, 4.4);
+    }
+
+    if (/^invoice number:?$/i.test(line)) {
+      const identifier = nextLines.find(value =>
+        /^\d{4,}$/.test(value) && !/^\d{1,2}[/.\-]\d{1,2}[/.\-]\d{2,4}$/.test(value)
+      );
+      if (identifier) addCandidate(identifier, 4.6);
+    }
+
+    if (/^sub\s*contractor\s*(?:no|number)\.?$/i.test(line)) {
+      const identifier = nextLines.find(value => /^\d{5,}$/.test(value));
+      if (identifier) addCandidate(identifier, 4.2);
+    }
+  });
+
+  const referencePatterns = [
+    {
+      regex: /\b(?:reference|ref)(?:\s*(?:no|number))?\.?\s*[:#-]?\s*([A-Z0-9][A-Z0-9\/.\-]*(?:\s+[A-Z0-9\/.\-]+){0,2})\b/i,
+      score: 3,
+    },
+    {
+      regex: /\b(?:invoice|inv)(?:\s*(?:no|number))?\.?\s*[:#-]?\s*([A-Z0-9][A-Z0-9\/.\-]*(?:\s+[A-Z0-9\/.\-]+){0,2})\b/i,
+      score: 3.2,
+    },
+    {
+      regex: /\b(?:statement|document)(?:\s*(?:no|number))?\.?\s*[:#-]?\s*([A-Z0-9][A-Z0-9\/.\-]*(?:\s+[A-Z0-9\/.\-]+){0,2})\b/i,
+      score: 2.8,
+    },
+  ];
+  const labelLinePattern = /\b(?:invoice|inv|reference|ref|statement|document)(?:\s*(?:no|number))?\b/i;
+
+  lines.forEach((line, index) => {
+    const lineLower = line.toLowerCase();
+    const hasPaymentContext = /\b(payment|bank|account|customer)\b/i.test(lineLower);
+
+    referencePatterns.forEach(({ regex, score }) => {
+      const match = line.match(regex);
+      const reference = cleanReferenceValue(match?.[1]);
+      if (!reference) return;
+
+      let candidateScore = score;
+      if (/\b(invoice|reference|statement)\b/i.test(line)) candidateScore += 0.6;
+      if (hasPaymentContext) candidateScore -= 1.5;
+      if (index <= 4) candidateScore += 0.2;
+
+      candidates.push({ reference, score: candidateScore });
+    });
+
+    if (labelLinePattern.test(lineLower)) {
+      const nextLine = lines[index + 1];
+      const reference = cleanReferenceValue(nextLine);
+      if (reference && !hasPaymentContext) {
+        let candidateScore = 3.8;
+        if (/\b(invoice|inv)\b/i.test(lineLower)) candidateScore += 0.8;
+        if (/\b(reference|ref)\b/i.test(lineLower)) candidateScore += 0.4;
+        if (index <= 4) candidateScore += 0.2;
+        candidates.push({ reference, score: candidateScore });
+      }
+    }
+  });
+
+  if (!candidates.length) return null;
+  candidates.sort((a, b) => b.score - a.score);
+  return candidates[0].reference;
 }
 
 
@@ -202,8 +908,13 @@ const getAllowedVatRates = () => {
 };
 
 // ---------- VAT extraction (snaps to categories_meta rates only) ----------
-export function extractVAT(text, amountInfo, categoryIdx) {
+export function extractVAT(text, amountInfo, categoryIdx, profile = undefined) {
   if (!text) return { value: null, rate: null };
+
+  const isVatRegistered = profile === undefined || profile === null
+    ? true
+    : profile?.taxProfile?.vat?.isRegistered !== false && profile?.isVatRegistered !== false;
+  if (!isVatRegistered) return { value: null, rate: null };
 
   const allowedRates = getAllowedVatRates();
 
@@ -222,51 +933,107 @@ export function extractVAT(text, amountInfo, categoryIdx) {
 
   const cleaned = text.replace(/\r\n/g, "\n");
   const lines = cleaned.split("\n").map(l => l.trim()).filter(Boolean);
+  const inferRateFromAmounts = (vatValue) => {
+    if (!Number.isFinite(vatValue) || !amountInfo?.amount || vatValue <= 0 || vatValue >= amountInfo.amount) return null;
+    return snapRate((vatValue / (amountInfo.amount - vatValue)) * 100);
+  };
+
+  const isCisDeductionStatement = /\b(?:subcontractor statement|statement of payment and deductions|construction industry scheme|payment and deduction statement|remittance advice)\b/i.test(cleaned) &&
+    /\b(?:cis\s+)?tax deduction\b|\bdeducted\s*\(\s*b\s*\)|\bgross\s+(?:paid|payment)\b/i.test(cleaned);
+  if (isCisDeductionStatement) {
+    return { value: 0, rate: 0 };
+  }
+
+  for (let index = 0; index < lines.length; index += 1) {
+    const label = lines[index];
+    if (!/^vat(?:\s*\(\s*\d{1,2}(?:[.,]\d{1,2})?\s*%\s*\))?\s*[:\-]?$/i.test(label)) continue;
+    const valueLine = lines[index + 1] || "";
+    if (/\b\d{1,2}[/.\-]\d{1,2}[/.\-]\d{2,4}\b/.test(valueLine)) continue;
+    const valueMatch = valueLine.match(/(?:£\s*)?(\d{1,3}(?:[,.]\d{3})*(?:[.,]\d{2})?)/);
+    const value = valueMatch ? parseAmount(valueMatch[1]) : null;
+    if (!Number.isFinite(value)) continue;
+    const rateMatch = label.match(/(\d{1,2}(?:[.,]\d{1,2})?)\s*%/i);
+    const rate = value === 0 ? 0 : rateMatch ? snapRate(parseFloat(rateMatch[1].replace(',', '.'))) : inferRateFromAmounts(value);
+    return { value: parseFloat(value.toFixed(2)), rate };
+  }
+
+  // Cap an OCR-detected VAT value at the theoretical maximum for the detected
+  // category: if the receipt shows a higher number it is almost certainly an OCR
+  // error (e.g. picking up the total line instead of the VAT line).
+  const catRate = categoryIdx >= 0 ? categories_meta[categoryIdx]?.vatRate : null;
+  const capVat = (val) => {
+    if (!Number.isFinite(val)) return val;
+    if (Number.isFinite(catRate) && catRate > 0 && amountInfo?.amount) {
+      const maxVat = amountInfo.amount * catRate / (100 + catRate);
+      if (val > maxVat) return parseFloat(maxVat.toFixed(2));
+    }
+    return val;
+  };
 
   // 1) Table header: "VAT Rate  Incl  Excl  Amount"
   const hdrIdx = lines.findIndex(l => /vat\s*rate.*incl.*excl.*amount/i.test(l));
   if (hdrIdx >= 0) {
     for (let i = 1; i <= 3 && hdrIdx + i < lines.length; i++) {
       const row = lines[hdrIdx + i];
-      const nums = (row.match(/£?\s*\d+\.\d{2}/g) || []).map(s =>
-        parseFloat(s.replace(/[£\s]/g, ""))
+      const nums = (row.match(/£?\s*\d+(?:[.,]\d{2})/g) || []).map(s =>
+        parseFloat(s.replace(/[£\s]/g, "").replace(/,/g, ""))
       );
-      const rm = row.match(/(\d{1,2}(?:\.\d{1,2})?)\s*(?:%|$)/);
-      const snapped = rm ? snapRate(parseFloat(rm[1])) : null;
+      const rm = row.match(/(\d{1,2}(?:[.,]\d{1,2})?)\s*(?:%|$)/);
+      const snapped = rm ? snapRate(parseFloat(rm[1].replace(',', '.'))) : null;
 
       if (nums.length >= 3) {
         const vatVal = nums[nums.length - 1]; // VAT column usually last
         return {
-          value: Number.isFinite(vatVal) ? parseFloat(vatVal.toFixed(2)) : null,
+          value: Number.isFinite(vatVal) ? capVat(parseFloat(vatVal.toFixed(2))) : null,
           rate: snapped,
         };
       }
     }
   }
 
-  // 2) Explicit "VAT amount" lines (ignore "VAT No")
+  // 2) Explicit VAT amount lines (ignore registration / number headers)
   for (const l of lines) {
-    if (/vat\s*no\b/i.test(l)) continue;
+    const low = l.toLowerCase();
+    if (!/\b(?:vat|tax)\b/i.test(low)) continue;
+    if (/vat\s*(?:no|number|reg|registration|account|code)\b/i.test(low)) continue;
+
+    const moneyMatch = l.match(/(£\s*\d+(?:[.,]\d{2})?)/i);
+    if (moneyMatch) {
+      const rawValue = moneyMatch[1].replace(/[£\s]/g, "").replace(/,/g, "");
+      const val = parseFloat(rawValue);
+      if (Number.isFinite(val)) {
+        const rateMatch = l.match(/(\d{1,2}(?:[.,]\d{1,2})?)\s*%/i);
+        const rate = rateMatch ? snapRate(parseFloat(rateMatch[1].replace(',', '.'))) : inferRateFromAmounts(val);
+        return { value: capVat(parseFloat(val.toFixed(2))), rate };
+      }
+    }
+
     const m =
-      l.match(/vat(?!\s*no)[^0-9£]*(£?\s*\d+\.\d{2})/i) ||
-      l.match(/(£\s*\d+\.\d{2})\s*vat\b/i);
+      l.match(/\b(?:vat|tax)\b(?:[^£%\n]*?)(£\s*\d+(?:[.,]\d{2})?)/i) ||
+      l.match(/(£\s*\d+(?:[.,]\d{2})?)\s*\b(?:vat|tax)\b/i);
     if (m) {
-      const val = parseFloat(m[1].replace(/[£\s]/g, ""));
-      if (isFinite(val)) return { value: parseFloat(val.toFixed(2)), rate: null };
+      const rawValue = m[1].replace(/[£\s]/g, "").replace(/,/g, "");
+      const val = parseFloat(rawValue);
+      if (Number.isFinite(val)) return { value: capVat(parseFloat(val.toFixed(2))), rate: null };
     }
   }
 
   // 3) A rate near "VAT" → compute using snapped rate
   const rateHit =
-    cleaned.match(/(?:vat[^%\n]{0,12})?(\d{1,2}(?:\.\d{1,2})?)\s*%/i) ||
-    cleaned.match(/(\d{1,2}(?:\.\d{1,2})?)\s*%\s*vat/i);
-  const snappedRate = rateHit ? snapRate(parseFloat(rateHit[1])) : null;
+    cleaned.match(/(?:vat[^%\n]{0,12})?(\d{1,2}(?:[.,]\d{1,2})?)\s*%/i) ||
+    cleaned.match(/(\d{1,2}(?:[.,]\d{1,2})?)\s*%\s*vat/i) ||
+    cleaned.match(/\b(?:vat|tax)\s*(?:rate)?\s*[:#-]?\s*(\d{1,2}(?:[.,]\d{1,2})?)/i);
+  const snappedRate = rateHit ? snapRate(parseFloat(rateHit[1].replace(',', '.'))) : null;
 
   if (snappedRate != null && amountInfo?.amount) {
+    const catRateOverride = categoryIdx >= 0 ? categories_meta[categoryIdx]?.vatRate : null;
+    const effectiveRate = (snappedRate === 0 && Number.isFinite(catRateOverride) && catRateOverride > 0)
+      ? catRateOverride
+      : snappedRate;
     const gross = amountInfo.amount;
-    const net = gross / (1 + snappedRate / 100);
+    const net = gross / (1 + effectiveRate / 100);
     const vat = gross - net;
-    return { value: parseFloat(vat.toFixed(2)), rate: snappedRate };
+    return { value: parseFloat(vat.toFixed(2)), rate: effectiveRate };
   }
 
   // 4) Fallback to category default (already from categories_meta)
@@ -280,7 +1047,61 @@ export function extractVAT(text, amountInfo, categoryIdx) {
     }
   }
 
+  // 5) If the invoice clearly contains a VAT line but the amount is missing, infer from total/amount and a standard UK rate
+  if (amountInfo?.amount && /\bvat\b/i.test(cleaned) && !/\b(?:zero|0(?:\.00)?|no vat|exempt|vat exempt|vat free)\b/i.test(cleaned)) {
+    const inferredRate = 20;
+    const gross = amountInfo.amount;
+    const net = gross / (1 + inferredRate / 100);
+    const vat = gross - net;
+    return { value: parseFloat(vat.toFixed(2)), rate: inferredRate };
+  }
+
   return { value: null, rate: null };
+}
+
+export function extractCIS(text, amountInfo) {
+  if (!text) {
+    return { applies: false, materialsAmount: 0, deductionRate: 0, taxWithheld: 0 };
+  }
+
+  const lines = text.replace(/\r\n/g, "\n").split("\n").map(line => line.trim()).filter(Boolean);
+  const applies = /construction industry scheme|cis\s+(?:subcontractors?\s+)?payment statement|payment and deduction statement|remittance advice(?=[\s\S]*?tax deduction)/i.test(text);
+  if (!applies) {
+    return { applies: false, materialsAmount: 0, deductionRate: 0, taxWithheld: 0 };
+  }
+
+  const moneyFromLine = (line) => {
+    const match = line.match(/(?:£\s*)?(\d{1,3}(?:[,.]\d{3})*[.,]\d{2})-?/);
+    return match ? parseAmount(match[1]) : null;
+  };
+
+  const rateMatch = text.match(/\b(?:cis\s+)?(?:tax\s+)?(?:deduction|rate)\b[^%\n]{0,20}?(\d{1,2}(?:[.,]\d{1,2})?)\s*%/i) ||
+    text.match(/\b(\d{1,2}(?:[.,]\d{1,2})?)\s*%\b(?=[\s\S]{0,80}\b(?:cis|tax)\b)/i);
+  const deductionRate = rateMatch ? parseFloat(rateMatch[1].replace(',', '.')) : 20;
+
+  let taxWithheld = null;
+  for (let index = 0; index < lines.length; index += 1) {
+    if (!/\b(?:cis\s+|tax\s+)deduction\b|\bdeducted\s*\(\s*b\s*\)|\btax\s+withheld\b/i.test(lines[index])) continue;
+    for (let offset = 0; offset <= 4 && index + offset < lines.length; offset += 1) {
+      const value = moneyFromLine(lines[index + offset]);
+      if (value != null) {
+        taxWithheld = value;
+        break;
+      }
+    }
+    if (taxWithheld != null) break;
+  }
+
+  if (taxWithheld == null && amountInfo?.amount != null) {
+    taxWithheld = Number((amountInfo.amount * deductionRate / 100).toFixed(2));
+  }
+
+  return {
+    applies: true,
+    materialsAmount: 0,
+    deductionRate,
+    taxWithheld: taxWithheld ?? 0,
+  };
 }
 
 
@@ -326,22 +1147,29 @@ export function categoryFinder(text, categories) {
 
 
 // ---------- main ----------
-export function extractData(text) {
+export function extractData(text, profile = undefined) {
   if (!text || typeof text !== 'string') {
     return {
       money: { value: null, currency: 0 },
       date: null,
+      reference: null,
       category: -1,
       vat: { value: null, rate: null },
+      cis: { applies: false, materialsAmount: 0, deductionRate: null, taxWithheld: 0 },
     };
   }
 
   const cleaned = text.replace(/\r\n/g, '\n');
+  const isVatRegistered = profile === undefined || profile === null
+    ? true
+    : profile?.taxProfile?.vat?.isRegistered !== false && profile?.isVatRegistered !== false;
 
   const amountInfo = extractAmount(cleaned);
   const dateIso = extractDate(cleaned);
+  const reference = extractReference(cleaned);
   const categoryIdx = categoryFinder(cleaned, categories_meta);
-  const vatInfo = extractVAT(cleaned, amountInfo, categoryIdx);
+  const vatInfo = isVatRegistered ? extractVAT(cleaned, amountInfo, categoryIdx, profile) : { value: null, rate: null };
+  const cisInfo = extractCIS(cleaned, amountInfo);
 
   return {
     money: {
@@ -350,8 +1178,10 @@ export function extractData(text) {
       display: amountInfo ? amountInfo.display : null,
     },
     date: dateIso,
+    reference,
     category: categoryIdx,
     vat: vatInfo, // ✅ new field
+    cis: cisInfo,
   };
 }
 

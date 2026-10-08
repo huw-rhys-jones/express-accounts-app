@@ -1,3 +1,12 @@
 {
-  "expo": {}
+  "expo": {
+    "extra": {
+      "eas": {
+        "projectId": "16c9e165-6b01-4086-9bdc-cac4dbc76261"
+      }
+    },
+    "android": {
+      "package": "com.dubway4201.expressaccountsapp"
+    }
+  }
 }

@@ -12,6 +12,8 @@ import com.facebook.react.ReactHost
 import com.facebook.react.common.ReleaseLevel
 import com.facebook.react.defaults.DefaultNewArchitectureEntryPoint
 import com.facebook.react.defaults.DefaultReactNativeHost
+import com.google.firebase.FirebaseApp
+import com.google.firebase.FirebaseOptions
 
 import expo.modules.ApplicationLifecycleDispatcher
 import expo.modules.ReactNativeHostWrapper
@@ -40,6 +42,16 @@ class MainApplication : Application(), ReactApplication {
 
   override fun onCreate() {
     super.onCreate()
+    if (FirebaseApp.getApps(this).isEmpty()) {
+      val options = FirebaseOptions.Builder()
+        .setApiKey(BuildConfig.FIREBASE_API_KEY)
+        .setApplicationId(BuildConfig.FIREBASE_APP_ID)
+        .setProjectId(BuildConfig.FIREBASE_PROJECT_ID)
+        .setStorageBucket(BuildConfig.FIREBASE_STORAGE_BUCKET)
+        .setGcmSenderId(BuildConfig.FIREBASE_MESSAGING_SENDER_ID)
+        .build()
+      FirebaseApp.initializeApp(this, options)
+    }
     DefaultNewArchitectureEntryPoint.releaseLevel = try {
       ReleaseLevel.valueOf(BuildConfig.REACT_NATIVE_RELEASE_LEVEL.uppercase())
     } catch (e: IllegalArgumentException) {

@@ -1,0 +1,103 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Accountant emails that can read all data in this project.
+    // Keep this list in sync with ALLOWED_EMAILS in client-portal.html.
+    function isAccountant() {
+      return request.auth != null &&
+             request.auth.token.email in ["info@caistec.com", "info@expressaccounts.biz", "catrin@expressaccounts.biz"];
+    }
+
+    // Helper: the caller owns the document (matches their Firebase Auth UID).
+    function isOwner(userId) {
+      return request.auth != null && request.auth.uid == userId;
+    }
+
+    // Password-based accounts must verify email before accessing financial data.
+    function userProfileSaysVerified() {
+      return request.auth != null &&
+             get(/databases/$(database)/documents/users/$(request.auth.uid)).data.emailVerified == true;
+    }
+
+    function isVerifiedOrFederated() {
+      return request.auth != null &&
+             (
+               request.auth.token.firebase.sign_in_provider != "password" ||
+               request.auth.token.email_verified == true ||
+               userProfileSaysVerified()
+             );
+    }
+
+    function isVerificationCodeClaim() {
+      return request.auth != null &&
+             resource != null &&
+             resource.data.code == request.resource.data.code &&
+             resource.data.accountantSubmittedName == request.resource.data.accountantSubmittedName &&
+             resource.data.createdAt == request.resource.data.createdAt &&
+             resource.data.createdByUid == request.resource.data.createdByUid &&
+             resource.data.createdByEmail == request.resource.data.createdByEmail &&
+             request.resource.data.usedBy == request.auth.uid &&
+             request.resource.data.verificationStatus == "verified" &&
+             (
+               resource.data.usedBy == null ||
+               resource.data.usedBy == request.auth.uid
+             );
+    }
+
+    // Receipts: each user owns their own; accountants can read all.
+    match /receipts/{receiptId} {
+      allow read: if (isOwner(resource.data.userId) && isVerifiedOrFederated()) || isAccountant();
+      allow create: if request.auth != null &&
+                       request.resource.data.userId == request.auth.uid &&
+                       isVerifiedOrFederated();
+      allow update, delete: if isOwner(resource.data.userId) && isVerifiedOrFederated();
+    }
+
+    match /income/{incomeId} {
+      allow read: if (isOwner(resource.data.userId) && isVerifiedOrFederated()) || isAccountant();
+      allow create: if request.auth != null &&
+                       request.resource.data.userId == request.auth.uid &&
+                       isVerifiedOrFederated();
+      allow update, delete: if isOwner(resource.data.userId) && isVerifiedOrFederated();
+    }
+
+    match /bankStatements/{statementId} {
+      allow read: if (isOwner(resource.data.userId) && isVerifiedOrFederated()) || isAccountant();
+      allow create: if request.auth != null &&
+                       request.resource.data.userId == request.auth.uid &&
+                       isVerifiedOrFederated();
+      allow update, delete: if isOwner(resource.data.userId) && isVerifiedOrFederated();
+    }
+
+    // User profiles: each user owns their own; accountants can read/update for portal workflows.
+    match /users/{userId} {
+      allow read, write: if isOwner(userId);
+      allow read, update: if isAccountant();
+    }
+
+    match /users/{userId}/pushTokens/{tokenId} {
+      allow read, write, delete: if isOwner(userId);
+    }
+
+    // 2FA challenges: users create and approve/deny their own challenges.
+    match /twoFactorChallenges/{challengeId} {
+      allow create: if request.auth != null &&
+                       request.resource.data.userId == request.auth.uid;
+      allow read: if request.auth != null &&
+                     resource.data.userId == request.auth.uid;
+      allow update: if request.auth != null &&
+                       resource.data.userId == request.auth.uid &&
+                       request.resource.data.status in ["approved", "denied"] &&
+                       request.resource.data.userId == resource.data.userId;
+    }
+
+    // Verification codes: accountants manage the catalog; authenticated users can validate a single code.
+    match /VerificationCodes/{codeId} {
+      allow get: if request.auth != null;
+      allow list: if isAccountant();
+      allow create, delete: if isAccountant();
+      allow update: if isAccountant() || isVerificationCodeClaim();
+    }
+  }
+}

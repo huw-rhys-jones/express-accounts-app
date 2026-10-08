@@ -1,16 +1,34 @@
 import 'dotenv/config';
 
+const { version: appVersion } = require("./package.json");
+
+const internalBuildLabel = "";
+
+const [major = 0, minor = 0, patch = 0] = String(appVersion)
+  .split(".")
+  .map((part) => Number.parseInt(part, 10) || 0);
+
+const numericBuild = major * 10000 + minor * 100 + patch;
+const iosBuildNumber = process.env.IOS_BUILD_NUMBER || String(numericBuild);
+
 export default ({ config }) => ({
   ...config,
 
   name: "Express Accounts",
   slug: "express-accounts",
+  owner: "dubway4201",
   scheme: "com.caistec.expressaccounts",
-  version: "1.0.0",
+  version: appVersion,
   orientation: "portrait",
   icon: "./assets/icon.png",
   userInterfaceStyle: "light",
   newArchEnabled: false, // Keeping this false as per your current setup
+  backgroundColor: "#302C66",
+
+  notification: {
+    icon: "./assets/notification-icon.png",
+    color: "#9B0D35"
+  },
 
   splash: {
     image: "./assets/splash-icon.png",
@@ -19,9 +37,9 @@ export default ({ config }) => ({
   },
 
   ios: {
+    buildNumber: iosBuildNumber,
     supportsTablet: false,
     bundleIdentifier: "com.caistec.expressaccounts",
-    buildNumber: "15",
     googleServicesFile: "./GoogleService-Info.plist",
     usesAppleSignIn: true,
     infoPlist: {
@@ -30,26 +48,54 @@ export default ({ config }) => ({
       NSCameraUsageDescription:
         "Express Accounts needs access to your camera to take photos of receipts and documents.",
       NSPhotoLibraryAddUsageDescription:
-        "Express Accounts needs permission to save receipts and documents back to your photo library."
+        "Express Accounts needs permission to save receipts and documents back to your photo library.",
+      NSLocationWhenInUseUsageDescription:
+        "Express Accounts needs your location to track mileage for business trips."
     }
   },
 
   android: {
     package: "com.caistec.expressaccounts",
+    versionCode: numericBuild,
     adaptiveIcon: {
       foregroundImage: "./assets/adaptive-icon.png",
       backgroundColor: "#ffffff"
     },
     permissions: [
-      "android.permission.CAMERA", 
+      "android.permission.CAMERA",
       "android.permission.WRITE_EXTERNAL_STORAGE",
-      "android.permission.READ_EXTERNAL_STORAGE"
+      "android.permission.READ_EXTERNAL_STORAGE",
+      "android.permission.ACCESS_FINE_LOCATION",
+      "android.permission.ACCESS_COARSE_LOCATION",
+      "android.permission.POST_NOTIFICATIONS"
     ]
   },
 
   plugins: [
     "expo-apple-authentication",
+    [
+      "expo-notifications",
+      {
+        "icon": "./assets/notification-icon.png",
+        "color": "#9B0D35"
+      }
+    ],
     "expo-router",
+    [
+      "expo-location",
+      {
+        "locationWhenInUsePermission": "Express Accounts needs your location to record mileage trips."
+      }
+    ],
+    [
+      "expo-splash-screen",
+      {
+        "image": "./assets/splash-icon.png",
+        "imageWidth": 960,
+        "resizeMode": "contain",
+        "backgroundColor": "#ffffff"
+      }
+    ],
     [
       "expo-image-picker",
       {
@@ -88,6 +134,7 @@ export default ({ config }) => ({
 
   extra: {
     eas: { projectId: "5b149386-fb46-4d4d-8308-fde7bcff2f37" },
+    internalBuildLabel,
     FIREBASE_API_KEY: process.env.FIREBASE_API_KEY,
     FIREBASE_AUTH_DOMAIN: process.env.FIREBASE_AUTH_DOMAIN,
     FIREBASE_PROJECT_ID: process.env.FIREBASE_PROJECT_ID,
@@ -97,6 +144,9 @@ export default ({ config }) => ({
     FIREBASE_MEASUREMENT_ID: process.env.FIREBASE_MEASUREMENT_ID,
     GOOGLE_WEB_CLIENT_ID: process.env.GOOGLE_WEB_CLIENT_ID,
     GOOGLE_ANDROID_CLIENT_ID: process.env.GOOGLE_ANDROID_CLIENT_ID,
-    GOOGLE_IOS_CLIENT_ID: process.env.GOOGLE_IOS_CLIENT_ID
+    GOOGLE_IOS_CLIENT_ID: process.env.GOOGLE_IOS_CLIENT_ID,
+    GOOGLE_MAPS_API_KEY: process.env.GOOGLE_MAPS_API_KEY,
+    BANK_PDF_OCR_URL: process.env.BANK_PDF_OCR_URL,
+    RECEIPT_IMAGE_OCR_URL: process.env.RECEIPT_IMAGE_OCR_URL
   }
 });

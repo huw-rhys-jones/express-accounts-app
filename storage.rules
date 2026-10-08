@@ -1,0 +1,40 @@
+rules_version = '2';
+service firebase.storage {
+  match /b/{bucket}/o {
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isAccountant() {
+      return isSignedIn() && request.auth.token.email in [
+        "info@caistec.com",
+        "info@expressaccounts.biz",
+        "catrin@expressaccounts.biz"
+      ];
+    }
+
+    function isOwner(userId) {
+      return isSignedIn() && request.auth.uid == userId;
+    }
+
+    match /receipts/{userId}/{allPaths=**} {
+      allow read: if isOwner(userId) || isAccountant();
+      allow write: if isOwner(userId);
+    }
+
+    match /income/{userId}/{allPaths=**} {
+      allow read: if isOwner(userId) || isAccountant();
+      allow write: if isOwner(userId);
+    }
+
+    match /bankStatements/{userId}/{allPaths=**} {
+      allow read: if isOwner(userId) || isAccountant();
+      allow write: if isOwner(userId);
+    }
+
+    match /profilePictures/{userId}/{allPaths=**} {
+      allow read: if isOwner(userId) || isAccountant();
+      allow write: if isOwner(userId);
+    }
+  }
+}

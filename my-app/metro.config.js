@@ -1,4 +1,5 @@
 const { getDefaultConfig } = require("expo/metro-config");
+const exclusionList = require("@expo/metro/metro-config/defaults/exclusionList").default;
 
 const config = getDefaultConfig(__dirname);
 
@@ -8,9 +9,12 @@ config.resolver.assetExts.push("cjs");
 // 2. Enable Package Exports (Required for many SDK 54 libraries)
 config.resolver.unstable_enablePackageExports = true;
 
-// 3. Force Metro to look at the root node_modules if it gets lost
-config.resolver.nodeModulesPaths = [
-  require('path').resolve(__dirname, 'node_modules'),
-];
+// Metro's own integration tests do not belong in the app watch graph.
+// Generated Android output is not source code and must not be watched.
+config.resolver.blockList = exclusionList([
+  /.*\/node_modules\/metro\/src\/integration_tests\/.*$/,
+  /.*\/android\/app\/build\/.*$/,
+  /.*\/android\/build\/.*$/,
+]);
 
 module.exports = config;

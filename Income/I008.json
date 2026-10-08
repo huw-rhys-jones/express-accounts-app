@@ -1,0 +1,6 @@
+{
+  "fileName": "I008.jpeg",
+  "rawText": "YOUR COMPANY\n12 Example Avenue\nPontefract\nWF8 4LS\nhello@mac.com\n0712345678\nBILL TO\nClient Name\n12 Example Avenue\nCity\nAB1 2CD\nDescription\nItem\nItem\nItem\nPAY BY BANK TRANSFER\nBank/Sort Code: 123456\nAccount Number: 12345678\nPayment Reference: Customer 001\nBank Name\nTERMS\n<Add payment instructions here>\n<Add terms here, e.g: warranty, returns policy...>>\nINVOICE\nInvoice No:\nIssue Date:\nDue Date:\nLOGO\nINV-0001\n01.01.2024\n15.01.2024\nQuantity\nUnit Price\nAmount\n1\n10,00\n£10.00\n2\n10.00\n£20,00\n2\n10.00\n£20.00\nSubtotal\n£50,00\nVAT (20%)\n£10,00\nDiscount\n-£5,00\nTotal\n£55,00",
+  "provider": "vision-direct",
+  "cachedAt": "2026-08-05T21:29:02.259Z"
+}
