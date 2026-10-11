@@ -3,8 +3,10 @@ import {
   ActivityIndicator,
   Alert,
   Image,
+  KeyboardAvoidingView,
   Linking,
   Modal,
+  Pressable,
   StyleSheet,
   Text,
   TextInput,
@@ -315,7 +317,7 @@ export default function SharedTabMenu({ navigation, closeMenu, displayName = "Us
       })
       .catch((error) => {
         console.error("Feedback Error:", error);
-        Alert.alert("Connection Error", "Could not reach the server. Please try again.");
+        Alert.alert("Couldn't send feedback", "Something went wrong sending your feedback. Please try again later.");
       });
   };
 
@@ -410,14 +412,15 @@ export default function SharedTabMenu({ navigation, closeMenu, displayName = "Us
     <>
       <View style={{ flex: 1 }}>
         <View style={styles.userInfo}>
-          <TouchableOpacity
+          <Pressable
             onPress={() => {
               closeMenu();
               navigation.navigate("Profile");
             }}
             accessibilityRole="button"
             accessibilityLabel="Open profile"
-            style={styles.profileMenuButton}
+            android_ripple={{ color: "rgba(0,0,0,0.08)" }}
+            style={({ pressed }) => [styles.profileMenuButton, pressed && styles.profileMenuButtonPressed]}
           >
             <View style={styles.menuAvatar}>
               {profileImageUrl ? (
@@ -434,7 +437,13 @@ export default function SharedTabMenu({ navigation, closeMenu, displayName = "Us
             {verificationStatus === "verified" && verifiedName ? (
               <Text style={styles.verifiedAsText}>Verified as {verifiedName}</Text>
             ) : null}
-          </TouchableOpacity>
+            <Ionicons
+              name="chevron-forward"
+              size={22}
+              color={Colors.textPrimary}
+              style={styles.profileChevron}
+            />
+          </Pressable>
         </View>
 
         <Image
@@ -466,7 +475,8 @@ export default function SharedTabMenu({ navigation, closeMenu, displayName = "Us
 
           <TouchableOpacity
             onPress={() => {
-              closeMenu();
+              // Keep the menu open: this modal is rendered inside the side menu's Modal,
+              // so closing the menu would unmount it immediately.
               setFeedbackModalVisible(true);
             }}
             style={[styles.signOutLink, { marginTop: 12, marginBottom: 0 }]}
@@ -507,8 +517,8 @@ export default function SharedTabMenu({ navigation, closeMenu, displayName = "Us
         </View>
       </Modal>
 
-      <Modal visible={feedbackModalVisible} transparent animationType="slide" onRequestClose={() => setFeedbackModalVisible(false)}>
-        <View style={styles.modalOverlay}>
+      <Modal visible={feedbackModalVisible} transparent animationType="slide" statusBarTranslucent onRequestClose={() => setFeedbackModalVisible(false)}>
+        <KeyboardAvoidingView style={styles.modalOverlay} behavior="padding">
           <View style={styles.loadingCard}>
             <Text style={styles.title}>Send Feedback</Text>
             <Text style={{ textAlign: "center", marginVertical: 10, color: Colors.textPrimary }}>
@@ -540,7 +550,7 @@ export default function SharedTabMenu({ navigation, closeMenu, displayName = "Us
               </TouchableOpacity>
             </View>
           </View>
-        </View>
+        </KeyboardAvoidingView>
       </Modal>
 
       <Modal
@@ -698,11 +708,31 @@ export default function SharedTabMenu({ navigation, closeMenu, displayName = "Us
 const styles = StyleSheet.create({
   userInfo: {
     marginBottom: 20,
-    alignItems: "center",
+    alignSelf: "stretch",
   },
   profileMenuButton: {
+    alignSelf: "stretch",
     alignItems: "center",
-    paddingVertical: 4,
+    paddingVertical: 14,
+    paddingLeft: 16,
+    paddingRight: 40,
+    backgroundColor: "#F8FAFC",
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: Colors.border,
+    overflow: "hidden",
+    shadowColor: "#000",
+    shadowOpacity: 0.06,
+    shadowRadius: 4,
+    shadowOffset: { width: 0, height: 1 },
+    elevation: 1,
+  },
+  profileMenuButtonPressed: { opacity: 0.7 },
+  profileChevron: {
+    position: "absolute",
+    right: 10,
+    top: "50%",
+    marginTop: -11,
   },
   menuAvatar: {
     width: 56,
