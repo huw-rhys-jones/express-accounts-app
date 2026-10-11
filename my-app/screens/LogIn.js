@@ -362,8 +362,14 @@ const LoginScreen = ({ navigation }) => {
       await runWithLoading("Signing in with Google…", async () => {
         triggerHaptic("selection").catch(() => {});
         if (!request) return;
-        const result = await promptAsync();
+        // Keep the Custom Tab in the app's task and in recents so switching to
+        // an authenticator/SMS app for 2FA doesn't drop the auth session.
+        const result = await promptAsync({
+          createTask: false,
+          showInRecents: true,
+        });
         if (result?.type !== "success") {
+          console.warn("Google Sign-In did not complete:", result?.type);
           return;
         }
       });
