@@ -866,6 +866,41 @@ exports.exportClientZip = onRequest(
         });
       }
 
+      const HMRC_CATEGORY_RULES = [
+        {
+          category: "Bank Charges & Financial Fees",
+          hmrcCategory: "Bank, credit card and other financial charges",
+          keywords: ["bank fee", "stripe", "paypal", "transaction fee", "card charge", "account fee", "interest charge", "overdraft fee"],
+        },
+        {
+          category: "Loan Interest",
+          hmrcCategory: "Interest on bank and other loans",
+          keywords: ["loan interest", "mortgage interest", "finance charge", "interest paid"],
+        },
+        {
+          category: "Advertising & Marketing",
+          hmrcCategory: "Advertising costs",
+          keywords: ["advertising", "google ads", "facebook ads", "meta ads", "marketing", "promotion", "flyers", "banner", "sponsored"],
+        },
+        {
+          category: "Repairs and Maintenance",
+          hmrcCategory: "Repairs and maintenance of property and equipment",
+          keywords: ["property repair", "building maintenance", "equipment repair", "boiler service", "decorating"],
+        },
+      ];
+
+      function mapReceiptCategoryToHmrcCategory(category) {
+        const rawCategory = String(category || "").trim();
+        if (!rawCategory) return "Uncategorized";
+        const normalized = rawCategory.toLowerCase();
+        for (const rule of HMRC_CATEGORY_RULES) {
+          if (normalized === rule.category.toLowerCase() || rule.keywords.some((keyword) => normalized.includes(keyword.toLowerCase()))) {
+            return rule.hmrcCategory;
+          }
+        }
+        return rawCategory;
+      }
+
       function calculateReceiptTotalsByCategory(receipts, isVatRegistered) {
         return receipts.reduce(
           (acc, item) => {
@@ -995,6 +1030,31 @@ exports.exportClientZip = onRequest(
 
         if (rows.length === 0) {
           aoa.splice(1, 0, ["No income records found for this period.", "", "", "", "", "", "", "", "", "", ""]);
+        }
+
+        return aoa;
+      }
+
+      function buildHmrcSummaryWorkbookRows(receiptExportItems) {
+        const totalsByHmrcCategory = {}; 
+        for (const exportItem of receiptExportItems) {
+          const entry = exportItem.entry || {};
+          const mappedCategory = mapReceiptCategoryToHmrcCategory(entry.category);
+          const amount = Number(entry.amount) || 0;
+          totalsByHmrcCategory[mappedCategory] = (totalsByHmrcCategory[mappedCategory] || 0) + amount;
+        }
+
+        const rows = Object.entries(totalsByHmrcCategory)
+          .sort(([a], [b]) => a.localeCompare(b, undefined, {sensitivity: "base"}))
+          .map(([category, total]) => [category, toMoney(total)]);
+
+        const aoa = [
+          ["HMRC category", "Total amount"],
+          ...rows,
+        ];
+
+        if (!rows.length) {
+          aoa.splice(1, 0, ["No receipt / expense records found for this period.", ""]);
         }
 
         return aoa;
@@ -1198,6 +1258,11 @@ exports.exportClientZip = onRequest(
           workbook,
           XLSX.utils.aoa_to_sheet(sanitizeWorksheetAoa(buildReceiptWorkbookRows(receiptExportItems, isVatRegistered, includeImages))),
           "Receipts",
+        );
+        XLSX.utils.book_append_sheet(
+          workbook,
+          XLSX.utils.aoa_to_sheet(sanitizeWorksheetAoa(buildHmrcSummaryWorkbookRows(receiptExportItems))),
+          "HMRC Summary",
         );
         XLSX.utils.book_append_sheet(
           workbook,
