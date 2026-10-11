@@ -866,41 +866,6 @@ exports.exportClientZip = onRequest(
         });
       }
 
-      const HMRC_CATEGORY_RULES = [
-        {
-          category: "Bank Charges & Financial Fees",
-          hmrcCategory: "Bank, credit card and other financial charges",
-          keywords: ["bank fee", "stripe", "paypal", "transaction fee", "card charge", "account fee", "interest charge", "overdraft fee"],
-        },
-        {
-          category: "Loan Interest",
-          hmrcCategory: "Interest on bank and other loans",
-          keywords: ["loan interest", "mortgage interest", "finance charge", "interest paid"],
-        },
-        {
-          category: "Advertising & Marketing",
-          hmrcCategory: "Advertising costs",
-          keywords: ["advertising", "google ads", "facebook ads", "meta ads", "marketing", "promotion", "flyers", "banner", "sponsored"],
-        },
-        {
-          category: "Repairs and Maintenance",
-          hmrcCategory: "Repairs and maintenance of property and equipment",
-          keywords: ["property repair", "building maintenance", "equipment repair", "boiler service", "decorating"],
-        },
-      ];
-
-      function mapReceiptCategoryToHmrcCategory(category) {
-        const rawCategory = String(category || "").trim();
-        if (!rawCategory) return "Uncategorized";
-        const normalized = rawCategory.toLowerCase();
-        for (const rule of HMRC_CATEGORY_RULES) {
-          if (normalized === rule.category.toLowerCase() || rule.keywords.some((keyword) => normalized.includes(keyword.toLowerCase()))) {
-            return rule.hmrcCategory;
-          }
-        }
-        return rawCategory;
-      }
-
       function calculateReceiptTotalsByCategory(receipts, isVatRegistered) {
         return receipts.reduce(
           (acc, item) => {
@@ -1035,29 +1000,183 @@ exports.exportClientZip = onRequest(
         return aoa;
       }
 
-      function buildHmrcSummaryWorkbookRows(receiptExportItems) {
-        const totalsByHmrcCategory = {}; 
+      const SELF_EMPLOYMENT_TOTAL_CATEGORIES = [
+        "Turnover",
+        "Any other business income",
+        "tax Taken Off Trading Income",
+        "Cost of goods bought for resale or goods used",
+        "Construction industry - payments to subcontractors",
+        "Wages, salaries and other staff costs",
+        "Car, van and travel expenses",
+        "Rent, rates, power and insurance costs",
+        "Repairs and maintenance of property and equipment",
+        "Phone, fax, stationery and other office costs",
+        "Advertising costs",
+        "Business entertaining costs",
+        "Interest on bank and other loans",
+        "Bank, credit card and other financial charges",
+        "Irrecoverable debts written off",
+        "Accountancy, legal and other professional fees",
+        "Depreciation and loss/profit on sale of assets",
+        "Other business expenses",
+        "Consolidated expenses",
+      ];
+
+      const HMRC_CATEGORY_RULES = [
+        {
+          category: "Bank Charges & Financial Fees",
+          hmrcCategory: "Bank, credit card and other financial charges",
+          keywords: ["bank fee", "stripe", "paypal", "transaction fee", "card charge", "account fee", "interest charge", "overdraft fee"],
+        },
+        {
+          category: "Loan Interest",
+          hmrcCategory: "Interest on bank and other loans",
+          keywords: ["loan interest", "mortgage interest", "finance charge", "interest paid"],
+        },
+        {
+          category: "Advertising & Marketing",
+          hmrcCategory: "Advertising costs",
+          keywords: ["advertising", "google ads", "facebook ads", "meta ads", "marketing", "promotion", "flyers", "banner", "sponsored"],
+        },
+        {
+          category: "Repairs and Maintenance",
+          hmrcCategory: "Repairs and maintenance of property and equipment",
+          keywords: ["property repair", "building maintenance", "equipment repair", "boiler service", "decorating"],
+        },
+      ];
+
+      function mapReceiptCategoryToHmrcCategory(category) {
+        const rawCategory = String(category || "").trim();
+        if (!rawCategory) return "Other business expenses";
+
+        const normalized = rawCategory.toLowerCase();
+        for (const rule of HMRC_CATEGORY_RULES) {
+          if (normalized === rule.category.toLowerCase() || rule.keywords.some((keyword) => normalized.includes(keyword.toLowerCase()))) {
+            return rule.hmrcCategory;
+          }
+        }
+
+        const aliasMap = {
+          fuel: "Car, van and travel expenses",
+          "vehicle costs and maintenance": "Car, van and travel expenses",
+          "travel (bus, train, taxi)": "Car, van and travel expenses",
+          accommodation: "Other business expenses",
+          subsistence: "Other business expenses",
+          parking: "Car, van and travel expenses",
+          "plant & machinery hire": "Other business expenses",
+          materials: "Other business expenses",
+          "tools and equipment": "Other business expenses",
+          "client entertaining": "Business entertaining costs",
+          "business rental": "Rent, rates, power and insurance costs",
+          telephone: "Phone, fax, stationery and other office costs",
+          software: "Phone, fax, stationery and other office costs",
+          "business insurance": "Rent, rates, power and insurance costs",
+          "training costs": "Other business expenses",
+          "professional fees": "Accountancy, legal and other professional fees",
+          "trade subscriptions": "Phone, fax, stationery and other office costs",
+          utilities: "Rent, rates, power and insurance costs",
+          "cleaning and upkeep": "Other business expenses",
+          "sundry items": "Other business expenses",
+          postage: "Phone, fax, stationery and other office costs",
+          stationery: "Phone, fax, stationery and other office costs",
+          "bank charges & financial fees": "Bank, credit card and other financial charges",
+          "loan interest": "Interest on bank and other loans",
+          "advertising & marketing": "Advertising costs",
+          "repairs and maintenance": "Repairs and maintenance of property and equipment",
+        };
+
+        return aliasMap[normalized] || "Other business expenses";
+      }
+
+      function buildSelfEmploymentBreakdownRows(receiptExportItems, incomeExportItems) {
+        const rows = [["Description", "Type", "Amount", "Amount Disallowed", "Date"]];
+
+        const combined = [];
         for (const exportItem of receiptExportItems) {
           const entry = exportItem.entry || {};
-          const mappedCategory = mapReceiptCategoryToHmrcCategory(entry.category);
-          const amount = Number(entry.amount) || 0;
-          totalsByHmrcCategory[mappedCategory] = (totalsByHmrcCategory[mappedCategory] || 0) + amount;
+          combined.push({
+            description: String(entry.label || entry.category || "Expense").trim() || "Expense",
+            type: mapReceiptCategoryToHmrcCategory(entry.category),
+            amount: Number(entry.amount) || 0,
+            date: String(entry.date || ""),
+          });
         }
 
-        const rows = Object.entries(totalsByHmrcCategory)
-          .sort(([a], [b]) => a.localeCompare(b, undefined, {sensitivity: "base"}))
-          .map(([category, total]) => [category, toMoney(total)]);
+        for (const exportItem of incomeExportItems) {
+          const entry = exportItem.entry || {};
+          combined.push({
+            description: String(entry.label || entry.reference || "Income").trim() || "Income",
+            type: "Turnover",
+            amount: Number(entry.amount) || 0,
+            date: String(entry.date || ""),
+          });
+        }
 
-        const aoa = [
-          ["HMRC category", "Total amount"],
-          ...rows,
+        combined.sort((a, b) => {
+          if (a.date && b.date && a.date !== b.date) return a.date.localeCompare(b.date);
+          return a.description.localeCompare(b.description || "");
+        });
+
+        for (const item of combined) {
+          rows.push([
+            item.description,
+            item.type,
+            Number(item.amount || 0),
+            "",
+            item.date,
+          ]);
+        }
+
+        return rows;
+      }
+
+      function buildSelfEmploymentTotalsRows(receiptExportItems, incomeExportItems) {
+        const totals = new Map(SELF_EMPLOYMENT_TOTAL_CATEGORIES.map((name) => [name, { income: 0, expense: 0, disallowed: 0 }]));
+
+        for (const exportItem of receiptExportItems) {
+          const entry = exportItem.entry || {};
+          const mappedType = mapReceiptCategoryToHmrcCategory(entry.category);
+          const amount = Number(entry.amount) || 0;
+          const target = totals.has(mappedType) ? mappedType : "Other business expenses";
+          totals.get(target).expense += amount;
+        }
+
+        for (const exportItem of incomeExportItems) {
+          const entry = exportItem.entry || {};
+          totals.get("Turnover").income += Number(entry.amount) || 0;
+        }
+
+        const rows = [
+          ["Self Employment Quarterly Income and Expenses", null, null, null],
+          [null, null, null, null],
+          [null, "Income", "Expenses", "Disallowable"],
         ];
 
-        if (!rows.length) {
-          aoa.splice(1, 0, ["No receipt / expense records found for this period.", ""]);
+        for (const categoryName of SELF_EMPLOYMENT_TOTAL_CATEGORIES) {
+          const values = totals.get(categoryName) || { income: 0, expense: 0, disallowed: 0 };
+          rows.push([
+            categoryName,
+            categoryName === "Turnover" || categoryName === "Any other business income" || categoryName === "tax Taken Off Trading Income"
+              ? Number(values.income || 0)
+              : null,
+            categoryName === "Turnover" || categoryName === "Any other business income" || categoryName === "tax Taken Off Trading Income"
+              ? null
+              : Number(values.expense || 0),
+            Number(values.disallowed || 0),
+          ]);
         }
 
-        return aoa;
+        return rows;
+      }
+
+      function buildSelfEmploymentCalculationRows() {
+        const categories = SELF_EMPLOYMENT_TOTAL_CATEGORIES;
+        const row1 = [null, null, null, null, ...categories];
+        const row2 = [null, null, null, null, ...Array(categories.length).fill("Amount")];
+        const row3 = [null, null, null, "Totals", ...Array(categories.length).fill(0)];
+        const row4 = [null, "Type", "Amount", "Disallowed", ...Array(categories.length).fill(null)];
+        const row5 = [null, 0, 0, 0, ...Array(categories.length).fill(0)];
+        return [row1, row2, row3, row4, row5];
       }
 
       function buildBankStatementWorkbookRows(filteredStatements) {
@@ -1256,23 +1375,18 @@ exports.exportClientZip = onRequest(
         const workbook = XLSX.utils.book_new();
         XLSX.utils.book_append_sheet(
           workbook,
-          XLSX.utils.aoa_to_sheet(sanitizeWorksheetAoa(buildReceiptWorkbookRows(receiptExportItems, isVatRegistered, includeImages))),
-          "Receipts",
+          XLSX.utils.aoa_to_sheet(sanitizeWorksheetAoa(buildSelfEmploymentTotalsRows(receiptExportItems, incomeExportItems))),
+          "Totals",
         );
         XLSX.utils.book_append_sheet(
           workbook,
-          XLSX.utils.aoa_to_sheet(sanitizeWorksheetAoa(buildHmrcSummaryWorkbookRows(receiptExportItems))),
-          "HMRC Summary",
+          XLSX.utils.aoa_to_sheet(sanitizeWorksheetAoa(buildSelfEmploymentBreakdownRows(receiptExportItems, incomeExportItems))),
+          "Breakdown",
         );
         XLSX.utils.book_append_sheet(
           workbook,
-          XLSX.utils.aoa_to_sheet(sanitizeWorksheetAoa(buildIncomeWorkbookRows(incomeExportItems, isVatRegistered, includeImages))),
-          "Income",
-        );
-        XLSX.utils.book_append_sheet(
-          workbook,
-          XLSX.utils.aoa_to_sheet(sanitizeWorksheetAoa(buildBankStatementWorkbookRows(filteredStatements))),
-          "Bank Statements",
+          XLSX.utils.aoa_to_sheet(sanitizeWorksheetAoa(buildSelfEmploymentCalculationRows())),
+          "Calculation",
         );
 
         const safeName = sanitizeFileSegment(String(payload.userName || targetUserId).toLowerCase(), "client");
