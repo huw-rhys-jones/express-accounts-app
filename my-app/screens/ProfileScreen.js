@@ -56,6 +56,7 @@ const ProfileRow = ({ icon, label, value, onPress, disabled = false, danger = fa
   </TouchableOpacity>
 );
 
+import { cleanProfileImageUrl } from "../utils/profileImage";
 const profileImageStorageKey = (userId) => `express-accounts-profile-image:${userId}`;
 
 export default function ProfileScreen({ navigation }) {
@@ -93,9 +94,9 @@ export default function ProfileScreen({ navigation }) {
       const latestProfile = snapshot?.exists() ? snapshot.data() || {} : userProfile || {};
       setCurrentDisplayName(user?.displayName || contextDisplayName || "User");
       setEmail(user?.email || "");
-      const storedProfileImage = latestProfile.profileImageUrl || user?.photoURL || "";
+      const storedProfileImage = cleanProfileImageUrl(latestProfile.profileImageUrl || user?.photoURL || "");
       setLocalProfileImageUri((current) => current || localImage || "");
-      setProfileImageUrl(localProfileImageUri || localImage || storedProfileImage);
+      setProfileImageUrl(storedProfileImage || localProfileImageUri || localImage || "");
       setVerifiedName(String(latestProfile.verifiedName || ""));
       setVerificationStatus(String(latestProfile.verificationStatus || ""));
       setVatRegistered(latestProfile.taxProfile?.vat?.isRegistered === true);
@@ -175,7 +176,8 @@ export default function ProfileScreen({ navigation }) {
       const blob = await response.blob();
       const fileRef = storageRef(getStorage(), `profilePictures/${user.uid}/profile.jpg`);
       await uploadBytes(fileRef, blob, { contentType: asset.type || "image/jpeg" });
-      const url = `${await getDownloadURL(fileRef)}?v=${Date.now()}`;
+      const downloadUrl = await getDownloadURL(fileRef);
+      const url = `${downloadUrl}${downloadUrl.includes("?") ? "&" : "?"}v=${Date.now()}`;
       await updateProfile(user, { photoURL: url });
       await setDoc(doc(db, "users", user.uid), { profileImageUrl: url, updatedAt: serverTimestamp() }, { merge: true });
       setProfileImageUrl(url);

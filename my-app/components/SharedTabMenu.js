@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useState } from "react";
+import React, { useCallback, useEffect, useRef, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
@@ -45,6 +45,7 @@ import { useData } from "../contexts/DataContext";
 const appVersion = appPackage?.version || Constants.expoConfig?.version || "unknown";
 const internalBuildLabel = Constants.expoConfig?.extra?.internalBuildLabel || "";
 const versionLabel = internalBuildLabel ? `${appVersion} (${internalBuildLabel})` : appVersion;
+import { cleanProfileImageUrl } from "../utils/profileImage";
 const profileImageStorageKey = (userId) => `express-accounts-profile-image:${userId}`;
 
 export default function SharedTabMenu({ navigation, closeMenu, displayName = "User", open = false, onVehiclesChanged, onFinancialYearScopeChange }) {
@@ -69,7 +70,7 @@ export default function SharedTabMenu({ navigation, closeMenu, displayName = "Us
     String(userProfile?.verificationStatus || "")
   );
   const [profileImageUrl, setProfileImageUrl] = useState(
-    String(userProfile?.profileImageUrl || auth.currentUser?.photoURL || "")
+    cleanProfileImageUrl(userProfile?.profileImageUrl || auth.currentUser?.photoURL || "")
   );
   const [vehicles, setVehicles] = useState(
     Array.isArray(userProfile?.vehicles) ? userProfile.vehicles : []
@@ -113,6 +114,9 @@ export default function SharedTabMenu({ navigation, closeMenu, displayName = "Us
     setVatRegistrationNumber(String(profile?.taxProfile?.vat?.registrationNumber || ""));
   }, []);
 
+  const cachedProfileRef = useRef(userProfile);
+  cachedProfileRef.current = userProfile;
+
   const loadMenuContext = useCallback(async () => {
     const user = auth.currentUser;
     if (!user) {
@@ -125,9 +129,10 @@ export default function SharedTabMenu({ navigation, closeMenu, displayName = "Us
     const localProfileImage = await AsyncStorage.getItem(profileImageStorageKey(user.uid)).catch(() => null);
     if (localProfileImage) setProfileImageUrl(localProfileImage);
 
-    if (userProfile?.verifiedName || userProfile?.verificationStatus) {
-      setVerifiedName(String(userProfile?.verifiedName || ""));
-      setVerificationStatus(String(userProfile?.verificationStatus || ""));
+    const cachedProfile = cachedProfileRef.current;
+    if (cachedProfile?.verifiedName || cachedProfile?.verificationStatus) {
+      setVerifiedName(String(cachedProfile?.verifiedName || ""));
+      setVerificationStatus(String(cachedProfile?.verificationStatus || ""));
     }
 
     try {
@@ -136,8 +141,8 @@ export default function SharedTabMenu({ navigation, closeMenu, displayName = "Us
       const userProfile = userProfileSnap.exists() ? userProfileSnap.data() || {} : {};
       setVerifiedName(String(userProfile.verifiedName || ""));
       setVerificationStatus(String(userProfile.verificationStatus || ""));
-      setProfileImageUrl(String(userProfile.profileImageUrl || user.photoURL || ""));
-      if (localProfileImage) setProfileImageUrl(localProfileImage);
+      const remoteProfileImage = cleanProfileImageUrl(userProfile.profileImageUrl || user.photoURL || "");
+      setProfileImageUrl(remoteProfileImage || localProfileImage || "");
       applyVatProfile(userProfile);
 
       const profileUpdate = { email: user.email, updatedAt: serverTimestamp() };
@@ -153,7 +158,7 @@ export default function SharedTabMenu({ navigation, closeMenu, displayName = "Us
     } catch (error) {
       console.error("Error loading vehicles:", error);
     }
-  }, [applyVatProfile, contextDisplayName, displayName, userProfile]);
+  }, [applyVatProfile, contextDisplayName, displayName]);
 
   useEffect(() => {
     setCurrentDisplayName(contextDisplayName || auth.currentUser?.displayName || displayName || "User");
@@ -161,6 +166,8 @@ export default function SharedTabMenu({ navigation, closeMenu, displayName = "Us
     setVerifiedName(String(userProfile?.verifiedName || ""));
     setVerificationStatus(String(userProfile?.verificationStatus || ""));
     applyVatProfile(userProfile);
+    const remoteImage = cleanProfileImageUrl(userProfile?.profileImageUrl || auth.currentUser?.photoURL || "");
+    if (remoteImage) setProfileImageUrl(remoteImage);
   }, [applyVatProfile, contextDisplayName, displayName, userProfile]);
 
   const openVatSettings = useCallback(async () => {
