@@ -270,6 +270,7 @@ export default function App() {
   const [authRefreshTick, setAuthRefreshTick] = useState(0);
   const [pendingChallenge, setPendingChallenge] = useState(null);
   const [userProfile, setUserProfile] = useState(null);
+  const [userProfileFromCache, setUserProfileFromCache] = useState(true);
   const [vatSetupVisible, setVatSetupVisible] = useState(false);
   const [vatRegistered, setVatRegistered] = useState(false);
   const [vatRegistrationNumber, setVatRegistrationNumber] = useState("");
@@ -451,12 +452,14 @@ export default function App() {
     const activeUser = auth.currentUser || user;
     if (!activeUser) {
       setUserProfile(null);
+      setUserProfileFromCache(true);
       return;
     }
 
     const unsubscribe = onSnapshot(
       doc(db, "users", activeUser.uid),
       (snap) => {
+        setUserProfileFromCache(snap.metadata.fromCache);
         setUserProfile(snap.exists() ? (snap.data() || {}) : {});
       },
       (error) => {
@@ -478,10 +481,12 @@ export default function App() {
       setVatSetupVisible(false);
       return;
     }
+    // A cached snapshot may be stale; wait for the server before prompting.
+    if (userProfileFromCache) return;
     setVatRegistered(vatProfile?.isRegistered === true);
     setVatRegistrationNumber(String(vatProfile?.registrationNumber || ""));
     setVatSetupVisible(true);
-  }, [user, userProfile]);
+  }, [user, userProfile, userProfileFromCache]);
 
   const saveVatSetup = async () => {
     const activeUser = auth.currentUser || user;
