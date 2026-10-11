@@ -1149,9 +1149,11 @@
 
         <div class="modal-tabs" role="tablist" aria-label="Client data">
           <button id="receiptsDataTabBtn" class="modal-tab active" type="button" role="tab" aria-selected="true">Receipts / Expenses</button>
+          <button id="hmrcDataTabBtn" class="modal-tab" type="button" role="tab" aria-selected="false">HMRC Summary</button>
           <button id="incomeDataTabBtn" class="modal-tab" type="button" role="tab" aria-selected="false">Income</button>
         </div>
         <div id="receiptsDataPanel" class="modal-data-panel active" role="tabpanel"></div>
+        <div id="hmrcDataPanel" class="modal-data-panel" role="tabpanel"></div>
         <div id="incomeDataPanel" class="modal-data-panel" role="tabpanel"></div>
 
 
@@ -1317,8 +1319,10 @@
     const resetNotifyBtn = document.getElementById("resetNotifyBtn");
     const vatStatusBadge = document.getElementById("vatStatusBadge");
     const receiptsDataTabBtn = document.getElementById("receiptsDataTabBtn");
+    const hmrcDataTabBtn = document.getElementById("hmrcDataTabBtn");
     const incomeDataTabBtn = document.getElementById("incomeDataTabBtn");
     const receiptsDataPanel = document.getElementById("receiptsDataPanel");
+    const hmrcDataPanel = document.getElementById("hmrcDataPanel");
     const incomeDataPanel = document.getElementById("incomeDataPanel");
     const includeImagesInput = document.getElementById("includeImagesInput");
     const includeOnlyCheckedInput = document.getElementById("includeOnlyCheckedInput");
@@ -1383,6 +1387,28 @@
       "Postage",
       "Stationary",
       "Uncategorized",
+    ];
+    const HMRC_CATEGORY_RULES = [
+      {
+        category: "Bank Charges & Financial Fees",
+        hmrcCategory: "Bank, credit card and other financial charges",
+        keywords: ["bank fee", "stripe", "paypal", "transaction fee", "card charge", "account fee", "interest charge", "overdraft fee"],
+      },
+      {
+        category: "Loan Interest",
+        hmrcCategory: "Interest on bank and other loans",
+        keywords: ["loan interest", "mortgage interest", "finance charge", "interest paid"],
+      },
+      {
+        category: "Advertising & Marketing",
+        hmrcCategory: "Advertising costs",
+        keywords: ["advertising", "google ads", "facebook ads", "meta ads", "marketing", "promotion", "flyers", "banner", "sponsored"],
+      },
+      {
+        category: "Repairs and Maintenance",
+        hmrcCategory: "Repairs and maintenance of property and equipment",
+        keywords: ["property repair", "building maintenance", "equipment repair", "boiler service", "decorating"],
+      },
     ];
     let notificationTargetUserIds = [];
 
@@ -2719,6 +2745,44 @@
       }
     }
 
+    function mapReceiptCategoryToHmrcCategory(category) {
+      const rawCategory = String(category || "").trim();
+      if (!rawCategory) return "Uncategorized";
+      const normalized = rawCategory.toLowerCase();
+      for (const rule of HMRC_CATEGORY_RULES) {
+        if (normalized === rule.category.toLowerCase() || rule.keywords.some((keyword) => normalized.includes(keyword.toLowerCase()))) {
+          return rule.hmrcCategory;
+        }
+      }
+      return rawCategory;
+    }
+
+    function buildHmrcSummaryHtml(receipts) {
+      if (!Array.isArray(receipts) || receipts.length === 0) {
+        return "<div style='margin-top:8px; color:#4f6780;'>No receipt / expense records in this period.</div>";
+      }
+
+      const byCategory = new Map();
+      for (const entry of receipts) {
+        const mapped = mapReceiptCategoryToHmrcCategory(entry && entry.category);
+        const amount = Number(entry && entry.amount) || 0;
+        const previous = byCategory.get(mapped) || { total: 0, count: 0 };
+        previous.total += amount;
+        previous.count += 1;
+        byCategory.set(mapped, previous);
+      }
+
+      const rows = Array.from(byCategory.entries())
+        .sort(([a], [b]) => a.localeCompare(b, undefined, { sensitivity: "base" }))
+        .map(([category, info]) => "<tr><td>" + escHtml(category) + "</td><td class='col-amount'>" + toMoney(info.total) + "</td><td>" + info.count + "</td></tr>")
+        .join("");
+
+      return "<div class='receipt-summary-title'>HMRC Tax Categories</div>" +
+        "<div class='receipt-summary-table-wrap'><table class='receipt-summary-table'><thead><tr>" +
+        "<th>HMRC category</th><th class='col-amount'>Total</th><th>Entries</th>" +
+        "</tr></thead><tbody>" + rows + "</tbody></table></div>";
+    }
+
     function renderPeriodSummary() {
       if (!periodSummary) return;
       if (!selectedUser) {
@@ -2739,6 +2803,7 @@
         "<div>" + escHtml(formatSnapshotSummary(snapshot)) + "</div>" +
         "<div style='margin-top:6px; font-size:0.82rem;'>VAT: " + (isVatRegistered ? "Registered" : "Not registered") + "</div>";
       receiptsDataPanel.innerHTML = buildReceiptSummaryHtml(snapshot.filteredReceipts, isVatRegistered);
+      hmrcDataPanel.innerHTML = buildHmrcSummaryHtml(snapshot.filteredReceipts);
       incomeDataPanel.innerHTML = buildIncomeSummaryHtml(snapshot.filteredIncome, isVatRegistered);
       wireDataRows();
     }
@@ -4205,15 +4270,20 @@
 
     function setModalDataTab(tabName) {
       const showingReceipts = tabName === "receipts";
+      const showingHmrc = tabName === "hmrc";
       receiptsDataTabBtn.classList.toggle("active", showingReceipts);
-      incomeDataTabBtn.classList.toggle("active", !showingReceipts);
+      hmrcDataTabBtn.classList.toggle("active", showingHmrc);
+      incomeDataTabBtn.classList.toggle("active", tabName === "income");
       receiptsDataTabBtn.setAttribute("aria-selected", String(showingReceipts));
-      incomeDataTabBtn.setAttribute("aria-selected", String(!showingReceipts));
+      hmrcDataTabBtn.setAttribute("aria-selected", String(showingHmrc));
+      incomeDataTabBtn.setAttribute("aria-selected", String(tabName === "income"));
       receiptsDataPanel.classList.toggle("active", showingReceipts);
-      incomeDataPanel.classList.toggle("active", !showingReceipts);
+      hmrcDataPanel.classList.toggle("active", showingHmrc);
+      incomeDataPanel.classList.toggle("active", tabName === "income");
     }
 
     receiptsDataTabBtn.addEventListener("click", () => setModalDataTab("receipts"));
+    hmrcDataTabBtn.addEventListener("click", () => setModalDataTab("hmrc"));
     incomeDataTabBtn.addEventListener("click", () => setModalDataTab("income"));
     previousReceiptBtn.addEventListener("click", () => navigateReceipt(-1));
     nextReceiptBtn.addEventListener("click", () => navigateReceipt(1));

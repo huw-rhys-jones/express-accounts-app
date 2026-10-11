@@ -61,12 +61,12 @@ export const categories_meta = [
   {
     name: "Subsistence",
     meta: [
-      "cafe", "restaurant", "bar", "pub", "bistro", "grill", "deli", "bakery", "brasserie",
-      "olive", "hungry", "coffee", "americano", "latte", "cappacino",
+      "cafe", "café", "restaurant", "bar", "pub", "bistro", "grill", "deli", "bakery", "brasserie",
+      "olive", "hungry", "coffee", "americano", "latte", "cappacino", "cappuccino",
       "steak", "peppercorn", "sirloin", "pizza", "meat",
       "eat", "takeaway", "food", "burger", "lunch", "meal", "greggs", "mcdonalds",
-      "tesco", "asda", "sainsburys", "waitrose", "aldi", "lidl", "harrods",
-      "cake", "cookie", "biscuit", "chocolate", "donut", "snack",
+      "tesco", "asda", "sainsburys", "sainsbury's", "waitrose", "aldi", "lidl", "harrods",
+      "cake", "cookie", "biscuit", "chocolate", "donut", "doughnut", "snack",
       "beer", "ale", "lager", "cola", "jelly", "confect",
       "lebanese", "chinese", "indian", "thai", "italian"
     ],
@@ -145,12 +145,12 @@ export const categories_meta = [
   },
   {
     name: "Utilities",
-    meta: ["electric", "light", "lamp", "gas", "heat", "bulb", "led", "flourescent", "water", "utility", "power", "sewerage"],
+    meta: ["electric", "light", "lamp", "gas", "heat", "bulb", "led", "fluorescent", "flourescent", "water", "utility", "power", "sewerage"],
     vatRate: 5,
   },
   {
     name: "Cleaning and Upkeep",
-    meta: ["clean", "wash", "detol", "bleach", "soap", "sanitizer", "janitorial", "window", "hygiene", "gloves"],
+    meta: ["clean", "wash", "detol", "bleach", "soap", "sanitizer", "sanitiser", "janitorial", "window", "hygiene", "gloves"],
     vatRate: 20,
   },
   {
@@ -165,7 +165,31 @@ export const categories_meta = [
   },
   {
     name: "Stationary",
-    meta: ["pen", "stationary", "pencil", "paper", "print", "extinguisher", "ink", "cartridge", "sellotape", "duct", "memory", "stapler", "folder"],
+    meta: ["pen", "stationary", "stationery", "pencil", "paper", "print", "extinguisher", "ink", "cartridge", "sellotape", "duct", "memory", "stapler", "folder"],
+    vatRate: 20,
+  },
+  {
+    name: "Bank Charges & Financial Fees",
+    hmrcCategory: "Bank, credit card and other financial charges",
+    meta: ["bank fee", "stripe", "paypal", "transaction fee", "card charge", "account fee", "interest charge", "overdraft fee"],
+    vatRate: 0,
+  },
+  {
+    name: "Loan Interest",
+    hmrcCategory: "Interest on bank and other loans",
+    meta: ["loan interest", "mortgage interest", "finance charge", "interest paid"],
+    vatRate: 0,
+  },
+  {
+    name: "Advertising & Marketing",
+    hmrcCategory: "Advertising costs",
+    meta: ["advertising", "google ads", "facebook ads", "meta ads", "marketing", "promotion", "flyers", "banner", "sponsored"],
+    vatRate: 20,
+  },
+  {
+    name: "Repairs and Maintenance",
+    hmrcCategory: "Repairs and maintenance of property and equipment",
+    meta: ["property repair", "building maintenance", "equipment repair", "boiler service", "decorating"],
     vatRate: 20,
   },
 ];
