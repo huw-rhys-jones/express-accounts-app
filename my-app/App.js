@@ -264,13 +264,15 @@ function AppTabs() {
 }
 
 // ---------------- Main App ----------------
+// First-login VAT registration prompt is disabled; users set it in Settings.
+const SHOW_VAT_SETUP_PROMPT = false;
+
 export default function App() {
   const [user, setUser] = useState(null);
   const [checkingAuth, setCheckingAuth] = useState(true);
   const [authRefreshTick, setAuthRefreshTick] = useState(0);
   const [pendingChallenge, setPendingChallenge] = useState(null);
   const [userProfile, setUserProfile] = useState(null);
-  const [userProfileFromCache, setUserProfileFromCache] = useState(true);
   const [vatSetupVisible, setVatSetupVisible] = useState(false);
   const [vatRegistered, setVatRegistered] = useState(false);
   const [vatRegistrationNumber, setVatRegistrationNumber] = useState("");
@@ -452,14 +454,12 @@ export default function App() {
     const activeUser = auth.currentUser || user;
     if (!activeUser) {
       setUserProfile(null);
-      setUserProfileFromCache(true);
       return;
     }
 
     const unsubscribe = onSnapshot(
       doc(db, "users", activeUser.uid),
       (snap) => {
-        setUserProfileFromCache(snap.metadata.fromCache);
         setUserProfile(snap.exists() ? (snap.data() || {}) : {});
       },
       (error) => {
@@ -471,7 +471,7 @@ export default function App() {
   }, [user]);
 
   useEffect(() => {
-    if (!user || userProfile === null) return;
+    if (!SHOW_VAT_SETUP_PROMPT || !user || userProfile === null) return;
     const vatProfile = userProfile?.taxProfile?.vat;
     const answeredVatQuestion =
       vatProfile?.hasAnsweredRegistrationQuestion === true ||
@@ -481,12 +481,10 @@ export default function App() {
       setVatSetupVisible(false);
       return;
     }
-    // A cached snapshot may be stale; wait for the server before prompting.
-    if (userProfileFromCache) return;
     setVatRegistered(vatProfile?.isRegistered === true);
     setVatRegistrationNumber(String(vatProfile?.registrationNumber || ""));
     setVatSetupVisible(true);
-  }, [user, userProfile, userProfileFromCache]);
+  }, [user, userProfile]);
 
   const saveVatSetup = async () => {
     const activeUser = auth.currentUser || user;
