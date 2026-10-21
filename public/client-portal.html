@@ -19,6 +19,7 @@
       --success-green: #1f7a3f;
       --yellow: #f5bf00;
       --blue: #2e86de;
+      --purple: #6b46c1;
       --shadow: 0 20px 40px rgba(18, 36, 58, 0.12);
     }
 
@@ -255,6 +256,7 @@
     .chip.yellow { background: var(--yellow); color: #3a2a00; }
     .chip.green { background: var(--success-green); }
     .chip.blue { background: var(--blue); }
+    .chip.purple { background: var(--purple); }
 
     .controls {
       margin: 12px 30px 6px;
@@ -402,6 +404,20 @@
     .client-card.yellow { background: linear-gradient(135deg, #f4c400, #f6d53f); color: #3f2f00; }
     .client-card.green { background: linear-gradient(135deg, #1b6a36, #2d964f); }
     .client-card.blue { background: linear-gradient(135deg, #2e86de, #51a4f6); }
+    .client-card.purple { background: linear-gradient(135deg, #553399, #6b46c1); }
+
+    .join-section { margin-bottom: 16px; }
+    .join-section h4 { margin: 0 0 8px; font-family: "Space Grotesk", sans-serif; color: #17324d; }
+    .join-view-tabs { display: flex; gap: 8px; padding: 12px 20px 0; border-bottom: 1px solid #d8e4f0; }
+    .join-view-tab { border: 0; border-bottom: 3px solid transparent; background: transparent; color: #4f6780; padding: 9px 12px; font: inherit; font-weight: 700; cursor: pointer; }
+    .join-view-tab.active { color: #17324d; border-bottom-color: var(--purple); }
+    .join-row { display: grid; grid-template-columns: 190px 1fr; gap: 6px 12px; font-size: 0.92rem; }
+    .join-row dt { color: #4f6780; font-weight: 600; }
+    .join-row dd { margin: 0; word-break: break-word; }
+    .join-docs { display: flex; gap: 12px; flex-wrap: wrap; }
+    .join-docs a { display: block; text-decoration: none; color: #17324d; font-size: 0.8rem; }
+    .join-docs img { display: block; width: 140px; height: 100px; object-fit: cover; border-radius: 8px; border: 1px solid #d3e1f0; margin-bottom: 4px; }
+    .join-actions { display: flex; flex-wrap: wrap; gap: 8px; justify-content: flex-end; padding: 0 20px 20px; }
 
     .statusline {
       margin: 0 30px 26px;
@@ -1001,6 +1017,7 @@
         <button type="button" class="chip yellow" data-status-filter="yellow">Yellow: New uploads since last login</button>
         <button type="button" class="chip green" data-status-filter="green">Green: Marked as processed</button>
         <button type="button" class="chip blue" data-status-filter="blue">Blue: No new uploads</button>
+        <button type="button" class="chip purple" data-status-filter="purple">Purple: Join Requests</button>
       </div>
 
       <div class="controls">
@@ -1134,6 +1151,28 @@
     </section>
   </div>
 
+  <div id="joinModal" class="modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="joinModalTitle">
+    <div class="modal" style="width:min(680px,96vw)">
+      <div class="modal-head">
+        <div class="modal-title-row">
+          <span id="joinModalTitle">Join request</span>
+          <span id="joinModalStatus" class="vat-badge registered"></span>
+        </div>
+      </div>
+      <div class="join-view-tabs" role="tablist" aria-label="Applicant information">
+        <button type="button" id="joinClientDataTab" class="join-view-tab" role="tab" aria-selected="false">Client data</button>
+        <button type="button" id="joinReviewTab" class="join-view-tab active" role="tab" aria-selected="true">Join request review</button>
+      </div>
+      <div class="modal-body" id="joinModalBody"></div>
+      <div class="join-actions">
+        <button type="button" id="joinApproveBtn">Approve &amp; Mark as Verified</button>
+        <button type="button" id="joinContactBtn">Contact Applicant</button>
+        <button type="button" id="joinDeclineBtn">Decline / Keep on Free Tier</button>
+        <button type="button" id="joinCloseBtn">Close</button>
+      </div>
+    </div>
+  </div>
+
   <div id="dateModal" class="modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="modalTitle">
     <div class="modal">
       <div class="modal-head">
@@ -1141,6 +1180,10 @@
           <span id="modalTitle">Choose export period</span>
           <span id="vatStatusBadge" class="vat-badge"></span>
         </div>
+      </div>
+      <div id="joinClientDataTabs" class="join-view-tabs" role="tablist" aria-label="Applicant information" style="display:none">
+        <button type="button" id="joinClientDataActiveTab" class="join-view-tab active" role="tab" aria-selected="true">Client data</button>
+        <button type="button" id="joinReviewActiveTab" class="join-view-tab" role="tab" aria-selected="false">Join request review</button>
       </div>
       <div class="modal-body">
         <label for="periodSelect">Financial period</label>
@@ -1169,6 +1212,7 @@
         <div class="modal-actions">
           <button id="resetNotifyBtn" type="button" class="btn-success" style="display:none">Mark As Processed</button>
           <button id="notifySelectedUserBtn" type="button" class="btn-secondary">Send Notification</button>
+          <button id="backToJoinReviewBtn" type="button" class="btn-secondary" style="display:none">Back to join request</button>
           <button id="cancelDateBtn" type="button" class="btn-secondary">Cancel</button>
           <button id="confirmDateBtn" type="button" class="btn-primary">Download ZIP</button>
         </div>
@@ -1315,6 +1359,8 @@
     const periodSelect = document.getElementById("periodSelect");
     const periodSummary = document.getElementById("periodSummary");
     const cancelDateBtn = document.getElementById("cancelDateBtn");
+    const backToJoinReviewBtn = document.getElementById("backToJoinReviewBtn");
+    const joinClientDataTabs = document.getElementById("joinClientDataTabs");
     const confirmDateBtn = document.getElementById("confirmDateBtn");
     const resetNotifyBtn = document.getElementById("resetNotifyBtn");
     const vatStatusBadge = document.getElementById("vatStatusBadge");
@@ -2824,7 +2870,15 @@
       return Number.isNaN(d.getTime()) ? null : d;
     }
 
+    function isOpenJoinRequest(user) {
+      const s = user.joinRequest && user.joinRequest.status;
+      return !user.isVerified && (s === "pending" || s === "waitlist");
+    }
+
     function getClientStatus(user, loginDate) {
+      if (isOpenJoinRequest(user)) {
+        return { key: "purple", label: user.joinRequest.status === "waitlist" ? "Join Request (Waitlist)" : "Pending Review" };
+      }
       if (user.notifyAccountant) {
         return { key: "red", label: "Notify Accountant" };
       }
@@ -3134,6 +3188,7 @@
             email: profile.email || null,
             verificationCode: profile.verificationCode || null,
             notifyAccountant: profile.notifyAccountant || false,
+            joinRequest: profile.joinRequest || null,
             processedAt: toJsDate(profile.processedAt),
             receipts: receiptsByUser[uid] || [],
             receiptCount: (receiptsByUser[uid] || []).length,
@@ -3163,12 +3218,13 @@
         const receiptsCount = getKnownReceiptCount(user);
 
         if (text && !nameMatch && !emailMatch) return false;
-        if (verificationScope === "verified-only" && !user.isVerified) return false;
-        if (verificationScope === "general-only" && user.isVerified) return false;
+        const isJoin = isOpenJoinRequest(user);
+        if (!isJoin && verificationScope === "verified-only" && !user.isVerified) return false;
+        if (!isJoin && verificationScope === "general-only" && user.isVerified) return false;
         if (Number.isFinite(minReceipts) && minReceipts > 0 && receiptsCount != null && receiptsCount < minReceipts) return false;
         if (activeStatusFilters.size > 0 && !activeStatusFilters.has(status.key)) return false;
 
-        if (selectedBoardPeriod && selectedBoardPeriod.startDate && selectedBoardPeriod.endDate) {
+        if (!isJoin && selectedBoardPeriod && selectedBoardPeriod.startDate && selectedBoardPeriod.endDate) {
           const latestMs = userLatestUploadMs(user);
           if (!latestMs) return false;
           const latestDate = toLocalYmd(new Date(latestMs));
@@ -3213,6 +3269,18 @@
         button.type = "button";
         button.className = "client-card " + status.key;
         button.style.animationDelay = (index * 0.04) + "s";
+        if (status.key === "purple") {
+          const submitted = toJsDate(user.joinRequest.submittedAt);
+          button.innerHTML =
+            "<div class='card-title-row'><strong>" + escHtml(user.joinRequest.contactName || user.name) + "</strong>" +
+            "<span class='verified-badge'>★ " + (user.joinRequest.status === "waitlist" ? "Join Request" : "Pending Review") + "</span></div>" +
+            "<small style='opacity:0.8'>" + escHtml(user.joinRequest.contactEmail || user.email || "") + "</small>" +
+            "<small>" + escHtml(user.joinRequest.businessType || "") + "</small>" +
+            "<small>Submitted: " + (submitted ? submitted.toLocaleDateString() : "—") + "</small>";
+          button.addEventListener("click", () => openJoinModal(user));
+          clientBoard.appendChild(button);
+          return;
+        }
         const verifiedBadge = user.isVerified
           ? "<span class='verified-badge'>★ Verified</span>"
           : "";
@@ -3629,6 +3697,131 @@
       }
     }
 
+    const joinModal = document.getElementById("joinModal");
+    let joinUser = null;
+    let returnToJoinReview = false;
+
+    function safeUrl(url) {
+      return /^https:\/\//i.test(String(url || "")) ? String(url) : "";
+    }
+
+    function joinRow(label, valueHtml) {
+      return "<dt>" + label + "</dt><dd>" + (valueHtml || "—") + "</dd>";
+    }
+
+    function openJoinModal(user) {
+      joinUser = user;
+      const j = user.joinRequest || {};
+      const email = j.contactEmail || user.email || "";
+      const phone = j.contactPhone || "";
+      const fmt = (v) => { const d = toJsDate(v); return d ? d.toLocaleString() : ""; };
+      const docLink = (label, url) => {
+        const u = safeUrl(url);
+        return u ? "<a href='" + escHtml(u) + "' target='_blank' rel='noopener'><img src='" + escHtml(u) + "' alt='" + label + "' />" + label + "</a>" : "";
+      };
+      const docs = docLink("Photo ID", j.photoIdUrl) + docLink("Proof of address", j.proofOfAddressUrl);
+      const waitlist = j.status === "waitlist";
+
+      document.getElementById("joinModalTitle").textContent = "Join request: " + (j.contactName || user.name);
+      document.getElementById("joinModalStatus").textContent = waitlist ? "Waitlist" : "Pending Review";
+      document.getElementById("joinClientDataTab").classList.remove("active");
+      document.getElementById("joinClientDataTab").setAttribute("aria-selected", "false");
+      document.getElementById("joinReviewTab").classList.add("active");
+      document.getElementById("joinReviewTab").setAttribute("aria-selected", "true");
+      document.getElementById("joinModalBody").innerHTML =
+        "<div class='join-section'><h4>Contact Details</h4><dl class='join-row'>" +
+          joinRow("Name", escHtml(j.contactName)) +
+          joinRow("Email", email ? "<a href='mailto:" + escHtml(email) + "'>" + escHtml(email) + "</a>" : "") +
+          joinRow("Phone", phone ? "<a href='tel:" + escHtml(phone) + "'>" + escHtml(phone) + "</a>" : "") +
+          joinRow("Submitted", escHtml(fmt(j.submittedAt))) +
+        "</dl></div>" +
+        "<div class='join-section'><h4>Tax &amp; Business Details</h4><dl class='join-row'>" +
+          joinRow("Business type", escHtml(j.businessType)) +
+          joinRow("Description", escHtml(j.businessDescription)) +
+          (waitlist ? "" :
+            joinRow("Registered with HMRC", j.isRegisteredHMRC ? "Yes" : "No") +
+            joinRow("UTR number", escHtml(j.utrNumber)) +
+            joinRow("NI number", escHtml(j.niNumber)) +
+            joinRow("Date of birth", escHtml(j.dob)) +
+            joinRow("Trading start date", escHtml(j.tradingStartDate)) +
+            joinRow("Documents", docs ? "<div class='join-docs'>" + docs + "</div>" : "")) +
+        "</dl></div>" +
+        "<div class='join-section'><h4>Engagement Status</h4><dl class='join-row'>" +
+          joinRow("Terms &amp; Letter of Engagement", waitlist ? "Not required (waitlist)" : (j.engagementSignedAt ? "Agreed" : "Not signed")) +
+          joinRow("E-signature date", escHtml(fmt(j.engagementSignedAt))) +
+        "</dl></div>";
+      joinModal.style.display = "flex";
+    }
+
+    function closeJoinModal() {
+      joinModal.style.display = "none";
+      joinUser = null;
+    }
+
+    async function resolveJoinRequest(approve) {
+      if (!joinUser) return;
+      const user = joinUser;
+      const j = user.joinRequest || {};
+      const msg = approve
+        ? "Approve " + (j.contactName || user.name) + " and mark as a verified client?"
+        : "Decline this request and keep " + (j.contactName || user.name) + " on the free tier?";
+      if (!window.confirm(msg)) return;
+      const update = approve
+        ? {
+            "joinRequest.status": "verified",
+            "joinRequest.reviewedAt": new Date().toISOString(),
+            accountStatus: "verified",
+            verificationStatus: "verified",
+            verifiedName: user.verifiedName || j.contactName || user.originalName,
+            processedAt: firebase.firestore.FieldValue.serverTimestamp(),
+          }
+        : {
+            "joinRequest.status": "rejected",
+            "joinRequest.reviewedAt": new Date().toISOString(),
+            accountStatus: "free_tier",
+          };
+      try {
+        await db.collection("users").doc(user.id).update(update);
+        closeJoinModal();
+        await reloadAndRenderBoard();
+      } catch (error) {
+        window.alert("Could not update request: " + (error && error.message ? error.message : error));
+      }
+    }
+
+    document.getElementById("joinApproveBtn").addEventListener("click", () => resolveJoinRequest(true));
+    document.getElementById("joinDeclineBtn").addEventListener("click", () => resolveJoinRequest(false));
+    document.getElementById("joinCloseBtn").addEventListener("click", closeJoinModal);
+    document.getElementById("joinClientDataTab").addEventListener("click", async () => {
+      if (!joinUser) return;
+      const user = joinUser;
+      returnToJoinReview = true;
+      joinModal.style.display = "none";
+      joinClientDataTabs.style.display = "flex";
+      backToJoinReviewBtn.style.display = "inline-block";
+      document.getElementById("joinClientDataTab").classList.add("active");
+      document.getElementById("joinClientDataTab").setAttribute("aria-selected", "true");
+      document.getElementById("joinReviewTab").classList.remove("active");
+      document.getElementById("joinReviewTab").setAttribute("aria-selected", "false");
+      await openDateModal(user);
+    });
+    document.getElementById("joinReviewTab").addEventListener("click", () => {
+      document.getElementById("joinReviewTab").classList.add("active");
+      document.getElementById("joinReviewTab").setAttribute("aria-selected", "true");
+    });
+    document.getElementById("joinReviewActiveTab").addEventListener("click", closeDateModal);
+    document.getElementById("joinContactBtn").addEventListener("click", () => {
+      if (!joinUser) return;
+      const j = joinUser.joinRequest || {};
+      const email = j.contactEmail || joinUser.email;
+      if (email) window.location.href = "mailto:" + email + "?subject=" + encodeURIComponent("Your Express Accounts application");
+      else if (j.contactPhone) window.location.href = "tel:" + j.contactPhone;
+      else window.alert("No contact details available.");
+    });
+    joinModal.addEventListener("click", (event) => {
+      if (event.target === joinModal) closeJoinModal();
+    });
+
     async function openDateModal(user) {
       selectedUser = user;
       const periods = buildExportPeriodOptions(new Date());
@@ -3644,11 +3837,14 @@
       includeImagesInput.checked = false;
       includeOnlyCheckedInput.checked = false;
       setModalDataTab("receipts");
+      joinClientDataTabs.style.display = returnToJoinReview ? "flex" : "none";
+      backToJoinReviewBtn.style.display = returnToJoinReview ? "inline-block" : "none";
       confirmDateBtn.disabled = true;
       resetNotifyBtn.style.display = "inline-block";
       refreshProcessedButtonState();
 
-      document.getElementById("modalTitle").textContent = "Export data for " + user.name;
+      document.getElementById("modalTitle").textContent =
+        (returnToJoinReview ? "Client data: " : "Export data for ") + user.name;
       dateModal.style.display = "flex";
 
       try {
@@ -3666,7 +3862,11 @@
     }
 
     function closeDateModal() {
+      const shouldReturnToJoinReview = returnToJoinReview && !!joinUser;
+      returnToJoinReview = false;
       dateModal.style.display = "none";
+      joinClientDataTabs.style.display = "none";
+      backToJoinReviewBtn.style.display = "none";
       closeImageModal();
       selectedUser = null;
       resetNotifyBtn.style.display = "none";
@@ -3676,6 +3876,9 @@
       incomeDataPanel.innerHTML = "";
       if (periodSummary) {
         periodSummary.textContent = "Select a period to see record totals.";
+      }
+      if (shouldReturnToJoinReview) {
+        openJoinModal(joinUser);
       }
     }
 
@@ -4318,6 +4521,7 @@
     });
 
     cancelDateBtn.addEventListener("click", closeDateModal);
+    backToJoinReviewBtn.addEventListener("click", closeDateModal);
     periodSelect.addEventListener("change", renderPeriodSummary);
     resetNotifyBtn.addEventListener("click", async () => {
       if (!selectedUser) return;

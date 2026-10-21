@@ -32,6 +32,11 @@ service firebase.storage {
       allow write: if isOwner(userId);
     }
 
+    match /joinRequests/{userId}/{allPaths=**} {
+      allow read: if isOwner(userId) || isAccountant();
+      allow write: if isOwner(userId);
+    }
+
     match /profilePictures/{userId}/{allPaths=**} {
       allow read: if isOwner(userId) || isAccountant();
       allow write: if isOwner(userId);

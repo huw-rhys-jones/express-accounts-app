@@ -25,11 +25,14 @@ import MileageAdd from "./screens/MileageAdd";
 import MileageEdit from "./screens/MileageEdit";
 import SummaryScreen from "./screens/SummaryScreen";
 import ProfileScreen from "./screens/ProfileScreen";
+import JoinExpressAccounts from "./screens/JoinExpressAccounts";
 import * as WebBrowser from "expo-web-browser";
 import { MD3LightTheme, PaperProvider } from 'react-native-paper';
 import { useSafeAreaInsets, SafeAreaProvider } from 'react-native-safe-area-context';
 import { ensureHapticsDefaultEnabled } from "./utils/haptics";
 import { DataProvider } from "./contexts/DataContext";
+import { NotificationsProvider } from "./contexts/NotificationsContext";
+import NotificationsScreen from "./screens/NotificationsScreen";
 import { registerPushTokenForUser } from "./utils/pushNotifications";
 
 WebBrowser.maybeCompleteAuthSession();
@@ -562,6 +565,7 @@ export default function App() {
     /* Wrap everything in PaperProvider to fix the text color issue */
     <PaperProvider theme={theme}>
       <DataProvider>
+      <NotificationsProvider>
       <NavigationContainer ref={navigationRef}>
         <Stack.Navigator
           initialRouteName={activeUser ? "MainTabs" : "SignIn"}
@@ -603,8 +607,11 @@ export default function App() {
           <Stack.Screen name="MileageRecord" component={MileageAdd} />
           <Stack.Screen name="MileageDetails" component={MileageEdit} />
           <Stack.Screen name="Profile" component={ProfileScreen} />
+          <Stack.Screen name="Notifications" component={NotificationsScreen} />
+          <Stack.Screen name="JoinExpressAccounts" component={JoinExpressAccounts} />
         </Stack.Navigator>
       </NavigationContainer>
+      </NotificationsProvider>
       </DataProvider>
 
       <Modal visible={!!pendingChallenge} transparent animationType="fade">        <View style={styles.twoFactorOverlay}>

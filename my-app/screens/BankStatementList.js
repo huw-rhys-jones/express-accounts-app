@@ -13,6 +13,7 @@ import {
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import SideMenu from "../components/SideMenu";
+import NotificationBell from "../components/NotificationBell";
 import SharedTabMenu from "../components/SharedTabMenu";
 import AddBankStatementSheet from "../components/AddBankStatementSheet";
 import { auth } from "../firebaseConfig";
@@ -264,7 +265,7 @@ export default function BankStatementList({ navigation }) {
 
         <Text style={styles.topBarTitle}>Bank Statements</Text>
 
-        <View style={{ width: 44 }} />
+        <NotificationBell />
       </View>
 
       <View style={styles.content}>
