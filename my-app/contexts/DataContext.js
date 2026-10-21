@@ -25,6 +25,29 @@ export function DataProvider({ children }) {
   const listenerAttemptRef = useRef(0);
   const lastCountsRef = useRef({ receipts: -1, income: -1, bankStatements: -1 });
 
+  // Keep the profile live so VAT status changes apply without re-login.
+  useEffect(() => {
+    let unsubProfile = null;
+    const unsubAuth = onAuthStateChanged(auth, (user) => {
+      if (unsubProfile) {
+        unsubProfile();
+        unsubProfile = null;
+      }
+      if (!user) return;
+      unsubProfile = onSnapshot(
+        doc(db, 'users', user.uid),
+        (snap) => {
+          setUserProfile(snap.exists() ? snap.data() || {} : {});
+        },
+        (err) => console.warn('Could not listen for user profile', err)
+      );
+    });
+    return () => {
+      unsubAuth();
+      if (unsubProfile) unsubProfile();
+    };
+  }, []);
+
   useEffect(() => {
     let unsubReceipts = null;
     let unsubIncome = null;

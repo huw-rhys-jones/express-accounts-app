@@ -1,10 +1,12 @@
-import React, { useCallback, useEffect, useState } from "react";
+import React, { useCallback, useEffect, useRef, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
   Image,
+  KeyboardAvoidingView,
   Linking,
   Modal,
+  Pressable,
   StyleSheet,
   Text,
   TextInput,
@@ -43,6 +45,7 @@ import { useData } from "../contexts/DataContext";
 const appVersion = appPackage?.version || Constants.expoConfig?.version || "unknown";
 const internalBuildLabel = Constants.expoConfig?.extra?.internalBuildLabel || "";
 const versionLabel = internalBuildLabel ? `${appVersion} (${internalBuildLabel})` : appVersion;
+import { cleanProfileImageUrl } from "../utils/profileImage";
 const profileImageStorageKey = (userId) => `express-accounts-profile-image:${userId}`;
 
 export default function SharedTabMenu({ navigation, closeMenu, displayName = "User", open = false, onVehiclesChanged, onFinancialYearScopeChange }) {
@@ -67,7 +70,7 @@ export default function SharedTabMenu({ navigation, closeMenu, displayName = "Us
     String(userProfile?.verificationStatus || "")
   );
   const [profileImageUrl, setProfileImageUrl] = useState(
-    String(userProfile?.profileImageUrl || auth.currentUser?.photoURL || "")
+    cleanProfileImageUrl(userProfile?.profileImageUrl || auth.currentUser?.photoURL || "")
   );
   const [vehicles, setVehicles] = useState(
     Array.isArray(userProfile?.vehicles) ? userProfile.vehicles : []
@@ -111,6 +114,9 @@ export default function SharedTabMenu({ navigation, closeMenu, displayName = "Us
     setVatRegistrationNumber(String(profile?.taxProfile?.vat?.registrationNumber || ""));
   }, []);
 
+  const cachedProfileRef = useRef(userProfile);
+  cachedProfileRef.current = userProfile;
+
   const loadMenuContext = useCallback(async () => {
     const user = auth.currentUser;
     if (!user) {
@@ -123,9 +129,10 @@ export default function SharedTabMenu({ navigation, closeMenu, displayName = "Us
     const localProfileImage = await AsyncStorage.getItem(profileImageStorageKey(user.uid)).catch(() => null);
     if (localProfileImage) setProfileImageUrl(localProfileImage);
 
-    if (userProfile?.verifiedName || userProfile?.verificationStatus) {
-      setVerifiedName(String(userProfile?.verifiedName || ""));
-      setVerificationStatus(String(userProfile?.verificationStatus || ""));
+    const cachedProfile = cachedProfileRef.current;
+    if (cachedProfile?.verifiedName || cachedProfile?.verificationStatus) {
+      setVerifiedName(String(cachedProfile?.verifiedName || ""));
+      setVerificationStatus(String(cachedProfile?.verificationStatus || ""));
     }
 
     try {
@@ -134,8 +141,8 @@ export default function SharedTabMenu({ navigation, closeMenu, displayName = "Us
       const userProfile = userProfileSnap.exists() ? userProfileSnap.data() || {} : {};
       setVerifiedName(String(userProfile.verifiedName || ""));
       setVerificationStatus(String(userProfile.verificationStatus || ""));
-      setProfileImageUrl(String(userProfile.profileImageUrl || user.photoURL || ""));
-      if (localProfileImage) setProfileImageUrl(localProfileImage);
+      const remoteProfileImage = cleanProfileImageUrl(userProfile.profileImageUrl || user.photoURL || "");
+      setProfileImageUrl(remoteProfileImage || localProfileImage || "");
       applyVatProfile(userProfile);
 
       const profileUpdate = { email: user.email, updatedAt: serverTimestamp() };
@@ -151,7 +158,7 @@ export default function SharedTabMenu({ navigation, closeMenu, displayName = "Us
     } catch (error) {
       console.error("Error loading vehicles:", error);
     }
-  }, [applyVatProfile, contextDisplayName, displayName, userProfile]);
+  }, [applyVatProfile, contextDisplayName, displayName]);
 
   useEffect(() => {
     setCurrentDisplayName(contextDisplayName || auth.currentUser?.displayName || displayName || "User");
@@ -159,6 +166,8 @@ export default function SharedTabMenu({ navigation, closeMenu, displayName = "Us
     setVerifiedName(String(userProfile?.verifiedName || ""));
     setVerificationStatus(String(userProfile?.verificationStatus || ""));
     applyVatProfile(userProfile);
+    const remoteImage = cleanProfileImageUrl(userProfile?.profileImageUrl || auth.currentUser?.photoURL || "");
+    if (remoteImage) setProfileImageUrl(remoteImage);
   }, [applyVatProfile, contextDisplayName, displayName, userProfile]);
 
   const openVatSettings = useCallback(async () => {
@@ -315,7 +324,7 @@ export default function SharedTabMenu({ navigation, closeMenu, displayName = "Us
       })
       .catch((error) => {
         console.error("Feedback Error:", error);
-        Alert.alert("Connection Error", "Could not reach the server. Please try again.");
+        Alert.alert("Couldn't send feedback", "Something went wrong sending your feedback. Please try again later.");
       });
   };
 
@@ -410,14 +419,15 @@ export default function SharedTabMenu({ navigation, closeMenu, displayName = "Us
     <>
       <View style={{ flex: 1 }}>
         <View style={styles.userInfo}>
-          <TouchableOpacity
+          <Pressable
             onPress={() => {
               closeMenu();
               navigation.navigate("Profile");
             }}
             accessibilityRole="button"
             accessibilityLabel="Open profile"
-            style={styles.profileMenuButton}
+            android_ripple={{ color: "rgba(0,0,0,0.08)" }}
+            style={({ pressed }) => [styles.profileMenuButton, pressed && styles.profileMenuButtonPressed]}
           >
             <View style={styles.menuAvatar}>
               {profileImageUrl ? (
@@ -434,7 +444,13 @@ export default function SharedTabMenu({ navigation, closeMenu, displayName = "Us
             {verificationStatus === "verified" && verifiedName ? (
               <Text style={styles.verifiedAsText}>Verified as {verifiedName}</Text>
             ) : null}
-          </TouchableOpacity>
+            <Ionicons
+              name="chevron-forward"
+              size={22}
+              color={Colors.textPrimary}
+              style={styles.profileChevron}
+            />
+          </Pressable>
         </View>
 
         <Image
@@ -466,7 +482,8 @@ export default function SharedTabMenu({ navigation, closeMenu, displayName = "Us
 
           <TouchableOpacity
             onPress={() => {
-              closeMenu();
+              // Keep the menu open: this modal is rendered inside the side menu's Modal,
+              // so closing the menu would unmount it immediately.
               setFeedbackModalVisible(true);
             }}
             style={[styles.signOutLink, { marginTop: 12, marginBottom: 0 }]}
@@ -507,8 +524,8 @@ export default function SharedTabMenu({ navigation, closeMenu, displayName = "Us
         </View>
       </Modal>
 
-      <Modal visible={feedbackModalVisible} transparent animationType="slide" onRequestClose={() => setFeedbackModalVisible(false)}>
-        <View style={styles.modalOverlay}>
+      <Modal visible={feedbackModalVisible} transparent animationType="slide" statusBarTranslucent onRequestClose={() => setFeedbackModalVisible(false)}>
+        <KeyboardAvoidingView style={styles.modalOverlay} behavior="padding">
           <View style={styles.loadingCard}>
             <Text style={styles.title}>Send Feedback</Text>
             <Text style={{ textAlign: "center", marginVertical: 10, color: Colors.textPrimary }}>
@@ -540,7 +557,7 @@ export default function SharedTabMenu({ navigation, closeMenu, displayName = "Us
               </TouchableOpacity>
             </View>
           </View>
-        </View>
+        </KeyboardAvoidingView>
       </Modal>
 
       <Modal
@@ -698,11 +715,31 @@ export default function SharedTabMenu({ navigation, closeMenu, displayName = "Us
 const styles = StyleSheet.create({
   userInfo: {
     marginBottom: 20,
-    alignItems: "center",
+    alignSelf: "stretch",
   },
   profileMenuButton: {
+    alignSelf: "stretch",
     alignItems: "center",
-    paddingVertical: 4,
+    paddingVertical: 14,
+    paddingLeft: 16,
+    paddingRight: 40,
+    backgroundColor: "#F8FAFC",
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: Colors.border,
+    overflow: "hidden",
+    shadowColor: "#000",
+    shadowOpacity: 0.06,
+    shadowRadius: 4,
+    shadowOffset: { width: 0, height: 1 },
+    elevation: 1,
+  },
+  profileMenuButtonPressed: { opacity: 0.7 },
+  profileChevron: {
+    position: "absolute",
+    right: 10,
+    top: "50%",
+    marginTop: -11,
   },
   menuAvatar: {
     width: 56,
