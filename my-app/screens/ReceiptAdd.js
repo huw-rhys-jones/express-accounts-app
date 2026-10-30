@@ -1615,6 +1615,22 @@ const ReceiptAdd = ({ navigation, route }) => {
                       </TouchableOpacity>
                     </ScrollView>
                   </View>
+                  {route?.params?.sourceImages?.length ? (
+                    <TouchableOpacity
+                      style={[localStyles.carouselRemoveBtn, { right: 44 }]}
+                      accessibilityRole="button"
+                      accessibilityLabel="Rotate or crop photo"
+                      onPress={() =>
+                        navigation.navigate("ReceiptCrop", {
+                          images: route.params.sourceImages,
+                          targetScreen: route.name,
+                          reedit: true,
+                        })
+                      }
+                    >
+                      <Ionicons name="crop-outline" size={17} color="#fff" />
+                    </TouchableOpacity>
+                  ) : null}
                   <TouchableOpacity
                     style={localStyles.carouselRemoveBtn}
                     accessibilityRole="button"

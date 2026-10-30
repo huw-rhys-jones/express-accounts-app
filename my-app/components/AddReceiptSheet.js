@@ -136,7 +136,7 @@ export default function AddReceiptSheet({
     onClose();
     // Small delay so the sheet close animation plays first
     setTimeout(() => {
-      navigation.navigate(targetScreen, { initialImages: assets });
+      navigation.navigate("ReceiptCrop", { images: assets, targetScreen });
     }, 220);
   };
 
