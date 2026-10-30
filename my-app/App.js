@@ -25,11 +25,14 @@ import MileageAdd from "./screens/MileageAdd";
 import MileageEdit from "./screens/MileageEdit";
 import SummaryScreen from "./screens/SummaryScreen";
 import ProfileScreen from "./screens/ProfileScreen";
+import JoinExpressAccounts from "./screens/JoinExpressAccounts";
 import * as WebBrowser from "expo-web-browser";
 import { MD3LightTheme, PaperProvider } from 'react-native-paper';
 import { useSafeAreaInsets, SafeAreaProvider } from 'react-native-safe-area-context';
 import { ensureHapticsDefaultEnabled } from "./utils/haptics";
 import { DataProvider } from "./contexts/DataContext";
+import { NotificationsProvider } from "./contexts/NotificationsContext";
+import NotificationsScreen from "./screens/NotificationsScreen";
 import { registerPushTokenForUser } from "./utils/pushNotifications";
 
 WebBrowser.maybeCompleteAuthSession();
@@ -264,13 +267,15 @@ function AppTabs() {
 }
 
 // ---------------- Main App ----------------
+// First-login VAT registration prompt is disabled; users set it in Settings.
+const SHOW_VAT_SETUP_PROMPT = false;
+
 export default function App() {
   const [user, setUser] = useState(null);
   const [checkingAuth, setCheckingAuth] = useState(true);
   const [authRefreshTick, setAuthRefreshTick] = useState(0);
   const [pendingChallenge, setPendingChallenge] = useState(null);
   const [userProfile, setUserProfile] = useState(null);
-  const [userProfileFromCache, setUserProfileFromCache] = useState(true);
   const [vatSetupVisible, setVatSetupVisible] = useState(false);
   const [vatRegistered, setVatRegistered] = useState(false);
   const [vatRegistrationNumber, setVatRegistrationNumber] = useState("");
@@ -452,14 +457,12 @@ export default function App() {
     const activeUser = auth.currentUser || user;
     if (!activeUser) {
       setUserProfile(null);
-      setUserProfileFromCache(true);
       return;
     }
 
     const unsubscribe = onSnapshot(
       doc(db, "users", activeUser.uid),
       (snap) => {
-        setUserProfileFromCache(snap.metadata.fromCache);
         setUserProfile(snap.exists() ? (snap.data() || {}) : {});
       },
       (error) => {
@@ -471,7 +474,7 @@ export default function App() {
   }, [user]);
 
   useEffect(() => {
-    if (!user || userProfile === null) return;
+    if (!SHOW_VAT_SETUP_PROMPT || !user || userProfile === null) return;
     const vatProfile = userProfile?.taxProfile?.vat;
     const answeredVatQuestion =
       vatProfile?.hasAnsweredRegistrationQuestion === true ||
@@ -481,12 +484,10 @@ export default function App() {
       setVatSetupVisible(false);
       return;
     }
-    // A cached snapshot may be stale; wait for the server before prompting.
-    if (userProfileFromCache) return;
     setVatRegistered(vatProfile?.isRegistered === true);
     setVatRegistrationNumber(String(vatProfile?.registrationNumber || ""));
     setVatSetupVisible(true);
-  }, [user, userProfile, userProfileFromCache]);
+  }, [user, userProfile]);
 
   const saveVatSetup = async () => {
     const activeUser = auth.currentUser || user;
@@ -564,6 +565,7 @@ export default function App() {
     /* Wrap everything in PaperProvider to fix the text color issue */
     <PaperProvider theme={theme}>
       <DataProvider>
+      <NotificationsProvider>
       <NavigationContainer ref={navigationRef}>
         <Stack.Navigator
           initialRouteName={activeUser ? "MainTabs" : "SignIn"}
@@ -605,8 +607,11 @@ export default function App() {
           <Stack.Screen name="MileageRecord" component={MileageAdd} />
           <Stack.Screen name="MileageDetails" component={MileageEdit} />
           <Stack.Screen name="Profile" component={ProfileScreen} />
+          <Stack.Screen name="Notifications" component={NotificationsScreen} />
+          <Stack.Screen name="JoinExpressAccounts" component={JoinExpressAccounts} />
         </Stack.Navigator>
       </NavigationContainer>
+      </NotificationsProvider>
       </DataProvider>
 
       <Modal visible={!!pendingChallenge} transparent animationType="fade">        <View style={styles.twoFactorOverlay}>

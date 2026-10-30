@@ -89,6 +89,10 @@ export default function SharedTabMenu({ navigation, closeMenu, displayName = "Us
   const [financialYearModalVisible, setFinancialYearModalVisible] = useState(false);
 
   const isVerifiedAccount = verificationStatus === "verified";
+  const handleJoinPress = () => {
+    closeMenu?.();
+    navigation.navigate("JoinExpressAccounts");
+  };
   const financialYearOptions = buildFinancialYearOptions(
     receipts,
     incomeItems,
@@ -461,9 +465,8 @@ export default function SharedTabMenu({ navigation, closeMenu, displayName = "Us
 
         <View style={{ marginTop: 20 }}>
           <TouchableOpacity
-            onPress={isVerifiedAccount ? handleNotifyAccountant : undefined}
-            disabled={!isVerifiedAccount}
-            style={[styles.notifyBtnFilled, !isVerifiedAccount && styles.notifyPlaceholder]}
+            onPress={isVerifiedAccount ? handleNotifyAccountant : handleJoinPress}
+            style={styles.notifyBtnFilled}
           >
             <Text style={styles.filledBtnText}>{isVerifiedAccount ? "Notify Accountant" : "Thinking of joining us?"}</Text>
           </TouchableOpacity>

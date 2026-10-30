@@ -14,6 +14,7 @@ import {
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import SideMenu from "../components/SideMenu";
+import NotificationBell from "../components/NotificationBell";
 import SharedTabMenu from "../components/SharedTabMenu";
 import AddReceiptSheet from "../components/AddReceiptSheet";
 import { doc, writeBatch } from "firebase/firestore";
@@ -379,7 +380,7 @@ export default function IncomeScreen({ navigation }) {
 
             <Text style={styles.topBarTitle}>Income</Text>
 
-            <View style={{ width: 44 }} />
+            <NotificationBell />
           </>
         )}
       </View>

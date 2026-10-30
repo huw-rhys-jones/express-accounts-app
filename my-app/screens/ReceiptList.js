@@ -31,6 +31,7 @@ import {
 import { db, auth } from "../firebaseConfig";
 import { formatDate, formatCurrency } from "../utils/format_style";
 import SideMenu from "../components/SideMenu";
+import NotificationBell from "../components/NotificationBell";
 import { StatusBar, Platform } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import Constants from "expo-constants";
@@ -929,7 +930,7 @@ const ExpensesScreen = ({ navigation, route }) => {
             <Text style={styles.topBarTitle}>Expenses</Text>
 
             {/* Right spacer to balance the layout (same width as the button) */}
-            <View style={{ width: 44 }} />
+            <NotificationBell />
           </>
         )}
       </View>

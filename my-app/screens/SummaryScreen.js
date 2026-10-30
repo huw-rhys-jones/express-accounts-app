@@ -16,6 +16,7 @@ import {
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import SideMenu from "../components/SideMenu";
+import NotificationBell from "../components/NotificationBell";
 import SharedTabMenu from "../components/SharedTabMenu";
 import { db, auth } from "../firebaseConfig";
 import { PieChart, BarChart } from "react-native-chart-kit";
@@ -380,7 +381,7 @@ export default function SummaryScreen({ navigation }) {
 
         <Text style={styles.topBarTitle}>Summary</Text>
 
-        <View style={{ width: 44 }} />
+        <NotificationBell />
       </View>
 
       {filterOpen ? (
