@@ -406,6 +406,68 @@
     .client-card.blue { background: linear-gradient(135deg, #2e86de, #51a4f6); }
     .client-card.purple { background: linear-gradient(135deg, #553399, #6b46c1); }
 
+    .card-message {
+      margin-top: 6px;
+      background: rgba(0, 0, 0, 0.22);
+      padding: 6px 9px;
+      border-radius: 8px;
+      font-size: 0.78rem;
+      line-height: 1.25;
+      word-break: break-word;
+      max-height: 48px;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      display: -webkit-box;
+      -webkit-line-clamp: 2;
+      -webkit-box-orient: vertical;
+    }
+
+    .notify-message-alert {
+      display: flex;
+      gap: 12px;
+      align-items: flex-start;
+      background: #fdf2f2;
+      border: 1px solid #f8b4b4;
+      border-left: 4px solid #c93426;
+      border-radius: 10px;
+      padding: 12px 14px;
+      margin-bottom: 16px;
+      color: #17324d;
+    }
+    .notify-message-icon {
+      font-size: 1.3rem;
+      line-height: 1;
+    }
+    .notify-message-content {
+      flex: 1;
+      min-width: 0;
+    }
+    .notify-message-header {
+      display: flex;
+      align-items: baseline;
+      justify-content: space-between;
+      gap: 8px;
+      margin-bottom: 4px;
+    }
+    .notify-message-header strong {
+      font-size: 0.88rem;
+      color: #9f1f15;
+      font-family: "Space Grotesk", sans-serif;
+    }
+    .notify-message-time {
+      font-size: 0.76rem;
+      color: #7a2720;
+      opacity: 0.85;
+    }
+    .notify-message-content p {
+      margin: 0;
+      font-size: 0.92rem;
+      line-height: 1.4;
+      white-space: pre-wrap;
+      word-break: break-word;
+      color: #2c1b18;
+    }
+
     .join-section { margin-bottom: 16px; }
     .join-section h4 { margin: 0 0 8px; font-family: "Space Grotesk", sans-serif; color: #17324d; }
     .join-view-tabs { display: flex; gap: 8px; padding: 12px 20px 0; border-bottom: 1px solid #d8e4f0; }
@@ -1186,6 +1248,17 @@
         <button type="button" id="joinReviewActiveTab" class="join-view-tab" role="tab" aria-selected="false">Join request review</button>
       </div>
       <div class="modal-body">
+        <div id="notifyMessageAlert" class="notify-message-alert" style="display:none">
+          <span class="notify-message-icon">💬</span>
+          <div class="notify-message-content">
+            <div class="notify-message-header">
+              <strong>Message from Client</strong>
+              <small id="notifyMessageTime" class="notify-message-time"></small>
+            </div>
+            <p id="notifyMessageText"></p>
+          </div>
+        </div>
+
         <label for="periodSelect">Financial period</label>
         <select id="periodSelect"></select>
         <div id="periodSummary" class="period-summary">Select a period to see record totals.</div>
@@ -3188,6 +3261,8 @@
             email: profile.email || null,
             verificationCode: profile.verificationCode || null,
             notifyAccountant: profile.notifyAccountant || false,
+            notifyAccountantAt: profile.notifyAccountantAt || null,
+            notifyAccountantMessage: profile.notifyAccountantMessage || null,
             joinRequest: profile.joinRequest || null,
             processedAt: toJsDate(profile.processedAt),
             receipts: receiptsByUser[uid] || [],
@@ -3285,10 +3360,15 @@
           ? "<span class='verified-badge'>★ Verified</span>"
           : "";
 
+        const notifyNote = (user.notifyAccountant && user.notifyAccountantMessage)
+          ? "<div class='card-message' title='" + escHtml(user.notifyAccountantMessage) + "'>💬 " + escHtml(user.notifyAccountantMessage) + "</div>"
+          : "";
+
         button.innerHTML =
           "<div class='card-title-row'><strong>" + user.name + "</strong>" + verifiedBadge + "</div>" +
           (user.email ? "<small style='opacity:0.8'>" + user.email + "</small>" : "") +
           "<small>" + status.label + "</small>" +
+          notifyNote +
           "<small>Receipts: " + periodSnapshot.filteredReceipts.length +
           " • Income: " + periodSnapshot.filteredIncome.length +
           " • Statements: " + periodSnapshot.filteredStatements.length + "</small>";
@@ -3845,6 +3925,26 @@
 
       document.getElementById("modalTitle").textContent =
         (returnToJoinReview ? "Client data: " : "Export data for ") + user.name;
+
+      const notifyMsgAlert = document.getElementById("notifyMessageAlert");
+      const notifyMsgText = document.getElementById("notifyMessageText");
+      const notifyMsgTime = document.getElementById("notifyMessageTime");
+
+      if (user.notifyAccountant && user.notifyAccountantMessage) {
+        notifyMsgText.textContent = user.notifyAccountantMessage;
+        const notifyDate = toJsDate(user.notifyAccountantAt);
+        notifyMsgTime.textContent = notifyDate ? notifyDate.toLocaleDateString(undefined, {
+          day: "numeric",
+          month: "short",
+          year: "numeric",
+          hour: "2-digit",
+          minute: "2-digit"
+        }) : "";
+        notifyMsgAlert.style.display = "flex";
+      } else {
+        notifyMsgAlert.style.display = "none";
+      }
+
       dateModal.style.display = "flex";
 
       try {
@@ -3870,6 +3970,8 @@
       closeImageModal();
       selectedUser = null;
       resetNotifyBtn.style.display = "none";
+      const notifyMsgAlert = document.getElementById("notifyMessageAlert");
+      if (notifyMsgAlert) notifyMsgAlert.style.display = "none";
       vatStatusBadge.textContent = "";
       vatStatusBadge.className = "vat-badge";
       receiptsDataPanel.innerHTML = "";
@@ -3888,6 +3990,7 @@
         {
           notifyAccountant: false,
           notifyAccountantAt: null,
+          notifyAccountantMessage: null,
           processedAt: firebase.firestore.FieldValue.serverTimestamp(),
           updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
         },
@@ -3895,8 +3998,11 @@
       );
 
       selectedUser.notifyAccountant = false;
+      selectedUser.notifyAccountantMessage = null;
       selectedUser.processedAt = new Date();
       refreshProcessedButtonState();
+      const notifyMsgAlert = document.getElementById("notifyMessageAlert");
+      if (notifyMsgAlert) notifyMsgAlert.style.display = "none";
       renderBoardFromCurrentData();
       statusLine.textContent = "Marked " + selectedUser.name + " as processed.";
     }

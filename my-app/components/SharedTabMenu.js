@@ -87,6 +87,8 @@ export default function SharedTabMenu({ navigation, closeMenu, displayName = "Us
   const [vatRegistered, setVatRegistered] = useState(false);
   const [vatRegistrationNumber, setVatRegistrationNumber] = useState("");
   const [financialYearModalVisible, setFinancialYearModalVisible] = useState(false);
+  const [notifyModalVisible, setNotifyModalVisible] = useState(false);
+  const [notifyMessage, setNotifyMessage] = useState("");
 
   const isVerifiedAccount = verificationStatus === "verified";
   const handleJoinPress = () => {
@@ -208,6 +210,7 @@ export default function SharedTabMenu({ navigation, closeMenu, displayName = "Us
         {
           notifyAccountant: true,
           notifyAccountantAt: serverTimestamp(),
+          notifyAccountantMessage: notifyMessage.trim() || null,
           updatedAt: serverTimestamp(),
           ...(user.displayName ? { name: user.displayName } : {}),
           ...(user.email ? { email: user.email } : {}),
@@ -216,6 +219,8 @@ export default function SharedTabMenu({ navigation, closeMenu, displayName = "Us
       );
     });
 
+    setNotifyModalVisible(false);
+    setNotifyMessage("");
     closeMenu();
     triggerHaptic("success").catch(() => {});
     Alert.alert("Accountant Notified", "Your accountant has been notified that your receipts are ready for processing.");
@@ -465,7 +470,7 @@ export default function SharedTabMenu({ navigation, closeMenu, displayName = "Us
 
         <View style={{ marginTop: 20 }}>
           <TouchableOpacity
-            onPress={isVerifiedAccount ? handleNotifyAccountant : handleJoinPress}
+            onPress={isVerifiedAccount ? () => setNotifyModalVisible(true) : handleJoinPress}
             style={styles.notifyBtnFilled}
           >
             <Text style={styles.filledBtnText}>{isVerifiedAccount ? "Notify Accountant" : "Thinking of joining us?"}</Text>
@@ -525,6 +530,52 @@ export default function SharedTabMenu({ navigation, closeMenu, displayName = "Us
             </TouchableOpacity>
           </View>
         </View>
+      </Modal>
+
+      <Modal
+        visible={notifyModalVisible}
+        transparent
+        animationType="slide"
+        statusBarTranslucent
+        onRequestClose={() => {
+          setNotifyModalVisible(false);
+          setNotifyMessage("");
+        }}
+      >
+        <KeyboardAvoidingView style={styles.modalOverlay} behavior="padding">
+          <View style={styles.loadingCard}>
+            <Text style={styles.title}>Notify Accountant</Text>
+            <Text style={{ textAlign: "center", marginVertical: 10, color: Colors.textPrimary }}>
+              Let your accountant know your receipts are ready for processing. You can optionally include a short message below.
+            </Text>
+
+            <TextInput
+              style={[styles.input, { minHeight: 90, textAlignVertical: "top", color: Colors.textPrimary }]}
+              placeholder="Add an optional message or note..."
+              placeholderTextColor="#999"
+              multiline
+              maxLength={300}
+              value={notifyMessage}
+              onChangeText={setNotifyMessage}
+            />
+
+            <View style={{ flexDirection: "row", marginTop: 20, gap: 10, width: "100%" }}>
+              <TouchableOpacity
+                onPress={() => {
+                  setNotifyModalVisible(false);
+                  setNotifyMessage("");
+                }}
+                style={[styles.signOutBtn, { backgroundColor: "#ccc", flex: 1 }]}
+              >
+                <Text style={{ color: "#000", textAlign: "center" }}>Cancel</Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity onPress={handleNotifyAccountant} style={[styles.signOutBtn, { flex: 1 }]}> 
+                <Text style={styles.signOutText}>Send</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </KeyboardAvoidingView>
       </Modal>
 
       <Modal visible={feedbackModalVisible} transparent animationType="slide" statusBarTranslucent onRequestClose={() => setFeedbackModalVisible(false)}>
