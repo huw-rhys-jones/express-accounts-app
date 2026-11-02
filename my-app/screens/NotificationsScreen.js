@@ -1,10 +1,8 @@
-import React, { useState } from "react";
+import React from "react";
 import { FlatList, StatusBar, StyleSheet, Text, TouchableOpacity, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import { useNavigation } from "@react-navigation/native";
-import SideMenu from "../components/SideMenu";
-import SharedTabMenu from "../components/SharedTabMenu";
 import NotificationBell from "../components/NotificationBell";
 import { useNotifications } from "../contexts/NotificationsContext";
 
@@ -31,8 +29,6 @@ export function formatRelativeTime(timestamp, now = Date.now()) {
 export default function NotificationsScreen() {
   const navigation = useNavigation();
   const { notifications, unreadCount, markAsRead, markAllAsRead } = useNotifications();
-  const [menuOpen, setMenuOpen] = useState(false);
-  const closeMenu = () => setMenuOpen(false);
 
   const onPressItem = (item) => {
     markAsRead(item.id);
@@ -65,8 +61,14 @@ export default function NotificationsScreen() {
     <SafeAreaView style={styles.container} edges={["top", "left", "right"]}>
       <StatusBar backgroundColor="#181836" barStyle="light-content" />
       <View style={styles.topBar}>
-        <TouchableOpacity style={styles.menuButton} onPress={() => setMenuOpen(true)}>
-          <Text style={styles.menuText}>≡</Text>
+        <TouchableOpacity
+          style={styles.backButton}
+          onPress={() => navigation.goBack()}
+          accessibilityRole="button"
+          accessibilityLabel="Go back"
+          activeOpacity={0.8}
+        >
+          <Text style={styles.backButtonText}>‹</Text>
         </TouchableOpacity>
         <Text style={styles.topBarTitle}>Notifications</Text>
         <NotificationBell />
@@ -85,14 +87,6 @@ export default function NotificationsScreen() {
         contentContainerStyle={styles.list}
         ListEmptyComponent={<Text style={styles.empty}>No notifications yet</Text>}
       />
-
-      <SideMenu open={menuOpen} onClose={closeMenu}>
-        <SharedTabMenu
-          navigation={navigation}
-          closeMenu={closeMenu}
-          open={menuOpen}
-        />
-      </SideMenu>
     </SafeAreaView>
   );
 }
@@ -110,8 +104,8 @@ const styles = StyleSheet.create({
     borderBottomWidth: 2,
     borderBottomColor: "#E00051",
   },
-  menuButton: { width: 52, height: 48, alignItems: "center", justifyContent: "center" },
-  menuText: { fontSize: 32, color: "#fff" },
+  backButton: { width: 52, height: 48, alignItems: "center", justifyContent: "center" },
+  backButtonText: { color: "#fff", fontWeight: "600", fontSize: 26 },
   topBarTitle: { fontSize: 18, fontWeight: "700", color: "#fff" },
   markAll: { alignSelf: "flex-end", paddingHorizontal: 16, paddingTop: 12 },
   markAllText: { color: "#E00051", fontWeight: "600", fontSize: 14 },
