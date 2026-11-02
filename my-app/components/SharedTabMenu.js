@@ -15,6 +15,7 @@ import {
 } from "react-native";
 import { deleteUser, signOut, updateProfile } from "firebase/auth";
 import {
+  arrayUnion,
   collection,
   deleteDoc,
   doc,
@@ -204,19 +205,31 @@ export default function SharedTabMenu({ navigation, closeMenu, displayName = "Us
 
     triggerHaptic("selection").catch(() => {});
 
+    const trimmedMessage = notifyMessage.trim();
     await runWithLoading("Sending notify request...", async () => {
-      await setDoc(
-        doc(db, "users", user.uid),
-        {
-          notifyAccountant: true,
-          notifyAccountantAt: serverTimestamp(),
-          notifyAccountantMessage: notifyMessage.trim() || null,
-          updatedAt: serverTimestamp(),
-          ...(user.displayName ? { name: user.displayName } : {}),
-          ...(user.email ? { email: user.email } : {}),
-        },
-        { merge: true }
-      );
+      const messageEntry = trimmedMessage
+        ? {
+            id: `${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+            text: trimmedMessage,
+            sender: "client",
+            createdAt: new Date().toISOString(),
+          }
+        : null;
+
+      const updateData = {
+        notifyAccountant: true,
+        notifyAccountantAt: serverTimestamp(),
+        notifyAccountantMessage: trimmedMessage || null,
+        updatedAt: serverTimestamp(),
+        ...(user.displayName ? { name: user.displayName } : {}),
+        ...(user.email ? { email: user.email } : {}),
+      };
+
+      if (messageEntry) {
+        updateData.notifyAccountantMessages = arrayUnion(messageEntry);
+      }
+
+      await setDoc(doc(db, "users", user.uid), updateData, { merge: true });
     });
 
     setNotifyModalVisible(false);

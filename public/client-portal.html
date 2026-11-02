@@ -470,6 +470,122 @@
 
     .join-section { margin-bottom: 16px; }
     .join-section h4 { margin: 0 0 8px; font-family: "Space Grotesk", sans-serif; color: #17324d; }
+
+    .tab-badge {
+      display: inline-block;
+      margin-left: 6px;
+      padding: 1px 7px;
+      border-radius: 999px;
+      font-size: 0.75rem;
+      font-weight: 700;
+      background: #c93426;
+      color: #fff;
+    }
+
+    .messages-thread-container {
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+      max-height: 480px;
+      overflow-y: auto;
+      padding: 4px 2px;
+    }
+
+    .msg-thread-item {
+      display: flex;
+      flex-direction: column;
+      border-radius: 12px;
+      padding: 12px 14px;
+      border: 1px solid #d8e4f0;
+      background: #fff;
+      max-width: 90%;
+    }
+
+    .msg-thread-item.client-msg {
+      align-self: flex-start;
+      background: #fdf6f5;
+      border-color: #f7c9c5;
+      border-left: 4px solid #c93426;
+    }
+
+    .msg-thread-item.accountant-msg {
+      align-self: flex-end;
+      background: #f0f7ff;
+      border-color: #b9d7f5;
+      border-right: 4px solid #1c64f2;
+    }
+
+    .msg-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      margin-bottom: 6px;
+    }
+
+    .msg-author {
+      font-weight: 700;
+      font-size: 0.86rem;
+      color: #17324d;
+    }
+
+    .msg-thread-item.client-msg .msg-author {
+      color: #9f1f15;
+    }
+
+    .msg-thread-item.accountant-msg .msg-author {
+      color: #1c64f2;
+    }
+
+    .msg-time {
+      font-size: 0.76rem;
+      color: #6b7280;
+    }
+
+    .msg-text {
+      margin: 0;
+      font-size: 0.92rem;
+      line-height: 1.45;
+      white-space: pre-wrap;
+      word-break: break-word;
+      color: #1f2937;
+    }
+
+    .msg-footer {
+      display: flex;
+      justify-content: flex-end;
+      margin-top: 8px;
+    }
+
+    .btn-msg-reply {
+      padding: 4px 10px;
+      font-size: 0.8rem;
+      font-weight: 600;
+      border-radius: 6px;
+      border: 1px solid #1c64f2;
+      background: #fff;
+      color: #1c64f2;
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      transition: all 0.15s ease;
+    }
+
+    .btn-msg-reply:hover {
+      background: #1c64f2;
+      color: #fff;
+    }
+
+    .messages-empty-state {
+      padding: 32px 16px;
+      text-align: center;
+      color: #6b7280;
+      font-size: 0.92rem;
+      background: #f9fafb;
+      border-radius: 12px;
+      border: 1px dashed #d1d5db;
+    }
     .join-view-tabs { display: flex; gap: 8px; padding: 12px 20px 0; border-bottom: 1px solid #d8e4f0; }
     .join-view-tab { border: 0; border-bottom: 3px solid transparent; background: transparent; color: #4f6780; padding: 9px 12px; font: inherit; font-weight: 700; cursor: pointer; }
     .join-view-tab.active { color: #17324d; border-bottom-color: var(--purple); }
@@ -1248,36 +1364,33 @@
         <button type="button" id="joinReviewActiveTab" class="join-view-tab" role="tab" aria-selected="false">Join request review</button>
       </div>
       <div class="modal-body">
-        <div id="notifyMessageAlert" class="notify-message-alert" style="display:none">
-          <span class="notify-message-icon">💬</span>
-          <div class="notify-message-content">
-            <div class="notify-message-header">
-              <strong>Message from Client</strong>
-              <small id="notifyMessageTime" class="notify-message-time"></small>
-            </div>
-            <p id="notifyMessageText"></p>
-          </div>
+        <div id="exportPeriodControls">
+          <label for="periodSelect">Financial period</label>
+          <select id="periodSelect"></select>
+          <div id="periodSummary" class="period-summary">Select a period to see record totals.</div>
         </div>
-
-        <label for="periodSelect">Financial period</label>
-        <select id="periodSelect"></select>
-        <div id="periodSummary" class="period-summary">Select a period to see record totals.</div>
 
         <div class="modal-tabs" role="tablist" aria-label="Client data">
           <button id="receiptsDataTabBtn" class="modal-tab active" type="button" role="tab" aria-selected="true">Receipts / Expenses</button>
           <button id="hmrcDataTabBtn" class="modal-tab" type="button" role="tab" aria-selected="false">HMRC Summary</button>
           <button id="incomeDataTabBtn" class="modal-tab" type="button" role="tab" aria-selected="false">Income</button>
+          <button id="messagesDataTabBtn" class="modal-tab" type="button" role="tab" aria-selected="false">Messages <span id="messagesTabBadge" class="tab-badge" style="display:none">0</span></button>
         </div>
         <div id="receiptsDataPanel" class="modal-data-panel active" role="tabpanel"></div>
         <div id="hmrcDataPanel" class="modal-data-panel" role="tabpanel"></div>
         <div id="incomeDataPanel" class="modal-data-panel" role="tabpanel"></div>
+        <div id="messagesDataPanel" class="modal-data-panel" role="tabpanel"></div>
 
-
-        <label class="download-images-option" for="includeImagesInput">
-          <input id="includeImagesInput" type="checkbox" />
-          Include receipt/income images in download
-        </label>
-        <label class="download-images-option" for="includeOnlyCheckedInput">
+        <div id="exportDownloadOptions">
+          <label class="download-images-option" for="includeImagesInput">
+            <input id="includeImagesInput" type="checkbox" />
+            Include receipt/income images in download
+          </label>
+          <label class="download-images-option" for="includeOnlyCheckedInput">
+            <input id="includeOnlyCheckedInput" type="checkbox" />
+            Include only checked items in download
+          </label>
+        </div>
           <input id="includeOnlyCheckedInput" type="checkbox" />
           Include only checked items in download
         </label>
@@ -1440,9 +1553,14 @@
     const receiptsDataTabBtn = document.getElementById("receiptsDataTabBtn");
     const hmrcDataTabBtn = document.getElementById("hmrcDataTabBtn");
     const incomeDataTabBtn = document.getElementById("incomeDataTabBtn");
+    const messagesDataTabBtn = document.getElementById("messagesDataTabBtn");
+    const messagesTabBadge = document.getElementById("messagesTabBadge");
     const receiptsDataPanel = document.getElementById("receiptsDataPanel");
     const hmrcDataPanel = document.getElementById("hmrcDataPanel");
     const incomeDataPanel = document.getElementById("incomeDataPanel");
+    const messagesDataPanel = document.getElementById("messagesDataPanel");
+    const exportPeriodControls = document.getElementById("exportPeriodControls");
+    const exportDownloadOptions = document.getElementById("exportDownloadOptions");
     const includeImagesInput = document.getElementById("includeImagesInput");
     const includeOnlyCheckedInput = document.getElementById("includeOnlyCheckedInput");
     const imageModal = document.getElementById("imageModal");
@@ -3263,6 +3381,7 @@
             notifyAccountant: profile.notifyAccountant || false,
             notifyAccountantAt: profile.notifyAccountantAt || null,
             notifyAccountantMessage: profile.notifyAccountantMessage || null,
+            notifyAccountantMessages: Array.isArray(profile.notifyAccountantMessages) ? profile.notifyAccountantMessages : [],
             joinRequest: profile.joinRequest || null,
             processedAt: toJsDate(profile.processedAt),
             receipts: receiptsByUser[uid] || [],
@@ -3360,15 +3479,10 @@
           ? "<span class='verified-badge'>★ Verified</span>"
           : "";
 
-        const notifyNote = (user.notifyAccountant && user.notifyAccountantMessage)
-          ? "<div class='card-message' title='" + escHtml(user.notifyAccountantMessage) + "'>💬 " + escHtml(user.notifyAccountantMessage) + "</div>"
-          : "";
-
         button.innerHTML =
           "<div class='card-title-row'><strong>" + user.name + "</strong>" + verifiedBadge + "</div>" +
           (user.email ? "<small style='opacity:0.8'>" + user.email + "</small>" : "") +
           "<small>" + status.label + "</small>" +
-          notifyNote +
           "<small>Receipts: " + periodSnapshot.filteredReceipts.length +
           " • Income: " + periodSnapshot.filteredIncome.length +
           " • Statements: " + periodSnapshot.filteredStatements.length + "</small>";
@@ -3705,7 +3819,7 @@
       }
     }
 
-    function openNotificationComposer(user) {
+    function openNotificationComposer(user, initialBody = "", replyToMsg = null) {
       const targetIds = user ? [user.id] : Array.from(new Set(liveUsers.map((entry) => entry.id).filter(Boolean)));
       if (!targetIds.length) {
         statusLine.textContent = "No users are available to notify.";
@@ -3718,11 +3832,17 @@
         ? "This notification will be sent to " + user.name + "."
         : "This notification will be sent to all " + targetIds.length + " users.";
       notificationStatus.textContent = "";
-      notificationBodyInput.value = "";
+      notificationTitleInput.value = replyToMsg ? "Reply from Accountant" : "Express Accounts";
+      notificationBodyInput.value = initialBody || "";
       sendNotificationBtn.disabled = false;
       sendNotificationBtn.textContent = "Send Notification";
       notificationModal.style.display = "flex";
-      notificationTitleInput.focus();
+      if (initialBody) {
+        notificationBodyInput.focus();
+        notificationBodyInput.setSelectionRange(notificationBodyInput.value.length, notificationBodyInput.value.length);
+      } else {
+        notificationTitleInput.focus();
+      }
     }
 
     function closeNotificationComposer() {
@@ -3769,6 +3889,30 @@
 
         notificationStatus.textContent = "Sent to " + Number(result.sent || 0) +
           " device(s) across " + Number(result.targetedUsers || notificationTargetUserIds.length) + " user(s).";
+
+        if (notificationTargetUserIds.length === 1) {
+          const targetUid = notificationTargetUserIds[0];
+          const replyEntry = {
+            id: Date.now() + "_" + Math.random().toString(36).slice(2, 8),
+            text: body,
+            sender: "accountant",
+            createdAt: new Date().toISOString(),
+          };
+          db.collection("users").doc(targetUid).set({
+            notifyAccountantMessages: firebase.firestore.FieldValue.arrayUnion(replyEntry),
+            updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
+          }, { merge: true }).catch((err) => {
+            console.error("Could not persist accountant reply to thread:", err);
+          });
+
+          if (selectedUser && selectedUser.id === targetUid) {
+            if (!Array.isArray(selectedUser.notifyAccountantMessages)) {
+              selectedUser.notifyAccountantMessages = [];
+            }
+            selectedUser.notifyAccountantMessages.push(replyEntry);
+            renderClientMessagesTab(selectedUser);
+          }
+        }
       } catch (error) {
         notificationStatus.textContent = "Could not send notification: " + (error && error.message ? error.message : String(error));
       } finally {
@@ -3926,24 +4070,7 @@
       document.getElementById("modalTitle").textContent =
         (returnToJoinReview ? "Client data: " : "Export data for ") + user.name;
 
-      const notifyMsgAlert = document.getElementById("notifyMessageAlert");
-      const notifyMsgText = document.getElementById("notifyMessageText");
-      const notifyMsgTime = document.getElementById("notifyMessageTime");
-
-      if (user.notifyAccountant && user.notifyAccountantMessage) {
-        notifyMsgText.textContent = user.notifyAccountantMessage;
-        const notifyDate = toJsDate(user.notifyAccountantAt);
-        notifyMsgTime.textContent = notifyDate ? notifyDate.toLocaleDateString(undefined, {
-          day: "numeric",
-          month: "short",
-          year: "numeric",
-          hour: "2-digit",
-          minute: "2-digit"
-        }) : "";
-        notifyMsgAlert.style.display = "flex";
-      } else {
-        notifyMsgAlert.style.display = "none";
-      }
+      renderClientMessagesTab(user);
 
       dateModal.style.display = "flex";
 
@@ -4001,8 +4128,6 @@
       selectedUser.notifyAccountantMessage = null;
       selectedUser.processedAt = new Date();
       refreshProcessedButtonState();
-      const notifyMsgAlert = document.getElementById("notifyMessageAlert");
-      if (notifyMsgAlert) notifyMsgAlert.style.display = "none";
       renderBoardFromCurrentData();
       statusLine.textContent = "Marked " + selectedUser.name + " as processed.";
     }
@@ -4580,20 +4705,144 @@
     function setModalDataTab(tabName) {
       const showingReceipts = tabName === "receipts";
       const showingHmrc = tabName === "hmrc";
+      const showingIncome = tabName === "income";
+      const showingMessages = tabName === "messages";
+
       receiptsDataTabBtn.classList.toggle("active", showingReceipts);
       hmrcDataTabBtn.classList.toggle("active", showingHmrc);
-      incomeDataTabBtn.classList.toggle("active", tabName === "income");
+      incomeDataTabBtn.classList.toggle("active", showingIncome);
+      if (messagesDataTabBtn) messagesDataTabBtn.classList.toggle("active", showingMessages);
+
       receiptsDataTabBtn.setAttribute("aria-selected", String(showingReceipts));
       hmrcDataTabBtn.setAttribute("aria-selected", String(showingHmrc));
-      incomeDataTabBtn.setAttribute("aria-selected", String(tabName === "income"));
+      incomeDataTabBtn.setAttribute("aria-selected", String(showingIncome));
+      if (messagesDataTabBtn) messagesDataTabBtn.setAttribute("aria-selected", String(showingMessages));
+
       receiptsDataPanel.classList.toggle("active", showingReceipts);
       hmrcDataPanel.classList.toggle("active", showingHmrc);
-      incomeDataPanel.classList.toggle("active", tabName === "income");
+      incomeDataPanel.classList.toggle("active", showingIncome);
+      if (messagesDataPanel) messagesDataPanel.classList.toggle("active", showingMessages);
+
+      if (exportPeriodControls) exportPeriodControls.style.display = showingMessages ? "none" : "";
+      if (exportDownloadOptions) exportDownloadOptions.style.display = showingMessages ? "none" : "";
+      if (confirmDateBtn) confirmDateBtn.style.display = showingMessages ? "none" : "";
+    }
+
+    function renderClientMessagesTab(user) {
+      if (!messagesDataPanel) return;
+      if (!user) {
+        messagesDataPanel.innerHTML = '<div class="messages-empty-state">No client selected.</div>';
+        return;
+      }
+
+      // Collect historical messages
+      let msgList = [];
+      if (Array.isArray(user.notifyAccountantMessages)) {
+        msgList = [...user.notifyAccountantMessages];
+      }
+
+      // Backwards compatibility: if notifyAccountantMessage exists and not in array, include it
+      if (user.notifyAccountantMessage) {
+        const alreadyInList = msgList.some((m) => m.text === user.notifyAccountantMessage);
+        if (!alreadyInList) {
+          msgList.unshift({
+            id: "legacy_latest",
+            text: user.notifyAccountantMessage,
+            sender: "client",
+            createdAt: user.notifyAccountantAt ? (toJsDate(user.notifyAccountantAt)?.toISOString() || null) : null,
+          });
+        }
+      }
+
+      // Update badge
+      if (messagesTabBadge) {
+        if (msgList.length > 0) {
+          messagesTabBadge.textContent = String(msgList.length);
+          messagesTabBadge.style.display = "inline-block";
+        } else {
+          messagesTabBadge.style.display = "none";
+        }
+      }
+
+      if (!msgList.length) {
+        messagesDataPanel.innerHTML = `
+          <div class="messages-empty-state">
+            <p style="margin:0 0 10px; font-weight:600; color:#374151;">No messages yet</p>
+            <p style="margin:0; font-size:0.86rem; color:#6b7280;">When this client sends notes via "Notify Accountant", they will appear here.</p>
+          </div>
+        `;
+        return;
+      }
+
+      // Sort chronological
+      msgList.sort((a, b) => {
+        const timeA = a.createdAt ? new Date(a.createdAt).getTime() : 0;
+        const timeB = b.createdAt ? new Date(b.createdAt).getTime() : 0;
+        return timeA - timeB;
+      });
+
+      const itemsHtml = msgList.map((msg, index) => {
+        const isClient = msg.sender !== "accountant";
+        const senderName = isClient ? (user.name || "Client") : "Accountant";
+        let timeStr = "";
+        if (msg.createdAt) {
+          const d = new Date(msg.createdAt);
+          if (!isNaN(d.getTime())) {
+            timeStr = d.toLocaleDateString(undefined, {
+              day: "numeric",
+              month: "short",
+              year: "numeric",
+              hour: "2-digit",
+              minute: "2-digit",
+            });
+          }
+        }
+
+        const replyBtnHtml = isClient
+          ? `<div class="msg-footer">
+               <button type="button" class="btn-msg-reply" data-reply-idx="${index}">
+                 💬 Reply
+               </button>
+             </div>`
+          : "";
+
+        return `
+          <div class="msg-thread-item ${isClient ? "client-msg" : "accountant-msg"}">
+            <div class="msg-header">
+              <span class="msg-author">${escHtml(senderName)}</span>
+              ${timeStr ? `<span class="msg-time">${escHtml(timeStr)}</span>` : ""}
+            </div>
+            <p class="msg-text">${escHtml(msg.text || "")}</p>
+            ${replyBtnHtml}
+          </div>
+        `;
+      }).join("");
+
+      messagesDataPanel.innerHTML = `
+        <div class="messages-thread-container">
+          ${itemsHtml}
+        </div>
+      `;
+
+      // Attach event listeners to reply buttons
+      messagesDataPanel.querySelectorAll("[data-reply-idx]").forEach((btn) => {
+        btn.addEventListener("click", () => {
+          const idx = Number(btn.getAttribute("data-reply-idx"));
+          const targetMsg = msgList[idx];
+          if (!targetMsg) return;
+          const quotedSnippet = targetMsg.text.length > 50 ? targetMsg.text.slice(0, 47) + "..." : targetMsg.text;
+          const initialBody = `Re: "${quotedSnippet}"\n`;
+          openNotificationComposer(user, initialBody, targetMsg);
+        });
+      });
     }
 
     receiptsDataTabBtn.addEventListener("click", () => setModalDataTab("receipts"));
     hmrcDataTabBtn.addEventListener("click", () => setModalDataTab("hmrc"));
     incomeDataTabBtn.addEventListener("click", () => setModalDataTab("income"));
+    if (messagesDataTabBtn) {
+      messagesDataTabBtn.addEventListener("click", () => setModalDataTab("messages"));
+    }
     previousReceiptBtn.addEventListener("click", () => navigateReceipt(-1));
     nextReceiptBtn.addEventListener("click", () => navigateReceipt(1));
     receiptResetBtn.addEventListener("click", resetReceiptEdits);
