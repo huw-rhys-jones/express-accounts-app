@@ -15,8 +15,9 @@ import { Colors } from "../utils/sharedStyles";
 import {
   FULL_RECT,
   createWorkingCopy,
-  detectReceiptRect,
+  detectReceiptAdjustments,
   exportEditedImage,
+  isFullRect,
   rotateRectCcw,
   rotateRectCw,
   rotatedSize,
@@ -64,81 +65,78 @@ function DragHandle({ kind, x, y, onStart, onMove }) {
 
 export default function ReceiptCropScreen({ route, navigation }) {
   const insets = useSafeAreaInsets();
-  const images = route.params?.images || [];
+  const images = route.params?.images || (route.params?.image ? [route.params.image] : []);
   const targetScreen = route.params?.targetScreen || "Receipt";
-  const isReedit = Boolean(route.params?.reedit);
 
-  const [index, setIndex] = useState(0);
+  const [index] = useState(0);
   const [working, setWorking] = useState(null);
   const [autoRect, setAutoRect] = useState(null);
+  const [autoRotation, setAutoRotation] = useState(0);
   const [rect, setRect] = useState(FULL_RECT);
   const [rotation, setRotation] = useState(0);
   const [area, setArea] = useState({ width: 0, height: 0 });
   const [saving, setSaving] = useState(false);
   const [needsManual, setNeedsManual] = useState(false);
 
-  const resultsRef = useRef([]);
   const rectRef = useRef(rect);
   const dragStartRef = useRef(rect);
   rectRef.current = rect;
-
-  const finishOrAdvance = (asset) => {
-    resultsRef.current = [...resultsRef.current, asset];
-    if (index + 1 < images.length) {
-      setIndex(index + 1);
-      return;
-    }
-    const params = { initialImages: resultsRef.current, sourceImages: images };
-    if (isReedit) {
-      navigation.navigate({ name: targetScreen, params, merge: true });
-    } else {
-      navigation.replace(targetScreen, params);
-    }
-  };
 
   useEffect(() => {
     let cancelled = false;
     setWorking(null);
     setNeedsManual(false);
     setAutoRect(null);
+    setAutoRotation(0);
     setRotation(0);
     setRect(FULL_RECT);
 
     (async () => {
       try {
-        const copy = await createWorkingCopy(images[index].uri);
+        const rawCurrent = images[index] || {};
+        const sourceUri = rawCurrent.originalUri || rawCurrent.uri;
+        if (!sourceUri) {
+          Alert.alert("Error", "No image found to edit.");
+          navigation.goBack();
+          return;
+        }
+
+        const copy = await createWorkingCopy(sourceUri);
         if (cancelled) return;
         setWorking(copy);
-        let detected = null;
-        try {
-          detected = await detectReceiptRect(copy.uri);
-        } catch (error) {
-          console.warn("Receipt edge detection failed", error);
-        }
+
+        const { rotation: detectedRot, rect: detectedRect } = await detectReceiptAdjustments(copy).catch((error) => {
+          console.warn("Receipt adjustment detection failed", error);
+          return { rotation: 0, rect: FULL_RECT };
+        });
         if (cancelled) return;
-        setAutoRect(detected);
-        setRect(detected || FULL_RECT);
-        // Skip manual adjustment when edges were found, unless the user asked to re-edit
-        if (detected && !isReedit) {
-          try {
-            const asset = await exportEditedImage(copy, { rotation: 0, rect: detected }, images[index].fileName);
-            if (!cancelled) finishOrAdvance(asset);
-            return;
-          } catch (error) {
-            console.warn("Automatic crop failed, showing manual adjustment", error);
-          }
-        }
-        if (!cancelled) setNeedsManual(true);
+
+        const normAutoRotation = detectedRot || 0;
+        const rotatedDetectedRect = detectedRect && !isFullRect(detectedRect) ? detectedRect : null;
+
+        setAutoRotation(normAutoRotation);
+        setAutoRect(rotatedDetectedRect);
+
+        const initialRotation =
+          typeof rawCurrent.appliedRotation === "number"
+            ? rawCurrent.appliedRotation
+            : normAutoRotation;
+        const initialRect =
+          rawCurrent.appliedRect || rotatedDetectedRect || FULL_RECT;
+
+        setRotation(initialRotation);
+        setRect(initialRect);
+        setNeedsManual(true);
       } catch (error) {
         console.error("Could not prepare image for cropping", error);
-        if (!cancelled) finishOrAdvance(images[index]);
+        Alert.alert("Error", "Could not load image for editing.");
+        navigation.goBack();
       }
     })();
 
     return () => {
       cancelled = true;
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [index]);
 
   const rotate = (clockwise) => {
@@ -147,7 +145,7 @@ export default function ReceiptCropScreen({ route, navigation }) {
   };
 
   const useAuto = () => {
-    setRotation(0);
+    setRotation(autoRotation);
     setRect(autoRect || FULL_RECT);
   };
 
@@ -160,14 +158,42 @@ export default function ReceiptCropScreen({ route, navigation }) {
     if (!working || saving) return;
     setSaving(true);
     try {
-      const asset = await exportEditedImage(working, { rotation, rect }, images[index].fileName);
-      finishOrAdvance(asset);
+      const rawCurrent = images[index] || {};
+      const asset = await exportEditedImage(
+        working,
+        { rotation, rect },
+        rawCurrent.fileName || `edited-${Date.now()}.jpg`
+      );
+
+      const editedImage = {
+        uri: asset.uri,
+        originalUri: rawCurrent.originalUri || rawCurrent.uri,
+        width: asset.width,
+        height: asset.height,
+        fileName: asset.fileName,
+        appliedRotation: rotation,
+        appliedRect: rect,
+      };
+      const editedImageIndex = route.params?.imageIndex ?? index;
+
+      if (typeof route.params?.onApply === "function") {
+        route.params.onApply(editedImage, editedImageIndex);
+        navigation.goBack();
+      } else if (typeof navigation.popTo === "function") {
+        navigation.popTo(
+          targetScreen,
+          {
+            editedImage,
+            editedImageIndex,
+          },
+          { merge: true }
+        );
+      } else {
+        navigation.goBack();
+      }
     } catch (error) {
       console.error("Could not crop image", error);
-      Alert.alert("Crop failed", "Could not apply the crop. You can use the original photo instead.", [
-        { text: "Cancel", style: "cancel" },
-        { text: "Use original", onPress: () => finishOrAdvance(images[index]) },
-      ]);
+      Alert.alert("Crop failed", "Could not apply the crop. Please try again.");
     } finally {
       setSaving(false);
     }
@@ -276,14 +302,16 @@ export default function ReceiptCropScreen({ route, navigation }) {
 
       {working && needsManual ? (
         <Text style={styles.hint}>
-          {autoRect ? "Edges detected automatically. Drag the handles to adjust." : "Couldn't detect edges. Drag the handles to crop."}
+          {autoRect || autoRotation
+            ? "Edges/orientation detected automatically. Drag the handles or rotate to adjust."
+            : "Drag the handles to crop or use the buttons below to rotate."}
         </Text>
       ) : null}
 
       <View style={styles.tools}>
         <ToolButton icon="rotate-left" label="Rotate left" onPress={() => rotate(false)} disabled={!ready} />
         <ToolButton icon="rotate-right" label="Rotate right" onPress={() => rotate(true)} disabled={!ready} />
-        <ToolButton icon="auto-fix" label="Auto crop" onPress={useAuto} disabled={!ready || !autoRect} />
+        <ToolButton icon="auto-fix" label="Auto crop" onPress={useAuto} disabled={!ready || (!autoRect && !autoRotation)} />
         <ToolButton icon="backup-restore" label="Original" onPress={useOriginal} disabled={!ready} />
       </View>
 
@@ -296,7 +324,7 @@ export default function ReceiptCropScreen({ route, navigation }) {
           {saving ? (
             <ActivityIndicator color="#fff" />
           ) : (
-            <Text style={styles.primaryText}>{index + 1 < images.length ? "Next" : "Use photo"}</Text>
+            <Text style={styles.primaryText}>{index + 1 < images.length ? "Next" : "Done"}</Text>
           )}
         </TouchableOpacity>
       </View>

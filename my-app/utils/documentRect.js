@@ -104,10 +104,24 @@ function largestComponent(mask, width, height) {
 
     if (!best || area > best.area) {
       let filledArea = 0;
+      const activeMins = [];
+      const activeMaxs = [];
       for (let y = minY; y <= maxY; y += 1) {
-        if (rowMax[y] >= rowMin[y]) filledArea += rowMax[y] - rowMin[y] + 1;
+        if (rowMax[y] >= rowMin[y]) {
+          filledArea += rowMax[y] - rowMin[y] + 1;
+          activeMins.push(rowMin[y]);
+          activeMaxs.push(rowMax[y]);
+        }
       }
-      best = { area, filledArea, minX, minY, maxX, maxY };
+      let robustMinX = minX;
+      let robustMaxX = maxX;
+      if (activeMins.length >= 8) {
+        activeMins.sort((a, b) => a - b);
+        activeMaxs.sort((a, b) => a - b);
+        robustMinX = activeMins[Math.floor(activeMins.length * 0.25)];
+        robustMaxX = activeMaxs[Math.floor((activeMaxs.length - 1) * 0.75)];
+      }
+      best = { area, filledArea, minX: robustMinX, minY, maxX: robustMaxX, maxY };
     }
   }
   return best;

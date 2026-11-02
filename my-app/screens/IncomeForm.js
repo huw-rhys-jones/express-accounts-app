@@ -47,6 +47,7 @@ import {
   startOfDayLocal,
 } from "../utils/financialPeriods";
 import { useReceiptOcr, runOcrOnAssets, detectReceiptGroupsFromAssets } from "../utils/ocrHelpers";
+import { autoAdjustImage, autoAdjustImages } from "../utils/receiptImageProcessing";
 import {
   createImageAttachment,
   deleteStoredAttachments,
@@ -184,7 +185,9 @@ export default function IncomeFormScreen({ navigation, route, mode }) {
   const [incomeDrafts, setIncomeDrafts] = useState([]);
   const [currentDraftIndex, setCurrentDraftIndex] = useState(0);
   const [draftReviewStates, setDraftReviewStates] = useState([]); // "pending"|"confirmed"|"skipped"
-  const [isDetecting, setIsDetecting] = useState(false);
+  const [isDetecting, setIsDetecting] = useState(
+    Boolean(route?.params?.initialImages?.length)
+  );
   const [detectProgress, setDetectProgress] = useState(0);
   const [detectMode, setDetectMode] = useState("auto");
   const pendingDetectionAssetsRef = useRef([]);
@@ -828,10 +831,60 @@ export default function IncomeFormScreen({ navigation, route, mode }) {
   useEffect(() => {
     const initialImages = route?.params?.initialImages;
     if (!initialImages?.length) return;
-    processInitialImages(initialImages);
+    setIsDetecting(true);
+    setDetectProgress(0);
+    setDetectMode("auto");
+    pendingDetectionAssetsRef.current = initialImages;
+    (async () => {
+      const { assets: adjusted, anyAdjusted, message } = await autoAdjustImages(initialImages, { kind: "income" });
+      pendingDetectionAssetsRef.current = adjusted;
+      await processInitialImages(adjusted);
+      if (anyAdjusted) showToast(message);
+    })();
 
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [route?.params?.initialImages]);
+
+  const applyEditedIncomeImage = React.useCallback((editedImage, editedImageIndex = 0) => {
+    if (!editedImage) return;
+    setAttachments((current) => {
+      let imgIdx = 0;
+      return current.map((att) => {
+        if (!isImageAttachment(att)) return att;
+        const isTarget = imgIdx === editedImageIndex;
+        imgIdx += 1;
+        if (!isTarget) return att;
+        return {
+          ...att,
+          id: editedImage.uri,
+          localUri: editedImage.uri,
+          originalUri: editedImage.originalUri || att.originalUri || getAttachmentUri(att),
+          width: editedImage.width || att.width,
+          height: editedImage.height || att.height,
+          appliedRotation: editedImage.appliedRotation ?? att.appliedRotation ?? 0,
+          appliedRect: editedImage.appliedRect || att.appliedRect || null,
+          name: editedImage.fileName || att.name,
+        };
+      });
+    });
+    showToast("Photo updated");
+    runOcrOnAssets([editedImage])
+      .then((result) => {
+        if (result?.ocrFrames) {
+          setOcrFrames(result.ocrFrames);
+        }
+      })
+      .catch(() => {});
+  }, []);
+
+  // Handle edited image returned from ReceiptCropScreen
+  useEffect(() => {
+    const editedImage = route?.params?.editedImage;
+    if (!editedImage) return;
+    const editedImageIndex = route?.params?.editedImageIndex ?? 0;
+    applyEditedIncomeImage(editedImage, editedImageIndex);
+    navigation.setParams({ editedImage: undefined, editedImageIndex: undefined });
+  }, [route?.params?.editedImage, applyEditedIncomeImage]);
 
   const showToast = (message) => {
     setToastMessage(message);
@@ -893,19 +946,21 @@ export default function IncomeFormScreen({ navigation, route, mode }) {
     }
 
     ImagePicker.launchCamera(
-      { mediaType: "photo", includeBase64: true, quality: 0.9 },
+      { mediaType: "photo", includeBase64: false, quality: 0.9 },
       async (response) => {
         if (!response?.assets?.length) {
           endPickerHold();
           return;
         }
         try {
-          const asset = response.assets[0];
-          const localUri = await ensureFileFromAsset(asset);
+          const { asset: adjusted, adjusted: wasAdjusted, message } = await autoAdjustImage(response.assets[0], { kind: "income" });
+          if (wasAdjusted) showToast(message);
+          const localUri = await ensureFileFromAsset(adjusted);
           const attachment = {
-            ...createImageAttachment(asset),
+            ...createImageAttachment(adjusted),
             id: localUri,
             localUri,
+            originalUri: adjusted.originalUri || localUri,
           };
           setAttachments((current) => [...current, attachment]);
           endPickerHold();
@@ -943,7 +998,7 @@ export default function IncomeFormScreen({ navigation, route, mode }) {
               ImagePicker.launchImageLibrary(
                 {
                   mediaType: "photo",
-                  includeBase64: true,
+                  includeBase64: false,
                   selectionLimit: 0,
                   quality: 0.9,
                 },
@@ -953,7 +1008,9 @@ export default function IncomeFormScreen({ navigation, route, mode }) {
                     return;
                   }
                   try {
-                    const mapped = response.assets.map(createImageAttachment);
+                    const { assets: adjusted, anyAdjusted, message } = await autoAdjustImages(response.assets, { kind: "income" });
+                    if (anyAdjusted) showToast(message);
+                    const mapped = adjusted.map(createImageAttachment);
                     setAttachments((current) => [...current, ...mapped]);
                     const first = mapped[0];
                     endPickerHold();
@@ -1231,16 +1288,73 @@ export default function IncomeFormScreen({ navigation, route, mode }) {
     };
   };
 
-  const getImageCanvasHeight = (annotationData) => {
+  const getImageCanvasHeight = (annotationData, att) => {
     const containerH = imageContainerHeight || heroHeight;
-    const naturalW = annotationData?.imageW;
-    const naturalH = annotationData?.imageH;
+    const naturalW = annotationData?.imageW || att?.width;
+    const naturalH = annotationData?.imageH || att?.height;
     if (!imageContainerWidth || !naturalW || !naturalH) return containerH;
     return Math.max(containerH, imageContainerWidth * (naturalH / naturalW));
   };
 
-  const openFullScreenImage = (uri, annotationData = null) => {
-    setFullScreenImage({ uri, annotationData });
+  const imagePageScrollRefs = useRef({});
+
+  const focusScrollOnAnnotations = React.useCallback(
+    (index, annotationData, att, animated = true) => {
+      const scroller = imagePageScrollRefs.current?.[index];
+      if (!scroller || !annotationData || !imageContainerWidth) return;
+      const containerH = imageContainerHeight || heroHeight;
+      const naturalW = annotationData.imageW || att?.width;
+      const naturalH = annotationData.imageH || att?.height;
+      if (!naturalW || !naturalH || !containerH) return;
+
+      const activeFrames = ANNOTATIONS.filter(
+        ({ key }) => (key !== "vat" || vatAnnotationsEnabled) && annotationData[key],
+      ).map(({ key }) => annotationData[key]);
+      if (!activeFrames.length) return;
+
+      const canvasH = Math.max(containerH, imageContainerWidth * (naturalH / naturalW));
+      if (canvasH <= containerH + 2) return;
+
+      const scale = Math.min(imageContainerWidth / naturalW, canvasH / naturalH);
+      const renderedH = naturalH * scale;
+      const offsetY = (canvasH - renderedH) / 2;
+
+      const minTop = Math.min(...activeFrames.map((f) => f.top * scale + offsetY - 28));
+      const maxBottom = Math.max(
+        ...activeFrames.map((f) => (f.top + f.height) * scale + offsetY + 16),
+      );
+
+      let idealY;
+      if (maxBottom - minTop <= containerH) {
+        idealY = (minTop + maxBottom) / 2 - containerH / 2;
+      } else if (annotationData.amount) {
+        const amt = annotationData.amount;
+        const amtCenter = (amt.top + amt.height / 2) * scale + offsetY;
+        idealY = amtCenter - containerH / 2;
+      } else {
+        idealY = minTop - 16;
+      }
+
+      const maxScrollY = Math.max(0, canvasH - containerH);
+      const targetY = Math.max(0, Math.min(idealY, maxScrollY));
+      scroller.scrollTo?.({ y: targetY, animated });
+    },
+    [heroHeight, imageContainerHeight, imageContainerWidth, vatAnnotationsEnabled],
+  );
+
+  useEffect(() => {
+    if (!ocrFrames || !attachments.length || !imageContainerWidth) return;
+    const imgAtts = attachments.filter(isImageAttachment);
+    const idx = imgAtts.findIndex((att) => getAttachmentUri(att) === ocrFrames.imageUri);
+    if (idx < 0) return;
+    const timer = setTimeout(() => {
+      focusScrollOnAnnotations(idx, ocrFrames, imgAtts[idx], true);
+    }, 80);
+    return () => clearTimeout(timer);
+  }, [ocrFrames, attachments, imageContainerWidth, focusScrollOnAnnotations]);
+
+  const openFullScreenImage = (uri, annotationData = null, index = 0, att = null) => {
+    setFullScreenImage({ uri, annotationData, index, att });
   };
 
   const closeFullScreenImage = () => {
@@ -1341,11 +1455,14 @@ export default function IncomeFormScreen({ navigation, route, mode }) {
               const uri = getAttachmentUri(att);
               const annotationData = ocrFrames?.imageUri === uri ? ocrFrames : null;
               const isAnnotated = annotateImages && annotationData;
-              const canvasHeight = getImageCanvasHeight(annotationData);
+              const canvasHeight = getImageCanvasHeight(annotationData, att);
               return (
                 <View key={att.id || String(index)} style={{ position: "relative" }}>
                   <View style={[styles.carouselPage, { width: imageContainerWidth }]}> 
                     <ScrollView
+                      ref={(el) => {
+                        imagePageScrollRefs.current[index] = el;
+                      }}
                       nestedScrollEnabled
                       showsVerticalScrollIndicator={false}
                       style={styles.imagePageScroller}
@@ -1353,13 +1470,18 @@ export default function IncomeFormScreen({ navigation, route, mode }) {
                     >
                       <TouchableOpacity
                         activeOpacity={0.9}
-                        onPress={() => openFullScreenImage(uri, annotationData)}
+                        onPress={() => openFullScreenImage(uri, annotationData, index, att)}
                         style={{ width: imageContainerWidth, height: canvasHeight, position: "relative" }}
                       >
                         <Image
                           source={{ uri }}
                           style={{ width: imageContainerWidth, height: canvasHeight }}
                           resizeMode="contain"
+                          onLoad={() => {
+                            if (annotationData) {
+                              focusScrollOnAnnotations(index, annotationData, att, false);
+                            }
+                          }}
                         />
                         {isAnnotated ? (
                           <View style={styles.annotationOverlay} pointerEvents="none">
@@ -1380,6 +1502,27 @@ export default function IncomeFormScreen({ navigation, route, mode }) {
                       </TouchableOpacity>
                     </ScrollView>
                   </View>
+                  <TouchableOpacity
+                    style={[styles.carouselRemoveBtn, { right: 44 }]}
+                    accessibilityRole="button"
+                    accessibilityLabel="Rotate or crop photo"
+                    onPress={() =>
+                      navigation.navigate("ReceiptCrop", {
+                        image: {
+                          uri,
+                          originalUri: att.originalUri || uri,
+                          appliedRotation: att.appliedRotation,
+                          appliedRect: att.appliedRect,
+                          fileName: att.name,
+                        },
+                        imageIndex: index,
+                        targetScreen: route.name,
+                        onApply: applyEditedIncomeImage,
+                      })
+                    }
+                  >
+                    <Ionicons name="crop-outline" size={17} color="#fff" />
+                  </TouchableOpacity>
                   <TouchableOpacity
                     style={styles.carouselRemoveBtn}
                     accessibilityRole="button"
@@ -1848,6 +1991,35 @@ export default function IncomeFormScreen({ navigation, route, mode }) {
                 onPress={closeFullScreenImage}
               >
                 <Text style={ReceiptStyles.fullScreenCloseText}>✕</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[
+                  ReceiptStyles.fullScreenEditButton,
+                  !fullScreenImage?.annotationData ? { right: 16 } : null,
+                ]}
+                accessibilityRole="button"
+                accessibilityLabel="Rotate or crop photo"
+                onPress={() => {
+                  const idx = fullScreenImage?.index ?? 0;
+                  const imgAtts = attachments.filter(isImageAttachment);
+                  const att = imgAtts[idx] || fullScreenImage?.att;
+                  const uri = getAttachmentUri(att) || fullScreenImage?.uri;
+                  closeFullScreenImage();
+                  navigation.navigate("ReceiptCrop", {
+                    image: {
+                      uri,
+                      originalUri: att?.originalUri || uri,
+                      appliedRotation: att?.appliedRotation,
+                      appliedRect: att?.appliedRect,
+                      fileName: att?.name,
+                    },
+                    imageIndex: idx,
+                    targetScreen: route.name,
+                    onApply: applyEditedIncomeImage,
+                  });
+                }}
+              >
+                <Ionicons name="crop-outline" size={20} color="#fff" />
               </TouchableOpacity>
               {fullScreenImage?.annotationData ? (
                 <TouchableOpacity

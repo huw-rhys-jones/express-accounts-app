@@ -525,6 +525,19 @@ export const ReceiptStyles = StyleSheet.create({
     borderWidth: 1,
     borderColor: "rgba(255,255,255,0.45)",
   },
+  fullScreenEditButton: {
+    position: "absolute",
+    top: 44,
+    right: 60,
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: "rgba(166, 13, 73, 0.88)",
+    alignItems: "center",
+    justifyContent: "center",
+    zIndex: 2001,
+    elevation: 2001,
+  },
 
   // hint text
   fullscreenHint: {

@@ -1,5 +1,13 @@
 import { findDocumentRect } from "../../utils/documentRect";
-import { rotateRectCcw, rotateRectCw, rotatedSize, isFullRect } from "../../utils/receiptImageProcessing";
+import {
+  rotateRectCcw,
+  rotateRectCw,
+  rotateRectByDegrees,
+  rotatedSize,
+  isFullRect,
+  detectTextRotationFromBlocks,
+  detectTextCropRect,
+} from "../../utils/receiptImageProcessing";
 
 function makeImage(width, height, background, fill) {
   const gray = new Uint8Array(width * height).fill(background);
@@ -68,5 +76,110 @@ describe("rect rotation", () => {
   it("detects a full-image rect", () => {
     expect(isFullRect({ left: 0, top: 0, right: 1, bottom: 1 })).toBe(true);
     expect(isFullRect(rect)).toBe(false);
+  });
+
+  it("rotates rect by arbitrary 90-degree multiples", () => {
+    expect(rotateRectByDegrees(rect, 180)).toEqual(rotateRectCw(rotateRectCw(rect)));
+    expect(rotateRectByDegrees(rect, 270)).toEqual(rotateRectCcw(rect));
+  });
+});
+
+describe("detectTextRotationFromBlocks", () => {
+  it("detects 180-degree upside-down text from cornerPoints", () => {
+    const blocks = [
+      {
+        lines: [
+          {
+            text: "Ordered at: March 31st, 2025",
+            cornerPoints: [
+              { x: 300, y: 200 },
+              { x: 50, y: 200 },
+              { x: 50, y: 170 },
+              { x: 300, y: 170 },
+            ],
+          },
+          {
+            text: "Total £12.35",
+            cornerPoints: [
+              { x: 250, y: 80 },
+              { x: 80, y: 80 },
+              { x: 80, y: 50 },
+              { x: 250, y: 50 },
+            ],
+          },
+        ],
+      },
+    ];
+    expect(detectTextRotationFromBlocks(blocks)).toBe(180);
+  });
+
+  it("detects 180-degree upside-down receipt via layout fallback when cornerPoints are axis-aligned", () => {
+    const blocks = [
+      {
+        lines: [
+          { text: "VAT £0.00", frame: { top: 40, left: 50, width: 200, height: 20 } },
+          { text: "Total £12.35", frame: { top: 70, left: 50, width: 200, height: 20 } },
+          { text: "Subtotal: £12.35", frame: { top: 130, left: 50, width: 200, height: 20 } },
+          { text: "1 x Sprite £2.00", frame: { top: 220, left: 50, width: 200, height: 20 } },
+          { text: "Ordered at: March 31st, 2025", frame: { top: 340, left: 50, width: 200, height: 20 } },
+          { text: "VAT NO: 343293014", frame: { top: 520, left: 50, width: 200, height: 20 } },
+        ],
+      },
+    ];
+    expect(detectTextRotationFromBlocks(blocks)).toBe(180);
+  });
+
+  it("returns 0 for upright receipt text", () => {
+    const blocks = [
+      {
+        lines: [
+          {
+            text: "Oxford Westgate",
+            cornerPoints: [
+              { x: 50, y: 50 },
+              { x: 250, y: 50 },
+              { x: 250, y: 80 },
+              { x: 50, y: 80 },
+            ],
+            frame: { top: 50, left: 50, width: 200, height: 30 },
+          },
+          {
+            text: "Total £12.35",
+            cornerPoints: [
+              { x: 50, y: 400 },
+              { x: 250, y: 400 },
+              { x: 250, y: 430 },
+              { x: 50, y: 430 },
+            ],
+            frame: { top: 400, left: 50, width: 200, height: 30 },
+          },
+        ],
+      },
+    ];
+    expect(detectTextRotationFromBlocks(blocks)).toBe(0);
+  });
+
+  it("crops around the receipt text column while ignoring off-column keyboard keys", () => {
+    const blocks = [
+      {
+        lines: [
+          // Off-column laptop key noise on the left
+          { text: "pg up", frame: { left: 10, top: 300, width: 40, height: 20 } },
+          { text: "@", frame: { left: 15, top: 180, width: 20, height: 20 } },
+          // Receipt lines in the center column (x = 290..770 of 1000)
+          { text: "Lebanese House", frame: { left: 380, top: 160, width: 250, height: 28 } },
+          { text: "11/09/2024 21:18:12", frame: { left: 310, top: 310, width: 280, height: 25 } },
+          { text: "SALE AMOUNT £34.60", frame: { left: 300, top: 430, width: 460, height: 28 } },
+          { text: "TOTAL £34.60", frame: { left: 300, top: 470, width: 460, height: 32 } },
+          { text: "NO CARDHOLDER VERIFICATION", frame: { left: 320, top: 560, width: 420, height: 22 } },
+        ],
+      },
+    ];
+    const res = detectTextCropRect(blocks, 1000, 1000, 0);
+    expect(res).not.toBeNull();
+    expect(res.uprightRect.left).toBeGreaterThan(0.2);
+    expect(res.uprightRect.left).toBeLessThan(0.3);
+    expect(res.uprightRect.right).toBeGreaterThan(0.76);
+    expect(res.uprightRect.right).toBeLessThan(0.86);
   });
 });

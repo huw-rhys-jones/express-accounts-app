@@ -136,7 +136,7 @@ export default function AddReceiptSheet({
     onClose();
     // Small delay so the sheet close animation plays first
     setTimeout(() => {
-      navigation.navigate("ReceiptCrop", { images: assets, targetScreen });
+      navigation.navigate(targetScreen, { initialImages: assets });
     }, 220);
   };
 
@@ -170,7 +170,7 @@ export default function AddReceiptSheet({
     const shootLoop = async () => {
       const result = await ImagePicker.launchCamera({
         mediaType: "photo",
-        includeBase64: true,
+        includeBase64: false,
         quality: 0.9,
       });
 
@@ -204,7 +204,7 @@ export default function AddReceiptSheet({
     try {
       const result = await ImagePicker.launchImageLibrary({
         mediaType: "photo",
-        includeBase64: true,
+        includeBase64: false,
         selectionLimit: 0, // 0 = unlimited
         quality: 0.9,
       });

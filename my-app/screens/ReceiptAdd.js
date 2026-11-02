@@ -51,6 +51,7 @@ import {
   runOcrOnAssets,
   detectReceiptGroupsFromAssets,
 } from "../utils/ocrHelpers";
+import { autoAdjustImages } from "../utils/receiptImageProcessing";
 
 import { Colors, ReceiptStyles } from "../utils/sharedStyles";
 import {
@@ -123,7 +124,9 @@ const ReceiptAdd = ({ navigation, route }) => {
     "Opening image options…",
   );
   const [ocrProcessing, setOcrProcessing] = useState(false);
-  const [isDetecting, setIsDetecting] = useState(false);
+  const [isDetecting, setIsDetecting] = useState(
+    Boolean(route?.params?.initialImages?.length),
+  );
   const [receiptDrafts, setReceiptDrafts] = useState([]);
   const [currentReceiptIndex, setCurrentReceiptIndex] = useState(0);
   const [receiptReviewStates, setReceiptReviewStates] = useState([]);
@@ -212,8 +215,8 @@ const ReceiptAdd = ({ navigation, route }) => {
     };
   };
 
-  const openFullScreenImage = (item, annotationData = null) => {
-    setFullScreenImage({ uri: item.uri, annotationData });
+  const openFullScreenImage = (item, annotationData = null, index = 0) => {
+    setFullScreenImage({ uri: item.uri, item, index, annotationData });
   };
 
   const toggleAnnotateImages = async () => {
@@ -258,6 +261,7 @@ const ReceiptAdd = ({ navigation, route }) => {
   const [debugLastEvent, setDebugLastEvent] = useState("init");
 
   const flatListRef = useRef(null);
+  const imagePageScrollRefs = useRef({});
 
   const scrollRef = useRef(null);
   const isFormScrollActiveRef = useRef(false);
@@ -404,7 +408,14 @@ const ReceiptAdd = ({ navigation, route }) => {
         parsedDate && !Number.isNaN(parsedDate.getTime())
           ? parsedDate
           : new Date(),
-      images: (assets || []).map((asset) => ({ uri: asset.uri })),
+      images: (assets || []).map((asset) => ({
+        uri: asset.uri,
+        originalUri: asset.originalUri || asset.uri,
+        width: asset.width,
+        height: asset.height,
+        appliedRotation: asset.appliedRotation ?? asset.autoRotation ?? 0,
+        appliedRect: asset.appliedRect || asset.autoRect || null,
+      })),
       selectedCategory: getCanonicalCategoryName(analysis?.categoryName),
       label: "",
       vatAmountEdited: false,
@@ -677,9 +688,46 @@ const ReceiptAdd = ({ navigation, route }) => {
     }
     processedInitialImagesKeyRef.current = modeKey;
 
+    setIsDetecting(true);
+    setDetectProgress(0);
+    setDetectMode("auto");
     pendingDetectionAssetsRef.current = initialImages;
-    processInitialImages(initialImages, { preferLocal: false });
+
+    (async () => {
+      const { assets: adjusted, anyAdjusted, message } = await autoAdjustImages(initialImages, { kind: "receipt" });
+      pendingDetectionAssetsRef.current = adjusted;
+      await processInitialImages(adjusted, { preferLocal: false });
+      if (anyAdjusted) showToast(message);
+    })();
   }, [route?.params?.initialImages]);
+
+  const applyEditedReceiptImage = React.useCallback((editedImage, editedImageIndex = 0) => {
+    if (!editedImage) return;
+    setImages((prev) => {
+      const next = [...prev];
+      if (editedImageIndex >= 0 && editedImageIndex < next.length) {
+        next[editedImageIndex] = editedImage;
+      }
+      return next;
+    });
+    showToast("Photo updated");
+    runOcrOnAssets([editedImage])
+      .then((result) => {
+        if (result?.ocrFrames) {
+          setOcrFrames(result.ocrFrames);
+        }
+      })
+      .catch(() => {});
+  }, []);
+
+  // Handle edited image returned from ReceiptCropScreen
+  useEffect(() => {
+    const editedImage = route?.params?.editedImage;
+    if (!editedImage) return;
+    const editedImageIndex = route?.params?.editedImageIndex ?? 0;
+    applyEditedReceiptImage(editedImage, editedImageIndex);
+    navigation.setParams({ editedImage: undefined, editedImageIndex: undefined });
+  }, [route?.params?.editedImage, applyEditedReceiptImage]);
 
   useEffect(() => {
     if (flatListRef.current && imageContainerWidth > 0 && images.length > 0) {
@@ -1316,7 +1364,7 @@ const ReceiptAdd = ({ navigation, route }) => {
             const shootLoop = async () => {
               const result = await ImagePicker.launchCamera({
                 mediaType: "photo",
-                includeBase64: true,
+                includeBase64: false,
                 quality: 0.9,
               });
               if (!result.didCancel && result.assets?.length) {
@@ -1343,10 +1391,19 @@ const ReceiptAdd = ({ navigation, route }) => {
             await shootLoop();
 
             if (newAssets.length > 0) {
-              const uris = newAssets.map((a) => ({ uri: a.uri }));
-              setImages((prev) => [...prev, ...uris]);
               setOcrProcessing(true);
-              runOcrOnAssets(newAssets)
+              const { assets: adjusted, anyAdjusted, message } = await autoAdjustImages(newAssets, { kind: "receipt" });
+              if (anyAdjusted) showToast(message);
+              const uris = adjusted.map((a) => ({
+                uri: a.uri,
+                originalUri: a.originalUri || a.uri,
+                width: a.width,
+                height: a.height,
+                appliedRotation: a.appliedRotation ?? a.autoRotation ?? 0,
+                appliedRect: a.appliedRect || a.autoRect || null,
+              }));
+              setImages((prev) => [...prev, ...uris]);
+              runOcrOnAssets(adjusted)
                 .then((result) => applyOcrResult(result))
                 .catch((e) => console.error("❌ OCR error:", e))
                 .finally(() => setOcrProcessing(false));
@@ -1358,15 +1415,24 @@ const ReceiptAdd = ({ navigation, route }) => {
           onPress: async () => {
             const result = await ImagePicker.launchImageLibrary({
               mediaType: "photo",
-              includeBase64: true,
+              includeBase64: false,
               selectionLimit: 0,
               quality: 0.9,
             });
             if (!result.didCancel && result.assets?.length) {
-              const uris = result.assets.map((a) => ({ uri: a.uri }));
-              setImages((prev) => [...prev, ...uris]);
               setOcrProcessing(true);
-              runOcrOnAssets(result.assets)
+              const { assets: adjusted, anyAdjusted, message } = await autoAdjustImages(result.assets, { kind: "receipt" });
+              if (anyAdjusted) showToast(message);
+              const uris = adjusted.map((a) => ({
+                uri: a.uri,
+                originalUri: a.originalUri || a.uri,
+                width: a.width,
+                height: a.height,
+                appliedRotation: a.appliedRotation ?? a.autoRotation ?? 0,
+                appliedRect: a.appliedRect || a.autoRect || null,
+              }));
+              setImages((prev) => [...prev, ...uris]);
+              runOcrOnAssets(adjusted)
                 .then((r) => applyOcrResult(r))
                 .catch((e) => console.error("❌ OCR error:", e))
                 .finally(() => setOcrProcessing(false));
@@ -1489,13 +1555,67 @@ const ReceiptAdd = ({ navigation, route }) => {
     );
   };
 
-  const getImageCanvasHeight = (annotationData) => {
+  const getImageCanvasHeight = (annotationData, item) => {
     const containerH = imageContainerHeight || heroHeight;
-    const naturalW = annotationData?.imageW;
-    const naturalH = annotationData?.imageH;
+    const naturalW = annotationData?.imageW || item?.width;
+    const naturalH = annotationData?.imageH || item?.height;
     if (!imageContainerWidth || !naturalW || !naturalH) return containerH;
     return Math.max(containerH, imageContainerWidth * (naturalH / naturalW));
   };
+
+  const focusScrollOnAnnotations = React.useCallback(
+    (index, annotationData, item, animated = true) => {
+      const scroller = imagePageScrollRefs.current?.[index];
+      if (!scroller || !annotationData || !imageContainerWidth) return;
+      const containerH = imageContainerHeight || heroHeight;
+      const naturalW = annotationData.imageW || item?.width;
+      const naturalH = annotationData.imageH || item?.height;
+      if (!naturalW || !naturalH || !containerH) return;
+
+      const activeFrames = ANNOTATIONS.filter(
+        ({ key }) => (key !== "vat" || vatAnnotationsEnabled) && annotationData[key],
+      ).map(({ key }) => annotationData[key]);
+      if (!activeFrames.length) return;
+
+      const canvasH = Math.max(containerH, imageContainerWidth * (naturalH / naturalW));
+      if (canvasH <= containerH + 2) return;
+
+      const scale = Math.min(imageContainerWidth / naturalW, canvasH / naturalH);
+      const renderedH = naturalH * scale;
+      const offsetY = (canvasH - renderedH) / 2;
+
+      const minTop = Math.min(...activeFrames.map((f) => f.top * scale + offsetY - 28));
+      const maxBottom = Math.max(
+        ...activeFrames.map((f) => (f.top + f.height) * scale + offsetY + 16),
+      );
+
+      let idealY;
+      if (maxBottom - minTop <= containerH) {
+        idealY = (minTop + maxBottom) / 2 - containerH / 2;
+      } else if (annotationData.amount) {
+        const amt = annotationData.amount;
+        const amtCenter = (amt.top + amt.height / 2) * scale + offsetY;
+        idealY = amtCenter - containerH / 2;
+      } else {
+        idealY = minTop - 16;
+      }
+
+      const maxScrollY = Math.max(0, canvasH - containerH);
+      const targetY = Math.max(0, Math.min(idealY, maxScrollY));
+      scroller.scrollTo?.({ y: targetY, animated });
+    },
+    [heroHeight, imageContainerHeight, imageContainerWidth, vatAnnotationsEnabled],
+  );
+
+  useEffect(() => {
+    if (!ocrFrames || !images.length || !imageContainerWidth) return;
+    const idx = images.findIndex((img) => img.uri === ocrFrames.imageUri);
+    if (idx < 0) return;
+    const timer = setTimeout(() => {
+      focusScrollOnAnnotations(idx, ocrFrames, images[idx], true);
+    }, 80);
+    return () => clearTimeout(timer);
+  }, [ocrFrames, images, imageContainerWidth, focusScrollOnAnnotations]);
 
   const renderAnnotatedZoomImage = (props) => {
     const annotationData = annotateImages ? fullScreenImage?.annotationData : null;
@@ -1576,11 +1696,14 @@ const ReceiptAdd = ({ navigation, route }) => {
             {images.map((item, index) => {
               const annotationData = ocrFrames?.imageUri === item.uri ? ocrFrames : null;
               const isAnnotated = annotateImages && annotationData;
-              const canvasHeight = getImageCanvasHeight(annotationData);
+              const canvasHeight = getImageCanvasHeight(annotationData, item);
               return (
                 <View key={String(index)} style={{ position: "relative" }}>
                   <View style={[localStyles.carouselPage, { width: imageContainerWidth }]}> 
                     <ScrollView
+                      ref={(el) => {
+                        imagePageScrollRefs.current[index] = el;
+                      }}
                       nestedScrollEnabled
                       showsVerticalScrollIndicator={false}
                       style={localStyles.imagePageScroller}
@@ -1588,13 +1711,18 @@ const ReceiptAdd = ({ navigation, route }) => {
                     >
                       <TouchableOpacity
                         activeOpacity={0.9}
-                        onPress={() => openFullScreenImage(item, annotationData)}
+                        onPress={() => openFullScreenImage(item, annotationData, index)}
                         style={{ width: imageContainerWidth, height: canvasHeight, position: "relative" }}
                       >
                         <Image
                           source={{ uri: item.uri }}
                           style={{ width: imageContainerWidth, height: canvasHeight }}
                           resizeMode="contain"
+                          onLoad={() => {
+                            if (annotationData) {
+                              focusScrollOnAnnotations(index, annotationData, item, false);
+                            }
+                          }}
                         />
                         {isAnnotated ? (
                           <View style={localStyles.annotationOverlay} pointerEvents="none">
@@ -1615,22 +1743,21 @@ const ReceiptAdd = ({ navigation, route }) => {
                       </TouchableOpacity>
                     </ScrollView>
                   </View>
-                  {route?.params?.sourceImages?.length ? (
-                    <TouchableOpacity
-                      style={[localStyles.carouselRemoveBtn, { right: 44 }]}
-                      accessibilityRole="button"
-                      accessibilityLabel="Rotate or crop photo"
-                      onPress={() =>
-                        navigation.navigate("ReceiptCrop", {
-                          images: route.params.sourceImages,
-                          targetScreen: route.name,
-                          reedit: true,
-                        })
-                      }
-                    >
-                      <Ionicons name="crop-outline" size={17} color="#fff" />
-                    </TouchableOpacity>
-                  ) : null}
+                  <TouchableOpacity
+                    style={[localStyles.carouselRemoveBtn, { right: 44 }]}
+                    accessibilityRole="button"
+                    accessibilityLabel="Rotate or crop photo"
+                    onPress={() =>
+                      navigation.navigate("ReceiptCrop", {
+                        image: images[index],
+                        imageIndex: index,
+                        targetScreen: route.name,
+                        onApply: applyEditedReceiptImage,
+                      })
+                    }
+                  >
+                    <Ionicons name="crop-outline" size={17} color="#fff" />
+                  </TouchableOpacity>
                   <TouchableOpacity
                     style={localStyles.carouselRemoveBtn}
                     accessibilityRole="button"
@@ -2601,6 +2728,27 @@ const ReceiptAdd = ({ navigation, route }) => {
             onPress={() => setFullScreenImage(null)}
           >
             <Text style={ReceiptStyles.fullScreenCloseText}>✕</Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={[
+              ReceiptStyles.fullScreenEditButton,
+              !fullScreenImage?.annotationData ? { right: 16 } : null,
+            ]}
+            accessibilityRole="button"
+            accessibilityLabel="Rotate or crop photo"
+            onPress={() => {
+              const idx = fullScreenImage?.index ?? 0;
+              const targetImg = images[idx] || fullScreenImage?.item || { uri: fullScreenImage?.uri };
+              setFullScreenImage(null);
+              navigation.navigate("ReceiptCrop", {
+                image: targetImg,
+                imageIndex: idx,
+                targetScreen: route.name,
+                onApply: applyEditedReceiptImage,
+              });
+            }}
+          >
+            <Ionicons name="crop-outline" size={20} color="#fff" />
           </TouchableOpacity>
           {fullScreenImage?.annotationData ? (
             <TouchableOpacity

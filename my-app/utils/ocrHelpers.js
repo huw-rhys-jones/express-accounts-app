@@ -706,6 +706,9 @@ export function useReceiptOcr({ computeVat }) {
 
       const newImages = response.assets.map((asset, idx) => ({
         uri: idx === 0 ? filePath : asset.uri,
+        originalUri: asset.originalUri || (idx === 0 ? filePath : asset.uri),
+        appliedRotation: asset.appliedRotation ?? asset.autoRotation ?? 0,
+        appliedRect: asset.appliedRect || asset.autoRect || null,
       }));
       setImages((prev) => [...prev, ...newImages]);
 

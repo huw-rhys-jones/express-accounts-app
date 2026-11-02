@@ -27,6 +27,7 @@ export function normalizeStoredAttachments(attachments = []) {
         return {
           id: `stored-${index}`,
           url: attachment,
+          originalUri: attachment,
           name: `attachment-${index + 1}`,
           mimeType: null,
           kind: "image",
@@ -39,6 +40,7 @@ export function normalizeStoredAttachments(attachments = []) {
         kind: attachment.kind || (attachment.mimeType === "application/pdf" ? "pdf" : "image"),
         url: attachment.url || null,
         localUri: attachment.localUri || null,
+        originalUri: attachment.originalUri || attachment.localUri || attachment.url || null,
       };
     })
     .filter(Boolean);
@@ -48,6 +50,11 @@ export function createImageAttachment(asset) {
   return {
     id: asset?.uri || `image-${Date.now()}-${randomSuffix()}`,
     localUri: asset?.uri,
+    originalUri: asset?.originalUri || asset?.uri || null,
+    width: asset?.width || null,
+    height: asset?.height || null,
+    appliedRotation: asset?.appliedRotation ?? asset?.autoRotation ?? 0,
+    appliedRect: asset?.appliedRect || asset?.autoRect || null,
     name: asset?.fileName || `image-${Date.now()}-${randomSuffix()}.jpg`,
     mimeType: asset?.type || "image/jpeg",
     kind: "image",
