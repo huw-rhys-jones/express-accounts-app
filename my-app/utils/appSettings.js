@@ -1,5 +1,6 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
-import { auth } from "../firebaseConfig";
+import { doc, getDoc, serverTimestamp, setDoc } from "firebase/firestore";
+import { auth, db } from "../firebaseConfig";
 
 const RECEIPT_FILTER_KEY = "@settings:receiptFilterKey";
 const INCOME_FILTER_KEY = "@settings:incomeFilterKey";
@@ -140,31 +141,178 @@ export async function setMileageOptionSeen() {
 }
 
 // ── Vehicles ──────────────────────────────────────────────────────────────────
-// Keys are scoped per user so each account has its own vehicle list on the device.
-function vehiclesKey() {
-  const uid = auth.currentUser?.uid;
-  return uid ? `@settings:vehicles:${uid}` : "@settings:vehicles";
-}
+// Vehicles belong to the USER, not the device: the source of truth is the
+// `vehicles` array on the Firestore document users/{uid}. AsyncStorage is kept
+// only as an offline cache (and as the origin of the one-off migration of
+// vehicles that were previously held on the device alone).
+const VEHICLES_CLOUD_TIMEOUT_MS = 6000;
+const VEHICLES_MEMORY_TTL_MS = 30000;
+
+const vehiclesCacheKey = (uid) => (uid ? `@settings:vehicles:${uid}` : "@settings:vehicles");
+const vehiclesPendingKey = (uid) => `@settings:vehiclesPendingSync:${uid}`;
+const vehiclesMigratedKey = (uid) => `@settings:vehiclesCloudMigrated:${uid}`;
+
+let vehiclesMemory = { uid: null, vehicles: null, fetchedAt: 0 };
+let vehiclesInFlight = { uid: null, promise: null };
 
 function lastUsedVehicleKey() {
   const uid = auth.currentUser?.uid;
   return uid ? `@settings:lastUsedVehicleId:${uid}` : "@settings:lastUsedVehicleId";
 }
 
-export async function getVehicles() {
+function withTimeout(promise, ms) {
+  let timer;
+  const timeout = new Promise((_, reject) => {
+    timer = setTimeout(() => reject(new Error("Timed out")), ms);
+  });
+  return Promise.race([promise, timeout]).finally(() => clearTimeout(timer));
+}
+
+// Firestore rejects `undefined` values, so strip them before writing.
+function cleanVehicles(vehicles) {
+  return JSON.parse(JSON.stringify(Array.isArray(vehicles) ? vehicles : []));
+}
+
+async function readCachedVehicles(uid) {
   try {
-    const raw = await AsyncStorage.getItem(vehiclesKey());
-    return raw ? JSON.parse(raw) : [];
+    const raw = await AsyncStorage.getItem(vehiclesCacheKey(uid));
+    const parsed = raw ? JSON.parse(raw) : [];
+    return Array.isArray(parsed) ? parsed : [];
   } catch {
     return [];
   }
 }
 
-export async function setVehicles(vehicles) {
+async function writeCachedVehicles(uid, vehicles) {
   try {
-    await AsyncStorage.setItem(vehiclesKey(), JSON.stringify(vehicles));
+    await AsyncStorage.setItem(vehiclesCacheKey(uid), JSON.stringify(vehicles));
   } catch {
-    // ignore
+    // cache only – ignore
+  }
+}
+
+async function pushVehiclesToCloud(uid, vehicles) {
+  await withTimeout(
+    setDoc(
+      doc(db, "users", uid),
+      { vehicles: cleanVehicles(vehicles), updatedAt: serverTimestamp() },
+      { merge: true }
+    ),
+    VEHICLES_CLOUD_TIMEOUT_MS
+  );
+  await AsyncStorage.removeItem(vehiclesPendingKey(uid)).catch(() => {});
+}
+
+const vehicleIdentity = (vehicle) =>
+  String(vehicle?.registrationNumber || vehicle?.id || "").trim().toUpperCase();
+
+// Union by registration number (cloud entries win), used once per device when
+// vehicles that only existed on this device need to join the account's list.
+function mergeVehicles(cloudVehicles, deviceVehicles) {
+  const merged = [...cloudVehicles];
+  const known = new Set(cloudVehicles.map(vehicleIdentity));
+  deviceVehicles.forEach((vehicle) => {
+    const identity = vehicleIdentity(vehicle);
+    if (identity && !known.has(identity)) {
+      known.add(identity);
+      merged.push(vehicle);
+    }
+  });
+  return merged;
+}
+
+async function loadVehiclesForUser(uid) {
+  const cached = await readCachedVehicles(uid);
+
+  try {
+    // A previous save that never reached the cloud (e.g. offline) wins.
+    const pending = await AsyncStorage.getItem(vehiclesPendingKey(uid));
+    if (pending === "1") {
+      await pushVehiclesToCloud(uid, cached);
+      await AsyncStorage.setItem(vehiclesMigratedKey(uid), "1").catch(() => {});
+      return cached;
+    }
+
+    const snap = await withTimeout(getDoc(doc(db, "users", uid)), VEHICLES_CLOUD_TIMEOUT_MS);
+    const cloud = snap.exists() ? snap.data()?.vehicles : undefined;
+    const migrated = (await AsyncStorage.getItem(vehiclesMigratedKey(uid)).catch(() => null)) === "1";
+
+    if (Array.isArray(cloud)) {
+      let result = cloud;
+      if (!migrated && cached.length) {
+        // First sync on this device: keep any vehicles that only lived here.
+        result = mergeVehicles(cloud, cached);
+        if (result.length !== cloud.length) {
+          await pushVehiclesToCloud(uid, result);
+        }
+      }
+      await AsyncStorage.setItem(vehiclesMigratedKey(uid), "1").catch(() => {});
+      await writeCachedVehicles(uid, result);
+      return result;
+    }
+
+    // Nothing in the cloud yet: upload the vehicles this device already had.
+    if (cached.length) {
+      await pushVehiclesToCloud(uid, cached);
+    }
+    await AsyncStorage.setItem(vehiclesMigratedKey(uid), "1").catch(() => {});
+    return cached;
+  } catch (error) {
+    // Offline / timeout / permission problem: fall back to the local cache.
+    console.warn("[vehicles] cloud sync unavailable, using cached list", error?.message || error);
+    return cached;
+  }
+}
+
+export async function getVehicles() {
+  const uid = auth.currentUser?.uid;
+  if (!uid) return readCachedVehicles(null);
+
+  if (
+    vehiclesMemory.uid === uid &&
+    vehiclesMemory.vehicles &&
+    Date.now() - vehiclesMemory.fetchedAt < VEHICLES_MEMORY_TTL_MS
+  ) {
+    return vehiclesMemory.vehicles;
+  }
+
+  if (vehiclesInFlight.uid === uid && vehiclesInFlight.promise) {
+    return vehiclesInFlight.promise;
+  }
+
+  const promise = loadVehiclesForUser(uid)
+    .then((vehicles) => {
+      vehiclesMemory = { uid, vehicles, fetchedAt: Date.now() };
+      return vehicles;
+    })
+    .finally(() => {
+      if (vehiclesInFlight.promise === promise) {
+        vehiclesInFlight = { uid: null, promise: null };
+      }
+    });
+  vehiclesInFlight = { uid, promise };
+  return promise;
+}
+
+export async function setVehicles(vehicles) {
+  const uid = auth.currentUser?.uid;
+  const next = cleanVehicles(vehicles);
+
+  if (!uid) {
+    await writeCachedVehicles(null, next);
+    return;
+  }
+
+  vehiclesMemory = { uid, vehicles: next, fetchedAt: Date.now() };
+  await writeCachedVehicles(uid, next);
+
+  try {
+    await pushVehiclesToCloud(uid, next);
+    await AsyncStorage.setItem(vehiclesMigratedKey(uid), "1").catch(() => {});
+  } catch (error) {
+    // Keep the change locally and retry on the next getVehicles().
+    console.warn("[vehicles] could not save to cloud, will retry", error?.message || error);
+    await AsyncStorage.setItem(vehiclesPendingKey(uid), "1").catch(() => {});
   }
 }
 
