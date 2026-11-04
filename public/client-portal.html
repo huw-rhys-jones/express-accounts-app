@@ -405,6 +405,8 @@
     .client-card.green { background: linear-gradient(135deg, #1b6a36, #2d964f); }
     .client-card.blue { background: linear-gradient(135deg, #2e86de, #51a4f6); }
     .client-card.purple { background: linear-gradient(135deg, #553399, #6b46c1); }
+    .client-card.grey { background: linear-gradient(135deg, #64748b, #94a3b8); }
+    .chip.grey { background: #64748b; color: #fff; }
 
     .card-message {
       margin-top: 6px;
@@ -577,15 +579,87 @@
       color: #fff;
     }
 
-    .messages-empty-state {
-      padding: 32px 16px;
-      text-align: center;
-      color: #6b7280;
-      font-size: 0.92rem;
-      background: #f9fafb;
+    .client-info-section {
+      background: #f8fafc;
+      border: 1px solid #e2e8f0;
       border-radius: 12px;
-      border: 1px dashed #d1d5db;
+      padding: 16px 18px;
+      margin-bottom: 16px;
     }
+    .client-info-section h4 {
+      margin: 0 0 12px;
+      font-family: "Space Grotesk", sans-serif;
+      font-size: 0.96rem;
+      color: #1e293b;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .client-info-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+      gap: 12px 16px;
+    }
+    .client-info-row {
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+    }
+    .client-info-row label {
+      font-size: 0.82rem;
+      font-weight: 600;
+      color: #64748b;
+    }
+    .client-info-row input, .client-info-row select {
+      padding: 8px 12px;
+      border: 1px solid #cbd5e1;
+      border-radius: 8px;
+      font-size: 0.9rem;
+      background: #fff;
+    }
+    .vehicles-table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 0.88rem;
+      background: #fff;
+      border-radius: 8px;
+      overflow: hidden;
+      border: 1px solid #e2e8f0;
+    }
+    .vehicles-table th, .vehicles-table td {
+      padding: 8px 12px;
+      text-align: left;
+      border-bottom: 1px solid #f1f5f9;
+    }
+    .vehicles-table th {
+      background: #f1f5f9;
+      color: #475569;
+      font-weight: 700;
+    }
+    .avatar-preview-wrap {
+      display: flex;
+      align-items: center;
+      gap: 14px;
+      margin-bottom: 12px;
+    }
+    .avatar-preview-img {
+      width: 64px;
+      height: 64px;
+      border-radius: 50%;
+      object-fit: cover;
+      border: 2px solid #cbd5e1;
+      background: #e2e8f0;
+    }
+    .status-pill {
+      display: inline-block;
+      padding: 3px 10px;
+      border-radius: 999px;
+      font-size: 0.78rem;
+      font-weight: 700;
+    }
+    .status-pill.verified { background: #dcfce7; color: #15803d; }
+    .status-pill.free { background: #f1f5f9; color: #475569; }
+    .status-pill.pending { background: #fef9c3; color: #854d0e; }
     .join-view-tabs { display: flex; gap: 8px; padding: 12px 20px 0; border-bottom: 1px solid #d8e4f0; }
     .join-view-tab { border: 0; border-bottom: 3px solid transparent; background: transparent; color: #4f6780; padding: 9px 12px; font: inherit; font-weight: 700; cursor: pointer; }
     .join-view-tab.active { color: #17324d; border-bottom-color: var(--purple); }
@@ -1177,12 +1251,13 @@
           <div id="loginInfo" class="subtext"></div>
         </div>
         <div class="actions" style="margin:0">
+          <button id="preapproveClientBtn" type="button" class="btn-primary" style="background:#0f766e;border-color:#0f766e">✚ Pre-Approve Client</button>
           <button id="notifyAllUsersBtn" type="button" class="btn-secondary">Notify All Users</button>
           <button id="logOutBtn" type="button" class="btn-secondary">Log out</button>
         </div>
       </div>
 
-      <div class="tabbar">
+      <div class="tabbar" style="display:none">
         <button id="activityTabBtn" type="button" class="tab-button active">Client Activity</button>
         <button id="managementTabBtn" type="button" class="tab-button">Client Management</button>
         <button id="adminTabBtn" type="button" class="tab-button">Client Admin</button>
@@ -1196,6 +1271,7 @@
         <button type="button" class="chip green" data-status-filter="green">Green: Marked as processed</button>
         <button type="button" class="chip blue" data-status-filter="blue">Blue: No new uploads</button>
         <button type="button" class="chip purple" data-status-filter="purple">Purple: Join Requests</button>
+        <button type="button" class="chip grey" data-status-filter="grey">Grey: Pre-Approved (Pending Sign-Up)</button>
       </div>
 
       <div class="controls">
@@ -1372,13 +1448,13 @@
 
         <div class="modal-tabs" role="tablist" aria-label="Client data">
           <button id="receiptsDataTabBtn" class="modal-tab active" type="button" role="tab" aria-selected="true">Receipts / Expenses</button>
-          <button id="hmrcDataTabBtn" class="modal-tab" type="button" role="tab" aria-selected="false">HMRC Summary</button>
           <button id="incomeDataTabBtn" class="modal-tab" type="button" role="tab" aria-selected="false">Income</button>
+          <button id="clientInfoDataTabBtn" class="modal-tab" type="button" role="tab" aria-selected="false">Client Info</button>
           <button id="messagesDataTabBtn" class="modal-tab" type="button" role="tab" aria-selected="false">Messages <span id="messagesTabBadge" class="tab-badge" style="display:none">0</span></button>
         </div>
         <div id="receiptsDataPanel" class="modal-data-panel active" role="tabpanel"></div>
-        <div id="hmrcDataPanel" class="modal-data-panel" role="tabpanel"></div>
         <div id="incomeDataPanel" class="modal-data-panel" role="tabpanel"></div>
+        <div id="clientInfoDataPanel" class="modal-data-panel" role="tabpanel"></div>
         <div id="messagesDataPanel" class="modal-data-panel" role="tabpanel"></div>
 
         <div id="exportDownloadOptions">
@@ -1391,9 +1467,6 @@
             Include only checked items in download
           </label>
         </div>
-          <input id="includeOnlyCheckedInput" type="checkbox" />
-          Include only checked items in download
-        </label>
 
         <div class="modal-actions">
           <button id="resetNotifyBtn" type="button" class="btn-success" style="display:none">Mark As Processed</button>
@@ -1480,6 +1553,61 @@
     </div>
   </div>
 
+  <!-- Modal for Pre-approving a Client -->
+  <div id="preapproveModal" class="modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="preapproveModalTitle">
+    <div class="modal" style="width:min(520px, 96vw)">
+      <div class="modal-head">
+        <div class="modal-title-row">
+          <span id="preapproveModalTitle">Pre-Approve New Client</span>
+          <button id="closePreapproveModalBtn" type="button" class="btn-secondary">Close</button>
+        </div>
+      </div>
+      <div class="modal-body">
+        <p class="hint" style="margin-top:0">
+          Pre-approved clients are automatically verified as paying clients upon sign up and will skip email verification entirely.
+        </p>
+        <div class="stack">
+          <label for="preapproveNameInput">Client / Business Name</label>
+          <input id="preapproveNameInput" type="text" placeholder="e.g. Jane Smith" />
+        </div>
+        <div class="stack" style="margin-top:10px">
+          <label for="preapproveEmailInput">Client Email Address</label>
+          <input id="preapproveEmailInput" type="email" placeholder="e.g. jane@example.com" />
+        </div>
+        <div id="preapproveStatus" class="statusline" style="margin-top:8px"></div>
+        <div class="modal-actions" style="margin-top:14px">
+          <button id="cancelPreapproveBtn" type="button" class="btn-secondary">Cancel</button>
+          <button id="savePreapproveBtn" type="button" class="btn-primary">Pre-Approve Client</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Modal for Viewing a Pre-approved (Invited) Client -->
+  <div id="invitedClientModal" class="modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="invitedModalTitle">
+    <div class="modal" style="width:min(520px, 96vw)">
+      <div class="modal-head">
+        <div class="modal-title-row">
+          <span id="invitedModalTitle">Pre-Approved Client</span>
+          <span class="status-pill pending">Pending Sign-Up</span>
+        </div>
+      </div>
+      <div class="modal-body">
+        <div class="client-info-section">
+          <h4>Client Details</h4>
+          <p><strong>Name:</strong> <span id="invitedClientName">—</span></p>
+          <p><strong>Email:</strong> <span id="invitedClientEmail">—</span></p>
+          <p><strong>Pre-approved on:</strong> <span id="invitedClientDate">—</span></p>
+        </div>
+        <div class="modal-actions" style="margin-top:14px">
+          <button id="sendInviteEmailBtn" type="button" class="btn-primary">✉ Email Invitation</button>
+          <button id="deletePreapproveBtn" type="button" class="btn-secondary" style="color:#b42318;border-color:#f5c6c3">Cancel Pre-Approval</button>
+          <button id="closeInvitedModalBtn" type="button" class="btn-secondary">Close</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
   <script>
     const ALLOWED_EMAILS = ["info@caistec.com", "info@expressaccounts.biz", "catrin@expressaccounts.biz"];
 
@@ -1550,14 +1678,32 @@
     const confirmDateBtn = document.getElementById("confirmDateBtn");
     const resetNotifyBtn = document.getElementById("resetNotifyBtn");
     const vatStatusBadge = document.getElementById("vatStatusBadge");
+    const preapproveClientBtn = document.getElementById("preapproveClientBtn");
+    const preapproveModal = document.getElementById("preapproveModal");
+    const closePreapproveModalBtn = document.getElementById("closePreapproveModalBtn");
+    const cancelPreapproveBtn = document.getElementById("cancelPreapproveBtn");
+    const savePreapproveBtn = document.getElementById("savePreapproveBtn");
+    const preapproveNameInput = document.getElementById("preapproveNameInput");
+    const preapproveEmailInput = document.getElementById("preapproveEmailInput");
+    const preapproveStatus = document.getElementById("preapproveStatus");
+
+    const invitedClientModal = document.getElementById("invitedClientModal");
+    const closeInvitedModalBtn = document.getElementById("closeInvitedModalBtn");
+    const deletePreapproveBtn = document.getElementById("deletePreapproveBtn");
+    const sendInviteEmailBtn = document.getElementById("sendInviteEmailBtn");
+    const invitedClientName = document.getElementById("invitedClientName");
+    const invitedClientEmail = document.getElementById("invitedClientEmail");
+    const invitedClientDate = document.getElementById("invitedClientDate");
+    let selectedInvitedClient = null;
+
     const receiptsDataTabBtn = document.getElementById("receiptsDataTabBtn");
-    const hmrcDataTabBtn = document.getElementById("hmrcDataTabBtn");
     const incomeDataTabBtn = document.getElementById("incomeDataTabBtn");
+    const clientInfoDataTabBtn = document.getElementById("clientInfoDataTabBtn");
     const messagesDataTabBtn = document.getElementById("messagesDataTabBtn");
     const messagesTabBadge = document.getElementById("messagesTabBadge");
     const receiptsDataPanel = document.getElementById("receiptsDataPanel");
-    const hmrcDataPanel = document.getElementById("hmrcDataPanel");
     const incomeDataPanel = document.getElementById("incomeDataPanel");
+    const clientInfoDataPanel = document.getElementById("clientInfoDataPanel");
     const messagesDataPanel = document.getElementById("messagesDataPanel");
     const exportPeriodControls = document.getElementById("exportPeriodControls");
     const exportDownloadOptions = document.getElementById("exportDownloadOptions");
@@ -3040,7 +3186,6 @@
         "<div>" + escHtml(formatSnapshotSummary(snapshot)) + "</div>" +
         "<div style='margin-top:6px; font-size:0.82rem;'>VAT: " + (isVatRegistered ? "Registered" : "Not registered") + "</div>";
       receiptsDataPanel.innerHTML = buildReceiptSummaryHtml(snapshot.filteredReceipts, isVatRegistered);
-      hmrcDataPanel.innerHTML = buildHmrcSummaryHtml(snapshot.filteredReceipts);
       incomeDataPanel.innerHTML = buildIncomeSummaryHtml(snapshot.filteredIncome, isVatRegistered);
       wireDataRows();
     }
@@ -3067,6 +3212,9 @@
     }
 
     function getClientStatus(user, loginDate) {
+      if (user && user.isPreapprovedOnly) {
+        return { key: "grey", label: "Pre-Approved (Pending Sign-Up)" };
+      }
       if (isOpenJoinRequest(user)) {
         return { key: "purple", label: user.joinRequest.status === "waitlist" ? "Join Request (Waitlist)" : "Pending Review" };
       }
@@ -3273,12 +3421,21 @@
 
     async function loadRealData() {
       try {
-        const [receiptsSnapshot, incomeSnapshot, bankStatementsSnapshot, usersSnapshot] = await Promise.all([
+        const [receiptsSnapshot, incomeSnapshot, bankStatementsSnapshot, usersSnapshot, preapprovedSnapshot] = await Promise.all([
           db.collection("receipts").get(),
           db.collection("income").get(),
           db.collection("bankStatements").get(),
           db.collection("users").get(),
+          db.collection("preapprovedClients").get().catch(() => ({ forEach: () => {} })),
         ]);
+
+        const preapprovedList = [];
+        preapprovedSnapshot.forEach((snap) => {
+          const d = snap.data() || {};
+          if (d.status !== "claimed") {
+            preapprovedList.push({ id: snap.id, ...d });
+          }
+        });
 
         const profilesById = {};
         usersSnapshot.forEach((snap) => {
@@ -3363,7 +3520,7 @@
           ...Object.keys(profilesById),
         ]));
 
-        return userIds.map((uid) => {
+        const regularUsers = userIds.map((uid) => {
           const profile = profilesById[uid] || {};
           const baseName = profile.name || profile.displayName || profile.email || ("Unknown user (" + uid.slice(0, 6) + ")");
           const verifiedName = profile.verifiedName || null;
@@ -3376,6 +3533,9 @@
             isVerified,
             isVatRegistered: profile.isVatRegistered === true ||
               profile.taxProfile?.vat?.isRegistered === true,
+            vatRegistrationNumber: profile.taxProfile?.vat?.registrationNumber || "",
+            profileImageUrl: profile.profileImageUrl || "",
+            vehicles: Array.isArray(profile.vehicles) ? profile.vehicles : [],
             email: profile.email || null,
             verificationCode: profile.verificationCode || null,
             notifyAccountant: profile.notifyAccountant || false,
@@ -3390,8 +3550,34 @@
             receiptsLoading: false,
             income: incomeByUser[uid] || [],
             bankStatements: bankStatementsByUser[uid] || [],
+            isPreapprovedOnly: false,
           };
         });
+
+        const activeEmails = new Set(regularUsers.map((u) => (u.email || "").toLowerCase()).filter(Boolean));
+        const preapprovedCards = preapprovedList
+          .filter((p) => !activeEmails.has((p.emailLower || p.email || p.id || "").toLowerCase()))
+          .map((p) => {
+            const email = (p.email || p.emailLower || p.id || "").toLowerCase();
+            const name = p.name || email;
+            const createdAt = toJsDate(p.createdAt);
+            return {
+              id: "preapproved_" + email,
+              name,
+              originalName: name,
+              email,
+              isPreapprovedOnly: true,
+              isVerified: false,
+              preapprovedAt: createdAt,
+              receipts: [],
+              income: [],
+              bankStatements: [],
+              receiptsLoaded: true,
+              receiptsLoading: false,
+            };
+          });
+
+        return [...regularUsers, ...preapprovedCards];
       } catch (error) {
         console.error("Firestore load error:", error);
         statusLine.textContent = "Error loading data: " + error.message;
@@ -3413,12 +3599,13 @@
 
         if (text && !nameMatch && !emailMatch) return false;
         const isJoin = isOpenJoinRequest(user);
-        if (!isJoin && verificationScope === "verified-only" && !user.isVerified) return false;
-        if (!isJoin && verificationScope === "general-only" && user.isVerified) return false;
+        const isPreapproved = user.isPreapprovedOnly;
+        if (!isJoin && !isPreapproved && verificationScope === "verified-only" && !user.isVerified) return false;
+        if (!isJoin && !isPreapproved && verificationScope === "general-only" && user.isVerified) return false;
         if (Number.isFinite(minReceipts) && minReceipts > 0 && receiptsCount != null && receiptsCount < minReceipts) return false;
         if (activeStatusFilters.size > 0 && !activeStatusFilters.has(status.key)) return false;
 
-        if (!isJoin && selectedBoardPeriod && selectedBoardPeriod.startDate && selectedBoardPeriod.endDate) {
+        if (!isJoin && !isPreapproved && selectedBoardPeriod && selectedBoardPeriod.startDate && selectedBoardPeriod.endDate) {
           const latestMs = userLatestUploadMs(user);
           if (!latestMs) return false;
           const latestDate = toLocalYmd(new Date(latestMs));
@@ -3472,6 +3659,18 @@
             "<small>" + escHtml(user.joinRequest.businessType || "") + "</small>" +
             "<small>Submitted: " + (submitted ? submitted.toLocaleDateString() : "—") + "</small>";
           button.addEventListener("click", () => openJoinModal(user));
+          clientBoard.appendChild(button);
+          return;
+        }
+        if (status.key === "grey") {
+          const invitedDate = user.preapprovedAt ? user.preapprovedAt.toLocaleDateString() : "Recently";
+          button.innerHTML =
+            "<div class='card-title-row'><strong>" + escHtml(user.name) + "</strong>" +
+            "<span class='verified-badge' style='background:#cbd5e1;color:#1e293b'>Pre-Approved</span></div>" +
+            (user.email ? "<small style='opacity:0.8'>" + escHtml(user.email) + "</small>" : "") +
+            "<small>Status: Pending App Sign-Up</small>" +
+            "<small>Invited: " + invitedDate + "</small>";
+          button.addEventListener("click", () => openInvitedModal(user));
           clientBoard.appendChild(button);
           return;
         }
@@ -4071,6 +4270,7 @@
         (returnToJoinReview ? "Client data: " : "Export data for ") + user.name;
 
       renderClientMessagesTab(user);
+      renderClientInfoTab(user);
 
       dateModal.style.display = "flex";
 
@@ -4704,28 +4904,29 @@
 
     function setModalDataTab(tabName) {
       const showingReceipts = tabName === "receipts";
-      const showingHmrc = tabName === "hmrc";
       const showingIncome = tabName === "income";
+      const showingClientInfo = tabName === "clientInfo";
       const showingMessages = tabName === "messages";
 
       receiptsDataTabBtn.classList.toggle("active", showingReceipts);
-      hmrcDataTabBtn.classList.toggle("active", showingHmrc);
       incomeDataTabBtn.classList.toggle("active", showingIncome);
+      if (clientInfoDataTabBtn) clientInfoDataTabBtn.classList.toggle("active", showingClientInfo);
       if (messagesDataTabBtn) messagesDataTabBtn.classList.toggle("active", showingMessages);
 
       receiptsDataTabBtn.setAttribute("aria-selected", String(showingReceipts));
-      hmrcDataTabBtn.setAttribute("aria-selected", String(showingHmrc));
       incomeDataTabBtn.setAttribute("aria-selected", String(showingIncome));
+      if (clientInfoDataTabBtn) clientInfoDataTabBtn.setAttribute("aria-selected", String(showingClientInfo));
       if (messagesDataTabBtn) messagesDataTabBtn.setAttribute("aria-selected", String(showingMessages));
 
       receiptsDataPanel.classList.toggle("active", showingReceipts);
-      hmrcDataPanel.classList.toggle("active", showingHmrc);
       incomeDataPanel.classList.toggle("active", showingIncome);
+      if (clientInfoDataPanel) clientInfoDataPanel.classList.toggle("active", showingClientInfo);
       if (messagesDataPanel) messagesDataPanel.classList.toggle("active", showingMessages);
 
-      if (exportPeriodControls) exportPeriodControls.style.display = showingMessages ? "none" : "";
-      if (exportDownloadOptions) exportDownloadOptions.style.display = showingMessages ? "none" : "";
-      if (confirmDateBtn) confirmDateBtn.style.display = showingMessages ? "none" : "";
+      const isExportTab = showingReceipts || showingIncome;
+      if (exportPeriodControls) exportPeriodControls.style.display = isExportTab ? "" : "none";
+      if (exportDownloadOptions) exportDownloadOptions.style.display = isExportTab ? "" : "none";
+      if (confirmDateBtn) confirmDateBtn.style.display = isExportTab ? "" : "none";
     }
 
     function renderClientMessagesTab(user) {
@@ -4837,12 +5038,382 @@
       });
     }
 
+    function renderClientInfoTab(user) {
+      if (!clientInfoDataPanel) return;
+      if (!user) {
+        clientInfoDataPanel.innerHTML = '<div class="messages-empty-state">No client selected.</div>';
+        return;
+      }
+
+      const avatarSrc = user.profileImageUrl || "";
+      const avatarHtml = avatarSrc
+        ? `<img src="${escHtml(avatarSrc)}" alt="${escHtml(user.name)}" class="avatar-preview-img" onerror="this.src='data:image/svg+xml;utf8,<svg xmlns=\\'http://www.w3.org/2000/svg\\' width=\\'64\\' height=\\'64\\' viewBox=\\'0 0 24 24\\' fill=\\'%2394a3b8\\'><path d=\\'M12 12c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm0 2c-2.67 0-8 1.34-8 4v2h16v-2c0-2.66-5.33-4-8-4z\\'/></svg>'"/>`
+        : `<div class="avatar-preview-img" style="display:flex;align-items:center;justify-content:center;background:#e2e8f0;color:#64748b;font-weight:700;font-size:1.4rem;">${escHtml((user.name || "U").charAt(0).toUpperCase())}</div>`;
+
+      const isVerified = user.isVerified === true;
+      const statusPillClass = isVerified ? "verified" : "free";
+      const statusPillText = isVerified ? "★ Verified Client" : "Standard / Free Tier";
+
+      const vatRegistered = user.isVatRegistered === true;
+      const vatPillClass = vatRegistered ? "verified" : "free";
+      const vatPillText = vatRegistered ? "Registered" : "Not Registered";
+      const vatNumber = user.vatRegistrationNumber ? escHtml(user.vatRegistrationNumber) : "—";
+
+      const vehicles = Array.isArray(user.vehicles) ? user.vehicles : [];
+      let vehiclesTableHtml = "";
+      if (vehicles.length === 0) {
+        vehiclesTableHtml = '<p style="color:#64748b;font-size:0.9rem;margin:4px 0;">No vehicles registered by client yet.</p>';
+      } else {
+        const rowsHtml = vehicles.map((v) => {
+          const reg = escHtml(v.registrationNumber || v.id || "—");
+          const makeModel = escHtml([v.make, v.model].filter(Boolean).join(" ") || "—");
+          const engine = escHtml(v.engineSize || "—");
+          const fuel = escHtml(v.fuelType || "—");
+          const rate = v.ratePerMile != null ? escHtml(String(v.ratePerMile) + "p / mi") : "—";
+          return `<tr>
+            <td><strong>${reg}</strong></td>
+            <td>${makeModel}</td>
+            <td>${engine}</td>
+            <td>${fuel}</td>
+            <td>${rate}</td>
+          </tr>`;
+        }).join("");
+
+        vehiclesTableHtml = `
+          <table class="vehicles-table">
+            <thead>
+              <tr>
+                <th>Registration</th>
+                <th>Make & Model</th>
+                <th>Engine</th>
+                <th>Fuel</th>
+                <th>Rate</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${rowsHtml}
+            </tbody>
+          </table>
+        `;
+      }
+
+      let joinHtml = "";
+      if (user.joinRequest) {
+        const jr = user.joinRequest;
+        const submitted = toJsDate(jr.submittedAt);
+        joinHtml = `
+          <div class="client-info-section">
+            <h4>Join Request Details</h4>
+            <div class="client-info-grid">
+              <div class="client-info-row">
+                <label>Business Type</label>
+                <div style="font-weight:600;color:#1e293b;">${escHtml(jr.businessType || "—")}</div>
+              </div>
+              <div class="client-info-row">
+                <label>Contact Phone</label>
+                <div style="font-weight:600;color:#1e293b;">${escHtml(jr.contactPhone || "—")}</div>
+              </div>
+              <div class="client-info-row">
+                <label>Status</label>
+                <div style="font-weight:600;color:#1e293b;"><span class="status-pill pending">${escHtml(jr.status || "—")}</span></div>
+              </div>
+              <div class="client-info-row">
+                <label>Submitted Date</label>
+                <div style="font-weight:600;color:#1e293b;">${submitted ? submitted.toLocaleDateString() : "—"}</div>
+              </div>
+            </div>
+            ${jr.additionalInfo ? `<div style="margin-top:8px;font-size:0.88rem;color:#475569;"><strong>Notes:</strong> ${escHtml(jr.additionalInfo)}</div>` : ""}
+          </div>
+        `;
+      }
+
+      clientInfoDataPanel.innerHTML = `
+        <div class="client-info-section">
+          <h4>
+            <span>Profile & Account</span>
+            <span id="clientModalStatusPill" class="status-pill ${statusPillClass}">${statusPillText}</span>
+          </h4>
+          <div class="avatar-preview-wrap">
+            ${avatarHtml}
+            <div>
+              <div style="font-weight:700;font-size:1.05rem;color:#1e293b;" id="clientModalHeadingName">${escHtml(user.name)}</div>
+              <div style="font-size:0.85rem;color:#64748b;" id="clientModalHeadingEmail">${escHtml(user.email || "No email on record")}</div>
+            </div>
+          </div>
+          <div class="client-info-grid">
+            <div class="client-info-row">
+              <label for="clientEditNameInput">Client / Business Name</label>
+              <input id="clientEditNameInput" type="text" value="${escHtml(user.originalName || user.name || "")}" />
+            </div>
+            <div class="client-info-row">
+              <label for="clientEditEmailInput">Email Address</label>
+              <input id="clientEditEmailInput" type="email" value="${escHtml(user.email || "")}" />
+            </div>
+          </div>
+          <div style="margin-top:14px;display:flex;flex-wrap:wrap;gap:10px;align-items:center;">
+            <button id="saveClientInfoBtn" type="button" class="btn-primary" style="padding:7px 16px;font-size:0.88rem;">Save Profile Changes</button>
+            <button id="toggleVerificationBtn" type="button" class="btn-secondary" style="padding:7px 16px;font-size:0.88rem;">
+              ${isVerified ? "Revoke Verification" : "Mark as Verified Client"}
+            </button>
+            <span id="clientInfoSaveStatus" style="font-size:0.85rem;color:#0f766e;font-weight:600;"></span>
+          </div>
+        </div>
+
+        <div class="client-info-section">
+          <h4>VAT Registration</h4>
+          <div class="client-info-grid">
+            <div class="client-info-row">
+              <label>VAT Status</label>
+              <div><span class="status-pill ${vatPillClass}">${vatPillText}</span></div>
+            </div>
+            <div class="client-info-row">
+              <label>VAT Registration Number</label>
+              <div style="font-weight:600;font-size:0.95rem;color:#1e293b;">${vatNumber}</div>
+            </div>
+          </div>
+        </div>
+
+        <div class="client-info-section">
+          <h4>Registered Vehicles (${vehicles.length})</h4>
+          <div style="margin-top:6px;">
+            ${vehiclesTableHtml}
+          </div>
+        </div>
+
+        ${joinHtml}
+      `;
+
+      // Wire save button
+      const saveBtn = document.getElementById("saveClientInfoBtn");
+      const toggleVerBtn = document.getElementById("toggleVerificationBtn");
+      const statusSpan = document.getElementById("clientInfoSaveStatus");
+
+      saveBtn.addEventListener("click", async () => {
+        const nextName = (document.getElementById("clientEditNameInput").value || "").trim();
+        const nextEmail = (document.getElementById("clientEditEmailInput").value || "").trim().toLowerCase();
+
+        if (nextEmail && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(nextEmail)) {
+          statusSpan.style.color = "#b42318";
+          statusSpan.textContent = "Please enter a valid email address.";
+          return;
+        }
+
+        saveBtn.disabled = true;
+        statusSpan.style.color = "#475569";
+        statusSpan.textContent = "Saving...";
+
+        try {
+          const userRef = db.collection("users").doc(user.id);
+          const updates = {
+            name: nextName || user.name || "",
+            displayName: nextName || user.name || "",
+            email: nextEmail || user.email || null,
+            updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
+          };
+          if (user.isVerified) {
+            updates.verifiedName = nextName || user.name || "";
+          }
+
+          await userRef.set(updates, { merge: true });
+
+          user.name = nextName || user.name;
+          user.originalName = nextName || user.originalName;
+          user.email = nextEmail || user.email;
+          if (user.isVerified) {
+            user.verifiedName = nextName;
+          }
+
+          document.getElementById("clientModalHeadingName").textContent = user.name;
+          document.getElementById("clientModalHeadingEmail").textContent = user.email || "No email on record";
+          document.getElementById("modalTitle").textContent =
+            (returnToJoinReview ? "Client data: " : "Export data for ") + user.name;
+
+          statusSpan.style.color = "#0f766e";
+          statusSpan.textContent = "Profile saved successfully!";
+          renderBoardFromCurrentData();
+          setTimeout(() => { if (statusSpan) statusSpan.textContent = ""; }, 3000);
+        } catch (err) {
+          console.error("Save error:", err);
+          statusSpan.style.color = "#b42318";
+          statusSpan.textContent = "Error saving: " + err.message;
+        } finally {
+          saveBtn.disabled = false;
+        }
+      });
+
+      // Wire toggle verification
+      toggleVerBtn.addEventListener("click", async () => {
+        const newStatus = !user.isVerified;
+        const confirmMsg = newStatus
+          ? `Mark ${user.name} as a Verified Client?`
+          : `Revoke client verification for ${user.name}? They will revert to standard/free tier.`;
+        if (!confirm(confirmMsg)) return;
+
+        toggleVerBtn.disabled = true;
+        statusSpan.style.color = "#475569";
+        statusSpan.textContent = "Updating status...";
+
+        try {
+          const userRef = db.collection("users").doc(user.id);
+          const updates = {
+            verificationStatus: newStatus ? "verified" : "standard",
+            hideAds: newStatus ? true : false,
+            updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
+          };
+          if (newStatus) {
+            updates.verifiedName = user.name;
+          } else {
+            updates.verifiedName = null;
+          }
+
+          await userRef.set(updates, { merge: true });
+          user.isVerified = newStatus;
+          user.verifiedName = newStatus ? user.name : null;
+
+          renderClientInfoTab(user);
+          renderBoardFromCurrentData();
+        } catch (err) {
+          console.error("Verification error:", err);
+          statusSpan.style.color = "#b42318";
+          statusSpan.textContent = "Error updating verification: " + err.message;
+          toggleVerBtn.disabled = false;
+        }
+      });
+    }
+
+    function openPreapproveModal() {
+      preapproveNameInput.value = "";
+      preapproveEmailInput.value = "";
+      preapproveStatus.textContent = "";
+      preapproveModal.style.display = "flex";
+      preapproveNameInput.focus();
+    }
+
+    function closePreapproveModal() {
+      preapproveModal.style.display = "none";
+      preapproveStatus.textContent = "";
+    }
+
+    async function handleSavePreapprove() {
+      const name = (preapproveNameInput.value || "").trim();
+      const email = (preapproveEmailInput.value || "").trim().toLowerCase();
+
+      if (!name) {
+        preapproveStatus.style.color = "#b42318";
+        preapproveStatus.textContent = "Please enter the client's name or business name.";
+        return;
+      }
+      if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+        preapproveStatus.style.color = "#b42318";
+        preapproveStatus.textContent = "Please enter a valid email address.";
+        return;
+      }
+
+      // Check if user already exists in liveUsers
+      const existingActive = (liveUsers || []).find((u) => !u.isPreapprovedOnly && (u.email || "").toLowerCase() === email);
+      if (existingActive) {
+        preapproveStatus.style.color = "#b42318";
+        preapproveStatus.textContent = `A client with this email (${email}) already has an account (${existingActive.name}).`;
+        return;
+      }
+
+      savePreapproveBtn.disabled = true;
+      preapproveStatus.style.color = "#475569";
+      preapproveStatus.textContent = "Pre-approving client...";
+
+      try {
+        await db.collection("preapprovedClients").doc(email).set({
+          name: name,
+          email: email,
+          emailLower: email,
+          createdAt: firebase.firestore.FieldValue.serverTimestamp(),
+          createdByUid: currentAccountant ? currentAccountant.uid : null,
+          status: "invited",
+        });
+
+        closePreapproveModal();
+        await reloadAndRenderBoard();
+      } catch (err) {
+        console.error("Preapprove error:", err);
+        preapproveStatus.style.color = "#b42318";
+        preapproveStatus.textContent = "Error saving pre-approval: " + err.message;
+      } finally {
+        savePreapproveBtn.disabled = false;
+      }
+    }
+
+    function openInvitedModal(user) {
+      selectedInvitedClient = user;
+      invitedClientName.textContent = user.name || "—";
+      invitedClientEmail.textContent = user.email || "—";
+      invitedClientDate.textContent = user.preapprovedAt ? user.preapprovedAt.toLocaleDateString() : "Recently";
+      invitedClientModal.style.display = "flex";
+    }
+
+    function closeInvitedModal() {
+      invitedClientModal.style.display = "none";
+      selectedInvitedClient = null;
+    }
+
+    function buildPreapproveMailtoLink(name, email) {
+      const subject = encodeURIComponent("Welcome to Express Accounts");
+      const body = encodeURIComponent(
+        `Hi ${name},\n\n` +
+        `You have been invited and pre-approved to use Express Accounts with your accountant.\n\n` +
+        `Download the app from the App Store or Google Play and sign up using this email address (${email}) to automatically get started without needing any codes or verification steps!\n\n` +
+        `App Store: https://apps.apple.com/us/app/express-accounts/id6749811043\n` +
+        `Google Play: https://play.google.com/store/apps/details?id=com.caistec.expressaccounts\n\n` +
+        `Warmest regards,\nThe Express Accounts Team`
+      );
+      return "mailto:" + encodeURIComponent(email) + "?subject=" + subject + "&body=" + body;
+    }
+
     receiptsDataTabBtn.addEventListener("click", () => setModalDataTab("receipts"));
-    hmrcDataTabBtn.addEventListener("click", () => setModalDataTab("hmrc"));
     incomeDataTabBtn.addEventListener("click", () => setModalDataTab("income"));
+    if (clientInfoDataTabBtn) {
+      clientInfoDataTabBtn.addEventListener("click", () => setModalDataTab("clientInfo"));
+    }
     if (messagesDataTabBtn) {
       messagesDataTabBtn.addEventListener("click", () => setModalDataTab("messages"));
     }
+
+    preapproveClientBtn.addEventListener("click", openPreapproveModal);
+    closePreapproveModalBtn.addEventListener("click", closePreapproveModal);
+    cancelPreapproveBtn.addEventListener("click", closePreapproveModal);
+    savePreapproveBtn.addEventListener("click", handleSavePreapprove);
+    preapproveModal.addEventListener("click", (e) => {
+      if (e.target === preapproveModal) closePreapproveModal();
+    });
+
+    closeInvitedModalBtn.addEventListener("click", closeInvitedModal);
+    invitedClientModal.addEventListener("click", (e) => {
+      if (e.target === invitedClientModal) closeInvitedModal();
+    });
+
+    sendInviteEmailBtn.addEventListener("click", () => {
+      if (!selectedInvitedClient || !selectedInvitedClient.email) return;
+      window.location.href = buildPreapproveMailtoLink(selectedInvitedClient.name, selectedInvitedClient.email);
+    });
+
+    deletePreapproveBtn.addEventListener("click", async () => {
+      if (!selectedInvitedClient || !selectedInvitedClient.email) return;
+      const clientName = selectedInvitedClient.name || selectedInvitedClient.email;
+      if (!confirm(`Are you sure you want to cancel the pre-approval for ${clientName}?`)) {
+        return;
+      }
+      deletePreapproveBtn.disabled = true;
+      try {
+        const email = selectedInvitedClient.email.toLowerCase();
+        await db.collection("preapprovedClients").doc(email).delete();
+        closeInvitedModal();
+        await reloadAndRenderBoard();
+      } catch (err) {
+        console.error("Cancel pre-approval error:", err);
+        alert("Could not cancel pre-approval: " + err.message);
+      } finally {
+        deletePreapproveBtn.disabled = false;
+      }
+    });
     previousReceiptBtn.addEventListener("click", () => navigateReceipt(-1));
     nextReceiptBtn.addEventListener("click", () => navigateReceipt(1));
     receiptResetBtn.addEventListener("click", resetReceiptEdits);

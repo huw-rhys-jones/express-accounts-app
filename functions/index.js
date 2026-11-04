@@ -170,16 +170,56 @@ async function applyVerificationCodeByEmail({userId, emailLower, markEmailVerifi
     return {matched: false, reason: "missing-email"};
   }
 
+  const db = admin.firestore();
+  const nowTs = admin.firestore.FieldValue.serverTimestamp();
+  const userRef = db.collection("users").doc(normalizedUserId);
+
+  // 1. Check code-less preapprovedClients collection first
+  const preapprovedDoc = await db.collection("preapprovedClients").doc(normalizedEmail).get();
+  if (preapprovedDoc.exists) {
+    const preapprovedData = preapprovedDoc.data() || {};
+    const verifiedName = String(preapprovedData.name || "").trim() || "Verified client";
+
+    await db.runTransaction(async (tx) => {
+      const userSnap = await tx.get(userRef);
+      const userData = userSnap.exists ? (userSnap.data() || {}) : {};
+
+      tx.set(userRef, {
+        verificationStatus: "verified",
+        verifiedName,
+        hideAds: true,
+        emailVerified: markEmailVerified ? true : Boolean(userData.emailVerified),
+        updatedAt: nowTs,
+      }, {merge: true});
+
+      tx.set(preapprovedDoc.ref, {
+        status: "claimed",
+        claimedByUid: normalizedUserId,
+        claimedAt: nowTs,
+        updatedAt: nowTs,
+      }, {merge: true});
+    });
+
+    if (markEmailVerified) {
+      await admin.auth().updateUser(normalizedUserId, {emailVerified: true}).catch(() => {});
+    }
+
+    return {
+      matched: true,
+      preapproved: true,
+      code: null,
+    };
+  }
+
+  // 2. Legacy fallback: check VerificationCodes
   const matchedCode = await findVerificationCodeByEmail(normalizedEmail, normalizedUserId);
   if (!matchedCode) {
     return {matched: false, reason: "no-code-for-email"};
   }
 
-  const userRef = admin.firestore().collection("users").doc(normalizedUserId);
-  const codeRef = admin.firestore().collection("VerificationCodes").doc(matchedCode.id);
-  const nowTs = admin.firestore.FieldValue.serverTimestamp();
+  const codeRef = db.collection("VerificationCodes").doc(matchedCode.id);
 
-  await admin.firestore().runTransaction(async (tx) => {
+  await db.runTransaction(async (tx) => {
     const [userSnap, codeSnap] = await Promise.all([tx.get(userRef), tx.get(codeRef)]);
     const userData = userSnap.exists ? (userSnap.data() || {}) : {};
     const codeData = codeSnap.exists ? (codeSnap.data() || {}) : {};
@@ -188,7 +228,7 @@ async function applyVerificationCodeByEmail({userId, emailLower, markEmailVerifi
     const reassignedFromUserId = usedBy && usedBy !== normalizedUserId ? usedBy : "";
 
     if (reassignedFromUserId) {
-      const oldUserRef = admin.firestore().collection("users").doc(reassignedFromUserId);
+      const oldUserRef = db.collection("users").doc(reassignedFromUserId);
       const oldUserSnap = await tx.get(oldUserRef);
       if (oldUserSnap.exists) {
         const oldUserData = oldUserSnap.data() || {};
@@ -229,7 +269,7 @@ async function applyVerificationCodeByEmail({userId, emailLower, markEmailVerifi
   });
 
   if (markEmailVerified) {
-    await admin.auth().updateUser(normalizedUserId, {emailVerified: true});
+    await admin.auth().updateUser(normalizedUserId, {emailVerified: true}).catch(() => {});
   }
 
   return {

@@ -99,5 +99,10 @@ service cloud.firestore {
       allow create, delete: if isAccountant();
       allow update: if isAccountant() || isVerificationCodeClaim();
     }
+
+    // Pre-approved clients (code-less email pre-approvals managed by accountants)
+    match /preapprovedClients/{clientId} {
+      allow read, write: if isAccountant();
+    }
   }
 }
