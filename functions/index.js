@@ -2075,3 +2075,151 @@ exports.checkPortalNotificationReceipts = onRequest({region: OCR_FUNCTION_REGION
     }
   });
 });
+
+exports.portalDeleteClientAccount = onRequest({region: OCR_FUNCTION_REGION, timeoutSeconds: 180}, (req, res) => {
+  cors(req, res, async () => {
+    if (req.method === "OPTIONS") {
+      return res.status(204).send("");
+    }
+
+    if (req.method !== "POST") {
+      return res.status(405).json({error: "Method Not Allowed"});
+    }
+
+    try {
+      const decodedToken = await verifyAuthenticatedUser(req);
+      if (!isAccountantEmail(decodedToken.email)) {
+        return res.status(403).json({error: "Only authorised accountants can delete client accounts."});
+      }
+
+      const body = req.body || {};
+      const targetUserId = String(body.userId || "").trim();
+      const requestedEmail = normalizeEmail(body.email || "");
+
+      if (!targetUserId) {
+        return res.status(400).json({error: "Missing target userId."});
+      }
+
+      if (targetUserId === decodedToken.uid || (requestedEmail && isAccountantEmail(requestedEmail))) {
+        return res.status(400).json({error: "Cannot delete an accountant account."});
+      }
+
+      const db = admin.firestore();
+      const userSnap = await db.collection("users").doc(targetUserId).get();
+      const userData = userSnap.exists ? (userSnap.data() || {}) : {};
+      const targetEmail = normalizeEmail(userData.email || requestedEmail || "");
+
+      if (targetEmail && isAccountantEmail(targetEmail)) {
+        return res.status(400).json({error: "Cannot delete an accountant account."});
+      }
+
+      // 1. Query all user-owned Firestore documents first (so we can also inspect attachment paths)
+      const [
+        receiptsSnap,
+        incomeSnap,
+        bankStatementsSnap,
+        challengesSnap,
+        pushTokensSnap,
+        claimedPreapprovedSnap,
+        usedCodesSnap,
+      ] = await Promise.all([
+        db.collection("receipts").where("userId", "==", targetUserId).get(),
+        db.collection("income").where("userId", "==", targetUserId).get(),
+        db.collection("bankStatements").where("userId", "==", targetUserId).get(),
+        db.collection("twoFactorChallenges").where("userId", "==", targetUserId).get(),
+        db.collection("users").doc(targetUserId).collection("pushTokens").get(),
+        db.collection("preapprovedClients").where("claimedByUid", "==", targetUserId).get(),
+        db.collection("VerificationCodes").where("usedBy", "==", targetUserId).get(),
+      ]);
+
+      // 2. Delete all Firebase Storage objects under the user's prefixes across bucket candidates
+      const bucketCandidates = buildBucketCandidates("");
+      const storagePrefixes = [
+        `receipts/${targetUserId}/`,
+        `income/${targetUserId}/`,
+        `bankStatements/${targetUserId}/`,
+        `joinRequests/${targetUserId}/`,
+        `profilePictures/${targetUserId}/`,
+      ];
+
+      for (const bucketName of bucketCandidates) {
+        try {
+          const bucket = admin.storage().bucket(bucketName);
+          await Promise.all(
+              storagePrefixes.map((prefix) =>
+                bucket.deleteFiles({prefix, force: true}).catch(() => {}),
+              ),
+          );
+        } catch (storageErr) {
+          console.warn("Storage cleanup warning for bucket", bucketName, storageErr.message);
+        }
+      }
+
+      // 3. Delete all Firestore documents in chunked batches (max 400 ops per batch)
+      const refsToDelete = [];
+      receiptsSnap.forEach((docSnap) => refsToDelete.push(docSnap.ref));
+      incomeSnap.forEach((docSnap) => refsToDelete.push(docSnap.ref));
+      bankStatementsSnap.forEach((docSnap) => refsToDelete.push(docSnap.ref));
+      challengesSnap.forEach((docSnap) => refsToDelete.push(docSnap.ref));
+      pushTokensSnap.forEach((docSnap) => refsToDelete.push(docSnap.ref));
+      claimedPreapprovedSnap.forEach((docSnap) => refsToDelete.push(docSnap.ref));
+      usedCodesSnap.forEach((docSnap) => refsToDelete.push(docSnap.ref));
+      if (targetEmail) {
+        refsToDelete.push(db.collection("preapprovedClients").doc(targetEmail));
+      }
+      refsToDelete.push(db.collection("users").doc(targetUserId));
+
+      const uniqueRefsMap = new Map();
+      refsToDelete.forEach((ref) => uniqueRefsMap.set(ref.path, ref));
+      const uniqueRefs = Array.from(uniqueRefsMap.values());
+
+      const CHUNK_SIZE = 400;
+      for (let i = 0; i < uniqueRefs.length; i += CHUNK_SIZE) {
+        const chunk = uniqueRefs.slice(i, i + CHUNK_SIZE);
+        const batch = db.batch();
+        chunk.forEach((ref) => batch.delete(ref));
+        await batch.commit();
+      }
+
+      // 4. Delete Firebase Auth account
+      let authDeleted = false;
+      try {
+        await admin.auth().deleteUser(targetUserId);
+        authDeleted = true;
+      } catch (authErr) {
+        if (authErr && authErr.code !== "auth/user-not-found") {
+          console.warn("deleteUser by uid warning:", authErr.message);
+        }
+      }
+
+      if (!authDeleted && targetEmail) {
+        try {
+          const authUser = await admin.auth().getUserByEmail(targetEmail);
+          if (authUser && authUser.uid && !isAccountantEmail(authUser.email)) {
+            await admin.auth().deleteUser(authUser.uid);
+            authDeleted = true;
+          }
+        } catch (_) {
+          // User not found in Auth by email either; ignore
+        }
+      }
+
+      return res.status(200).json({
+        ok: true,
+        userId: targetUserId,
+        deletedCounts: {
+          receipts: receiptsSnap.size,
+          income: incomeSnap.size,
+          bankStatements: bankStatementsSnap.size,
+        },
+        authDeleted,
+      });
+    } catch (error) {
+      console.error("portalDeleteClientAccount failed", error);
+      const statusCode = error && error.statusCode ? error.statusCode : 500;
+      return res.status(statusCode).json({
+        error: statusCode === 401 ? error.message : "Could not delete client account and data.",
+      });
+    }
+  });
+});

@@ -519,16 +519,14 @@ export default function App() {
     }
   };
 
-  // Fallback auto-verification on sign-in: if a matching verification code exists
-  // for this email, link it automatically and mark email as verified.
+  // Auto-verification on sign-in: if a matching pre-approval or verification code
+  // exists for this email (password, Google, or Apple), link it automatically.
   useEffect(() => {
     const activeUser = auth.currentUser || user;
     if (!activeUser) return;
-    if (!isPasswordProviderUser(activeUser)) return;
 
-    const profileEmailVerified = Boolean(userProfile && userProfile.emailVerified);
     const profileClientVerified = String((userProfile && userProfile.verificationStatus) || "").toLowerCase() === "verified";
-    if (activeUser.emailVerified || profileEmailVerified || profileClientVerified) return;
+    if (profileClientVerified) return;
 
     const attemptKey = `${activeUser.uid}:${activeUser.email || ""}`;
     if (autoAssignAttemptRef.current === attemptKey) return;

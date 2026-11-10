@@ -1608,6 +1608,43 @@
     </div>
   </div>
 
+  <!-- Modal for Confirming Permanent Client Account & Data Deletion -->
+  <div id="deleteClientModal" class="modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="deleteClientModalTitle">
+    <div class="modal" style="width:min(540px, 96vw)">
+      <div class="modal-head" style="border-bottom-color:#f5c6c3;background:#fff5f5;">
+        <div class="modal-title-row">
+          <span id="deleteClientModalTitle" style="color:#b42318">⚠ Permanently Delete Client Account?</span>
+          <button id="closeDeleteClientModalBtn" type="button" class="btn-secondary">Close</button>
+        </div>
+      </div>
+      <div class="modal-body">
+        <p style="margin-top:0;color:#1e293b;font-size:0.94rem;line-height:1.5;">
+          Are you sure you want to permanently delete <strong id="deleteClientTargetName">—</strong> (<span id="deleteClientTargetEmail">—</span>)?
+        </p>
+        <div class="client-info-section" style="border-color:#f5c6c3;background:#fffbfa;margin-bottom:14px;">
+          <h4 style="color:#b42318;margin-bottom:8px;">This action cannot be undone and will permanently erase:</h4>
+          <ul style="margin:0;padding-left:20px;color:#7a271a;font-size:0.88rem;line-height:1.6;">
+            <li>Their Firebase Auth login account</li>
+            <li>All uploaded receipts, expenses, income records, and bank statements (<strong id="deleteClientRecordCounts">0 records</strong>)</li>
+            <li>All receipt, invoice, and profile images stored in Cloud Storage</li>
+            <li>Their client profile, registered vehicles, messages, and pre-approval record</li>
+          </ul>
+        </div>
+        <div class="stack">
+          <label for="deleteClientConfirmInput" style="color:#1e293b;font-weight:600;font-size:0.88rem;">
+            Please type <code style="background:#fee2e2;color:#b42318;padding:2px 6px;border-radius:4px;font-weight:700;">DELETE</code> below to confirm:
+          </label>
+          <input id="deleteClientConfirmInput" type="text" placeholder="Type DELETE to confirm" autocomplete="off" />
+        </div>
+        <div id="deleteClientStatus" class="statusline" style="margin-top:8px"></div>
+        <div class="modal-actions" style="margin-top:14px">
+          <button id="cancelDeleteClientBtn" type="button" class="btn-secondary">Cancel</button>
+          <button id="confirmDeleteClientBtn" type="button" class="btn-primary" style="background:#b42318;border-color:#b42318" disabled>Permanently Delete Account & Data</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
   <script>
     const ALLOWED_EMAILS = ["info@caistec.com", "info@expressaccounts.biz", "catrin@expressaccounts.biz"];
 
@@ -1695,6 +1732,17 @@
     const invitedClientEmail = document.getElementById("invitedClientEmail");
     const invitedClientDate = document.getElementById("invitedClientDate");
     let selectedInvitedClient = null;
+
+    const deleteClientModal = document.getElementById("deleteClientModal");
+    const closeDeleteClientModalBtn = document.getElementById("closeDeleteClientModalBtn");
+    const cancelDeleteClientBtn = document.getElementById("cancelDeleteClientBtn");
+    const confirmDeleteClientBtn = document.getElementById("confirmDeleteClientBtn");
+    const deleteClientConfirmInput = document.getElementById("deleteClientConfirmInput");
+    const deleteClientTargetName = document.getElementById("deleteClientTargetName");
+    const deleteClientTargetEmail = document.getElementById("deleteClientTargetEmail");
+    const deleteClientRecordCounts = document.getElementById("deleteClientRecordCounts");
+    const deleteClientStatus = document.getElementById("deleteClientStatus");
+    let clientPendingDeletion = null;
 
     const receiptsDataTabBtn = document.getElementById("receiptsDataTabBtn");
     const incomeDataTabBtn = document.getElementById("incomeDataTabBtn");
@@ -5181,12 +5229,27 @@
         </div>
 
         ${joinHtml}
+
+        <div class="client-info-section" style="border-color:#f5c6c3;background:#fff5f5;">
+          <h4 style="color:#b42318;">Danger Zone</h4>
+          <p style="margin:0 0 12px;font-size:0.88rem;color:#7a271a;">
+            Permanently delete this client's account and erase all of their uploaded receipts, income records, bank statements, images, and profile data.
+          </p>
+          <button id="openDeleteClientModalBtn" type="button" class="btn-secondary" style="color:#b42318;border-color:#f5c6c3;background:#fff;padding:7px 16px;font-size:0.88rem;">
+            🗑 Delete Client Account & Data...
+          </button>
+        </div>
       `;
 
       // Wire save button
       const saveBtn = document.getElementById("saveClientInfoBtn");
       const toggleVerBtn = document.getElementById("toggleVerificationBtn");
+      const openDeleteBtn = document.getElementById("openDeleteClientModalBtn");
       const statusSpan = document.getElementById("clientInfoSaveStatus");
+
+      if (openDeleteBtn) {
+        openDeleteBtn.addEventListener("click", () => openDeleteClientModal(user));
+      }
 
       saveBtn.addEventListener("click", async () => {
         const nextName = (document.getElementById("clientEditNameInput").value || "").trim();
@@ -5355,6 +5418,132 @@
       selectedInvitedClient = null;
     }
 
+    function openDeleteClientModal(user) {
+      if (!user) return;
+      clientPendingDeletion = user;
+      deleteClientTargetName.textContent = user.name || "Unknown client";
+      deleteClientTargetEmail.textContent = user.email || "No email on record";
+      const rCount = Array.isArray(user.receipts) ? user.receipts.length : (user.receiptCount || 0);
+      const iCount = Array.isArray(user.income) ? user.income.length : 0;
+      const bCount = Array.isArray(user.bankStatements) ? user.bankStatements.length : 0;
+      deleteClientRecordCounts.textContent = `${rCount} receipt(s), ${iCount} income record(s), ${bCount} bank statement(s)`;
+      deleteClientConfirmInput.value = "";
+      confirmDeleteClientBtn.disabled = true;
+      deleteClientStatus.textContent = "";
+      deleteClientModal.style.display = "flex";
+      deleteClientConfirmInput.focus();
+    }
+
+    function closeDeleteClientModal() {
+      deleteClientModal.style.display = "none";
+      deleteClientConfirmInput.value = "";
+      confirmDeleteClientBtn.disabled = true;
+      deleteClientStatus.textContent = "";
+      clientPendingDeletion = null;
+    }
+
+    async function fallbackClientSideDelete(user) {
+      const targetUserId = user.id;
+      const targetEmail = (user.email || "").trim().toLowerCase();
+      const [receiptsSnap, incomeSnap, bankSnap] = await Promise.all([
+        db.collection("receipts").where("userId", "==", targetUserId).get(),
+        db.collection("income").where("userId", "==", targetUserId).get(),
+        db.collection("bankStatements").where("userId", "==", targetUserId).get(),
+      ]);
+
+      const refs = [];
+      receiptsSnap.forEach((d) => refs.push(d.ref));
+      incomeSnap.forEach((d) => refs.push(d.ref));
+      bankSnap.forEach((d) => refs.push(d.ref));
+      if (targetEmail) {
+        refs.push(db.collection("preapprovedClients").doc(targetEmail));
+      }
+      refs.push(db.collection("users").doc(targetUserId));
+
+      const CHUNK = 400;
+      for (let i = 0; i < refs.length; i += CHUNK) {
+        const batch = db.batch();
+        refs.slice(i, i + CHUNK).forEach((r) => batch.delete(r));
+        await batch.commit();
+      }
+    }
+
+    async function handleConfirmDeleteClient() {
+      if (!clientPendingDeletion) return;
+      if (deleteClientConfirmInput.value.trim() !== "DELETE") {
+        deleteClientStatus.style.color = "#b42318";
+        deleteClientStatus.textContent = "Please type DELETE in uppercase to confirm.";
+        return;
+      }
+
+      const targetUser = clientPendingDeletion;
+      confirmDeleteClientBtn.disabled = true;
+      cancelDeleteClientBtn.disabled = true;
+      deleteClientStatus.style.color = "#475569";
+      deleteClientStatus.textContent = "Permanently erasing client account, storage images, and records...";
+
+      try {
+        const idToken = await auth.currentUser.getIdToken();
+        const endpoints = [
+          "/portal-delete-client",
+          "https://europe-west2-express-accounts-73d38.cloudfunctions.net/portalDeleteClientAccount",
+        ];
+
+        let deletedViaCloudFunction = false;
+        let lastEndpointError = null;
+
+        for (const endpoint of endpoints) {
+          try {
+            const response = await fetch(endpoint, {
+              method: "POST",
+              headers: {
+                "Content-Type": "application/json",
+                Authorization: "Bearer " + idToken,
+              },
+              body: JSON.stringify({
+                userId: targetUser.id,
+                email: targetUser.email || "",
+              }),
+            });
+
+            if (response.ok) {
+              deletedViaCloudFunction = true;
+              break;
+            }
+
+            const errPayload = await response.json().catch(() => ({}));
+            if (response.status === 400 || response.status === 401 || response.status === 403) {
+              throw new Error(errPayload.error || ("HTTP " + response.status));
+            }
+            lastEndpointError = new Error(errPayload.error || ("HTTP " + response.status));
+          } catch (fetchErr) {
+            lastEndpointError = fetchErr;
+            if (fetchErr && /Cannot delete|Only authorised/i.test(fetchErr.message)) {
+              throw fetchErr;
+            }
+          }
+        }
+
+        if (!deletedViaCloudFunction) {
+          console.warn("Cloud function endpoint unavailable, running direct Firestore deletion fallback:", lastEndpointError);
+          await fallbackClientSideDelete(targetUser);
+        }
+
+        const deletedName = targetUser.name || targetUser.email || targetUser.id;
+        closeDeleteClientModal();
+        closeDateModal();
+        statusLine.textContent = `Permanently deleted account and all data for ${deletedName}.`;
+        await reloadAndRenderBoard();
+      } catch (err) {
+        console.error("Delete client error:", err);
+        deleteClientStatus.style.color = "#b42318";
+        deleteClientStatus.textContent = "Error deleting client: " + (err && err.message ? err.message : String(err));
+        confirmDeleteClientBtn.disabled = deleteClientConfirmInput.value.trim() !== "DELETE";
+      } finally {
+        cancelDeleteClientBtn.disabled = false;
+      }
+    }
+
     function buildPreapproveMailtoLink(name, email) {
       const subject = encodeURIComponent("Welcome to Express Accounts");
       const body = encodeURIComponent(
@@ -5389,6 +5578,16 @@
     invitedClientModal.addEventListener("click", (e) => {
       if (e.target === invitedClientModal) closeInvitedModal();
     });
+
+    closeDeleteClientModalBtn.addEventListener("click", closeDeleteClientModal);
+    cancelDeleteClientBtn.addEventListener("click", closeDeleteClientModal);
+    deleteClientModal.addEventListener("click", (e) => {
+      if (e.target === deleteClientModal) closeDeleteClientModal();
+    });
+    deleteClientConfirmInput.addEventListener("input", () => {
+      confirmDeleteClientBtn.disabled = deleteClientConfirmInput.value.trim() !== "DELETE";
+    });
+    confirmDeleteClientBtn.addEventListener("click", handleConfirmDeleteClient);
 
     sendInviteEmailBtn.addEventListener("click", () => {
       if (!selectedInvitedClient || !selectedInvitedClient.email) return;

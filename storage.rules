@@ -19,27 +19,27 @@ service firebase.storage {
 
     match /receipts/{userId}/{allPaths=**} {
       allow read: if isOwner(userId) || isAccountant();
-      allow write: if isOwner(userId);
+      allow write: if isOwner(userId) || isAccountant();
     }
 
     match /income/{userId}/{allPaths=**} {
       allow read: if isOwner(userId) || isAccountant();
-      allow write: if isOwner(userId);
+      allow write: if isOwner(userId) || isAccountant();
     }
 
     match /bankStatements/{userId}/{allPaths=**} {
       allow read: if isOwner(userId) || isAccountant();
-      allow write: if isOwner(userId);
+      allow write: if isOwner(userId) || isAccountant();
     }
 
     match /joinRequests/{userId}/{allPaths=**} {
       allow read: if isOwner(userId) || isAccountant();
-      allow write: if isOwner(userId);
+      allow write: if isOwner(userId) || isAccountant();
     }
 
     match /profilePictures/{userId}/{allPaths=**} {
       allow read: if isOwner(userId) || isAccountant();
-      allow write: if isOwner(userId);
+      allow write: if isOwner(userId) || isAccountant();
     }
   }
 }

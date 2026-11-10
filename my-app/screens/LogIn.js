@@ -57,6 +57,7 @@ if (Platform.OS === "android") {
 }
 
 const looksLikeEmail = (s) => /\S+@\S+\.\S+/.test(String(s || "").trim());
+const AUTO_ASSIGN_VERIFICATION_URL = "https://express-accounts-73d38.web.app/auto-assign-verification-by-email";
 
 const isPasswordProviderUser = (user) =>
   Boolean(user?.providerData?.some((provider) => provider?.providerId === "password"));
@@ -177,9 +178,18 @@ const LoginScreen = ({ navigation }) => {
       isNewUser,
     });
 
-    if (isNewUser) {
-      navigateToExpenses({ showFederatedCodePrompt: true });
-      return;
+    try {
+      const idToken = await user.getIdToken();
+      await fetch(AUTO_ASSIGN_VERIFICATION_URL, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: "Bearer " + idToken,
+        },
+        body: JSON.stringify({}),
+      });
+    } catch (autoAssignError) {
+      console.warn("Federated auto-assign by email skipped", autoAssignError);
     }
 
     navigateToExpenses();

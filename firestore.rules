@@ -45,13 +45,13 @@ service cloud.firestore {
              );
     }
 
-    // Receipts: each user owns their own; accountants can read all.
+    // Receipts: each user owns their own; accountants can read/update/delete all.
     match /receipts/{receiptId} {
       allow read: if (isOwner(resource.data.userId) && isVerifiedOrFederated()) || isAccountant();
       allow create: if request.auth != null &&
                        request.resource.data.userId == request.auth.uid &&
                        isVerifiedOrFederated();
-      allow update, delete: if isOwner(resource.data.userId) && isVerifiedOrFederated();
+      allow update, delete: if (isOwner(resource.data.userId) && isVerifiedOrFederated()) || isAccountant();
     }
 
     match /income/{incomeId} {
@@ -59,7 +59,7 @@ service cloud.firestore {
       allow create: if request.auth != null &&
                        request.resource.data.userId == request.auth.uid &&
                        isVerifiedOrFederated();
-      allow update, delete: if isOwner(resource.data.userId) && isVerifiedOrFederated();
+      allow update, delete: if (isOwner(resource.data.userId) && isVerifiedOrFederated()) || isAccountant();
     }
 
     match /bankStatements/{statementId} {
@@ -67,17 +67,17 @@ service cloud.firestore {
       allow create: if request.auth != null &&
                        request.resource.data.userId == request.auth.uid &&
                        isVerifiedOrFederated();
-      allow update, delete: if isOwner(resource.data.userId) && isVerifiedOrFederated();
+      allow update, delete: if (isOwner(resource.data.userId) && isVerifiedOrFederated()) || isAccountant();
     }
 
-    // User profiles: each user owns their own; accountants can read/update for portal workflows.
+    // User profiles: each user owns their own; accountants can read/update/delete for portal workflows.
     match /users/{userId} {
       allow read, write: if isOwner(userId);
-      allow read, update: if isAccountant();
+      allow read, update, delete: if isAccountant();
     }
 
     match /users/{userId}/pushTokens/{tokenId} {
-      allow read, write, delete: if isOwner(userId);
+      allow read, write, delete: if isOwner(userId) || isAccountant();
     }
 
     // 2FA challenges: users create and approve/deny their own challenges.
