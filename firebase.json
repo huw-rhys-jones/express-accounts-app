@@ -18,6 +18,16 @@
         "source": "/client-portal-mock.html",
         "destination": "/client-portal.html",
         "type": 301
+      },
+      {
+        "source": "/USER_TESTING_GUIDE.html",
+        "destination": "/user-testing.html",
+        "type": 301
+      },
+      {
+        "source": "/testing",
+        "destination": "/user-testing.html",
+        "type": 302
       }
     ],
     "rewrites": [

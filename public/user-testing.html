@@ -1,0 +1,2142 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Express Accounts — User Stories &amp; Manual Testing Guide</title>
+  <style>
+    :root {
+      --navy: #181836;
+      --accent: #e00051;
+      --teal: #0f766e;
+      --green: #15803d;
+      --green-bg: #dcfce7;
+      --red: #b42318;
+      --red-bg: #fee2e2;
+      --amber: #b45309;
+      --amber-bg: #fef3c7;
+      --slate-900: #0f172a;
+      --slate-700: #334155;
+      --slate-600: #475569;
+      --slate-500: #64748b;
+      --slate-200: #e2e8f0;
+      --slate-100: #f1f5f9;
+      --slate-50: #f8fafc;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      padding: 0;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+      color: var(--slate-900);
+      background: #f1f5f9;
+      line-height: 1.55;
+    }
+
+    /* Sticky Top Toolbar (Screen only) */
+    .toolbar {
+      position: sticky;
+      top: 0;
+      z-index: 100;
+      background: var(--navy);
+      color: #fff;
+      padding: 12px 24px;
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      justify-content: space-between;
+      gap: 14px;
+      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+      border-bottom: 3px solid var(--accent);
+    }
+
+    .toolbar-left {
+      display: flex;
+      align-items: center;
+      gap: 16px;
+      flex-wrap: wrap;
+    }
+
+    .toolbar-title {
+      font-weight: 800;
+      font-size: 1.08rem;
+      letter-spacing: -0.01em;
+    }
+
+    .progress-wrap {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      background: rgba(255, 255, 255, 0.12);
+      padding: 6px 12px;
+      border-radius: 999px;
+      font-size: 0.85rem;
+      font-weight: 600;
+    }
+
+    .progress-bar-outer {
+      width: 120px;
+      height: 8px;
+      background: rgba(255, 255, 255, 0.25);
+      border-radius: 999px;
+      overflow: hidden;
+    }
+
+    .progress-bar-inner {
+      height: 100%;
+      width: 0%;
+      background: #22c55e;
+      transition: width 0.2s ease;
+    }
+
+    .toolbar-actions {
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+
+    .btn {
+      border: 1px solid rgba(255, 255, 255, 0.25);
+      background: rgba(255, 255, 255, 0.1);
+      color: #fff;
+      padding: 7px 14px;
+      border-radius: 8px;
+      font-size: 0.85rem;
+      font-weight: 600;
+      cursor: pointer;
+      transition: background 0.15s;
+    }
+
+    .btn:hover {
+      background: rgba(255, 255, 255, 0.2);
+    }
+
+    .btn-primary {
+      background: var(--accent);
+      border-color: var(--accent);
+    }
+
+    .btn-primary:hover {
+      background: #c40046;
+    }
+
+    /* Main Document Container */
+    .container {
+      max-width: 980px;
+      margin: 28px auto 60px;
+      background: #fff;
+      padding: 36px 42px;
+      border-radius: 14px;
+      box-shadow: 0 4px 20px rgba(15, 23, 42, 0.07);
+    }
+
+    .doc-header {
+      border-bottom: 2px solid var(--slate-200);
+      padding-bottom: 20px;
+      margin-bottom: 24px;
+    }
+
+    .doc-header h1 {
+      margin: 0 0 8px;
+      font-size: 1.85rem;
+      color: var(--navy);
+    }
+
+    .doc-header p {
+      margin: 0;
+      color: var(--slate-600);
+      font-size: 0.96rem;
+    }
+
+    /* Per-Test Metadata Bar (Name, Date, Phone Model, App Version) */
+    .test-run-meta {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(120px, 1fr)) auto;
+      gap: 10px;
+      align-items: end;
+      background: #f8fafc;
+      padding: 10px 16px;
+      border-bottom: 1px solid var(--slate-200);
+    }
+
+    @media (max-width: 720px) {
+      .test-run-meta {
+        grid-template-columns: repeat(2, 1fr);
+      }
+    }
+
+    .meta-field {
+      display: flex;
+      flex-direction: column;
+      gap: 3px;
+    }
+
+    .meta-field label {
+      font-size: 0.7rem;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+      color: var(--slate-500);
+    }
+
+    .meta-field input {
+      padding: 5px 8px;
+      border: 1px solid #cbd5e1;
+      border-radius: 6px;
+      font-size: 0.84rem;
+      font-family: inherit;
+      background: #fff;
+      color: var(--slate-900);
+      width: 100%;
+    }
+
+    .meta-field input:focus {
+      outline: none;
+      border-color: var(--navy);
+    }
+
+    .fill-last-btn {
+      border: 1px solid #cbd5e1;
+      background: #fff;
+      color: var(--slate-600);
+      font-size: 0.74rem;
+      font-weight: 600;
+      padding: 6px 9px;
+      border-radius: 6px;
+      cursor: pointer;
+      white-space: nowrap;
+      height: 31px;
+    }
+
+    .fill-last-btn:hover {
+      background: var(--slate-100);
+      color: var(--navy);
+    }
+
+    .sync-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 0.78rem;
+      font-weight: 600;
+      padding: 5px 10px;
+      border-radius: 999px;
+      background: rgba(255, 255, 255, 0.12);
+      color: #e2e8f0;
+    }
+
+    .sync-dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: #94a3b8;
+    }
+
+    .sync-dot.online { background: #22c55e; box-shadow: 0 0 6px #22c55e; }
+    .sync-dot.saving { background: #f59e0b; }
+
+    /* Dual Platform (iOS + Android) Run Blocks */
+    .dual-platform-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      background: #e0e7ff;
+      color: #1e3a8a;
+      border: 1px solid #c7d2fe;
+      font-size: 0.76rem;
+      font-weight: 700;
+      padding: 4px 10px;
+      border-radius: 999px;
+    }
+
+    .platform-runs-container {
+      display: flex;
+      flex-direction: column;
+      border-bottom: 1px solid var(--slate-200);
+    }
+
+    .platform-run-block {
+      padding: 10px 16px;
+      background: #f8fafc;
+      border-bottom: 1px dashed var(--slate-200);
+    }
+
+    .platform-run-block:last-child {
+      border-bottom: none;
+    }
+
+    .platform-run-block.plat-ios {
+      background: #f8fafc;
+    }
+
+    .platform-run-block.plat-android {
+      background: #f0fdf9;
+    }
+
+    .platform-run-block.status-pass {
+      background: #f0fdf4;
+    }
+
+    .platform-run-block.status-fail {
+      background: #fef2f2;
+    }
+
+    .platform-run-top {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      flex-wrap: wrap;
+      gap: 8px;
+      margin-bottom: 8px;
+    }
+
+    .platform-label {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 0.82rem;
+      font-weight: 800;
+      color: var(--navy);
+      padding: 2px 8px;
+      border-radius: 6px;
+      background: #fff;
+      border: 1px solid var(--slate-200);
+    }
+
+    .platform-meta-grid {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(115px, 1fr)) auto;
+      gap: 10px;
+      align-items: end;
+    }
+
+    @media (max-width: 720px) {
+      .platform-meta-grid {
+        grid-template-columns: repeat(2, 1fr);
+      }
+    }
+
+    .dual-step-checks {
+      display: inline-flex;
+      gap: 6px;
+      flex-shrink: 0;
+      margin-top: 1px;
+    }
+
+    .plat-check {
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      font-size: 0.74rem;
+      font-weight: 700;
+      padding: 2px 7px;
+      border-radius: 5px;
+      border: 1px solid #cbd5e1;
+      background: #f8fafc;
+      color: var(--slate-700);
+      cursor: pointer;
+      user-select: none;
+    }
+
+    .plat-check input[type="checkbox"] {
+      width: 14px !important;
+      height: 14px !important;
+      margin: 0 !important;
+    }
+
+    .plat-check.checked {
+      background: #dcfce7;
+      border-color: #86efac;
+      color: #15803d;
+    }
+
+    .dual-notes-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 10px;
+    }
+
+    @media (max-width: 640px) {
+      .dual-notes-grid {
+        grid-template-columns: 1fr;
+      }
+    }
+
+    .dual-note-col label {
+      display: block;
+      font-size: 0.74rem;
+      font-weight: 700;
+      color: var(--slate-600);
+      margin-bottom: 4px;
+    }
+
+    /* Tier Banner */
+    .tier-banner {
+      margin: 34px 0 18px;
+      padding: 10px 16px;
+      border-radius: 10px;
+      font-size: 1.15rem;
+      font-weight: 800;
+      color: #fff;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+
+    .tier-p0 { background: linear-gradient(135deg, #181836, #312e81); border-left: 6px solid var(--accent); }
+    .tier-p1 { background: linear-gradient(135deg, #0f766e, #115e59); border-left: 6px solid #2dd4bf; }
+    .tier-p2 { background: linear-gradient(135deg, #1d4ed8, #1e40af); border-left: 6px solid #60a5fa; }
+    .tier-p3 { background: linear-gradient(135deg, #475569, #334155); border-left: 6px solid #94a3b8; }
+
+    .feature-section {
+      margin-bottom: 28px;
+    }
+
+    .feature-title {
+      font-size: 1.25rem;
+      color: var(--navy);
+      margin: 22px 0 10px;
+      padding-bottom: 6px;
+      border-bottom: 2px solid var(--slate-200);
+    }
+
+    /* User Stories Box */
+    .stories-box {
+      background: #f8fafc;
+      border-left: 4px solid var(--navy);
+      border-radius: 0 8px 8px 0;
+      padding: 12px 16px;
+      margin-bottom: 16px;
+      font-size: 0.9rem;
+    }
+
+    .stories-box h4 {
+      margin: 0 0 6px;
+      font-size: 0.82rem;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      color: var(--slate-500);
+    }
+
+    .stories-box ul {
+      margin: 0;
+      padding-left: 18px;
+    }
+
+    .stories-box li {
+      margin-bottom: 4px;
+    }
+
+    /* Test Case Card */
+    .test-card {
+      border: 1px solid var(--slate-200);
+      border-radius: 10px;
+      margin-bottom: 18px;
+      background: #fff;
+      overflow: hidden;
+      page-break-inside: avoid;
+      break-inside: avoid;
+    }
+
+    .test-card.status-pass { border-color: #86efac; }
+    .test-card.status-fail { border-color: #fca5a5; }
+
+    .test-card-header {
+      background: var(--slate-50);
+      padding: 12px 16px;
+      border-bottom: 1px solid var(--slate-200);
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+    }
+
+    .test-card.status-pass .test-card-header { background: #f0fdf4; }
+    .test-card.status-fail .test-card-header { background: #fef2f2; }
+
+    .test-card-title {
+      font-weight: 700;
+      font-size: 1rem;
+      color: var(--navy);
+      margin: 0;
+    }
+
+    .test-status-group {
+      display: flex;
+      gap: 6px;
+    }
+
+    .status-btn {
+      border: 1px solid #cbd5e1;
+      background: #fff;
+      color: var(--slate-600);
+      font-size: 0.78rem;
+      font-weight: 700;
+      padding: 4px 10px;
+      border-radius: 6px;
+      cursor: pointer;
+    }
+
+    .status-btn.active-pass {
+      background: var(--green-bg);
+      color: var(--green);
+      border-color: #86efac;
+    }
+
+    .status-btn.active-fail {
+      background: var(--red-bg);
+      color: var(--red);
+      border-color: #fca5a5;
+    }
+
+    .status-btn.active-skip {
+      background: var(--amber-bg);
+      color: var(--amber);
+      border-color: #fcd34d;
+    }
+
+    .test-card-body {
+      padding: 14px 18px;
+    }
+
+    .test-meta {
+      font-size: 0.85rem;
+      color: var(--slate-600);
+      margin-bottom: 10px;
+    }
+
+    .steps-list {
+      list-style: none;
+      padding: 0;
+      margin: 0 0 12px;
+    }
+
+    .step-item {
+      display: flex;
+      align-items: flex-start;
+      gap: 10px;
+      padding: 5px 0;
+      font-size: 0.93rem;
+    }
+
+    .step-item input[type="checkbox"] {
+      width: 18px;
+      height: 18px;
+      margin-top: 3px;
+      accent-color: var(--teal);
+      cursor: pointer;
+      flex-shrink: 0;
+    }
+
+    .step-item.checked span {
+      text-decoration: line-through;
+      color: var(--slate-500);
+    }
+
+    .sub-heading {
+      font-weight: 700;
+      font-size: 0.86rem;
+      color: var(--slate-700);
+      margin: 8px 0 4px;
+      text-transform: uppercase;
+      letter-spacing: 0.03em;
+    }
+
+    .expected-box {
+      background: #f0fdf4;
+      border: 1px solid #bbf7d0;
+      border-radius: 8px;
+      padding: 10px 14px;
+      font-size: 0.9rem;
+      color: #14532d;
+      margin-top: 10px;
+    }
+
+    .expected-box strong {
+      display: block;
+      margin-bottom: 4px;
+      font-size: 0.82rem;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+      color: var(--green);
+    }
+
+    .expected-box ul {
+      margin: 0;
+      padding-left: 18px;
+    }
+
+    .notes-area {
+      margin-top: 10px;
+    }
+
+    .notes-area textarea {
+      width: 100%;
+      min-height: 44px;
+      border: 1px dashed #cbd5e1;
+      border-radius: 6px;
+      padding: 6px 10px;
+      font-size: 0.86rem;
+      font-family: inherit;
+      resize: vertical;
+      background: #fafafa;
+    }
+
+    .notes-area textarea:focus {
+      outline: none;
+      border-style: solid;
+      border-color: var(--navy);
+      background: #fff;
+    }
+
+    code {
+      background: var(--slate-100);
+      padding: 1px 5px;
+      border-radius: 4px;
+      font-size: 0.86em;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+    }
+
+    /* Print Styles */
+    @media print {
+      body {
+        background: #fff;
+        font-size: 10.5pt;
+      }
+      .toolbar {
+        display: none !important;
+      }
+      .container {
+        max-width: 100%;
+        margin: 0;
+        padding: 0;
+        box-shadow: none;
+      }
+      .tier-banner {
+        -webkit-print-color-adjust: exact;
+        print-color-adjust: exact;
+        page-break-after: avoid;
+      }
+      .test-card {
+        page-break-inside: avoid;
+        break-inside: avoid;
+        margin-bottom: 14px;
+      }
+      .expected-box, .stories-box, .test-card-header, .test-run-meta {
+        -webkit-print-color-adjust: exact;
+        print-color-adjust: exact;
+      }
+      .fill-last-btn {
+        display: none !important;
+      }
+      .test-run-meta {
+        grid-template-columns: repeat(4, 1fr) !important;
+      }
+      .notes-area textarea::placeholder,
+      .meta-field input::placeholder {
+        color: transparent;
+      }
+    }
+  </style>
+  <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore-compat.js"></script>
+  <script src="/__/firebase/init.js"></script>
+</head>
+<body>
+
+  <div class="toolbar">
+    <div class="toolbar-left">
+      <span class="toolbar-title">Express Accounts — Collaborative UAT Checklist</span>
+      <div class="progress-wrap">
+        <span id="progressText">0 / 0 steps (0%)</span>
+        <div class="progress-bar-outer">
+          <div id="progressBar" class="progress-bar-inner"></div>
+        </div>
+      </div>
+      <div class="progress-wrap" id="statusSummaryText">Pass: 0 · Fail: 0 · Skip: 0</div>
+      <div class="sync-badge" id="syncBadge" title="Real-time Firestore sync status">
+        <span class="sync-dot" id="syncDot"></span>
+        <span id="syncText">Connecting…</span>
+      </div>
+    </div>
+    <div class="toolbar-actions">
+      <button type="button" class="btn" onclick="resetAllProgress()">Reset All</button>
+      <button type="button" class="btn btn-primary" onclick="window.print()">🖨 Print / Save as PDF</button>
+    </div>
+  </div>
+
+  <div class="container">
+    <div class="doc-header">
+      <h1>Express Accounts — User Stories &amp; Manual Testing Guide</h1>
+      <p>
+        End-to-end User Acceptance Tests (UAT) covering the Mobile App (iOS &amp; Android) and the Accountant Web Portal, ordered from <strong>Tier 1 (Vital P0)</strong> to <strong>Tier 4 (P3)</strong>. All checkboxes, Pass/Fail statuses, tester details (<strong>Name, Date, Phone Model, App Version</strong>), and notes sync in real time across all testers and persist in the cloud.
+      </p>
+    </div>
+
+    <!-- ==================== TIER 1 ==================== -->
+    <div class="tier-banner tier-p0">
+      <span>Tier 1: Vital Core Workflows (P0 — Must Pass)</span>
+      <span style="font-size:0.85rem;font-weight:600;opacity:0.9;">Sections 1 – 5</span>
+    </div>
+
+    <!-- SECTION 1 -->
+    <div class="feature-section">
+      <h2 class="feature-title">1. Client Onboarding &amp; Sign-Up (Email/Password, Google &amp; Apple — Pre-Approved vs. Non-Pre-Approved)</h2>
+      <div class="stories-box">
+        <h4>User Stories</h4>
+        <ul>
+          <li><strong>US-1.1 (Accountant Pre-Approval):</strong> As an accountant, I want to pre-approve a client by entering their name and email on the web portal so that they appear as a pending grey card and are automatically verified when they sign up via Email/Password, Google, or Apple.</li>
+          <li><strong>US-1.2 (Pre-Approved Email/Password Sign-Up):</strong> As a pre-approved client, when I register in the app using my invited email address, I want to skip the email verification screen completely and land straight in the app as a Verified Client.</li>
+          <li><strong>US-1.3 (Standard / Non-Pre-Approved Email/Password Sign-Up):</strong> As a general member of the public signing up with email &amp; password without pre-approval, I must verify my email address before accessing the app and start on the Standard (non-verified) tier.</li>
+          <li><strong>US-1.4 (Google Sign-In — Pre-Approved &amp; Standard):</strong> As an Android user signing in with Google, I want to bypass email verification (since Google verifies my email) and automatically be upgraded to a Verified Client if my Google email was pre-approved.</li>
+          <li><strong>US-1.5 (Apple Sign-In — Pre-Approved &amp; Standard):</strong> As an iOS user signing in with Apple, I want my full name and email captured on first sign-in, email verification skipped, and my account automatically marked as a Verified Client if my Apple ID email was pre-approved.</li>
+        </ul>
+      </div>
+
+      <!-- Test 1A -->
+      <div class="test-card" data-test-id="test-1a">
+        <div class="test-card-header">
+          <h3 class="test-card-title">Test 1A: Pre-Approve a Client on the Web Portal</h3>
+          <div class="test-status-group"></div>
+        </div>
+        <div class="test-card-body">
+          <div class="test-meta"><strong>Where:</strong> Accountant Web Portal (<code>public/client-portal.html</code>)</div>
+          <ul class="steps-list">
+            <li class="step-item"><input type="checkbox" /><span>Log in to the Accountant Web Portal.</span></li>
+            <li class="step-item"><input type="checkbox" /><span>Click <strong>✚ Pre-Approve Client</strong> in the top header bar.</span></li>
+            <li class="step-item"><input type="checkbox" /><span>Enter a test client name (e.g., <code>Test Preapproved User</code>) and a fresh email address (e.g., <code>preapproved.test@example.com</code>).</span></li>
+            <li class="step-item"><input type="checkbox" /><span>Click <strong>Pre-Approve Client</strong>.</span></li>
+            <li class="step-item"><input type="checkbox" /><span>Click the <strong>Grey: Pre-Approved (Pending Sign-Up)</strong> filter chip on the board.</span></li>
+            <li class="step-item"><input type="checkbox" /><span>Click the newly created grey card for <code>Test Preapproved User</code>.</span></li>
+          </ul>
+          <div class="expected-box">
+            <strong>Expected Result</strong>
+            <ul>
+              <li>A <strong>grey card</strong> appears on the board showing <code>Pre-Approved</code>, the email address, <code>Status: Pending App Sign-Up</code>, and today's invited date.</li>
+              <li>Clicking the grey card opens the <em>Pre-Approved Client</em> modal with <strong>✉ Email Invitation</strong> and <strong>Cancel Pre-Approval</strong> buttons.</li>
+            </ul>
+          </div>
+          <div class="notes-area"><textarea placeholder="Tester notes / observations for Test 1A..."></textarea></div>
+        </div>
+      </div>
+
+      <!-- Test 1B -->
+      <div class="test-card" data-test-id="test-1b">
+        <div class="test-card-header">
+          <h3 class="test-card-title">Test 1B: App Sign-Up as a Pre-Approved User via Email/Password (Email Verification Skipped)</h3>
+          <div class="test-status-group"></div>
+        </div>
+        <div class="test-card-body">
+          <div class="test-meta"><strong>Where:</strong> Mobile App (<code>Register.js</code>, <code>App.js</code>) &bull; <strong>Prerequisite:</strong> Email pre-approved in Test 1A</div>
+          <ul class="steps-list">
+            <li class="step-item"><input type="checkbox" /><span>Open the mobile app and navigate to <strong>Sign Up</strong>.</span></li>
+            <li class="step-item"><input type="checkbox" /><span>Enter a name, the pre-approved email (<code>preapproved.test@example.com</code>), a valid password, accept the Privacy Policy, and tap <strong>Create Account</strong>.</span></li>
+            <li class="step-item"><input type="checkbox" /><span>Observe the screen transition immediately after registration.</span></li>
+            <li class="step-item"><input type="checkbox" /><span>Open the hamburger <strong>Side Menu</strong> in the top-left corner.</span></li>
+            <li class="step-item"><input type="checkbox" /><span>Refresh the Accountant Web Portal board.</span></li>
+          </ul>
+          <div class="expected-box">
+            <strong>Expected Result</strong>
+            <ul>
+              <li>The user <strong>completely skips</strong> the <em>"Verify your email"</em> gate screen and lands directly on the main <strong>Expenses</strong> tab.</li>
+              <li>In the Side Menu, the user is badged as a <strong>Verified Client</strong> (with no "Join Express Accounts" upsell banner).</li>
+              <li>On the Accountant Web Portal, the grey pre-approved card has automatically converted into an active client card (<code>★ Verified</code>).</li>
+            </ul>
+          </div>
+          <div class="notes-area"><textarea placeholder="Tester notes / observations for Test 1B..."></textarea></div>
+        </div>
+      </div>
+
+      <!-- Test 1C -->
+      <div class="test-card" data-test-id="test-1c">
+        <div class="test-card-header">
+          <h3 class="test-card-title">Test 1C: App Sign-Up as a Non-Pre-Approved User via Email/Password (Email Verification Required)</h3>
+          <div class="test-status-group"></div>
+        </div>
+        <div class="test-card-body">
+          <div class="test-meta"><strong>Where:</strong> Mobile App (<code>Register.js</code>, <code>App.js</code>)</div>
+          <ul class="steps-list">
+            <li class="step-item"><input type="checkbox" /><span>Sign out of the app and go to <strong>Sign Up</strong>.</span></li>
+            <li class="step-item"><input type="checkbox" /><span>Register with a fresh email address that has <strong>not</strong> been pre-approved (e.g., <code>standard.user@example.com</code>).</span></li>
+            <li class="step-item"><input type="checkbox" /><span>Observe the screen shown after account creation (held at Verify Email Gate).</span></li>
+            <li class="step-item"><input type="checkbox" /><span>Click the verification link sent to <code>standard.user@example.com</code> and tap <strong>I've Verified My Email</strong>.</span></li>
+            <li class="step-item"><input type="checkbox" /><span>Open the Side Menu once inside the app.</span></li>
+          </ul>
+          <div class="expected-box">
+            <strong>Expected Result</strong>
+            <ul>
+              <li>After tapping Create Account, the user is held at the <strong>Verify Email Gate</strong> screen until they verify their email.</li>
+              <li>Once verified, the user enters the app as a <strong>Standard (Non-Verified)</strong> user and sees the <strong>"Join Express Accounts"</strong> option in the Side Menu.</li>
+            </ul>
+          </div>
+          <div class="notes-area"><textarea placeholder="Tester notes / observations for Test 1C..."></textarea></div>
+        </div>
+      </div>
+
+      <!-- Test 1D -->
+      <div class="test-card" data-test-id="test-1d">
+        <div class="test-card-header">
+          <h3 class="test-card-title">Test 1D: Federated Login — Google Sign-In (Pre-Approved vs. Non-Pre-Approved)</h3>
+          <div class="test-status-group"></div>
+        </div>
+        <div class="test-card-body">
+          <div class="test-meta"><strong>Where:</strong> Mobile App on Android (<code>LogIn.js</code>, <code>useGoogleSignIn.js</code>, <code>App.js</code>)</div>
+          <div class="sub-heading">Scenario 1 — Non-Pre-Approved Google Account</div>
+          <ul class="steps-list">
+            <li class="step-item"><input type="checkbox" /><span>Ensure your test Gmail address is <strong>not</strong> in <code>preapprovedClients</code> (delete any existing test account for it first).</span></li>
+            <li class="step-item"><input type="checkbox" /><span>On the <strong>Sign In</strong> screen, tap <strong>Continue with Google</strong> and complete the Google account picker / 2FA prompt.</span></li>
+            <li class="step-item"><input type="checkbox" /><span>Verify you land directly on the <strong>Expenses</strong> tab without seeing an email verification screen or legacy code modal.</span></li>
+            <li class="step-item"><input type="checkbox" /><span>Open the Side Menu and confirm the account is on the <strong>Standard (Non-Verified)</strong> tier and displays your Google display name and email.</span></li>
+          </ul>
+          <div class="sub-heading">Scenario 2 — Pre-Approved Google Account</div>
+          <ul class="steps-list">
+            <li class="step-item"><input type="checkbox" /><span>Delete the test account (via Test 6C on the portal), then pre-approve that same Gmail address using <strong>✚ Pre-Approve Client</strong> on the Web Portal.</span></li>
+            <li class="step-item"><input type="checkbox" /><span>On the mobile app <strong>Sign In</strong> screen, tap <strong>Continue with Google</strong> and select that Gmail account.</span></li>
+            <li class="step-item"><input type="checkbox" /><span>Open the Side Menu and refresh the Accountant Web Portal.</span></li>
+          </ul>
+          <div class="expected-box">
+            <strong>Expected Result</strong>
+            <ul>
+              <li>Both scenarios skip the email verification gate (since Google is a federated provider).</li>
+              <li>In Scenario 1, the user enters as a Standard user. In Scenario 2, the user is automatically matched to the pre-approval record, badged as a <strong>Verified Client</strong>, and their grey card on the portal turns into an active <code>★ Verified</code> card.</li>
+            </ul>
+          </div>
+          <div class="notes-area"><textarea placeholder="Tester notes / observations for Test 1D..."></textarea></div>
+        </div>
+      </div>
+
+      <!-- Test 1E -->
+      <div class="test-card" data-test-id="test-1e">
+        <div class="test-card-header">
+          <h3 class="test-card-title">Test 1E: Federated Login — Apple Sign-In (Pre-Approved vs. Non-Pre-Approved &amp; Privacy Relay)</h3>
+          <div class="test-status-group"></div>
+        </div>
+        <div class="test-card-body">
+          <div class="test-meta"><strong>Where:</strong> Mobile App on iOS (<code>LogIn.js</code>, <code>App.js</code>)</div>
+          <div class="sub-heading">Scenario 1 — Pre-Approved Apple ID ("Share My Email")</div>
+          <ul class="steps-list">
+            <li class="step-item"><input type="checkbox" /><span>On the Web Portal, pre-approve the client's real Apple ID email address via <strong>✚ Pre-Approve Client</strong>.</span></li>
+            <li class="step-item"><input type="checkbox" /><span>On an iOS device, tap <strong>Sign in with Apple</strong> on the <strong>Sign In</strong> screen.</span></li>
+            <li class="step-item"><input type="checkbox" /><span>Choose <strong>Share My Email</strong> (note: <em>"Hide My Email"</em> generates a random <code>@privaterelay.appleid.com</code> address) and confirm with Face ID / Touch ID.</span></li>
+            <li class="step-item"><input type="checkbox" /><span>Verify you land straight on the <strong>Expenses</strong> tab as a <strong>Verified Client</strong> and the grey card on the portal converts to an active <code>★ Verified</code> card.</span></li>
+          </ul>
+          <div class="sub-heading">Scenario 2 — Non-Pre-Approved Apple ID &amp; Returning Sign-In Name Persistence</div>
+          <ul class="steps-list">
+            <li class="step-item"><input type="checkbox" /><span>Sign in with an Apple ID that was not pre-approved and verify you land on <strong>Expenses</strong> as a <strong>Standard</strong> user.</span></li>
+            <li class="step-item"><input type="checkbox" /><span>Sign out of the app and tap <strong>Sign in with Apple</strong> a second time with the same Apple ID (Apple only sends <code>fullName</code> on the very first authorization).</span></li>
+            <li class="step-item"><input type="checkbox" /><span>Verify the user's name in the Side Menu and on the Accountant Web Portal is <strong>preserved</strong> and not overwritten with blank.</span></li>
+          </ul>
+          <div class="expected-box">
+            <strong>Expected Result</strong>
+            <ul>
+              <li>Apple Sign-In skips email verification, auto-verifies pre-approved Apple emails when <em>Share My Email</em> is selected, and preserves the user's display name on subsequent logins.</li>
+            </ul>
+          </div>
+          <div class="notes-area"><textarea placeholder="Tester notes / observations for Test 1E..."></textarea></div>
+        </div>
+      </div>
+
+      <!-- Test 1F -->
+      <div class="test-card" data-test-id="test-1f">
+        <div class="test-card-header">
+          <h3 class="test-card-title">Test 1F: Late Pre-Approval for an Existing Federated or Password User</h3>
+          <div class="test-status-group"></div>
+        </div>
+        <div class="test-card-body">
+          <div class="test-meta"><strong>Where:</strong> Web Portal &amp; Mobile App (<code>App.js</code>)</div>
+          <ul class="steps-list">
+            <li class="step-item"><input type="checkbox" /><span>Sign in with a non-pre-approved Google, Apple, or Email/Password account so the user is on the <strong>Standard</strong> tier.</span></li>
+            <li class="step-item"><input type="checkbox" /><span>On the Web Portal, click <strong>✚ Pre-Approve Client</strong> for their email (or use the <strong>Client Info</strong> tab's <strong>Mark as Verified Client</strong> button).</span></li>
+            <li class="step-item"><input type="checkbox" /><span>Relaunch or sign back into the mobile app.</span></li>
+          </ul>
+          <div class="expected-box">
+            <strong>Expected Result</strong>
+            <ul>
+              <li>The app automatically detects the verification status and upgrades the user to a <strong>Verified Client</strong>.</li>
+            </ul>
+          </div>
+          <div class="notes-area"><textarea placeholder="Tester notes / observations for Test 1F..."></textarea></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- SECTION 2 -->
+    <div class="feature-section">
+      <h2 class="feature-title">2. Adding Receipts / Expenses (No Image, Single Image, Multiple Images, Multiple Receipts)</h2>
+      <div class="stories-box">
+        <h4>User Stories</h4>
+        <ul>
+          <li><strong>US-2.1 (Manual Receipt Without Image):</strong> As a user, I want to log an expense without a photo when I don't have a paper receipt.</li>
+          <li><strong>US-2.2 (Single Image Receipt):</strong> As a user, I want to snap or upload a single photo of a receipt, have the app crop and extract the amount, date, VAT, and category, and highlight those fields on the image.</li>
+          <li><strong>US-2.3 (Multiple Images of One Receipt):</strong> As a user with a long or double-sided receipt, I want to attach multiple photos to a single expense record.</li>
+          <li><strong>US-2.4 (Multiple Distinct Receipts in One Batch):</strong> As a user with a stack of receipts, I want to select multiple photos of different receipts at once and step through reviewing and saving each one in a batch workflow.</li>
+        </ul>
+      </div>
+
+      <!-- Test 2A -->
+      <div class="test-card" data-test-id="test-2a" data-dual-platform="true">
+        <div class="test-card-header">
+          <h3 class="test-card-title">Test 2A: Add a Receipt WITHOUT an Image (iOS &amp; Android)</h3>
+          <div class="test-status-group"></div>
+        </div>
+        <div class="test-card-body">
+          <div class="test-meta"><strong>Where:</strong> Mobile App on <strong>iOS &amp; Android</strong> — <strong>Expenses</strong> Tab (<code>AddReceiptSheet.js</code>, <code>ReceiptAdd.js</code>)</div>
+          <ul class="steps-list">
+            <li class="step-item"><input type="checkbox" /><span>On the <strong>Expenses</strong> tab, tap the <strong>+</strong> button (or <strong>Add Receipts</strong> button).</span></li>
+            <li class="step-item"><input type="checkbox" /><span>Select <strong>Continue without image / Manual entry</strong>.</span></li>
+            <li class="step-item"><input type="checkbox" /><span>Enter an <strong>Amount</strong> (e.g., <code>24.50</code>), pick a <strong>Date</strong>, select a <strong>Category</strong> (e.g., <code>Travel</code>), and enter a <strong>Label</strong> (e.g., <code>Train ticket</code>).</span></li>
+            <li class="step-item"><input type="checkbox" /><span>Tap <strong>Save Receipt</strong>.</span></li>
+          </ul>
+          <div class="expected-box">
+            <strong>Expected Result</strong>
+            <ul>
+              <li>Receipt saves without error on both iOS and Android and appears in the <strong>Expenses</strong> list under the corresponding month with <code>£24.50</code>, <code>Travel</code>, and no image thumbnail.</li>
+            </ul>
+          </div>
+          <div class="notes-area"><textarea placeholder="Tester notes / observations for Test 2A..."></textarea></div>
+        </div>
+      </div>
+
+      <!-- Test 2B -->
+      <div class="test-card" data-test-id="test-2b" data-dual-platform="true">
+        <div class="test-card-header">
+          <h3 class="test-card-title">Test 2B: Add a Receipt WITH a Single Image (Camera &amp; Gallery + Crop — iOS &amp; Android)</h3>
+          <div class="test-status-group"></div>
+        </div>
+        <div class="test-card-body">
+          <div class="test-meta"><strong>Where:</strong> Mobile App on <strong>iOS &amp; Android</strong> — <strong>Expenses</strong> Tab (<code>ReceiptAdd.js</code>, <code>ReceiptCropScreen.js</code>)</div>
+          <ul class="steps-list">
+            <li class="step-item"><input type="checkbox" /><span>Tap <strong>+</strong> on the <strong>Expenses</strong> tab and choose <strong>Take Photo</strong> (or <strong>Choose from Library</strong> and pick 1 clear receipt photo).</span></li>
+            <li class="step-item"><input type="checkbox" /><span>If taking a photo, when prompted <em>"Photo 1 added"</em>, tap <strong>Done / Continue</strong>.</span></li>
+            <li class="step-item"><input type="checkbox" /><span>Verify the automatic perspective crop or adjust corners on the crop screen if prompted.</span></li>
+            <li class="step-item"><input type="checkbox" /><span>Wait for the OCR scan indicator to finish and inspect the auto-populated <strong>Amount</strong>, <strong>Date</strong>, <strong>VAT</strong>, and <strong>Category</strong>.</span></li>
+            <li class="step-item"><input type="checkbox" /><span>Check the receipt image preview at the top for colored annotation boxes (<strong>Amount</strong> in green, <strong>Date</strong> in blue, <strong>VAT</strong> in red).</span></li>
+            <li class="step-item"><input type="checkbox" /><span>Tap <strong>Save</strong>.</span></li>
+          </ul>
+          <div class="expected-box">
+            <strong>Expected Result</strong>
+            <ul>
+              <li>Amount, Date, and Category are auto-filled from the receipt text on both iOS and Android, bounding boxes highlight the detected values on the image, and saving uploads the image to Firebase Storage.</li>
+            </ul>
+          </div>
+          <div class="notes-area"><textarea placeholder="Tester notes / observations for Test 2B..."></textarea></div>
+        </div>
+      </div>
+
+      <!-- Test 2C -->
+      <div class="test-card" data-test-id="test-2c" data-dual-platform="true">
+        <div class="test-card-header">
+          <h3 class="test-card-title">Test 2C: Add a Single Receipt WITH Multiple Images (Multi-Page Receipt — iOS &amp; Android)</h3>
+          <div class="test-status-group"></div>
+        </div>
+        <div class="test-card-body">
+          <div class="test-meta"><strong>Where:</strong> Mobile App on <strong>iOS &amp; Android</strong> — <strong>Expenses</strong> Tab (<code>ReceiptAdd.js</code>, <code>ocrHelpers.js</code>)</div>
+          <ul class="steps-list">
+            <li class="step-item"><input type="checkbox" /><span>Start adding a receipt with 1 photo of the top half of a receipt (or take 2 photos of the same receipt).</span></li>
+            <li class="step-item"><input type="checkbox" /><span>Inside the <strong>Add Receipt</strong> screen, tap the <strong>Add More Images (+)</strong> button on the image strip to attach a second photo to the current receipt.</span></li>
+            <li class="step-item"><input type="checkbox" /><span>Verify both image thumbnails appear in the horizontal image strip for that single receipt and tap <strong>Save</strong>.</span></li>
+          </ul>
+          <div class="expected-box">
+            <strong>Expected Result</strong>
+            <ul>
+              <li>Both images are saved under a <strong>single</strong> expense record on both iOS and Android. Re-opening the receipt in the app or on the Accountant Portal shows <code>2</code> attached images for that 1 receipt.</li>
+            </ul>
+          </div>
+          <div class="notes-area"><textarea placeholder="Tester notes / observations for Test 2C..."></textarea></div>
+        </div>
+      </div>
+
+      <!-- Test 2D -->
+      <div class="test-card" data-test-id="test-2d" data-dual-platform="true">
+        <div class="test-card-header">
+          <h3 class="test-card-title">Test 2D: Add Multiple Distinct Receipts at Once (Batch Mode — iOS &amp; Android)</h3>
+          <div class="test-status-group"></div>
+        </div>
+        <div class="test-card-body">
+          <div class="test-meta"><strong>Where:</strong> Mobile App on <strong>iOS &amp; Android</strong> — <strong>Expenses</strong> Tab (<code>AddReceiptSheet.js</code>, <code>ReceiptAdd.js</code>)</div>
+          <ul class="steps-list">
+            <li class="step-item"><input type="checkbox" /><span>Tap <strong>+</strong> on the <strong>Expenses</strong> tab.</span></li>
+            <li class="step-item"><input type="checkbox" /><span>Either choose <strong>Take Photo</strong> and tap <strong>Take Another Photo</strong> for 2–3 <em>different</em> receipts, OR choose <strong>Choose from Library</strong> and select 2–3 photos of different receipts.</span></li>
+            <li class="step-item"><input type="checkbox" /><span>Wait for batch detection to complete and verify the screen enters <strong>Multi-Receipt Mode</strong> (e.g., <code>Receipt 1 of 3</code>).</span></li>
+            <li class="step-item"><input type="checkbox" /><span>Review/edit Receipt 1, advance to Receipt 2 (<code>Next</code>), optionally test skipping one, and complete the batch save.</span></li>
+          </ul>
+          <div class="expected-box">
+            <strong>Expected Result</strong>
+            <ul>
+              <li>Distinct receipts are split into separate draft cards (<code>1 of N</code>, <code>2 of N</code>) on both iOS and Android. After saving, the Batch Summary Modal confirms how many receipts were saved, and each appears as a separate item in the <strong>Expenses</strong> list.</li>
+            </ul>
+          </div>
+          <div class="notes-area"><textarea placeholder="Tester notes / observations for Test 2D..."></textarea></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- SECTION 3 -->
+    <div class="feature-section">
+      <h2 class="feature-title">3. OCR Scanning: Verified Client vs. Non-Verified User (iOS &amp; Android)</h2>
+      <div class="stories-box">
+        <h4>User Stories</h4>
+        <ul>
+          <li><strong>US-3.1 (Verified Client Cloud OCR):</strong> As a Verified Client on iOS or Android, my receipt scans should use Google Cloud OCR (<code>extractReceiptImages</code>) for maximum accuracy on crumpled or complex receipts, while falling back to on-device ML Kit if I lose signal.</li>
+          <li><strong>US-3.2 (Non-Verified Local OCR):</strong> As a Standard (non-verified) user on iOS or Android, my receipt scans should run locally on-device using ML Kit without invoking the paid Cloud OCR endpoint.</li>
+        </ul>
+      </div>
+
+      <!-- Test 3A -->
+      <div class="test-card" data-test-id="test-3a" data-dual-platform="true">
+        <div class="test-card-header">
+          <h3 class="test-card-title">Test 3A: Scan a Receipt as a Verified Client (Cloud OCR + Offline Fallback — iOS &amp; Android)</h3>
+          <div class="test-status-group"></div>
+        </div>
+        <div class="test-card-body">
+          <div class="test-meta"><strong>Where:</strong> Mobile App on <strong>iOS &amp; Android</strong> (<code>ocrHelpers.js</code>, <code>cloudReceiptOcr.js</code>) &bull; <strong>Prerequisite:</strong> Signed in as a Verified Client</div>
+          <ul class="steps-list">
+            <li class="step-item"><input type="checkbox" /><span>Add a receipt with a photo of a complex or detailed receipt/invoice while online.</span></li>
+            <li class="step-item"><input type="checkbox" /><span>Verify total amount, date, merchant/category, and VAT are extracted accurately and annotation frames are drawn.</span></li>
+            <li class="step-item"><input type="checkbox" /><span><em>Offline Fallback Check:</em> Turn on Airplane Mode, scan another receipt photo, and verify it falls back cleanly to on-device ML Kit without crashing.</span></li>
+          </ul>
+          <div class="expected-box">
+            <strong>Expected Result</strong>
+            <ul>
+              <li>Cloud OCR processes the image when online + local ML Kit maps bounding boxes on both iOS and Android. When offline, it seamlessly falls back to local OCR.</li>
+            </ul>
+          </div>
+          <div class="notes-area"><textarea placeholder="Tester notes / observations for Test 3A..."></textarea></div>
+        </div>
+      </div>
+
+      <!-- Test 3B -->
+      <div class="test-card" data-test-id="test-3b" data-dual-platform="true">
+        <div class="test-card-header">
+          <h3 class="test-card-title">Test 3B: Scan a Receipt as a Non-Verified User (On-Device ML Kit Only — iOS &amp; Android)</h3>
+          <div class="test-status-group"></div>
+        </div>
+        <div class="test-card-body">
+          <div class="test-meta"><strong>Where:</strong> Mobile App on <strong>iOS &amp; Android</strong> (<code>ocrHelpers.js</code>) &bull; <strong>Prerequisite:</strong> Signed in as a Standard (Non-Verified) User</div>
+          <ul class="steps-list">
+            <li class="step-item"><input type="checkbox" /><span>Tap <strong>+</strong> on <strong>Expenses</strong> and scan/upload a receipt image.</span></li>
+            <li class="step-item"><input type="checkbox" /><span>Verify the form populates using on-device recognition and saves normally.</span></li>
+          </ul>
+          <div class="expected-box">
+            <strong>Expected Result</strong>
+            <ul>
+              <li>Scanning works smoothly on both iOS and Android using on-device ML Kit without calling the Cloud OCR function.</li>
+            </ul>
+          </div>
+          <div class="notes-area"><textarea placeholder="Tester notes / observations for Test 3B..."></textarea></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- SECTION 4 -->
+    <div class="feature-section">
+      <h2 class="feature-title">4. Income Logging &amp; Scanning (iOS &amp; Android)</h2>
+      <div class="stories-box">
+        <h4>User Stories</h4>
+        <ul>
+          <li><strong>US-4.1 (Income Entry &amp; Invoice Scanning):</strong> As a user on iOS or Android, I want to record income (both manually without an image and by scanning/uploading sales invoices) so my revenue is tracked alongside my expenses.</li>
+          <li><strong>US-4.2 (VAT &amp; CIS on Income):</strong> As a VAT-registered user or CIS sub-contractor, I want VAT treatments and CIS deductions calculated accurately on my income records.</li>
+        </ul>
+      </div>
+
+      <!-- Test 4A -->
+      <div class="test-card" data-test-id="test-4a" data-dual-platform="true">
+        <div class="test-card-header">
+          <h3 class="test-card-title">Test 4A: Add Income Without an Image &amp; With an Invoice Image (iOS &amp; Android)</h3>
+          <div class="test-status-group"></div>
+        </div>
+        <div class="test-card-body">
+          <div class="test-meta"><strong>Where:</strong> Mobile App on <strong>iOS &amp; Android</strong> — <strong>Income</strong> Tab (<code>Income.js</code>, <code>IncomeForm.js</code>, <code>IncomeEdit.js</code>)</div>
+          <ul class="steps-list">
+            <li class="step-item"><input type="checkbox" /><span>Switch to the <strong>Income</strong> tab on the bottom navigation bar.</span></li>
+            <li class="step-item"><input type="checkbox" /><span>Tap <strong>+ / Add Income</strong> and create a manual income entry without an image (e.g., Amount <code>500.00</code>, Date today, Reference <code>INV-001</code>, Label <code>Consulting</code>). Save it.</span></li>
+            <li class="step-item"><input type="checkbox" /><span>Tap <strong>+</strong> again and upload/take a photo of a sales invoice. Verify OCR extracts the invoice amount, date, and reference, and save.</span></li>
+            <li class="step-item"><input type="checkbox" /><span>Tap the saved income entry in the list to open <code>IncomeEdit</code>, edit the label, and save.</span></li>
+          </ul>
+          <div class="expected-box">
+            <strong>Expected Result</strong>
+            <ul>
+              <li>Both manual and image-attached income entries appear in the <strong>Income</strong> tab list on both iOS and Android, grouped by month, and edits persist to Firestore.</li>
+            </ul>
+          </div>
+          <div class="notes-area"><textarea placeholder="Tester notes / observations for Test 4A..."></textarea></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- SECTION 5 -->
+    <div class="feature-section">
+      <h2 class="feature-title">5. Accountant Web Portal: Reviewing Data, Client Info, Messaging &amp; Exporting ZIP</h2>
+      <div class="stories-box">
+        <h4>User Stories</h4>
+        <ul>
+          <li><strong>US-5.1 (Unified Activity Board &amp; Client Info Tab):</strong> As an accountant, I want a single unified client board where clicking any client lets me inspect their Receipts, Income, Client Info (Name, Email, Verification status, VAT, Cloud Vehicles), and Messages.</li>
+          <li><strong>US-5.2 (Two-Way Client Queries &amp; Notifications):</strong> As a client, I want to message my accountant from the app; as an accountant, I want to see a Red card, read the message, and send a reply that arrives as a push and in-app notification.</li>
+          <li><strong>US-5.3 (Exporting Client Data):</strong> As an accountant, I want to download a client's data for a chosen financial period as a ZIP containing structured CSV spreadsheets and (optionally) receipt/income images.</li>
+        </ul>
+      </div>
+
+      <!-- Test 5A -->
+      <div class="test-card" data-test-id="test-5a">
+        <div class="test-card-header">
+          <h3 class="test-card-title">Test 5A: Client Sends Query &rarr; Accountant Replies &rarr; Client Receives Notification</h3>
+          <div class="test-status-group"></div>
+        </div>
+        <div class="test-card-body">
+          <div class="test-meta"><strong>Where:</strong> Mobile App Side Menu &harr; Web Portal &harr; Mobile App <code>NotificationsScreen.js</code></div>
+          <ul class="steps-list">
+            <li class="step-item"><input type="checkbox" /><span><strong>In the Mobile App:</strong> Open the Side Menu, tap <strong>Notify Accountant / Send Message</strong>, type <code>"Hi, I have uploaded my Q1 receipts!"</code>, and send.</span></li>
+            <li class="step-item"><input type="checkbox" /><span><strong>On the Web Portal:</strong> Refresh the board and verify the client's card is now <strong>Red (Notify Accountant)</strong>.</span></li>
+            <li class="step-item"><input type="checkbox" /><span>Click the client's card and open the <strong>Messages</strong> tab (which shows a badge count).</span></li>
+            <li class="step-item"><input type="checkbox" /><span>Click <strong>↩ Reply</strong> on the message, type a reply (e.g., <code>"Thanks! I have reviewed them."</code>), and click <strong>Send Notification</strong>.</span></li>
+            <li class="step-item"><input type="checkbox" /><span>Click <strong>Mark As Processed</strong> in the modal footer and verify the card turns <strong>Green</strong>.</span></li>
+            <li class="step-item"><input type="checkbox" /><span><strong>In the Mobile App:</strong> Check the <strong>Notification Bell</strong> badge in the top-right corner, tap the bell to open <strong>Notifications</strong>, verify the reply appears, and tap the <strong>‹ Back button</strong> in the top-left.</span></li>
+          </ul>
+          <div class="expected-box">
+            <strong>Expected Result</strong>
+            <ul>
+              <li>Client's card turns Red when they message the accountant, and Green when marked processed.</li>
+              <li>Accountant's reply appears in the portal Messages thread AND arrives on the client's phone (push notification + unread badge + entry in Notifications screen with working <code>‹</code> back button).</li>
+            </ul>
+          </div>
+          <div class="notes-area"><textarea placeholder="Tester notes / observations for Test 5A..."></textarea></div>
+        </div>
+      </div>
+
+      <!-- Test 5B -->
+      <div class="test-card" data-test-id="test-5b">
+        <div class="test-card-header">
+          <h3 class="test-card-title">Test 5B: Inspect &amp; Edit the Client Info Tab on the Web Portal</h3>
+          <div class="test-status-group"></div>
+        </div>
+        <div class="test-card-body">
+          <div class="test-meta"><strong>Where:</strong> Web Portal (<code>public/client-portal.html</code>)</div>
+          <ul class="steps-list">
+            <li class="step-item"><input type="checkbox" /><span>Click an active client card on the portal board and verify the modal tabs are ordered: <strong>Receipts / Expenses</strong>, <strong>Income</strong>, <strong>Client Info</strong>, <strong>Messages</strong>.</span></li>
+            <li class="step-item"><input type="checkbox" /><span>Click the <strong>Client Info</strong> tab and verify the financial period selector and <code>Download ZIP</code> button hide on this tab.</span></li>
+            <li class="step-item"><input type="checkbox" /><span>Edit the <strong>Client / Business Name</strong> or <strong>Email Address</strong> and click <strong>Save Profile Changes</strong>.</span></li>
+            <li class="step-item"><input type="checkbox" /><span>Click <strong>Revoke Verification</strong> (or <strong>Mark as Verified Client</strong>), confirm the prompt, and observe the status pill update immediately.</span></li>
+            <li class="step-item"><input type="checkbox" /><span>Check the <strong>VAT Registration</strong> section and <strong>Registered Vehicles</strong> table.</span></li>
+          </ul>
+          <div class="expected-box">
+            <strong>Expected Result</strong>
+            <ul>
+              <li>Name/email edits save directly to Firestore and update the board card title immediately. Verification status toggles cleanly, and VAT + cloud vehicles display accurately.</li>
+            </ul>
+          </div>
+          <div class="notes-area"><textarea placeholder="Tester notes / observations for Test 5B..."></textarea></div>
+        </div>
+      </div>
+
+      <!-- Test 5C -->
+      <div class="test-card" data-test-id="test-5c">
+        <div class="test-card-header">
+          <h3 class="test-card-title">Test 5C: Review Receipts/Income, Edit Inline, Check Items &amp; Download ZIP</h3>
+          <div class="test-status-group"></div>
+        </div>
+        <div class="test-card-body">
+          <div class="test-meta"><strong>Where:</strong> Web Portal (<code>public/client-portal.html</code>, <code>functions/index.js</code>)</div>
+          <ul class="steps-list">
+            <li class="step-item"><input type="checkbox" /><span>Open a client with receipts and income on the Web Portal and select a <strong>Financial period</strong>.</span></li>
+            <li class="step-item"><input type="checkbox" /><span>In the <strong>Receipts / Expenses</strong> tab, click a receipt row to open the <strong>Image &amp; Record Inspector Modal</strong>.</span></li>
+            <li class="step-item"><input type="checkbox" /><span>Verify the receipt image loads with its Amount/Date/VAT annotation boxes (toggle <em>"Show annotations"</em> on/off and test zooming).</span></li>
+            <li class="step-item"><input type="checkbox" /><span>Edit the category or amount in the inspector, click <strong>Save</strong>, and check the <strong>Reviewed / Checked</strong> checkbox (<code>✓</code>).</span></li>
+            <li class="step-item"><input type="checkbox" /><span>Back in the client modal, test clicking <strong>Download ZIP</strong> both without images and with <em>"Include receipt/income images"</em> + <em>"Include only checked items"</em> checked.</span></li>
+          </ul>
+          <div class="expected-box">
+            <strong>Expected Result</strong>
+            <ul>
+              <li>Inline edits and <code>✓</code> checkmarks save to Firestore. <code>Download ZIP</code> downloads a <code>.zip</code> archive containing CSV summaries and (when selected) receipt/income image files.</li>
+            </ul>
+          </div>
+          <div class="notes-area"><textarea placeholder="Tester notes / observations for Test 5C..."></textarea></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ==================== TIER 2 ==================== -->
+    <div class="tier-banner tier-p1">
+      <span>Tier 2: Important Feature Workflows (P1)</span>
+      <span style="font-size:0.85rem;font-weight:600;opacity:0.9;">Sections 6 – 8</span>
+    </div>
+
+    <!-- SECTION 6 -->
+    <div class="feature-section">
+      <h2 class="feature-title">6. Data &amp; Account Deletion (User-Side &amp; Accountant-Side)</h2>
+      <div class="stories-box">
+        <h4>User Stories</h4>
+        <ul>
+          <li><strong>US-6.1 (User Deleting Individual Records):</strong> As a user, I want to delete individual receipts, income entries, or vehicles when I make a mistake, and have their attached images removed from cloud storage.</li>
+          <li><strong>US-6.2 (User Deleting Their Own Account &amp; All Data):</strong> As a user, I want to permanently delete my account and all associated data (receipts, income, bank statements, storage images, profile, and login credentials) from the app.</li>
+          <li><strong>US-6.3 (Accountant Deleting a Client Account &amp; All Data):</strong> As an accountant, I want to permanently delete a client's account and all their uploaded records/images from the web portal (with a confirmation warning and <code>DELETE</code> validation prompt), or cancel a pre-approved invite before sign-up.</li>
+        </ul>
+      </div>
+
+      <!-- Test 6A -->
+      <div class="test-card" data-test-id="test-6a">
+        <div class="test-card-header">
+          <h3 class="test-card-title">Test 6A: User Deletes Individual Records (Receipt, Income, Vehicle)</h3>
+          <div class="test-status-group"></div>
+        </div>
+        <div class="test-card-body">
+          <div class="test-meta"><strong>Where:</strong> Mobile App (<code>ReceiptEdit.js</code>, <code>IncomeEdit.js</code>, <code>RegisterVehicleModal.js</code>)</div>
+          <ul class="steps-list">
+            <li class="step-item"><input type="checkbox" /><span>Tap an existing receipt with an image in the <strong>Expenses</strong> list &rarr; tap <strong>Delete</strong> &rarr; confirm deletion.</span></li>
+            <li class="step-item"><input type="checkbox" /><span>Tap an existing income entry in the <strong>Income</strong> list &rarr; tap <strong>Delete</strong> &rarr; confirm deletion.</span></li>
+            <li class="step-item"><input type="checkbox" /><span>Open Side Menu &rarr; <strong>Your Vehicles</strong> &rarr; select a vehicle &rarr; tap <strong>Remove</strong> &rarr; confirm deletion.</span></li>
+            <li class="step-item"><input type="checkbox" /><span>Refresh the Accountant Web Portal and open that client's modal.</span></li>
+          </ul>
+          <div class="expected-box">
+            <strong>Expected Result</strong>
+            <ul>
+              <li>Each deleted item is immediately removed from the app list, its Firestore document (and Storage image) is deleted, and it no longer appears on the Accountant Web Portal.</li>
+            </ul>
+          </div>
+          <div class="notes-area"><textarea placeholder="Tester notes / observations for Test 6A..."></textarea></div>
+        </div>
+      </div>
+
+      <!-- Test 6B -->
+      <div class="test-card" data-test-id="test-6b">
+        <div class="test-card-header">
+          <h3 class="test-card-title">Test 6B: User Deletes Their Own Account &amp; All Data ("Delete All")</h3>
+          <div class="test-status-group"></div>
+        </div>
+        <div class="test-card-body">
+          <div class="test-meta"><strong>Where:</strong> Mobile App Side Menu (<code>SharedTabMenu.js</code>) or Profile Screen (<code>ProfileScreen.js</code>)</div>
+          <ul class="steps-list">
+            <li class="step-item"><input type="checkbox" /><span>Sign in as a disposable test user with at least 1 receipt (with image) and 1 income record.</span></li>
+            <li class="step-item"><input type="checkbox" /><span>Open the <strong>Side Menu</strong> (or <strong>Profile</strong> screen) and tap <strong>Delete Account</strong>.</span></li>
+            <li class="step-item"><input type="checkbox" /><span>Verify the <strong>"Delete All"</strong> button is disabled until <code>DELETE</code> is typed in uppercase.</span></li>
+            <li class="step-item"><input type="checkbox" /><span>Type <code>DELETE</code> into the confirmation input and tap <strong>Delete All</strong>.</span></li>
+            <li class="step-item"><input type="checkbox" /><span>Try signing back in with the deleted user's credentials on the <strong>Sign In</strong> screen, and refresh the Accountant Web Portal.</span></li>
+          </ul>
+          <div class="expected-box">
+            <strong>Expected Result</strong>
+            <ul>
+              <li>All Storage files, Firestore records, <code>users/{uid}</code> profile doc, and Firebase Auth user are permanently erased. The user's card disappears from the Web Portal.</li>
+            </ul>
+          </div>
+          <div class="notes-area"><textarea placeholder="Tester notes / observations for Test 6B..."></textarea></div>
+        </div>
+      </div>
+
+      <!-- Test 6C -->
+      <div class="test-card" data-test-id="test-6c">
+        <div class="test-card-header">
+          <h3 class="test-card-title">Test 6C: Accountant Cancels a Pre-Approved Client vs. Permanently Deletes an Active Client Account &amp; Data</h3>
+          <div class="test-status-group"></div>
+        </div>
+        <div class="test-card-body">
+          <div class="test-meta"><strong>Where:</strong> Accountant Web Portal (<code>public/client-portal.html</code>, <code>portalDeleteClientAccount</code>)</div>
+          <ul class="steps-list">
+            <li class="step-item"><input type="checkbox" /><span><strong>Pre-Approved Client:</strong> Click a <strong>Grey (Pre-Approved)</strong> card on the board &rarr; click <strong>Cancel Pre-Approval</strong> &rarr; confirm the prompt. Verify the grey card is removed.</span></li>
+            <li class="step-item"><input type="checkbox" /><span><strong>Active Client Account Deletion:</strong> Click a disposable test client's card &rarr; switch to the <strong>Client Info</strong> tab &rarr; scroll to the red <strong>Danger Zone</strong> section and click <strong>🗑 Delete Client Account &amp; Data...</strong>.</span></li>
+            <li class="step-item"><input type="checkbox" /><span>Verify the confirmation modal (<code>⚠ Permanently Delete Client Account?</code>) lists the client's name, email, and exact record counts, and keeps the button disabled until <code>DELETE</code> is typed.</span></li>
+            <li class="step-item"><input type="checkbox" /><span>Type <code>DELETE</code> and click <strong>Permanently Delete Account &amp; Data</strong>.</span></li>
+            <li class="step-item"><input type="checkbox" /><span>Try logging into the mobile app with that deleted client's credentials.</span></li>
+          </ul>
+          <div class="expected-box">
+            <strong>Expected Result</strong>
+            <ul>
+              <li>Deleting an active client's account from the portal permanently removes their Firebase Auth login, <code>users/{uid}</code> profile, <code>preapprovedClients</code> entry, all <code>receipts</code>/<code>income</code>/<code>bankStatements</code> documents, and all Firebase Storage attachments, and removes their card from the board.</li>
+            </ul>
+          </div>
+          <div class="notes-area"><textarea placeholder="Tester notes / observations for Test 6C..."></textarea></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- SECTION 7 -->
+    <div class="feature-section">
+      <h2 class="feature-title">7. Vehicles &amp; Cloud Sync + Mileage Expense Tracking</h2>
+      <div class="stories-box">
+        <h4>User Stories</h4>
+        <ul>
+          <li><strong>US-7.1 (Cloud Vehicle Sync):</strong> As a user, when I register or edit a vehicle in the app, I want my vehicles saved to my cloud profile (<code>users/{uid}.vehicles</code>) so they persist across devices and are visible to my accountant.</li>
+          <li><strong>US-7.2 (Mileage Trip Logging):</strong> As a Verified Client with a registered vehicle, I want to log business mileage trips (with route lookup or manual distance) and have the app calculate the HMRC mileage allowance.</li>
+        </ul>
+      </div>
+
+      <!-- Test 7A -->
+      <div class="test-card" data-test-id="test-7a">
+        <div class="test-card-header">
+          <h3 class="test-card-title">Test 7A: Register a Vehicle &amp; Verify Cloud Sync on Portal</h3>
+          <div class="test-status-group"></div>
+        </div>
+        <div class="test-card-body">
+          <div class="test-meta"><strong>Where:</strong> Mobile App Side Menu (<code>RegisterVehicleModal.js</code>, <code>YourVehiclesModal.js</code>) &amp; Web Portal</div>
+          <ul class="steps-list">
+            <li class="step-item"><input type="checkbox" /><span>In the Mobile App, open the <strong>Side Menu</strong> and tap <strong>Register Vehicle / Your Vehicles</strong>.</span></li>
+            <li class="step-item"><input type="checkbox" /><span>Add a vehicle: Registration <code>AB12 CDE</code>, Make <code>Ford</code>, Model <code>Focus</code>, Engine Size <code>1600cc</code>, Fuel Type <code>Petrol</code>, Rate per mile <code>45</code>, and save.</span></li>
+            <li class="step-item"><input type="checkbox" /><span>Open the Accountant Web Portal, click this client's card, and switch to the <strong>Client Info</strong> tab.</span></li>
+          </ul>
+          <div class="expected-box">
+            <strong>Expected Result</strong>
+            <ul>
+              <li>The vehicle appears in the app's <strong>Your Vehicles</strong> list AND in the Web Portal's <strong>Registered Vehicles</strong> table on the <code>Client Info</code> tab.</li>
+            </ul>
+          </div>
+          <div class="notes-area"><textarea placeholder="Tester notes / observations for Test 7A..."></textarea></div>
+        </div>
+      </div>
+
+      <!-- Test 7B -->
+      <div class="test-card" data-test-id="test-7b">
+        <div class="test-card-header">
+          <h3 class="test-card-title">Test 7B: Log a Mileage Trip (Verified vs. Non-Verified Gating)</h3>
+          <div class="test-status-group"></div>
+        </div>
+        <div class="test-card-body">
+          <div class="test-meta"><strong>Where:</strong> Mobile App — <strong>Expenses</strong> Tab (<code>+</code> &rarr; <strong>Record Mileage</strong>, <code>MileageAdd.js</code>)</div>
+          <ul class="steps-list">
+            <li class="step-item"><input type="checkbox" /><span><em>As a Non-Verified User:</em> Tap <strong>+</strong> on <strong>Expenses</strong> &rarr; tap <strong>Record Mileage</strong>. Verify the app shows the <strong>Verified Feature</strong> prompt.</span></li>
+            <li class="step-item"><input type="checkbox" /><span><em>As a Verified Client (with a registered vehicle):</em> Tap <strong>+</strong> on <strong>Expenses</strong> &rarr; tap <strong>Record Mileage</strong>.</span></li>
+            <li class="step-item"><input type="checkbox" /><span>Select your vehicle (<code>AB12 CDE</code>), enter Start and End Locations (or distance in miles, e.g., <code>20</code> miles), toggle <strong>Round Trip</strong> if applicable, and tap <strong>Save</strong>.</span></li>
+          </ul>
+          <div class="expected-box">
+            <strong>Expected Result</strong>
+            <ul>
+              <li>Mileage is calculated automatically (e.g., <code>20 miles × £0.45 = £9.00</code>) and appears in the <strong>Expenses</strong> list under the <code>Mileage</code> category with route map preview.</li>
+            </ul>
+          </div>
+          <div class="notes-area"><textarea placeholder="Tester notes / observations for Test 7B..."></textarea></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- SECTION 8 -->
+    <div class="feature-section">
+      <h2 class="feature-title">8. "Join Express Accounts" In-App Onboarding Application</h2>
+      <div class="stories-box">
+        <h4>User Stories</h4>
+        <ul>
+          <li><strong>US-8.1 (In-App Join Request):</strong> As a Standard (non-verified) user who already signed up, I want to apply to become an Express Accounts client via the in-app multi-step form so the accountant can review and approve me.</li>
+        </ul>
+      </div>
+
+      <!-- Test 8A -->
+      <div class="test-card" data-test-id="test-8a">
+        <div class="test-card-header">
+          <h3 class="test-card-title">Test 8A: Submit a "Join Express Accounts" Application &amp; Approve on Portal</h3>
+          <div class="test-status-group"></div>
+        </div>
+        <div class="test-card-body">
+          <div class="test-meta"><strong>Where:</strong> Mobile App (<code>JoinExpressAccounts.js</code>) &amp; Web Portal</div>
+          <ul class="steps-list">
+            <li class="step-item"><input type="checkbox" /><span>Signed in as a Standard user, open the Side Menu and tap <strong>Join Express Accounts</strong>.</span></li>
+            <li class="step-item"><input type="checkbox" /><span>Complete <strong>Step 1 (Business Type)</strong>, <strong>Step 2 (HMRC Setup)</strong>, and <strong>Step 3 (Contact Details)</strong>, then submit.</span></li>
+            <li class="step-item"><input type="checkbox" /><span>On the Web Portal, refresh the board and click the <strong>Purple: Join Requests</strong> filter chip.</span></li>
+            <li class="step-item"><input type="checkbox" /><span>Click the purple card for the applicant, review their submitted details, and click <strong>Approve as Verified Client</strong>.</span></li>
+          </ul>
+          <div class="expected-box">
+            <strong>Expected Result</strong>
+            <ul>
+              <li>Submitting the form creates a <strong>Purple card</strong> on the Web Portal. Approving upgrades the user to <code>verificationStatus: "verified"</code> immediately.</li>
+            </ul>
+          </div>
+          <div class="notes-area"><textarea placeholder="Tester notes / observations for Test 8A..."></textarea></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ==================== TIER 3 ==================== -->
+    <div class="tier-banner tier-p2">
+      <span>Tier 3: Financial Summaries, VAT &amp; Filtering (P2)</span>
+      <span style="font-size:0.85rem;font-weight:600;opacity:0.9;">Section 9</span>
+    </div>
+
+    <!-- SECTION 9 -->
+    <div class="feature-section">
+      <h2 class="feature-title">9. Summary Tab, Charts &amp; Financial Period Filtering</h2>
+      <div class="stories-box">
+        <h4>User Stories</h4>
+        <ul>
+          <li><strong>US-9.1 (Financial Period Synchronization):</strong> As a user, when I change my Financial Year or Quarter filter, I want my Expenses, Income, and Summary charts to reflect the selected tax period accurately.</li>
+          <li><strong>US-9.2 (VAT Registration &amp; Calculations):</strong> As a VAT-registered business, I want to enable VAT in my settings so VAT fields appear on my receipts/income and my Summary screen shows Net vs. VAT totals.</li>
+        </ul>
+      </div>
+
+      <!-- Test 9A -->
+      <div class="test-card" data-test-id="test-9a">
+        <div class="test-card-header">
+          <h3 class="test-card-title">Test 9A: Toggle VAT Registration &amp; Verify VAT Fields</h3>
+          <div class="test-status-group"></div>
+        </div>
+        <div class="test-card-body">
+          <div class="test-meta"><strong>Where:</strong> Mobile App Side Menu / Profile (<code>SharedTabMenu.js</code>, <code>ProfileScreen.js</code>)</div>
+          <ul class="steps-list">
+            <li class="step-item"><input type="checkbox" /><span>Open the Side Menu &rarr; <strong>VAT Settings</strong>.</span></li>
+            <li class="step-item"><input type="checkbox" /><span>Toggle <strong>VAT Registered</strong> to <strong>Yes</strong>, enter a test VAT Number (e.g., <code>GB123456789</code>), and save.</span></li>
+            <li class="step-item"><input type="checkbox" /><span>Open <strong>Add Receipt</strong> and <strong>Add Income</strong> and verify that <strong>VAT Rate (%)</strong> and <strong>VAT Amount (£)</strong> fields are visible and auto-calculate.</span></li>
+            <li class="step-item"><input type="checkbox" /><span>Toggle <strong>VAT Registered</strong> to <strong>No</strong> and verify VAT inputs are hidden on new receipts.</span></li>
+          </ul>
+          <div class="expected-box">
+            <strong>Expected Result</strong>
+            <ul>
+              <li>VAT fields and red VAT image annotations appear when VAT-registered and hide when not VAT-registered. Portal <code>Client Info</code> tab reflects the VAT status and number.</li>
+            </ul>
+          </div>
+          <div class="notes-area"><textarea placeholder="Tester notes / observations for Test 9A..."></textarea></div>
+        </div>
+      </div>
+
+      <!-- Test 9B -->
+      <div class="test-card" data-test-id="test-9b">
+        <div class="test-card-header">
+          <h3 class="test-card-title">Test 9B: Summary Screen Charts &amp; Tax Year Switching</h3>
+          <div class="test-status-group"></div>
+        </div>
+        <div class="test-card-body">
+          <div class="test-meta"><strong>Where:</strong> Mobile App — <strong>Summary</strong> Tab (<code>SummaryScreen.js</code>)</div>
+          <ul class="steps-list">
+            <li class="step-item"><input type="checkbox" /><span>Navigate to the <strong>Summary</strong> tab and verify the <strong>Totals Card</strong> matches logged receipts and income for the selected period.</span></li>
+            <li class="step-item"><input type="checkbox" /><span>Inspect the <strong>Expenses by Category Pie Chart</strong> and <strong>Monthly Cashflow Bar Chart</strong>.</span></li>
+            <li class="step-item"><input type="checkbox" /><span>Open the bottom period dropdown (or Side Menu &rarr; <strong>Financial Year</strong>) and switch between <code>Current Quarter</code>, <code>Financial Year 2026/27</code>, and <code>All Time</code>.</span></li>
+          </ul>
+          <div class="expected-box">
+            <strong>Expected Result</strong>
+            <ul>
+              <li>Totals and charts update dynamically without crashing or overlapping labels.</li>
+            </ul>
+          </div>
+          <div class="notes-area"><textarea placeholder="Tester notes / observations for Test 9B..."></textarea></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ==================== TIER 4 ==================== -->
+    <div class="tier-banner tier-p3">
+      <span>Tier 4: Quality-of-Life, Edge Cases &amp; Account Controls (P3)</span>
+      <span style="font-size:0.85rem;font-weight:600;opacity:0.9;">Section 10</span>
+    </div>
+
+    <!-- SECTION 10 -->
+    <div class="feature-section">
+      <h2 class="feature-title">10. Duplicate Detection, Recurring Receipts &amp; Profile Settings</h2>
+
+      <!-- Test 10A -->
+      <div class="test-card" data-test-id="test-10a">
+        <div class="test-card-header">
+          <h3 class="test-card-title">Test 10A: Duplicate Receipt Warning</h3>
+          <div class="test-status-group"></div>
+        </div>
+        <div class="test-card-body">
+          <div class="test-meta"><strong>Where:</strong> Mobile App (<code>ReceiptAdd.js</code>)</div>
+          <ul class="steps-list">
+            <li class="step-item"><input type="checkbox" /><span>Add and save a receipt with Amount <code>19.99</code>, Date today, and Category <code>Materials</code>.</span></li>
+            <li class="step-item"><input type="checkbox" /><span>Immediately add another receipt with the exact same Amount (<code>19.99</code>), Date (today), and Category (<code>Materials</code>), and tap <strong>Save</strong>.</span></li>
+          </ul>
+          <div class="expected-box">
+            <strong>Expected Result</strong>
+            <ul>
+              <li>The <strong>Duplicate Receipt Modal</strong> warns that a matching receipt already exists on that date and asks you to confirm whether to save anyway or cancel.</li>
+            </ul>
+          </div>
+          <div class="notes-area"><textarea placeholder="Tester notes / observations for Test 10A..."></textarea></div>
+        </div>
+      </div>
+
+      <!-- Test 10B -->
+      <div class="test-card" data-test-id="test-10b">
+        <div class="test-card-header">
+          <h3 class="test-card-title">Test 10B: Recurring Expense Setup</h3>
+          <div class="test-status-group"></div>
+        </div>
+        <div class="test-card-body">
+          <div class="test-meta"><strong>Where:</strong> Mobile App (<code>ReceiptAdd.js</code>)</div>
+          <ul class="steps-list">
+            <li class="step-item"><input type="checkbox" /><span>In <strong>Add Receipt</strong>, toggle <strong>Recurring Expense</strong> on, choose a frequency (e.g., <code>Monthly</code>), and save the receipt.</span></li>
+          </ul>
+          <div class="expected-box">
+            <strong>Expected Result</strong>
+            <ul>
+              <li>Receipt saves with recurrence metadata attached.</li>
+            </ul>
+          </div>
+          <div class="notes-area"><textarea placeholder="Tester notes / observations for Test 10B..."></textarea></div>
+        </div>
+      </div>
+
+      <!-- Test 10C -->
+      <div class="test-card" data-test-id="test-10c">
+        <div class="test-card-header">
+          <h3 class="test-card-title">Test 10C: Broadcast Notification ("Notify All Users") on Web Portal</h3>
+          <div class="test-status-group"></div>
+        </div>
+        <div class="test-card-body">
+          <div class="test-meta"><strong>Where:</strong> Web Portal (<code>public/client-portal.html</code>)</div>
+          <ul class="steps-list">
+            <li class="step-item"><input type="checkbox" /><span>On the Web Portal main header, click <strong>Notify All Users</strong>, enter a broadcast title and message, and send.</span></li>
+          </ul>
+          <div class="expected-box">
+            <strong>Expected Result</strong>
+            <ul>
+              <li>Push and in-app notifications are dispatched to all registered clients.</li>
+            </ul>
+          </div>
+          <div class="notes-area"><textarea placeholder="Tester notes / observations for Test 10C..."></textarea></div>
+        </div>
+      </div>
+
+      <!-- Test 10D -->
+      <div class="test-card" data-test-id="test-10d">
+        <div class="test-card-header">
+          <h3 class="test-card-title">Test 10D: Profile Photo &amp; Feedback Submission</h3>
+          <div class="test-status-group"></div>
+        </div>
+        <div class="test-card-body">
+          <div class="test-meta"><strong>Where:</strong> Mobile App Side Menu &amp; <code>ProfileScreen.js</code></div>
+          <ul class="steps-list">
+            <li class="step-item"><input type="checkbox" /><span>Open <strong>Profile</strong> (or Side Menu), tap the avatar, and upload a profile photo. Verify it appears in the app and in the Web Portal's <strong>Client Info</strong> tab.</span></li>
+            <li class="step-item"><input type="checkbox" /><span>Open Side Menu &rarr; <strong>Send Feedback</strong>, submit a test message, and verify it succeeds.</span></li>
+          </ul>
+          <div class="expected-box">
+            <strong>Expected Result</strong>
+            <ul>
+              <li>Profile photo syncs to Firebase Storage and displays in the portal <code>Client Info</code> tab. Feedback submits cleanly.</li>
+            </ul>
+          </div>
+          <div class="notes-area"><textarea placeholder="Tester notes / observations for Test 10D..."></textarea></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    const STORAGE_PREFIX = "ea_uat_v2_";
+    const COLLECTION_NAME = "uatTests";
+    let db = null;
+    const debounceTimers = {};
+
+    function setSyncState(state, message) {
+      const dot = document.getElementById("syncDot");
+      const text = document.getElementById("syncText");
+      if (!dot || !text) return;
+      dot.className = "sync-dot";
+      if (state === "online") dot.classList.add("online");
+      if (state === "saving") dot.classList.add("saving");
+      text.textContent = message;
+    }
+
+    function updateOverallProgress() {
+      const allChecks = document.querySelectorAll(".step-item input[type='checkbox']");
+      const checkedCount = Array.from(allChecks).filter((c) => c.checked).length;
+      const total = allChecks.length;
+      const pct = total > 0 ? Math.round((checkedCount / total) * 100) : 0;
+      document.getElementById("progressText").textContent = `${checkedCount} / ${total} steps (${pct}%)`;
+      document.getElementById("progressBar").style.width = `${pct}%`;
+
+      let passCount = 0;
+      let failCount = 0;
+      let skipCount = 0;
+      document.querySelectorAll(".test-card").forEach((card) => {
+        if (card.dataset.dualPlatform === "true") {
+          ["ios", "android"].forEach((plat) => {
+            const st = card.dataset[plat + "Status"] || "";
+            if (st === "pass") passCount++;
+            else if (st === "fail") failCount++;
+            else if (st === "skip") skipCount++;
+          });
+        } else {
+          const st = card.dataset.currentStatus || "";
+          if (st === "pass") passCount++;
+          else if (st === "fail") failCount++;
+          else if (st === "skip") skipCount++;
+        }
+      });
+      const summaryEl = document.getElementById("statusSummaryText");
+      if (summaryEl) {
+        summaryEl.textContent = `Pass: ${passCount} · Fail: ${failCount} · Skip: ${skipCount}`;
+      }
+    }
+
+    function saveFieldToCloud(testId, patch, immediate = false) {
+      if (!db) return;
+      const runSave = async () => {
+        try {
+          setSyncState("saving", "Saving…");
+          await db.collection(COLLECTION_NAME).doc(testId).set(
+            {
+              ...patch,
+              updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
+            },
+            { merge: true }
+          );
+          setSyncState("online", "Live Cloud Sync");
+        } catch (err) {
+          console.error("Failed to sync test update to Firestore:", err);
+          setSyncState("offline", "Sync Error (Saved Locally)");
+        }
+      };
+
+      if (immediate) {
+        runSave();
+      } else {
+        const timerKey = testId + "_" + Object.keys(patch).join("_");
+        if (debounceTimers[timerKey]) clearTimeout(debounceTimers[timerKey]);
+        debounceTimers[timerKey] = setTimeout(runSave, 350);
+      }
+    }
+
+    function rememberLastMeta(field, value) {
+      if (value && value.trim()) {
+        localStorage.setItem(STORAGE_PREFIX + "last_meta_" + field, value.trim());
+      }
+    }
+
+    function buildPerTestMetaBar(card, testId) {
+      const metaBar = document.createElement("div");
+      metaBar.className = "test-run-meta";
+      metaBar.innerHTML = `
+        <div class="meta-field">
+          <label>Tester Name</label>
+          <input type="text" data-meta-field="testerName" placeholder="e.g. Huw" />
+        </div>
+        <div class="meta-field">
+          <label>Date</label>
+          <input type="date" data-meta-field="testDate" />
+        </div>
+        <div class="meta-field">
+          <label>Phone Model</label>
+          <input type="text" data-meta-field="phoneModel" placeholder="e.g. iPhone 15 / Pixel 8" />
+        </div>
+        <div class="meta-field">
+          <label>App Version</label>
+          <input type="text" data-meta-field="appVersion" placeholder="e.g. v1.0.5 (42)" />
+        </div>
+        <button type="button" class="fill-last-btn" title="Fill with your most recently entered Name, Date, Phone Model & App Version">⚡ Fill Last</button>
+      `;
+
+      const header = card.querySelector(".test-card-header");
+      if (header && header.nextSibling) {
+        card.insertBefore(metaBar, header.nextSibling);
+      } else {
+        card.prepend(metaBar);
+      }
+
+      const inputs = metaBar.querySelectorAll("input[data-meta-field]");
+      inputs.forEach((input) => {
+        const field = input.dataset.metaField;
+        const localKey = `${STORAGE_PREFIX}${testId}_${field}`;
+        const saved = localStorage.getItem(localKey);
+        if (saved !== null) input.value = saved;
+
+        input.addEventListener("input", () => {
+          localStorage.setItem(localKey, input.value);
+          rememberLastMeta(field, input.value);
+          saveFieldToCloud(testId, { [field]: input.value }, false);
+        });
+      });
+
+      const fillBtn = metaBar.querySelector(".fill-last-btn");
+      if (fillBtn) {
+        fillBtn.addEventListener("click", () => {
+          const today = new Date().toISOString().split("T")[0];
+          const defaults = {
+            testerName: localStorage.getItem(STORAGE_PREFIX + "last_meta_testerName") || "",
+            testDate: localStorage.getItem(STORAGE_PREFIX + "last_meta_testDate") || today,
+            phoneModel: localStorage.getItem(STORAGE_PREFIX + "last_meta_phoneModel") || "",
+            appVersion: localStorage.getItem(STORAGE_PREFIX + "last_meta_appVersion") || "",
+          };
+          const patch = {};
+          inputs.forEach((input) => {
+            const field = input.dataset.metaField;
+            if (defaults[field]) {
+              input.value = defaults[field];
+              localStorage.setItem(`${STORAGE_PREFIX}${testId}_${field}`, defaults[field]);
+              patch[field] = defaults[field];
+            }
+          });
+          if (Object.keys(patch).length > 0) {
+            saveFieldToCloud(testId, patch, true);
+          }
+        });
+      }
+    }
+
+    function applyCardStatus(card, status) {
+      card.dataset.currentStatus = status || "";
+      card.classList.remove("status-pass", "status-fail");
+      if (status === "pass") card.classList.add("status-pass");
+      if (status === "fail") card.classList.add("status-fail");
+      card.querySelectorAll(".status-btn").forEach((btn) => {
+        btn.classList.remove("active-pass", "active-fail", "active-skip");
+        if (btn.dataset.statusVal === status) {
+          btn.classList.add("active-" + status);
+        }
+      });
+      updateOverallProgress();
+    }
+
+    function applyDualPlatformStatus(card, plat, status) {
+      card.dataset[plat + "Status"] = status || "";
+      const block = card.querySelector(`.platform-run-block[data-plat="${plat}"]`);
+      if (block) {
+        block.classList.remove("status-pass", "status-fail");
+        if (status === "pass") block.classList.add("status-pass");
+        if (status === "fail") block.classList.add("status-fail");
+        block.querySelectorAll(".status-btn").forEach((btn) => {
+          btn.classList.remove("active-pass", "active-fail", "active-skip");
+          if (btn.dataset.statusVal === status) {
+            btn.classList.add("active-" + status);
+          }
+        });
+      }
+      const iosSt = card.dataset.iosStatus || "";
+      const andSt = card.dataset.androidStatus || "";
+      card.classList.remove("status-pass", "status-fail");
+      if (iosSt === "fail" || andSt === "fail") {
+        card.classList.add("status-fail");
+      } else if (iosSt === "pass" && andSt === "pass") {
+        card.classList.add("status-pass");
+      }
+      updateOverallProgress();
+    }
+
+    function initDualPlatformCard(card, testId) {
+      // Badge in header
+      const headerGroup = card.querySelector(".test-status-group");
+      if (headerGroup) {
+        headerGroup.innerHTML = `<span class="dual-platform-badge">🍎 iOS &amp; 🤖 Android Required</span>`;
+      }
+
+      // Build two platform run blocks (iOS & Android)
+      const container = document.createElement("div");
+      container.className = "platform-runs-container";
+
+      const platforms = [
+        { key: "ios", label: "🍎 iOS Run", phonePlaceholder: "e.g. iPhone 15 Pro", verPlaceholder: "e.g. v1.0.5 (iOS)" },
+        { key: "android", label: "🤖 Android Run", phonePlaceholder: "e.g. Pixel 8 / Galaxy S24", verPlaceholder: "e.g. v1.0.5 (Android)" },
+      ];
+
+      platforms.forEach((p) => {
+        const block = document.createElement("div");
+        block.className = `platform-run-block plat-${p.key}`;
+        block.dataset.plat = p.key;
+        block.innerHTML = `
+          <div class="platform-run-top">
+            <span class="platform-label">${p.label}</span>
+            <div class="test-status-group" data-plat-status-group="${p.key}"></div>
+          </div>
+          <div class="platform-meta-grid">
+            <div class="meta-field">
+              <label>Tester Name (${p.key.toUpperCase()})</label>
+              <input type="text" data-plat-field="${p.key}_testerName" data-base-field="testerName" placeholder="e.g. Huw" />
+            </div>
+            <div class="meta-field">
+              <label>Date (${p.key.toUpperCase()})</label>
+              <input type="date" data-plat-field="${p.key}_testDate" data-base-field="testDate" />
+            </div>
+            <div class="meta-field">
+              <label>Phone Model (${p.key.toUpperCase()})</label>
+              <input type="text" data-plat-field="${p.key}_phoneModel" data-base-field="phoneModel_${p.key}" placeholder="${p.phonePlaceholder}" />
+            </div>
+            <div class="meta-field">
+              <label>App Version (${p.key.toUpperCase()})</label>
+              <input type="text" data-plat-field="${p.key}_appVersion" data-base-field="appVersion" placeholder="${p.verPlaceholder}" />
+            </div>
+            <button type="button" class="fill-last-btn" title="Fill with your most recently entered ${p.key.toUpperCase()} details">⚡ Fill Last</button>
+          </div>
+        `;
+
+        // Status buttons for this platform
+        const statusGroup = block.querySelector(`[data-plat-status-group="${p.key}"]`);
+        ["Pass", "Fail", "Skip"].forEach((label) => {
+          const btn = document.createElement("button");
+          btn.type = "button";
+          btn.className = "status-btn";
+          btn.textContent = label === "Pass" ? "✓ Pass" : label === "Fail" ? "✗ Fail" : "— Skip";
+          btn.dataset.statusVal = label.toLowerCase();
+          btn.addEventListener("click", () => {
+            const current = card.dataset[p.key + "Status"] || "";
+            const next = current === btn.dataset.statusVal ? "" : btn.dataset.statusVal;
+            const statusKey = `${p.key}_status`;
+            localStorage.setItem(`${STORAGE_PREFIX}${testId}_${statusKey}`, next);
+            applyDualPlatformStatus(card, p.key, next);
+
+            const patch = { [statusKey]: next };
+            const dateInput = block.querySelector(`input[data-plat-field="${p.key}_testDate"]`);
+            if (next && dateInput && !dateInput.value) {
+              const today = new Date().toISOString().split("T")[0];
+              dateInput.value = today;
+              localStorage.setItem(`${STORAGE_PREFIX}${testId}_${p.key}_testDate`, today);
+              rememberLastMeta("testDate", today);
+              patch[`${p.key}_testDate`] = today;
+            }
+            saveFieldToCloud(testId, patch, true);
+          });
+          statusGroup.appendChild(btn);
+        });
+
+        // Inputs for this platform
+        const inputs = block.querySelectorAll("input[data-plat-field]");
+        inputs.forEach((input) => {
+          const platField = input.dataset.platField;
+          const baseField = input.dataset.baseField;
+          const localKey = `${STORAGE_PREFIX}${testId}_${platField}`;
+          const saved = localStorage.getItem(localKey);
+          if (saved !== null) input.value = saved;
+
+          input.addEventListener("input", () => {
+            localStorage.setItem(localKey, input.value);
+            rememberLastMeta(baseField, input.value);
+            if (baseField.startsWith("phoneModel_")) rememberLastMeta("phoneModel", input.value);
+            saveFieldToCloud(testId, { [platField]: input.value }, false);
+          });
+        });
+
+        // Fill Last button for this platform
+        const fillBtn = block.querySelector(".fill-last-btn");
+        fillBtn.addEventListener("click", () => {
+          const today = new Date().toISOString().split("T")[0];
+          const defaults = {
+            [`${p.key}_testerName`]: localStorage.getItem(STORAGE_PREFIX + "last_meta_testerName") || "",
+            [`${p.key}_testDate`]: localStorage.getItem(STORAGE_PREFIX + "last_meta_testDate") || today,
+            [`${p.key}_phoneModel`]:
+              localStorage.getItem(`${STORAGE_PREFIX}last_meta_phoneModel_${p.key}`) ||
+              localStorage.getItem(STORAGE_PREFIX + "last_meta_phoneModel") ||
+              "",
+            [`${p.key}_appVersion`]: localStorage.getItem(STORAGE_PREFIX + "last_meta_appVersion") || "",
+          };
+          const patch = {};
+          inputs.forEach((input) => {
+            const platField = input.dataset.platField;
+            if (defaults[platField]) {
+              input.value = defaults[platField];
+              localStorage.setItem(`${STORAGE_PREFIX}${testId}_${platField}`, defaults[platField]);
+              patch[platField] = defaults[platField];
+            }
+          });
+          if (Object.keys(patch).length > 0) {
+            saveFieldToCloud(testId, patch, true);
+          }
+        });
+
+        container.appendChild(block);
+      });
+
+      const header = card.querySelector(".test-card-header");
+      if (header && header.nextSibling) {
+        card.insertBefore(container, header.nextSibling);
+      } else {
+        card.prepend(container);
+      }
+
+      // Apply saved statuses
+      ["ios", "android"].forEach((plat) => {
+        const savedStatus = localStorage.getItem(`${STORAGE_PREFIX}${testId}_${plat}_status`) || "";
+        applyDualPlatformStatus(card, plat, savedStatus);
+      });
+
+      // Transform each step into dual [☐ iOS] [☐ Android] checkboxes
+      card.querySelectorAll(".step-item").forEach((item, idx) => {
+        const oldCheck = item.querySelector("input[type='checkbox']");
+        if (oldCheck) oldCheck.remove();
+
+        const dualWrap = document.createElement("div");
+        dualWrap.className = "dual-step-checks";
+        dualWrap.innerHTML = `
+          <label class="plat-check" data-plat-label="ios"><input type="checkbox" data-step-plat="ios" /> iOS</label>
+          <label class="plat-check" data-plat-label="android"><input type="checkbox" data-step-plat="android" /> Android</label>
+        `;
+        item.prepend(dualWrap);
+
+        const updateStepVisual = () => {
+          const iosBox = dualWrap.querySelector('input[data-step-plat="ios"]');
+          const andBox = dualWrap.querySelector('input[data-step-plat="android"]');
+          const iosLbl = dualWrap.querySelector('[data-plat-label="ios"]');
+          const andLbl = dualWrap.querySelector('[data-plat-label="android"]');
+          if (iosLbl) iosLbl.classList.toggle("checked", iosBox.checked);
+          if (andLbl) andLbl.classList.toggle("checked", andBox.checked);
+          item.classList.toggle("checked", iosBox.checked && andBox.checked);
+        };
+
+        ["ios", "android"].forEach((plat) => {
+          const box = dualWrap.querySelector(`input[data-step-plat="${plat}"]`);
+          const localKey = `${STORAGE_PREFIX}${testId}_step_${plat}_${idx}`;
+          box.checked = localStorage.getItem(localKey) === "1";
+          box.addEventListener("change", () => {
+            localStorage.setItem(localKey, box.checked ? "1" : "0");
+            updateStepVisual();
+            updateOverallProgress();
+            saveFieldToCloud(testId, { [`steps_${plat}`]: { [String(idx)]: box.checked } }, true);
+          });
+        });
+
+        updateStepVisual();
+      });
+
+      // Transform notes area into dual iOS & Android notes
+      const notesArea = card.querySelector(".notes-area");
+      if (notesArea) {
+        notesArea.innerHTML = `
+          <div class="dual-notes-grid">
+            <div class="dual-note-col">
+              <label>🍎 iOS Tester Notes</label>
+              <textarea data-notes-plat="ios" placeholder="iOS notes / observations..."></textarea>
+            </div>
+            <div class="dual-note-col">
+              <label>🤖 Android Tester Notes</label>
+              <textarea data-notes-plat="android" placeholder="Android notes / observations..."></textarea>
+            </div>
+          </div>
+        `;
+        ["ios", "android"].forEach((plat) => {
+          const ta = notesArea.querySelector(`textarea[data-notes-plat="${plat}"]`);
+          const noteKey = `${STORAGE_PREFIX}${testId}_${plat}_notes`;
+          const savedNote = localStorage.getItem(noteKey);
+          if (savedNote !== null) ta.value = savedNote;
+          ta.addEventListener("input", () => {
+            localStorage.setItem(noteKey, ta.value);
+            saveFieldToCloud(testId, { [`${plat}_notes`]: ta.value }, false);
+          });
+        });
+      }
+    }
+
+    function applyCloudDocToCard(card, data) {
+      if (!data) return;
+      const testId = card.dataset.testId;
+
+      if (card.dataset.dualPlatform === "true") {
+        ["ios", "android"].forEach((plat) => {
+          const stKey = `${plat}_status`;
+          if (typeof data[stKey] === "string") {
+            localStorage.setItem(`${STORAGE_PREFIX}${testId}_${stKey}`, data[stKey]);
+            applyDualPlatformStatus(card, plat, data[stKey]);
+          }
+
+          ["testerName", "testDate", "phoneModel", "appVersion"].forEach((field) => {
+            const fKey = `${plat}_${field}`;
+            if (typeof data[fKey] === "string") {
+              localStorage.setItem(`${STORAGE_PREFIX}${testId}_${fKey}`, data[fKey]);
+              const input = card.querySelector(`input[data-plat-field="${fKey}"]`);
+              if (input && document.activeElement !== input) {
+                input.value = data[fKey];
+              }
+            }
+          });
+
+          const stepsObj = data[`steps_${plat}`];
+          if (stepsObj && typeof stepsObj === "object") {
+            card.querySelectorAll(".step-item").forEach((item, idx) => {
+              if (Object.prototype.hasOwnProperty.call(stepsObj, String(idx))) {
+                const checked = Boolean(stepsObj[String(idx)]);
+                localStorage.setItem(`${STORAGE_PREFIX}${testId}_step_${plat}_${idx}`, checked ? "1" : "0");
+                const box = item.querySelector(`input[data-step-plat="${plat}"]`);
+                const lbl = item.querySelector(`[data-plat-label="${plat}"]`);
+                if (box) box.checked = checked;
+                if (lbl) lbl.classList.toggle("checked", checked);
+                const iosBox = item.querySelector('input[data-step-plat="ios"]');
+                const andBox = item.querySelector('input[data-step-plat="android"]');
+                if (iosBox && andBox) {
+                  item.classList.toggle("checked", iosBox.checked && andBox.checked);
+                }
+              }
+            });
+          }
+
+          const noteKey = `${plat}_notes`;
+          if (typeof data[noteKey] === "string") {
+            localStorage.setItem(`${STORAGE_PREFIX}${testId}_${noteKey}`, data[noteKey]);
+            const ta = card.querySelector(`textarea[data-notes-plat="${plat}"]`);
+            if (ta && document.activeElement !== ta) {
+              ta.value = data[noteKey];
+            }
+          }
+        });
+        updateOverallProgress();
+        return;
+      }
+
+      // Status
+      if (typeof data.status === "string") {
+        localStorage.setItem(`${STORAGE_PREFIX}${testId}_status`, data.status);
+        applyCardStatus(card, data.status);
+      }
+
+      // Per-test metadata (Name, Date, Phone Model, App Version)
+      ["testerName", "testDate", "phoneModel", "appVersion"].forEach((field) => {
+        if (typeof data[field] === "string") {
+          localStorage.setItem(`${STORAGE_PREFIX}${testId}_${field}`, data[field]);
+          const input = card.querySelector(`input[data-meta-field="${field}"]`);
+          if (input && document.activeElement !== input) {
+            input.value = data[field];
+          }
+        }
+      });
+
+      // Step checkboxes
+      if (data.steps && typeof data.steps === "object") {
+        card.querySelectorAll(".step-item").forEach((item, idx) => {
+          if (Object.prototype.hasOwnProperty.call(data.steps, String(idx))) {
+            const checked = Boolean(data.steps[String(idx)]);
+            const checkbox = item.querySelector("input[type='checkbox']");
+            localStorage.setItem(`${STORAGE_PREFIX}${testId}_step_${idx}`, checked ? "1" : "0");
+            if (checkbox) {
+              checkbox.checked = checked;
+              item.classList.toggle("checked", checked);
+            }
+          }
+        });
+      }
+
+      // Notes
+      if (typeof data.notes === "string") {
+        localStorage.setItem(`${STORAGE_PREFIX}${testId}_notes`, data.notes);
+        const textarea = card.querySelector(".notes-area textarea");
+        if (textarea && document.activeElement !== textarea) {
+          textarea.value = data.notes;
+        }
+      }
+
+      updateOverallProgress();
+    }
+
+    function initChecklist() {
+      // Initialize each test card UI and local state
+      document.querySelectorAll(".test-card").forEach((card) => {
+        const testId = card.dataset.testId;
+
+        if (card.dataset.dualPlatform === "true") {
+          initDualPlatformCard(card, testId);
+          return;
+        }
+
+        // Build per-test metadata bar (Tester Name, Date, Phone Model, App Version)
+        buildPerTestMetaBar(card, testId);
+
+        // Pass / Fail / Skip buttons
+        const group = card.querySelector(".test-status-group");
+        if (group) {
+          ["Pass", "Fail", "Skip"].forEach((label) => {
+            const btn = document.createElement("button");
+            btn.type = "button";
+            btn.className = "status-btn";
+            btn.textContent = label === "Pass" ? "✓ Pass" : label === "Fail" ? "✗ Fail" : "— Skip";
+            btn.dataset.statusVal = label.toLowerCase();
+            btn.addEventListener("click", () => {
+              const current = card.dataset.currentStatus || "";
+              const next = current === btn.dataset.statusVal ? "" : btn.dataset.statusVal;
+              localStorage.setItem(`${STORAGE_PREFIX}${testId}_status`, next);
+              applyCardStatus(card, next);
+
+              const patch = { status: next };
+              // Auto-fill today's date on the test card if marking Pass/Fail and Date is blank
+              const dateInput = card.querySelector('input[data-meta-field="testDate"]');
+              if (next && dateInput && !dateInput.value) {
+                const today = new Date().toISOString().split("T")[0];
+                dateInput.value = today;
+                localStorage.setItem(`${STORAGE_PREFIX}${testId}_testDate`, today);
+                rememberLastMeta("testDate", today);
+                patch.testDate = today;
+              }
+              saveFieldToCloud(testId, patch, true);
+            });
+            group.appendChild(btn);
+          });
+          const savedStatus = localStorage.getItem(`${STORAGE_PREFIX}${testId}_status`) || "";
+          applyCardStatus(card, savedStatus);
+        }
+
+        // Step checkboxes
+        card.querySelectorAll(".step-item").forEach((item, idx) => {
+          const checkbox = item.querySelector("input[type='checkbox']");
+          const key = `${STORAGE_PREFIX}${testId}_step_${idx}`;
+          const saved = localStorage.getItem(key) === "1";
+          checkbox.checked = saved;
+          item.classList.toggle("checked", saved);
+
+          checkbox.addEventListener("change", () => {
+            item.classList.toggle("checked", checkbox.checked);
+            localStorage.setItem(key, checkbox.checked ? "1" : "0");
+            updateOverallProgress();
+            saveFieldToCloud(testId, { steps: { [String(idx)]: checkbox.checked } }, true);
+          });
+        });
+
+        // Notes textarea
+        const textarea = card.querySelector(".notes-area textarea");
+        if (textarea) {
+          const noteKey = `${STORAGE_PREFIX}${testId}_notes`;
+          const savedNote = localStorage.getItem(noteKey);
+          if (savedNote !== null) textarea.value = savedNote;
+          textarea.addEventListener("input", () => {
+            localStorage.setItem(noteKey, textarea.value);
+            saveFieldToCloud(testId, { notes: textarea.value }, false);
+          });
+        }
+      });
+
+      updateOverallProgress();
+
+      // Connect to Firebase Firestore if available for real-time collaborative editing
+      try {
+        if (typeof firebase !== "undefined" && firebase.apps && firebase.apps.length > 0) {
+          db = firebase.firestore();
+          db.collection(COLLECTION_NAME).onSnapshot(
+            (snapshot) => {
+              snapshot.docChanges().forEach((change) => {
+                const docId = change.doc.id;
+                const card = document.querySelector(`.test-card[data-test-id="${docId}"]`);
+                if (!card) return;
+                if (change.type === "removed") {
+                  applyCloudDocToCard(card, {
+                    status: "",
+                    testerName: "",
+                    testDate: "",
+                    phoneModel: "",
+                    appVersion: "",
+                    notes: "",
+                    steps: {},
+                  });
+                } else {
+                  applyCloudDocToCard(card, change.doc.data());
+                }
+              });
+              setSyncState("online", "Live Cloud Sync");
+            },
+            (err) => {
+              console.warn("Firestore listener error:", err);
+              setSyncState("offline", "Local Mode");
+            }
+          );
+        } else {
+          setSyncState("offline", "Local Browser Storage");
+        }
+      } catch (e) {
+        console.warn("Firebase init unavailable, running in local mode:", e);
+        setSyncState("offline", "Local Browser Storage");
+      }
+    }
+
+    async function resetAllProgress() {
+      if (!confirm("Reset all checkboxes, statuses, tester details, and notes across the entire testing guide?")) return;
+      Object.keys(localStorage).forEach((k) => {
+        if (k.startsWith(STORAGE_PREFIX)) localStorage.removeItem(k);
+      });
+      if (db) {
+        try {
+          setSyncState("saving", "Resetting…");
+          const snap = await db.collection(COLLECTION_NAME).get();
+          const batch = db.batch();
+          snap.docs.forEach((doc) => batch.delete(doc.ref));
+          await batch.commit();
+        } catch (err) {
+          console.error("Failed to reset Firestore collection:", err);
+        }
+      }
+      location.reload();
+    }
+
+    document.addEventListener("DOMContentLoaded", initChecklist);
+  </script>
+</body>
+</html>
+

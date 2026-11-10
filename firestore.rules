@@ -104,5 +104,10 @@ service cloud.firestore {
     match /preapprovedClients/{clientId} {
       allow read, write: if isAccountant();
     }
+
+    // Shared UAT testing checklist (collaborative remote user testing guide)
+    match /uatTests/{testId} {
+      allow read, write: if true;
+    }
   }
 }
