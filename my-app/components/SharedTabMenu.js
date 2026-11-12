@@ -41,6 +41,7 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 import { triggerHaptic } from "../utils/haptics";
 import RegisterVehicleModal from "./RegisterVehicleModal";
 import YourVehiclesModal from "./YourVehiclesModal";
+import WhatsNewModal from "./WhatsNewModal";
 import { useData } from "../contexts/DataContext";
 
 const appVersion = appPackage?.version || Constants.expoConfig?.version || "unknown";
@@ -90,6 +91,7 @@ export default function SharedTabMenu({ navigation, closeMenu, displayName = "Us
   const [financialYearModalVisible, setFinancialYearModalVisible] = useState(false);
   const [notifyModalVisible, setNotifyModalVisible] = useState(false);
   const [notifyMessage, setNotifyMessage] = useState("");
+  const [whatsNewModalVisible, setWhatsNewModalVisible] = useState(false);
 
   const isVerifiedAccount = verificationStatus === "verified";
   const handleJoinPress = () => {
@@ -515,6 +517,10 @@ export default function SharedTabMenu({ navigation, closeMenu, displayName = "Us
           <View style={styles.versionContainer}>
             <Text style={styles.versionText}>Version {versionLabel}</Text>
             <Text style={styles.versionText}> · </Text>
+            <TouchableOpacity onPress={() => setWhatsNewModalVisible(true)}>
+              <Text style={[styles.versionText, { textDecorationLine: "underline", color: Colors.accent }]}>What's New</Text>
+            </TouchableOpacity>
+            <Text style={styles.versionText}> · </Text>
             <TouchableOpacity onPress={handleOpenPrivacyPolicy}>
               <Text style={[styles.versionText, { textDecorationLine: "underline", color: Colors.accent }]}>Privacy Policy</Text>
             </TouchableOpacity>
@@ -765,6 +771,11 @@ export default function SharedTabMenu({ navigation, closeMenu, displayName = "Us
           setVehicles(updated);
           onVehiclesChanged?.(updated);
         }}
+      />
+
+      <WhatsNewModal
+        visible={whatsNewModalVisible}
+        onDismiss={() => setWhatsNewModalVisible(false)}
       />
 
       {busy ? (

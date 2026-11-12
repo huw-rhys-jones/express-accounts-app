@@ -34,6 +34,8 @@ import { NotificationsProvider } from "./contexts/NotificationsContext";
 import NotificationsScreen from "./screens/NotificationsScreen";
 import ReceiptCropScreen from "./screens/ReceiptCropScreen";
 import { registerPushTokenForUser } from "./utils/pushNotifications";
+import WhatsNewModal from "./components/WhatsNewModal";
+import { getWhatsNewDismissed, setWhatsNewDismissed } from "./utils/appSettings";
 
 WebBrowser.maybeCompleteAuthSession();
 
@@ -279,6 +281,7 @@ export default function App() {
   const [vatRegistrationNumber, setVatRegistrationNumber] = useState("");
   const [welcomeVisible, setWelcomeVisible] = useState(false);
   const [startupPresentationComplete, setStartupPresentationComplete] = useState(false);
+  const [whatsNewVisible, setWhatsNewVisible] = useState(false);
   const welcomeOpacity = useRef(new Animated.Value(1)).current;
   const navigationRef = useRef(null);
   const autoAssignAttemptRef = useRef("");
@@ -426,6 +429,29 @@ export default function App() {
     };
     run();
   }, [checkingAuth]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  useEffect(() => {
+    if (!startupPresentationComplete) return;
+
+    let isMounted = true;
+    (async () => {
+      const dismissed = await getWhatsNewDismissed();
+      if (!dismissed && isMounted) {
+        setWhatsNewVisible(true);
+      }
+    })();
+
+    return () => {
+      isMounted = false;
+    };
+  }, [startupPresentationComplete]);
+
+  const handleDismissWhatsNew = async (dontShowAgain) => {
+    setWhatsNewVisible(false);
+    if (dontShowAgain) {
+      await setWhatsNewDismissed(true);
+    }
+  };
 
   // Listen for pending 2FA challenges created from the web portal
   useEffect(() => {
@@ -682,6 +708,11 @@ export default function App() {
           </View>
         </View>
       </Modal>
+
+      <WhatsNewModal
+        visible={startupPresentationComplete && !vatSetupVisible && whatsNewVisible}
+        onDismiss={handleDismissWhatsNew}
+      />
 
       {welcomeVisible && (
         <Animated.View

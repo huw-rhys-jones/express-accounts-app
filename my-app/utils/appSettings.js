@@ -140,6 +140,25 @@ export async function setMileageOptionSeen() {
   }
 }
 
+const WHATS_NEW_1_8_0_DISMISSED_KEY = "@settings:whatsNewDismissed:1.8.0";
+
+export async function getWhatsNewDismissed() {
+  try {
+    const value = await AsyncStorage.getItem(WHATS_NEW_1_8_0_DISMISSED_KEY);
+    return value === "true";
+  } catch {
+    return false;
+  }
+}
+
+export async function setWhatsNewDismissed(dismissed = true) {
+  try {
+    await AsyncStorage.setItem(WHATS_NEW_1_8_0_DISMISSED_KEY, dismissed ? "true" : "false");
+  } catch {
+    // ignore
+  }
+}
+
 // ── Vehicles ──────────────────────────────────────────────────────────────────
 // Vehicles belong to the USER, not the device: the source of truth is the
 // `vehicles` array on the Firestore document users/{uid}. AsyncStorage is kept
