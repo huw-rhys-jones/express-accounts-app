@@ -6,6 +6,8 @@ const cors = require("cors")({origin: true});
 const nodemailer = require("nodemailer");
 const pdfParse = require("pdf-parse");
 const archiver = require("archiver");
+const ExcelJS = require("exceljs");
+const JSZip = require("jszip");
 const XLSX = require("xlsx");
 const fs = require("fs");
 const os = require("os");
@@ -630,18 +632,28 @@ exports.updatePortalRecordReview = onRequest({region: OCR_FUNCTION_REGION, timeo
 
       const payload = req.body || {};
       const collectionName = payload.kind === "income" ? "income" : payload.kind === "receipt" ? "receipts" : "";
-      const recordId = String(payload.recordId || "").trim();
-      if (!collectionName || !recordId || typeof payload.checked !== "boolean") {
+      const recordIds = Array.isArray(payload.recordIds)
+        ? payload.recordIds.map((id) => String(id || "").trim()).filter(Boolean)
+        : [String(payload.recordId || "").trim()].filter(Boolean);
+      if (!collectionName || !recordIds.length || typeof payload.checked !== "boolean") {
         return res.status(400).json({error: "Missing or invalid review update fields."});
       }
 
-      await admin.firestore().collection(collectionName).doc(recordId).set({
+      const db = admin.firestore();
+      const updateData = {
         accountantChecked: payload.checked,
         accountantCheckedAt: payload.checked ? admin.firestore.FieldValue.serverTimestamp() : null,
         accountantCheckedBy: payload.checked ? decodedToken.email : null,
-      }, {merge: true});
+      };
+      for (let i = 0; i < recordIds.length; i += 450) {
+        const batch = db.batch();
+        for (const id of recordIds.slice(i, i + 450)) {
+          batch.set(db.collection(collectionName).doc(id), updateData, {merge: true});
+        }
+        await batch.commit();
+      }
 
-      return res.status(200).json({ok: true, checked: payload.checked});
+      return res.status(200).json({ok: true, checked: payload.checked, count: recordIds.length});
     } catch (error) {
       console.error("Portal review update failed", error);
       const statusCode = error && error.statusCode ? error.statusCode : 500;
@@ -1412,31 +1424,182 @@ exports.exportClientZip = onRequest(
         const incomeExportItems = buildExportItems(filteredIncome, "I");
 
         setStage("build-workbook");
-        const workbook = XLSX.utils.book_new();
-        XLSX.utils.book_append_sheet(
-          workbook,
-          XLSX.utils.aoa_to_sheet(sanitizeWorksheetAoa(buildSelfEmploymentTotalsRows(receiptExportItems, incomeExportItems))),
-          "Totals",
-        );
-        XLSX.utils.book_append_sheet(
-          workbook,
-          XLSX.utils.aoa_to_sheet(sanitizeWorksheetAoa(buildSelfEmploymentBreakdownRows(receiptExportItems, incomeExportItems))),
-          "Breakdown",
-        );
-        XLSX.utils.book_append_sheet(
-          workbook,
-          XLSX.utils.aoa_to_sheet(sanitizeWorksheetAoa(buildSelfEmploymentCalculationRows())),
-          "Calculation",
-        );
+        const PORTAL_APP_CATEGORIES = [
+          "Fuel",
+          "Vehicle Maintenance",
+          "Travel (Bus, Train, Taxi)",
+          "Accommodation",
+          "Subsistence",
+          "Parking",
+          "Plant & Machinery Hire",
+          "Materials",
+          "Tools and Equipment",
+          "Client Entertaining",
+          "Business Rental",
+          "Telephone",
+          "Software",
+          "Business Insurance",
+          "Training Costs",
+          "Professional Fees",
+          "Trade Subscriptions",
+          "Utilities",
+          "Cleaning and Upkeep",
+          "Sundry Items",
+          "Postage",
+          "Stationery",
+          "Bank Charges & Financial Fees",
+          "Loan Interest",
+          "Advertising & Marketing",
+          "Repairs and Maintenance",
+        ];
+
+        const categoryMap = new Map();
+        categoryMap.set("Turnover", "Turnover");
+        categoryMap.set("Any other business income", "Any other business income");
+        for (const cat of PORTAL_APP_CATEGORIES) {
+          categoryMap.set(cat, mapReceiptCategoryToHmrcCategory(cat));
+        }
+
+        const reviewRows = [];
+        for (const exportItem of receiptExportItems) {
+          const entry = exportItem.entry || {};
+          const appCat = String(entry.category || "Sundry Items").trim() || "Sundry Items";
+          if (!categoryMap.has(appCat)) {
+            categoryMap.set(appCat, mapReceiptCategoryToHmrcCategory(appCat));
+          }
+          const imagePaths = includeImages
+            ? exportItem.imageAttachments.map((attachment) => {
+                const ext = inferAttachmentExtension(attachment);
+                const idx = attachment.exportAttachmentId.split("-")[1] || "1";
+                return `images/expenses/${sanitizeFileSegment(exportItem.exportId, "E")}-${idx}${ext}`;
+              })
+            : [];
+          reviewRows.push({
+            itemId: exportItem.exportId,
+            type: "Expense",
+            checked: Boolean(entry.accountantChecked),
+            amount: Number(entry.amount || 0),
+            date: String(entry.date || ""),
+            description: String(entry.label || entry.category || "Expense").trim() || "Expense",
+            appCategory: appCat,
+            imagePaths,
+          });
+        }
+
+        for (const exportItem of incomeExportItems) {
+          const entry = exportItem.entry || {};
+          const imagePaths = includeImages
+            ? exportItem.imageAttachments.map((attachment) => {
+                const ext = inferAttachmentExtension(attachment);
+                const idx = attachment.exportAttachmentId.split("-")[1] || "1";
+                return `images/income/${sanitizeFileSegment(exportItem.exportId, "I")}-${idx}${ext}`;
+              })
+            : [];
+          reviewRows.push({
+            itemId: exportItem.exportId,
+            type: "Income",
+            checked: Boolean(entry.accountantChecked),
+            amount: Number(entry.amount || 0),
+            date: String(entry.date || ""),
+            description: String(entry.label || entry.reference || "Income").trim() || "Income",
+            appCategory: "Turnover",
+            imagePaths,
+          });
+        }
+
+        reviewRows.sort((a, b) => {
+          if (a.date && b.date && a.date !== b.date) return a.date.localeCompare(b.date);
+          return a.itemId.localeCompare(b.itemId);
+        });
+
+        const maxImages = includeImages
+          ? reviewRows.reduce((max, r) => Math.max(max, r.imagePaths.length), 0)
+          : 0;
+
+        const wb = new ExcelJS.Workbook();
+        wb.creator = "Express Accounts";
+        wb.created = new Date();
+
+        const reviewSheet = wb.addWorksheet("Review");
+        const mappingSheet = wb.addWorksheet("Mapping");
+
+        mappingSheet.columns = [
+          {header: "App Category", key: "appCategory", width: 34},
+          {header: "HMRC Category", key: "hmrcCategory", width: 48},
+        ];
+        mappingSheet.getRow(1).font = {bold: true};
+        for (const [appCat, hmrcCat] of categoryMap.entries()) {
+          mappingSheet.addRow({appCategory: appCat, hmrcCategory: hmrcCat});
+        }
+        const mappingEndRow = categoryMap.size + 1;
+
+        const reviewColumns = [
+          {header: "Item ID", key: "itemId", width: 10},
+          {header: "Type", key: "type", width: 10},
+          {header: "Checked", key: "checked", width: 10},
+          {header: "Amount", key: "amount", width: 14},
+          {header: "Date", key: "date", width: 14},
+          {header: "Description", key: "description", width: 28},
+          {header: "App Category", key: "appCategory", width: 30},
+          {header: "HMRC Category", key: "hmrcCategory", width: 46},
+        ];
+        for (let i = 0; i < maxImages; i += 1) {
+          reviewColumns.push({header: `Image ${i + 1}`, key: `image_${i + 1}`, width: 16});
+        }
+        reviewSheet.columns = reviewColumns;
+        reviewSheet.getRow(1).font = {bold: true};
+        reviewSheet.views = [{state: "frozen", ySplit: 1}];
+
+        for (let idx = 0; idx < reviewRows.length; idx += 1) {
+          const item = reviewRows[idx];
+          const rowNumber = idx + 2;
+          const rowValues = [
+            item.itemId,
+            item.type,
+            item.checked,
+            item.amount,
+            item.date,
+            item.description,
+            item.appCategory,
+            {formula: `IFERROR(VLOOKUP(G${rowNumber},Mapping!$A$2:$B$${mappingEndRow},2,FALSE),"Other business expenses")`},
+          ];
+          for (let imgIdx = 0; imgIdx < maxImages; imgIdx += 1) {
+            const relPath = item.imagePaths[imgIdx];
+            rowValues.push(relPath ? {formula: `HYPERLINK("${relPath}","Image ${imgIdx + 1}")`} : "");
+          }
+          const addedRow = reviewSheet.addRow(rowValues);
+          addedRow.getCell(4).numFmt = "0.00";
+          addedRow.getCell(7).dataValidation = {
+            type: "list",
+            allowBlank: false,
+            formulae: [`Mapping!$A$2:$A$${mappingEndRow}`],
+          };
+          for (let imgIdx = 0; imgIdx < maxImages; imgIdx += 1) {
+            if (item.imagePaths[imgIdx]) {
+              addedRow.getCell(9 + imgIdx).font = {color: {argb: "FF0563C1"}, underline: true};
+            }
+          }
+        }
 
         const safeName = sanitizeFileSegment(String(payload.userName || targetUserId).toLowerCase(), "client");
         const fileSuffix = startDate && endDate ? `${startDate}-to-${endDate}` : "all-time";
         const baseName = `${safeName}-${fileSuffix}`;
-        const workbookFileName = `${baseName}.xlsx`;
+        const workbookFileName = `${baseName}.xlsm`;
         const zipFileName = `${baseName}.zip`;
         debugState.fileNames = {workbookFileName, zipFileName};
 
-        const workbookBuffer = XLSX.write(workbook, {bookType: "xlsx", type: "buffer"});
+        const rawXlsxBuffer = await wb.xlsx.writeBuffer();
+        const xlsmZip = await JSZip.loadAsync(rawXlsxBuffer);
+        const contentTypesFile = xlsmZip.file("[Content_Types].xml");
+        if (contentTypesFile) {
+          let ctXml = await contentTypesFile.async("string");
+          ctXml = ctXml.replace(
+            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml",
+            "application/vnd.ms-excel.sheet.macroEnabled.main+xml",
+          );
+          xlsmZip.file("[Content_Types].xml", ctXml);
+        }
+        const workbookBuffer = await xlsmZip.generateAsync({type: "nodebuffer", compression: "DEFLATE"});
         debugState.workbookBytes = workbookBuffer.length;
 
         setStage("create-archive");

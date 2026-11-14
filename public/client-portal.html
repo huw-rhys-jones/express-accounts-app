@@ -906,6 +906,27 @@
       text-align: center !important;
     }
 
+    .select-all-btn {
+      background: none;
+      border: 1px solid transparent;
+      border-radius: 4px;
+      color: inherit;
+      font: inherit;
+      cursor: pointer;
+      padding: 1px 4px;
+      line-height: 1;
+    }
+
+    .select-all-btn:hover:not(:disabled) {
+      background: rgba(16, 42, 67, 0.08);
+      border-color: rgba(16, 42, 67, 0.16);
+    }
+
+    .select-all-btn:disabled {
+      opacity: 0.5;
+      cursor: wait;
+    }
+
     .image-modal .modal-body {
       min-height: 220px;
     }
@@ -2650,7 +2671,7 @@
         "<div class='receipt-summary-table-wrap'>" +
         "<table class='receipt-summary-table'>" +
         "<thead><tr>" +
-        "<th class='checked-cell'><span title='Accountant checked' aria-label='Accountant checked'>✓</span></th><th class='col-amount'>Amount</th>" +
+        "<th class='checked-cell'><button type='button' class='select-all-btn' data-select-all-kind='receipt' title='Select or deselect all shown receipts' aria-label='Select or deselect all shown receipts'>✓</button></th><th class='col-amount'>Amount</th>" +
         vatHeaders +
         "<th class='col-date'>Date</th>" +
         "<th class='col-category'>Category</th>" +
@@ -2687,7 +2708,7 @@
         : "";
       return "<div class='receipt-summary-title'>Income</div>" +
         "<div class='receipt-summary-table-wrap'><table class='receipt-summary-table'><thead><tr>" +
-        "<th class='checked-cell'><span title='Accountant checked' aria-label='Accountant checked'>✓</span></th><th class='col-amount'>Amount</th>" + vatHeaders +
+        "<th class='checked-cell'><button type='button' class='select-all-btn' data-select-all-kind='income' title='Select or deselect all shown income' aria-label='Select or deselect all shown income'>✓</button></th><th class='col-amount'>Amount</th>" + vatHeaders +
         "<th class='col-date'>Date</th><th class='col-category'>Reference</th><th>Label</th><th>Notes</th><th class='col-image-count'>Images</th>" +
         "</tr></thead><tbody>" + rows + "</tbody></table></div>";
     }
@@ -2737,8 +2758,76 @@
       }
     }
 
+    async function setAccountantCheckedBatch(kind, ids, checked) {
+      if (!selectedUser || !currentAccountant || !ids.length) return;
+      const entries = ids.map((id) => findDataEntry(kind, id)).filter(Boolean);
+      if (!entries.length) return;
+      const previousStates = entries.map((entry) => ({entry, prev: entry.accountantChecked === true}));
+      entries.forEach((entry) => {
+        entry.accountantChecked = checked;
+      });
+      try {
+        const idToken = await auth.currentUser.getIdToken();
+        const response = await fetch("/portal-update-review", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: "Bearer " + idToken,
+          },
+          body: JSON.stringify({
+            kind,
+            recordIds: entries.map((entry) => entry.id),
+            checked,
+          }),
+        });
+        if (!response.ok) {
+          const errorPayload = await response.json().catch(() => ({}));
+          throw new Error(errorPayload.error || "Batch review update failed (HTTP " + response.status + ")");
+        }
+        [receiptsDataPanel, incomeDataPanel].forEach((panel) => {
+          entries.forEach((entry) => {
+            const row = panel.querySelector("tr[data-entry-kind='" + kind + "'][data-entry-id='" + CSS.escape(encodeURIComponent(entry.id)) + "']");
+            if (row) {
+              row.classList.toggle("accountant-checked", checked);
+              const checkbox = row.querySelector("input[type='checkbox']");
+              if (checkbox) checkbox.checked = checked;
+            }
+          });
+        });
+        if (activeImageModalEntry && entries.includes(activeImageModalEntry)) {
+          imageModalCheckedInput.checked = checked;
+        }
+      } catch (error) {
+        previousStates.forEach(({entry, prev}) => {
+          entry.accountantChecked = prev;
+        });
+        throw error;
+      }
+    }
+
     function wireDataRows() {
       [receiptsDataPanel, incomeDataPanel].forEach((panel) => {
+        const selectAllBtn = panel.querySelector("button.select-all-btn");
+        if (selectAllBtn) {
+          selectAllBtn.addEventListener("click", async () => {
+            const kind = selectAllBtn.dataset.selectAllKind;
+            const rows = Array.from(panel.querySelectorAll("tr.data-row"));
+            if (!rows.length) return;
+            const checkboxes = rows.map((row) => row.querySelector("input[type='checkbox']")).filter(Boolean);
+            const allChecked = checkboxes.length > 0 && checkboxes.every((cb) => cb.checked);
+            const targetChecked = !allChecked;
+            const ids = rows.map((row) => decodeURIComponent(row.dataset.entryId));
+            selectAllBtn.disabled = true;
+            try {
+              await setAccountantCheckedBatch(kind, ids, targetChecked);
+            } catch (error) {
+              console.error("Could not batch-update accountant checked state", error);
+              statusLine.textContent = "Could not update checked state: " + (error && error.message ? error.message : String(error));
+            } finally {
+              selectAllBtn.disabled = false;
+            }
+          });
+        }
         panel.querySelectorAll("tr.data-row").forEach((row) => {
           const kind = row.dataset.entryKind;
           const id = decodeURIComponent(row.dataset.entryId);

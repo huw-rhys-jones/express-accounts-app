@@ -2442,7 +2442,7 @@ const ReceiptAdd = ({ navigation, route }) => {
 
             <View style={ReceiptStyles.modalButtons}>
               <RNButton
-                title="Go to Receipts"
+                title="Go to Expenses"
                 onPress={() => {
                   setShowBatchSummaryModal(false);
                   resetForm({ clearBatch: true });
@@ -2494,7 +2494,7 @@ const ReceiptAdd = ({ navigation, route }) => {
             </Text>
             <View style={[ReceiptStyles.modalButtons, { marginTop: 16 }]}>
               <RNButton
-                title="Go to Receipts"
+                title="Go to Expenses"
                 onPress={() => {
                   setShowSuccess(false);
                   navigation.reset({
